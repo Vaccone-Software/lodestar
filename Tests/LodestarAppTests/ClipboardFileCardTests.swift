@@ -88,7 +88,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
                        present: [Bool]? = nil) -> (strip: ClipboardStrip, card: NSView) {
         let strip = ClipboardStrip()
         let sheets = min(Clipboard.thumbnailedFiles, clip.itemCount)
-        let card = strip.makeCard(clip: clip, key: "J", lit: true, size: size, face: .body, lift: .float,
+        let card = strip.makeCard(clip: clip, key: "J", lit: true, size: size, face: .body,
                                   reading: nil, thumbnail: nil,
                                   files: .init(pictures: pictures ?? Array(repeating: nil, count: sheets), present: present),
                                   raised: false)
@@ -98,9 +98,9 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
     /// What the card shows of its files is one view; the sheets and the
     /// names are in it. Everything else on the card is its own.
     private func content(of card: NSView) -> NSView? {
-        card.subviews.first { !($0 is ObjectSurface) && !($0 is NSTextField) && !($0 is KeyFace) && $0.subviews.contains { $0 is ObjectSurface } }
+        card.subviews.first { !($0 is SheetView) && !($0 is NSTextField) && !($0 is KeyFace) && $0.subviews.contains { $0 is SheetView } }
     }
-    private func sheets(in card: NSView) -> [NSView] { content(of: card)?.subviews.filter { $0 is ObjectSurface } ?? [] }
+    private func sheets(in card: NSView) -> [NSView] { content(of: card)?.subviews.filter { $0 is SheetView } ?? [] }
     private func texts(in card: NSView) -> [NSTextField] {
         (content(of: card)?.subviews ?? []).compactMap { $0 as? NSTextField } + card.subviews.compactMap { $0 as? NSTextField }
     }
@@ -249,7 +249,7 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
         let text = Clipboard.Clip(id: "t", kind: .text, created: Date(), sourceBundleID: nil, sourceAppName: nil,
                                   preview: "hello", bytes: 5)
         let strip = ClipboardStrip()
-        let plain = strip.makeCard(clip: text, key: "K", lit: false, size: wide, face: .body, lift: .rest,
+        let plain = strip.makeCard(clip: text, key: "K", lit: false, size: wide, face: .body,
                                    reading: nil, thumbnail: nil, raised: false)
         XCTAssertTrue(sheets(in: plain).isEmpty, "a text card draws no sheets")
         XCTAssertNil(strip.shownFiles["t"])

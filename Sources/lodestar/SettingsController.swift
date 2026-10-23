@@ -1001,11 +1001,17 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     /// A choice, behaving as the system's popup does (keys, tabbing, the
-    /// tokens the rows store) and drawn as Lodestar's: the room field's
-    /// face, and a menu whose rows rise like the bars' rows with the
+    /// tokens the rows store) and drawn as Lodestar's: a key, a face on a
+    /// side, and a menu whose rows stand up like the bars' rows with the
     /// accent's dot on the current one, rather than the system's bezel and
     /// a highlight in the Mac's accent.
-    private final class KeyPopUp: NSPopUpButton, NSMenuDelegate {
+    private final class KeyPopUp: NSPopUpButton, NSMenuDelegate, CeramicDepth {
+        private let standing = Standing(rest: Ceramic.Side.control, drawsBody: true)
+        private var pressing = false { didSet { tint() } }
+        private var installed = false
+        var depth: Ceramic.Depth { .standsUp(side: standing.side) }
+        var drawnSide: CGFloat { standing.visibleSide }
+
         /// The popup's chevron is drawn here, so its words can stand 12 from
         /// the border and the chevron 8 from the words.
         private let chevron = NSImageView()
@@ -1023,15 +1029,32 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let widest = itemTitles.map { BarTheme.width(of: $0, in: .control) }.max() ?? 0
             let chevronWidth = Self.chevronImage?.size.width ?? 0
             return NSSize(width: ceil(widest) + BarTheme.wordPadding * 2 + BarTheme.chevronGap + chevronWidth,
-                          height: size.height)
+                          height: max(size.height, BarTheme.fieldHeight))
         }
 
         override func layout() {
             super.layout()
             let image = Self.chevronImage?.size ?? .zero
             chevron.frame = NSRect(x: bounds.width - BarTheme.wordPadding - image.width,
-                                   y: ((bounds.height - image.height) / 2).rounded(),
+                                   y: ((bounds.height - image.height) / 2 + (isFlipped ? -standing.lift : standing.lift)).rounded(),
                                    width: image.width, height: image.height)
+            standing.fit(bounds, radius: BarTheme.controlRadius, flipped: isFlipped)
+        }
+
+        /// Pressed while its menu is held open: the face goes down onto its side.
+        override func highlight(_ flag: Bool) {
+            super.highlight(flag)
+            pressing = flag
+            needsLayout = true
+        }
+
+        /// The words are drawn on the face, wherever the face stands.
+        override func draw(_ dirtyRect: NSRect) {
+            standing.drawBody()
+            NSGraphicsContext.current?.cgContext.saveGState()
+            NSGraphicsContext.current?.cgContext.translateBy(x: 0, y: isFlipped ? -standing.lift : standing.lift)
+            super.draw(dirtyRect)
+            NSGraphicsContext.current?.cgContext.restoreGState()
         }
 
         override var acceptsFirstResponder: Bool { true }
@@ -1050,8 +1073,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 addSubview(chevron)
             }
             wantsLayer = true
-            layer?.cornerRadius = BarTheme.controlRadius
-            layer?.borderWidth = 1
+            layer?.masksToBounds = false
+            if let layer, !installed {
+                installed = true
+                standing.install(in: layer)
+            }
             menu?.delegate = self
             tint()
             ink()
@@ -1073,10 +1099,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
 
         private func tint() {
-            effectiveAppearance.performAsCurrentDrawingAppearance {
-                layer?.backgroundColor = Ceramic.resolved(BarTheme.well, in: self)
-                layer?.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)
-            }
+            standing.pressed = pressing
+            standing.paint(in: self, face: BarTheme.face(lit: false, state: pressing ? .pressed : .resting),
+                           side: BarTheme.sideFill, rim: BarTheme.rimFill, edge: BarTheme.faceEdge)
+            needsDisplay = true
         }
 
         func menuNeedsUpdate(_ menu: NSMenu) {
@@ -2113,7 +2139,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// Raise a row onto the bars' step, the one way this window says
     /// chosen: a landing, the entry the keys are on, the result picked.
     /// The step reaches `sides` past the row's sides and `ends` past its
-    /// top and bottom; a negative reach tucks it inside.
+    /// top and bottom; a negative reach tucks it inside. The side stands
+    /// inside the step's frame, as every side does.
     @discardableResult
     private func raise(_ row: NSView, sides: CGFloat, ends: CGFloat) -> NSView {
         let step = LandingStep()
@@ -2190,10 +2217,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return nil
     }
 
-    /// One group's card: a surface on the glass, rounded on the ladder.
+    /// One group's card: a flat pane of its own on the window's, rounded on
+    /// the ladder, with a hairline round it. It is not pressed, so it stands
+    /// on nothing.
     static func card() -> NSView {
-        let card = ToneView(fill: BarTheme.well,
-                            edge: BarTheme.hairline, edgeWidth: 1,
+        let card = ToneView(fill: BarTheme.paneFill,
+                            edge: BarTheme.hairline, edgeWidth: Ceramic.Edge.line,
                             radius: BarTheme.surfaceRadius)
         card.translatesAutoresizingMaskIntoConstraints = false
         return card
@@ -2218,7 +2247,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private func editableField(_ value: String, width: CGFloat) -> NSTextField {
-        let field = NSTextField(string: value)
+        let field = WellField(frame: .zero)
+        field.stringValue = value
         field.setRole(.body)
         field.textColor = BarTheme.ink
         field.delegate = self

@@ -3,128 +3,257 @@ import XCTest
 @testable import lodestar
 @testable import LodestarCore
 
-/// One glass. Every panel, card, and chip is the launcher's backdrop,
-/// tinted toward the system's ground and re-read live.
+/// The pane (design/04-material.md): one opaque ceramic surface in the look's
+/// own step, a rim along its top edge and a hairline round it, both above
+/// its content, and one shadow where it floats.
 final class PaneTests: XCTestCase {
-    /// The veil these tests read is the frost's, not the opaque one a
-    /// runner with Reduce Transparency on would draw.
-    override func setUp() { Accessibility.reset() }
-    override func tearDown() { Accessibility.reset() }
+    override func tearDown() { GalleryLook.reset() }
 
-    /// A toned glass in a window, the way a backdrop stands.
-    @available(macOS 26.0, *)
-    private func glassInAWindow() -> (NSWindow, TonedGlass) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        let glass = TonedGlass()
-        glass.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
-        window.contentView?.addSubview(glass)
-        return (window, glass)
+    private let size = NSSize(width: 160, height: 100)
+
+    /// A pane in a window of `look`, with a marker view over it, as a panel's
+    /// root stands.
+    private func pane(in look: GalleryLook, fill: CeramicPane.Fill = .pane) -> (NSWindow, NSView, CeramicPane, NSView) {
+        look.apply()
+        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        let pane = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius, fill: fill)
+        let content = NSView(frame: NSRect(x: 40, y: 30, width: 20, height: 20))
+        content.wantsLayer = true
+        root.addSubview(content)
+        let window = GalleryHost.window(root, size: size, look: look)
+        root.layoutSubtreeIfNeeded()
+        return (window, root, pane, content)
     }
 
-    func testTheGlassIsTintedTowardTheSystemsGroundOnArrival() throws {
-        guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
-        let (window, glass) = glassInAWindow()
-        let tint = try XCTUnwrap(glass.tintColor?.usingColorSpace(.sRGB), "arriving in a window is a reading")
-        XCTAssertEqual(tint.alphaComponent, 0.92, accuracy: 0.01, "the measured number")
-        XCTAssertEqual(tint.redComponent, Tone.systemDark ? 0.25 : 0.92, accuracy: 0.02,
-                       "the grey that lands on charcoal or paper: the system's tone, never the backdrop's")
-        XCTAssertEqual(glass.veilAlpha, 0.90, accuracy: 0.01, "the veil takes the backdrop's vote, and the frost shows through the rest")
-        _ = window
+    private func srgb(_ color: CGColor?) throws -> NSColor {
+        try XCTUnwrap(color.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
     }
 
-    func testTheGlassRetintsWhenTheSettingsChange() throws {
-        guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
-        let (window, glass) = glassInAWindow()
-        glass.weight = .raised
-        XCTAssertEqual(glass.tintColor?.alphaComponent ?? 0, 0.96, accuracy: 0.01, "a lit card is heavier")
-        Accessibility.reduceTransparency = { true }
-        glass.viewDidChangeEffectiveAppearance()
-        XCTAssertEqual(glass.veilAlpha, Ceramic.opaque, accuracy: 0.01, "a flipped setting is a new reading, not the next opening's")
-        _ = window
+    private func near(_ a: NSColor, _ b: RGB, _ message: String, tolerance: CGFloat = 0.012,
+                      file: StaticString = #filePath, line: UInt = #line) {
+        let a = a.usingColorSpace(.sRGB) ?? a
+        XCTAssertEqual(a.redComponent, CGFloat(b.red), accuracy: tolerance, message, file: file, line: line)
+        XCTAssertEqual(a.greenComponent, CGFloat(b.green), accuracy: tolerance, message, file: file, line: line)
+        XCTAssertEqual(a.blueComponent, CGFloat(b.blue), accuracy: tolerance, message, file: file, line: line)
     }
 
-    func testOneBackdropWithAWeight() {
-        let root = NSView()
-        let normal = Ceramic.installPane(in: root, cornerRadius: 18)
-        let raised = Ceramic.installPane(in: NSView(), cornerRadius: 18, weight: .raised)
-        let faint = Ceramic.installPane(in: NSView(), cornerRadius: 18, weight: .faint)
-        XCTAssertEqual(Ceramic.weight(in: normal), .normal)
-        XCTAssertEqual(Ceramic.weight(in: raised), .raised)
-        XCTAssertEqual(Ceramic.weight(in: faint), .faint)
-        XCTAssertLessThan(Ceramic.Weight.faint.alpha, Ceramic.Weight.normal.alpha)
-        XCTAssertLessThan(Ceramic.Weight.normal.alpha, Ceramic.Weight.raised.alpha)
-        XCTAssertLessThan(Ceramic.Weight.faint.veil, Ceramic.Weight.normal.veil)
-        XCTAssertLessThan(Ceramic.Weight.normal.veil, Ceramic.Weight.raised.veil)
-        XCTAssertEqual(root.subviews.first, normal, "installed under everything else")
+    typealias RGB = Readability.RGB
+
+    /// A pixel of the rendered pane, `x` from the left and `y` down from
+    /// the top, in points.
+    private func pixel(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat) throws -> NSColor {
+        let scale = CGFloat(rep.pixelsWide) / rep.size.width
+        return try XCTUnwrap(rep.colorAt(x: Int(x * scale), y: Int(y * scale))?.usingColorSpace(.sRGB))
     }
 
-    func testAMarkIsTheOneKeyStandingOnAShadow() {
-        let mark = KeyMark.key("ab")
-        XCTAssertNotNil(mark.layer?.shadowPath, "stands on a short warm shadow")
-        let key = try? XCTUnwrap(mark.subviews.first)
-        XCTAssertEqual(key?.layer?.backgroundColor, BarTheme.markFill.cgColor, "the key's face, opaque over the app")
-        let label = key?.subviews.compactMap { $0 as? NSTextField }.first
-        XCTAssertEqual(label?.stringValue, "AB")
-        XCTAssertEqual(mark.frame.height, KeyMark.height)
+    func testAPaneIsOpaqueAndItsFillIsTheLooksStep() throws {
+        for look in GalleryLook.all {
+            let steps = look == .night ? Palette.night : Palette.clay
+            let (window, root, _, _) = pane(in: look)
+            let rep = GalleryRender.bitmap(of: root)
+            for point in [CGPoint(x: 80, y: 50), CGPoint(x: 20, y: 80), CGPoint(x: 140, y: 20)] {
+                let drawn = try pixel(rep, x: point.x, y: point.y)
+                XCTAssertEqual(drawn.alphaComponent, 1, accuracy: 0.001, "\(look.name): nothing lets the desktop through")
+                near(drawn, steps.pane, "\(look.name): the pane's own step, (\(point.x), \(point.y))")
+            }
+            // The corners are the only place the window shows: the curve cuts them away.
+            XCTAssertLessThan(try pixel(rep, x: 0.5, y: 0.5).alphaComponent, 0.05, "\(look.name): the corner curves away")
+            _ = window
+        }
     }
 
-    func testTheStripsCardsAreTheLaunchersGlassAndOnlyTheLitOneIsRaised() {
+    func testTheKeyStepPaneIsTheKeyStepOpaque() throws {
+        for look in GalleryLook.all {
+            let steps = look == .night ? Palette.night : Palette.clay
+            let (window, root, _, _) = pane(in: look, fill: .key)
+            let drawn = try pixel(GalleryRender.bitmap(of: root), x: 80, y: 60)
+            XCTAssertEqual(drawn.alphaComponent, 1, accuracy: 0.001)
+            near(drawn, steps.key, "\(look.name): the one the hand is on is the key step")
+            _ = window
+        }
+    }
+
+    /// The rim: 1.5 points along the top, the clay key step by day and the
+    /// ink at 10% by night, clipped to the corners so it thins into the curve.
+    func testTheRimIsOnTheTopAndThinsIntoTheCorners() throws {
+        for look in GalleryLook.all {
+            let steps = look == .night ? Palette.night : Palette.clay
+            let (window, root, pane, _) = pane(in: look)
+            let edge = try XCTUnwrap(pane.edge)
+            let path = try XCTUnwrap(edge.rimPath)
+            let box = path.boundingBoxOfPath
+            XCTAssertEqual(box.height, Ceramic.Edge.rim, accuracy: 0.01, "1.5 points tall")
+            XCTAssertEqual(Ceramic.Edge.rim, 1.5)
+            XCTAssertEqual(box.maxY, pane.face.maxY, accuracy: 0.01, "along the top, the light from above")
+            XCTAssertFalse(path.contains(CGPoint(x: 0.2, y: pane.face.maxY - 0.2)),
+                           "clipped to the corner: the curve has turned away from the light there")
+            XCTAssertTrue(path.contains(CGPoint(x: pane.face.midX, y: pane.face.maxY - 0.7)))
+            let color = try srgb(edge.rimColor)
+            if look == .night {
+                near(color, steps.ink, "night: the ink", tolerance: 0.01)
+                XCTAssertEqual(color.alphaComponent, 0.10, accuracy: 0.005, "at 10%")
+            } else {
+                near(color, steps.key, "day: the clay key step")
+                XCTAssertEqual(color.alphaComponent, 1, accuracy: 0.001)
+            }
+            // As drawn: a point 1 below the top is the rim over the pane, 3 below is the pane.
+            let rep = GalleryRender.bitmap(of: root)
+            near(try pixel(rep, x: 80, y: 3.0), steps.pane, "\(look.name): below the rim the pane")
+            let over = look == .night
+                ? RGB(red: steps.pane.red + (steps.ink.red - steps.pane.red) * 0.10,
+                      green: steps.pane.green + (steps.ink.green - steps.pane.green) * 0.10,
+                      blue: steps.pane.blue + (steps.ink.blue - steps.pane.blue) * 0.10)
+                : steps.key
+            near(try pixel(rep, x: 80, y: 1.0), over, "\(look.name): on the rim", tolerance: 0.02)
+            _ = window
+        }
+    }
+
+    /// The edge: 0.5 point all round, the ink at 10% by day and 8% by
+    /// night, and drawn above the pane's content.
+    func testTheEdgeIsAHairlineAboveTheContent() throws {
+        for look in GalleryLook.all {
+            let steps = look == .night ? Palette.night : Palette.clay
+            let (window, root, pane, content) = pane(in: look)
+            let edge = try XCTUnwrap(pane.edge)
+            XCTAssertEqual(edge.edgeWidth, 0.5)
+            XCTAssertEqual(Ceramic.Edge.line, 0.5)
+            let color = try srgb(edge.edgeColor)
+            XCTAssertEqual(color.alphaComponent, steps.hairlineAlpha, accuracy: 0.005, "\(look.name): ink at \(steps.hairlineAlpha)")
+            near(color, steps.ink, "\(look.name): the ink", tolerance: 0.01)
+            XCTAssertEqual(steps.hairlineAlpha, look == .night ? 0.08 : 0.10)
+            XCTAssertNil(edge.hitTest(NSPoint(x: 80, y: 50)), "it takes no pointer")
+            XCTAssertGreaterThan(try XCTUnwrap(edge.layer).zPosition, try XCTUnwrap(content.layer).zPosition,
+                                 "above the content in the compositor")
+            // A picture that fills the pane does not cover it: an opaque
+            // view across the top edge, and the hairline still crosses it.
+            let picture = NSView(frame: NSRect(x: 60, y: size.height - 12, width: 40, height: 12))
+            picture.wantsLayer = true
+            picture.layer?.backgroundColor = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).cgColor
+            root.addSubview(picture)
+            let rep = GalleryRender.bitmap(of: root)
+            XCTAssertEqual(root.subviews.last, edge, "the edge is brought over what was added after it")
+            let crossed = try pixel(rep, x: 80, y: 0.25)
+            XCTAssertLessThan(crossed.redComponent, 0.99, "\(look.name): the picture does not cover the hairline over it")
+            XCTAssertGreaterThan(crossed.greenComponent, 0.0, "\(look.name): the hairline's ink is laid over the red")
+            _ = window
+        }
+    }
+
+    /// The pane repaints in its own look: the same pane in a day window and
+    /// a night window draws two looks, with no colour baked in at creation.
+    func testAPaneRepaintsInTheLookItIsIn() throws {
+        GalleryLook.day.apply()
+        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        let pane = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
+        let window = GalleryHost.window(root, size: size, look: .day)
+        near(try pixel(GalleryRender.bitmap(of: root), x: 80, y: 50), Palette.clay.pane, "day")
+        let edge = try XCTUnwrap(pane.edge)
+        let dayEdge = try srgb(edge.edgeColor)
+        window.appearance = NSAppearance(named: .darkAqua)
+        pane.needsDisplay = true
+        near(try pixel(GalleryRender.bitmap(of: root), x: 80, y: 50), Palette.night.pane, "night, on the same view")
+        XCTAssertNotEqual(try srgb(edge.edgeColor).alphaComponent, dayEdge.alphaComponent, "the edge followed too")
+    }
+
+    /// The shadow: one, following the outline, 24 blur and 8 down; quiet ink
+    /// at 14% by day, espresso's ground at 40% by night.
+    func testTheShadowIsOneSoftShadowFollowingTheOutline() throws {
+        for look in GalleryLook.all {
+            look.apply()
+            let steps = look == .night ? Palette.night : Palette.clay
+            let panel = Ceramic.makePanel(level: .floating)
+            panel.appearance = NSAppearance(named: look.appearance)
+            let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+            Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
+            SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
+            panel.setFrame(SoftShadow.outset(NSRect(x: 0, y: 0, width: 200, height: 120)), display: false)
+            let host = try XCTUnwrap(panel.contentView as? ShadowHostView)
+            host.layoutSubtreeIfNeeded()
+            host.viewDidChangeEffectiveAppearance()
+            let casters = (host.layer?.sublayers ?? []).filter { $0.shadowPath != nil }
+            XCTAssertEqual(casters.count, 1, "\(look.name): one shadow, not a soft one and a contact line")
+            let shadow = try XCTUnwrap(casters.first)
+            XCTAssertEqual(Ceramic.Shadow.blur, 24)
+            XCTAssertEqual(shadow.shadowRadius * 2, Ceramic.Shadow.blur, "a layer's radius is half the contract's blur")
+            XCTAssertEqual(shadow.shadowOffset.height, -8, "8 down")
+            XCTAssertEqual(shadow.shadowOffset.width, 0)
+            XCTAssertEqual(Double(shadow.shadowOpacity), look == .night ? 0.40 : 0.14, accuracy: 0.001)
+            near(try srgb(shadow.shadowColor), look == .night ? steps.ground : steps.quietInk, "\(look.name): never black")
+            XCTAssertEqual(shadow.frame, host.subviews[0].frame, "the pane's own outline")
+            XCTAssertEqual(shadow.shadowPath?.boundingBoxOfPath, shadow.bounds)
+            XCTAssertEqual(shadow.cornerRadius, BarTheme.surfaceRadius, "rounded as the pane is")
+            XCTAssertFalse(panel.hasShadow, "the window server's shadow cannot be shaped; the pane casts its own")
+            XCTAssertGreaterThanOrEqual(SoftShadow.margin, Ceramic.Shadow.reach, "the window leaves room for it")
+        }
+    }
+
+    /// The well: the pane darkened by 0.025 of OKLab lightness by day,
+    /// 0.02 by night, never below the ground, opaque.
+    func testTheWellIsOneStepBelowThePane() throws {
+        for (steps, drop) in [(Palette.clay, 0.025), (Palette.night, 0.02)] {
+            let well = steps.well
+            XCTAssertEqual(steps.pane.lightness - well.lightness, drop, accuracy: 0.002)
+            XCTAssertGreaterThanOrEqual(well.lightness, steps.ground.lightness - 0.0005, "never below the ground")
+            XCTAssertEqual(well.chroma, steps.pane.chroma, accuracy: 0.004, "the same ceramic a step down")
+        }
+        // The contract's "about #ECE4DC" is a step lower than 0.025 gives
+        // (that hex is the ground's lightness); the rule is the number.
+        let day = Palette.clay.well
+        XCTAssertEqual(day.red * 255, 0xEE, accuracy: 2)
+        XCTAssertEqual(day.green * 255, 0xE7, accuracy: 2)
+        XCTAssertEqual(day.blue * 255, 0xE0, accuracy: 2)
+        for look in GalleryLook.all {
+            look.apply()
+            var drawn = NSColor.clear
+            NSAppearance(named: look.appearance)?.performAsCurrentDrawingAppearance {
+                drawn = BarTheme.wellFill.usingColorSpace(.sRGB) ?? .clear
+            }
+            XCTAssertEqual(drawn.alphaComponent, 1, "\(look.name): a well is opaque")
+            near(drawn, look == .night ? Palette.night.well : Palette.clay.well, "\(look.name): the theme's well is the palette's")
+        }
+    }
+
+    func testTheStripsCardsAreStandingPanesAndOnlyTheActedOnOneIsTheKeyStep() {
         let stage = Stage()
         let a = stage.seedClip("one")
         stage.seedClip("two")
         stage.openStrip()
-        let cards = stage.engine.strip.shownWeights.filter { $0 != .faint }
-        XCTAssertEqual(Set(cards), [.normal], "no card is lit; the empty slot is faint")
+        let cards = stage.engine.strip.shownFills.filter { $0 != .well }
+        XCTAssertEqual(Set(cards), [.pane], "no card is the one acted on; the empty slot is a well")
         for card in stage.engine.strip.shownCards.values {
-            let backdrop = card.subviews.first { Ceramic.weight(in: $0) != nil }
-            XCTAssertNotNil(backdrop)
-            if #available(macOS 26.0, *) {
-                XCTAssertEqual((backdrop as? NSGlassEffectView)?.style, .regular)
-            }
+            XCTAssertNotNil(card.subviews.first { $0 is CeramicPane }, "an opaque pane under its words")
+            XCTAssertNil(card.subviews.first { String(describing: type(of: $0)).contains("Glass") })
         }
         stage.chord("k", .maskCommand)
-        let weights = stage.engine.strip.shownWeights.filter { $0 != .faint }
-        XCTAssertEqual(weights.filter { $0 == .raised }.count, 1, "the card the actions act on")
-        XCTAssertEqual(weights.filter { $0 == .normal }.count, weights.count - 1)
+        let fills = stage.engine.strip.shownFills.filter { $0 != .well }
+        XCTAssertEqual(fills.filter { $0 == .key }.count, 1, "the card the actions act on")
+        XCTAssertEqual(fills.filter { $0 == .pane }.count, fills.count - 1)
         _ = a
         stage.press("escape")
         stage.press("escape")
     }
 
-    func testAnEmptyPinSlotIsFaint() {
+    func testAnEmptyPinSlotIsAWell() {
         let stage = Stage()
         stage.seedClip("one")
         stage.openStrip()
-        XCTAssertTrue(stage.engine.strip.shownWeights.contains(.faint), "slot one is drawn, waiting")
+        XCTAssertTrue(stage.engine.strip.shownFills.contains(.well), "slot one is drawn, waiting")
+        let free = stage.engine.strip.shownFreePlaces.values
+        XCTAssertFalse(free.isEmpty)
+        XCTAssertTrue(free.allSatisfy { ($0 as? CeramicDepth)?.depth == .sinks }, "a place to put something sinks")
         stage.press("escape")
     }
 }
 
-/// The system's accessibility settings, honoured: no transparency means
-/// an opaque veil, more contrast means captions in the label colour,
-/// and a mark's accent never sits on its ground.
+/// The system's accessibility settings, honoured: more contrast means
+/// captions in the label colour, and a mark's accent never sits on its
+/// ground. (There is no transparency setting to honour: nothing is
+/// translucent.)
 final class AccessibilitySettingsTests: XCTestCase {
     override func tearDown() {
         Accessibility.reset()
         BarTheme.accentColor = { BarTheme.internationalOrange }
-    }
-
-    private func veilAlpha(reduce: Bool) throws -> CGFloat {
-        guard #available(macOS 26.0, *) else { throw XCTSkip("no glass before 26") }
-        Accessibility.reduceTransparency = { reduce }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        let glass = TonedGlass()
-        glass.frame = NSRect(x: 0, y: 0, width: 10, height: 10)
-        window.contentView?.addSubview(glass)
-        _ = window
-        return glass.veilAlpha
-    }
-
-    func testReduceTransparencyMakesTheVeilOpaque() throws {
-        XCTAssertEqual(try veilAlpha(reduce: true), Ceramic.opaque, accuracy: 0.01)
-        XCTAssertLessThan(try veilAlpha(reduce: false), Ceramic.opaque, "and the frost is back when it is off")
     }
 
     func testIncreaseContrastSetsCaptionsInTheInk() {
@@ -177,7 +306,8 @@ final class AccessibilitySettingsTests: XCTestCase {
     }
 }
 
-/// The strip's shadows: the window casts none, every plate casts its own.
+/// The strip's shadows: the window casts none, every card casts its own,
+/// one, following its outline.
 final class StripShadowTests: XCTestCase {
     func testTheWindowCastsNoShadowAndEveryCardDoes() {
         let stage = Stage()
@@ -187,7 +317,9 @@ final class StripShadowTests: XCTestCase {
         for card in stage.engine.strip.shownCards.values {
             XCTAssertTrue(card is ObjectSurface, "each card casts the drawn shadow of its own")
             let cast = card.layer?.sublayers?.filter { $0.shadowPath != nil } ?? []
-            XCTAssertEqual(cast.count, 2, "the soft shadow and the contact line, shaped to the card")
+            XCTAssertEqual(cast.count, 1, "one shadow, shaped to the card")
+            XCTAssertEqual(cast.first?.shadowRadius, Ceramic.Shadow.radius)
+            XCTAssertEqual(cast.first?.shadowOffset.height, -Ceramic.Shadow.drop)
         }
         stage.press("escape")
     }
@@ -413,11 +545,16 @@ final class KeyFaceTests: XCTestCase {
         BarTheme.accentColor = { BarTheme.internationalOrange }
         defer { BarTheme.accentColor = saved }
         let key = KeyFace("E")
-        XCTAssertNotEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor, "resting is not lit")
+        key.frame = NSRect(x: 0, y: 0, width: 40, height: BarTheme.keyHeight)
+        key.layout()
+        let standing: Standing? = key.standing
+        XCTAssertNotEqual(standing?.faceColor, BarTheme.accent.cgColor, "resting is not lit")
         key.lit = true
-        XCTAssertEqual(key.layer?.backgroundColor, BarTheme.accent.cgColor)
+        XCTAssertEqual(standing?.faceColor, BarTheme.accent.cgColor)
         XCTAssertEqual(key.label.textColor, BarTheme.onAccent)
-        XCTAssertEqual(key.layer?.shadowOffset.height ?? 0, -1.5, accuracy: 0.01, "the lip falls in shadow")
+        XCTAssertEqual(key.drawnSide, Ceramic.Side.control, accuracy: 0.01, "the side stands beneath the face")
+        XCTAssertNotNil(standing?.sideColor, "in a darker shade of the accent")
+        XCTAssertNotEqual(standing?.sideColor, standing?.faceColor)
     }
 
     /// A caption's grey is resolved when drawn: the same colour object

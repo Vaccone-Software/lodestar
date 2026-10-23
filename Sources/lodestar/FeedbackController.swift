@@ -32,7 +32,7 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
     // the window redraws around it.
     private let textView = NSTextView()
     private let scroll = NSScrollView()
-    private let noteBox = ToneView(fill: BarTheme.well, edge: BarTheme.hairline, edgeWidth: 1)
+    private let noteBox = WellView(cornerRadius: BarTheme.nested(outer: BarTheme.surfaceRadius, inset: FeedbackController.inset, rung: BarTheme.controlRadius))
     private let replyBox = RoomField(placeholder: "Your email, if you would like a reply")
     private var reply: NSTextField { replyBox.field }
     /// Settings' own switch, not the system's checkbox: a room's controls
@@ -107,7 +107,6 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
         scroll.borderType = .noBorder
         // The frame is its own view: a scroll view's clip view paints over
         // any layer the scroll view itself is given.
-        noteBox.layer?.cornerRadius = BarTheme.nested(outer: BarTheme.surfaceRadius, inset: Self.inset, rung: BarTheme.controlRadius)
         noteBox.translatesAutoresizingMaskIntoConstraints = false
         noteBox.widthAnchor.constraint(equalToConstant: text).isActive = true
         noteBox.heightAnchor.constraint(equalToConstant: Self.noteHeight).isActive = true

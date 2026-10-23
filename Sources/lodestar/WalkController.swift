@@ -655,11 +655,14 @@ final class WalkController: NSObject {
         let tileInset = Grid.part
         for (index, option) in Walk.Door.allCases.enumerated() {
             let selected = option == chosen
-            let column = NSStackView()
+            let column = TileColumn(chosen: selected)
             column.orientation = .vertical
             column.alignment = .leading
             column.spacing = Grid.tight
-            column.edgeInsets = NSEdgeInsets(top: tileInset, left: tileInset, bottom: tileInset, right: tileInset)
+            // The tile stands on a side inside its frame, so what it holds
+            // starts above it.
+            column.edgeInsets = NSEdgeInsets(top: tileInset, left: tileInset,
+                                             bottom: tileInset + Ceramic.Side.row, right: tileInset)
             if let picture = Self.picture(option) {
                 let image = PictureView()
                 image.image = picture
@@ -673,13 +676,8 @@ final class WalkController: NSObject {
                                             color: BarTheme.ink))
             column.addArrangedSubview(wrapped(Self.doorLine(option), role: .meta,
                                               color: BarTheme.secondaryColor, alignment: .left, width: tileWidth - tileInset * 2))
-            column.wantsLayer = true
-            column.layer?.cornerRadius = BarTheme.nested(outer: BarTheme.surfaceRadius, inset: Self.inset,
-                                                         rung: BarTheme.controlRadius)
-            column.layer?.borderWidth = selected ? 1.5 : 1
-            column.layer?.borderColor = Ceramic.resolved(selected ? BarTheme.accent : BarTheme.hairline)
-            column.layer?.backgroundColor = Ceramic.resolved(selected ? BarTheme.accent.withAlphaComponent(0.08)
-                                                                    : BarTheme.well)
+            column.radius = BarTheme.nested(outer: BarTheme.surfaceRadius, inset: Self.inset,
+                                            rung: BarTheme.controlRadius)
             column.translatesAutoresizingMaskIntoConstraints = false
             column.widthAnchor.constraint(equalToConstant: tileWidth).isActive = true
 
@@ -1230,4 +1228,46 @@ final class WalkController: NSObject {
         return controller
     }
     #endif
+}
+
+/// One door's tile: a thing you press to choose, so it stands on a side
+/// inside its frame. The chosen one is ringed in the accent, as it was.
+private final class TileColumn: NSStackView, CeramicDepth {
+    private let standing = Standing(rest: Ceramic.Side.row)
+    private let chosen: Bool
+    var radius = BarTheme.controlRadius { didSet { needsLayout = true } }
+
+    init(chosen: Bool) {
+        self.chosen = chosen
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        if let layer { standing.install(in: layer) }
+        standing.edgeWidth = chosen ? Ceramic.Edge.line * 3 : Ceramic.Edge.line
+        paint()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    var depth: Ceramic.Depth { .standsUp(side: standing.side) }
+    var drawnSide: CGFloat { standing.visibleSide }
+
+    override func layout() {
+        super.layout()
+        standing.fit(bounds, radius: radius, flipped: isFlipped)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
+    private func paint() {
+        let face = chosen
+            ? BarTheme.dynamic { look in
+                look.key.color.blended(withFraction: 0.08, of: BarTheme.accent) ?? look.key.color }
+            : BarTheme.faceFill
+        standing.paint(in: self, face: face, side: BarTheme.sideFill, rim: BarTheme.rimFill,
+                       edge: chosen ? BarTheme.accent : BarTheme.faceEdge)
+    }
 }

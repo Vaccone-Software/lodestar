@@ -9,7 +9,9 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     private let root = NSView()
     private let field = NSTextField()
     private let symbol = NSImageView()
-    private let separator = NSBox()
+    /// The field is a place you put something, so it sinks: a well one pane-inset
+    /// inside the pane, rounded as a thing nested in it.
+    private let well = WellView(cornerRadius: BarTheme.paneRowRadius)
     private let rowsStack = NSStackView()
 
     private var items: [Commands.Row] = []
@@ -18,7 +20,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
     private let panelWidth = BarTheme.panelWidth
     private let inputHeight = BarTheme.inputHeight
-    private let rowHeight = BarTheme.rowHeight
+    private let rowHeight = BarTheme.detailRowHeight
 
     override init() {
         panel = KeyablePanel(
@@ -54,28 +56,28 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
+        well.translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.orientation = .vertical
         rowsStack.spacing = Grid.hair
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         keys.install(root: root, below: rowsStack)
 
+        root.addSubview(well)
         root.addSubview(symbol)
         root.addSubview(field)
-        root.addSubview(separator)
         root.addSubview(rowsStack)
         NSLayoutConstraint.activate([
             symbol.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.fieldInset),
-            symbol.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
+            symbol.centerYAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.fieldArea - inputHeight / 2),
             field.leadingAnchor.constraint(equalTo: symbol.trailingAnchor, constant: Grid.part),
             field.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.fieldInset),
-            field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
-            separator.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
-            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
-            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
-            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: Grid.close),
+            field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.fieldArea - inputHeight / 2),
+            well.topAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.paneInset),
+            well.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
+            well.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
+            well.heightAnchor.constraint(equalToConstant: inputHeight),
+            rowsStack.topAnchor.constraint(equalTo: well.bottomAnchor, constant: Grid.close),
             rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
             rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
         ])
@@ -184,8 +186,8 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     /// growing to hold its keys extends it downward.
     private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
-        let rowsArea = BarTheme.rowsArea(count: rows.count)
-        let height = inputHeight + rowsArea + keys.height
+        let rowsArea = BarTheme.rowsArea(count: rows.count, rowHeight: rowHeight)
+        let height = BarTheme.fieldArea + rowsArea + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
             x: visible.midX - panelWidth / 2,
@@ -195,9 +197,6 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     }
 
     private func reposition() {
-        // The rule under the field is the top of the rows: with none, it would
-        // hang below the bar.
-        separator.isHidden = rows.isEmpty
         panel.setFrame(SoftShadow.outset(barFrame()), display: true)
     }
 
@@ -301,7 +300,7 @@ private final class CommandsRowView: RaisedRow {
     /// ⏎ on the chosen row, lit: the key that runs it.
     private let enter = KeyFace("⏎")
     private let sourceLabel = NSTextField(labelWithString: "")
-    private let sourceChip = NSView()
+    private let sourceChip = FlatChip()
     private let trailing = NSStackView()
     private var selectedState = false
 
@@ -323,8 +322,6 @@ private final class CommandsRowView: RaisedRow {
         for (box, label) in [(sourceChip, sourceLabel)] {
             label.setRole(.key)
             label.translatesAutoresizingMaskIntoConstraints = false
-            box.wantsLayer = true
-            box.layer?.cornerRadius = BarTheme.controlRadius
             box.translatesAutoresizingMaskIntoConstraints = false
             box.addSubview(label)
             NSLayoutConstraint.activate([
@@ -392,7 +389,6 @@ private final class CommandsRowView: RaisedRow {
         title.textColor = BarTheme.ink
         crumb.textColor = BarTheme.secondaryColor
         sourceLabel.textColor = BarTheme.secondaryColor
-        sourceChip.layer?.backgroundColor = Ceramic.resolved(BarTheme.well, in: sourceChip)
         chip.lit = selectedState
         enter.isHidden = !selectedState
     }

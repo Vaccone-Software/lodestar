@@ -87,11 +87,16 @@ extension BarTheme {
     /// the bars' own line, so every surface opens at one height.
     static let topLine: CGFloat = 0.64
 
-    /// The height the rows of a bar take under its separator: a hairline,
-    /// the gap, the rows with a hair between them, and the pane's inset.
-    static func rowsArea(count: Int) -> CGFloat {
-        guard count > 0 else { return 0 }
-        return 1 + Grid.close + CGFloat(count) * rowHeight + CGFloat(count - 1) * Grid.hair + paneInset
+    /// What a bar's field takes from the top: the well, one pane inset
+    /// from the pane's top and sides, and the well's own height.
+    static var fieldArea: CGFloat { paneInset + inputHeight }
+
+    /// The height under the field: nothing but the pane's inset below the
+    /// well when no rows follow; otherwise the gap, the rows with a hair
+    /// between them, and the pane's inset.
+    static func rowsArea(count: Int, rowHeight: CGFloat = BarTheme.rowHeight) -> CGFloat {
+        guard count > 0 else { return paneInset }
+        return Grid.close + CGFloat(count) * rowHeight + CGFloat(count - 1) * Grid.hair + paneInset
     }
 
     // MARK: - Sizes
@@ -122,6 +127,10 @@ extension BarTheme {
     static let inputHeight: CGFloat = 60
     /// One line of body with an icon.
     static let rowHeight: CGFloat = 48
+    /// A row with a detail line under its title: the chosen row stands on a
+    /// side inside its frame, and two lines need as much face as one line
+    /// had frame.
+    static let detailRowHeight: CGFloat = rowHeight + Grid.tight
     /// A key's height; the key contract sets its width and parts.
     static let keyHeight: CGFloat = 22
     /// An app's icon in a row; its artwork carries its own margin.

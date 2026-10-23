@@ -171,7 +171,10 @@ final class ClipboardStrip {
     /// drawn dimmed because every file of them is gone.
     private(set) var shownSheets: [String: Int] = [:]
     private(set) var shownDimmed: Set<String> = []
-    private(set) var shownWeights: [Ceramic.Weight] = []
+    /// What each card is made of, in the order they were drawn.
+    private(set) var shownFills: [CardFill] = []
+    /// The free places as drawn, by slot: wells.
+    private(set) var shownFreePlaces: [Int: NSView] = [:]
     private(set) var shownCards: [String: NSView] = [:]
     /// The key each card wears, by clip id; absent when it wears none.
     private(set) var shownKeys: [String: String] = [:]
@@ -209,7 +212,10 @@ final class ClipboardStrip {
     /// foot's height.
     private static let head = Grid.part
     private static let keyGap = Grid.tight
-    private static let foot = Grid.section
+    /// A card stands on a side inside its frame, so what it holds starts
+    /// above it: the foot and the footer are measured from the face.
+    private static let cardSide = Ceramic.Side.row
+    private static let foot = cardSide + Grid.section
 
     /// What a thing inside a card rounds at: the card's radius less the
     /// card's inset, so the gap between the two curves is even, and never
@@ -261,7 +267,8 @@ final class ClipboardStrip {
         pathsOf = filePaths
         shownSheets = [:]
         shownDimmed = []
-        shownWeights = []
+        shownFills = []
+        shownFreePlaces = [:]
         shownCards = [:]
         shownKeys = [:]
         shownNames = [:]
@@ -301,7 +308,6 @@ final class ClipboardStrip {
             let files = fileArt(for: clip, picture: fileThumbnail, present: filesPresent)
             let card = makeCard(clip: clip, key: key, lit: lit, size: place.size,
                                 face: rank == 0 && layout.wideJ ? .title : .body,
-                                lift: rank < 4 ? .float : .rest,
                                 reading: reading,
                                 thumbnail: clip.kind == .image ? thumbnail(clip.id) : nil,
                                 files: files, raised: clip.id == actingOn)
@@ -405,7 +411,8 @@ final class ClipboardStrip {
         shownPins = [:]
         shownCards = [:]
         shownKeys = [:]
-        shownWeights = []
+        shownFills = []
+        shownFreePlaces = [:]
         shownCount = nil
         shownSource = nil
         shownSourceRows = []
@@ -430,7 +437,7 @@ final class ClipboardStrip {
             let key = rank == 0 ? (held == .shift ? "⇧⏎" : "⏎")
                 : (held == .shift ? "⌥⇧" : "⌥") + label.uppercased()
             let card = makeBringCard(match, from: from, key: key, lit: rank == 0, size: place.size,
-                                     lift: rank < 4 ? .float : .rest, wholeLine: held == .shift,
+                                     wholeLine: held == .shift,
                                      face: rank == 0 && layout.wideJ ? .title : .body)
             card.frame = local(place)
             card.setAccessibilityLabel(Caption.line(["\(label.uppercased()), match \(rank + 1)",
@@ -469,8 +476,8 @@ final class ClipboardStrip {
     /// ⇧ is held, the whole line in the label colour, since that is what
     /// would come.
     private func makeBringCard(_ match: Bring.Match, from: Bring.Source?, key: String, lit: Bool,
-                               size: NSSize, lift: ObjectSurface.Lift, wholeLine: Bool, face: BarTheme.Role) -> NSView {
-        let card = surface(size: size, lift: lift, weight: .normal)
+                               size: NSSize, wholeLine: Bool, face: BarTheme.Role) -> NSView {
+        let card = surface(size: size, fill: .pane)
         let id = "bring-\(match.source)-\(match.hit.location)-\(match.line.hashValue)"
         shownCards[id] = card
         shownKeys[id] = key
@@ -496,13 +503,13 @@ final class ClipboardStrip {
         app.setRole(.meta)
         app.textColor = BarTheme.secondaryColor
         app.sizeToFit()
-        app.frame.origin = NSPoint(x: Self.pad, y: Grid.close)
+        app.frame.origin = NSPoint(x: Self.pad, y: Self.cardSide + Grid.close)
         card.addSubview(app)
         where_.sizeToFit()
         let room = size.width - Self.pad - app.frame.maxX - Grid.close
         if room > 24, from?.window.isEmpty == false {
             let width = min(where_.frame.width, room)
-            where_.frame = NSRect(x: size.width - Self.pad - width, y: Grid.close, width: width, height: where_.frame.height)
+            where_.frame = NSRect(x: size.width - Self.pad - width, y: Self.cardSide + Grid.close, width: width, height: where_.frame.height)
             card.addSubview(where_)
         }
         return card
@@ -613,21 +620,25 @@ final class ClipboardStrip {
 
     // MARK: - Cards
 
-    /// `counted` is false for what is not a card — the bar, a menu, the
-    /// list of sources — so the cards' weights read alone.
-    private func surface(size: NSSize, lift: ObjectSurface.Lift, weight: Weight,
-                         counted: Bool = true) -> ObjectSurface {
+    /// A card is a thing you press to paste, so it stands on a side; what is
+    /// not a card (`stands: false`: the bar, a menu, the list of sources)
+    /// is a floating pane that lies flat, and so its fills read alone. A
+    /// free place is a well, a place to put something, with no shadow.
+    private func surface(size: NSSize, fill: CardFill, stands: Bool = true) -> NSView {
         let radius = BarTheme.radius(BarTheme.surfaceRadius, height: size.height)
-        let card = SoftShadow.object(radius: radius, lift: lift)
-        card.frame = NSRect(origin: .zero, size: size)
-        let veil: Ceramic.Weight
-        switch weight {
-        case .normal: veil = .normal
-        case .highlighted: veil = .raised
-        case .empty: veil = .faint
+        let card: NSView
+        switch fill {
+        case .well:
+            card = WellView(cornerRadius: radius)
+            card.translatesAutoresizingMaskIntoConstraints = true
+        case .pane, .key:
+            let object = SoftShadow.object(radius: radius)
+            Ceramic.installPane(in: object, cornerRadius: radius, fill: fill == .key ? .key : .pane,
+                                side: stands ? Self.cardSide : 0)
+            card = object
         }
-        Ceramic.installPane(in: card, cornerRadius: radius, weight: veil)
-        if counted { shownWeights.append(veil) }
+        card.frame = NSRect(origin: .zero, size: size)
+        if stands { shownFills.append(fill) }
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.button)
         return card
@@ -644,9 +655,9 @@ final class ClipboardStrip {
     /// without a strip on the display.
     func makeCard(clip: Clipboard.Clip, key: String?, lit: Bool, size: NSSize,
                   face: BarTheme.Role = .body,
-                  lift: ObjectSurface.Lift, reading: String?,
+                  reading: String?,
                   thumbnail: NSImage?, files: FileArt? = nil, raised: Bool) -> NSView {
-        let card = surface(size: size, lift: lift, weight: raised ? .highlighted : .normal)
+        let card = surface(size: size, fill: raised ? .key : .pane)
         shownCards[clip.id] = card
         let width = size.width, height = size.height
         let line = height - Self.head - BarTheme.keyHeight / 2
@@ -753,7 +764,7 @@ final class ClipboardStrip {
         age.setRole(.meta, tabular: true)
         age.textColor = BarTheme.secondaryColor
         age.sizeToFit()
-        age.frame.origin = NSPoint(x: width - age.frame.width - Self.pad, y: Grid.close)
+        age.frame.origin = NSPoint(x: width - age.frame.width - Self.pad, y: Self.cardSide + Grid.close)
         card.addSubview(age)
         if showsSource, let origin = clip.sourceHost ?? clip.sourceAppName {
             let source = NSTextField(labelWithString: origin)
@@ -765,7 +776,7 @@ final class ClipboardStrip {
             // A card of files names its source whole or not at all: it is
             // nearly always the Finder, and "Find…" is no name.
             if clip.kind == .file, source.frame.width > room { return card }
-            source.frame = NSRect(x: Self.pad, y: Grid.close, width: max(0, min(source.frame.width, room)),
+            source.frame = NSRect(x: Self.pad, y: Self.cardSide + Grid.close, width: max(0, min(source.frame.width, room)),
                                   height: source.frame.height)
             card.addSubview(source)
             shownSources[clip.id] = origin
@@ -828,10 +839,11 @@ final class ClipboardStrip {
     }
 
     /// One sheet: the file's own picture filling it, or its icon standing
-    /// in it, with the drawn soft shadow of an object resting on the card.
+    /// in it. A sheet is content, a print lying on the card, and keeps the
+    /// short shadow of one; it has no rim, edge or side of its own.
     private func makeSheet(frame: NSRect, picture: NSImage?, fact: Clipboard.FileFact?, name: String?,
                            in card: NSView) -> NSView {
-        let sheet = SoftShadow.object(radius: Self.insideRadius(rung: BarTheme.markRadius), lift: .rest)
+        let sheet = SheetView(radius: Self.insideRadius(rung: BarTheme.markRadius))
         sheet.frame = frame
         let face = NSView(frame: sheet.bounds)
         face.wantsLayer = true
@@ -967,7 +979,7 @@ final class ClipboardStrip {
     private func makeKeepsake(clip: Clipboard.Clip, slot: Int, key: String?, size: NSSize,
                               reading: String?, thumbnail: NSImage?, naming: Naming?,
                               raised: Bool) -> NSView {
-        let card = surface(size: size, lift: .rest, weight: raised || naming != nil ? .highlighted : .normal)
+        let card = surface(size: size, fill: raised || naming != nil ? .key : .pane)
         shownCards[clip.id] = card
         let width = size.width, height = size.height
         var leading = Self.pad
@@ -1009,8 +1021,8 @@ final class ClipboardStrip {
             card.addSubview(title)
         }
 
-        let body = NSRect(x: Self.pad, y: Self.head, width: width - Self.pad * 2,
-                          height: height - Self.head * 2 - BarTheme.keyHeight - Self.keyGap)
+        let body = NSRect(x: Self.pad, y: Self.cardSide + Self.head, width: width - Self.pad * 2,
+                          height: height - Self.cardSide - Self.head * 2 - BarTheme.keyHeight - Self.keyGap)
         if let reading {
             shownReadings[clip.id] = reading
             let label = NSTextField(wrappingLabelWithString: reading)
@@ -1040,11 +1052,12 @@ final class ClipboardStrip {
         return card
     }
 
-    /// A free place keeps the material and loses the frosting, with its
+    /// A free place is a well, a place to put something, with its
     /// number legible: it is how a hand that has never kept anything
     /// learns that it can.
     private func makeFreePlace(slot: Int, size: NSSize, wearsKey: Bool) -> NSView {
-        let card = surface(size: size, lift: .rest, weight: .empty)
+        let card = surface(size: size, fill: .well)
+        shownFreePlaces[slot] = card
         var leading = Self.pad
         if wearsKey {
             let cap = addKey("\(slot)", lit: false, to: card, height: size.height)
@@ -1286,7 +1299,7 @@ final class ClipboardStrip {
     /// the answers are filtered to.
     private func addBar(key: String, query: String, placeholder: String, count countText: String?,
                         source: String?, frame: NSRect) {
-        let bar = surface(size: frame.size, lift: .float, weight: .normal, counted: false)
+        let bar = surface(size: frame.size, fill: .pane, stands: false)
         bar.frame = frame
         bar.setAccessibilityRole(.textField)
         bar.setAccessibilityLabel(placeholder)
@@ -1353,7 +1366,7 @@ final class ClipboardStrip {
         let ruled = rows.first?.offset == 0 && rows.count > 1
         let height = BarTheme.paneInset * 2 + fieldHeight + Grid.close + CGFloat(rows.count) * rowHeight + (ruled ? Grid.close : 0)
         let frame = NSRect(x: bar.maxX - width, y: bar.minY - Grid.close - height, width: width, height: height)
-        let plate = surface(size: frame.size, lift: .float, weight: .highlighted, counted: false)
+        let plate = surface(size: frame.size, fill: .pane, stands: false)
         plate.frame = frame
         plate.setAccessibilityRole(.list)
         plate.setAccessibilityLabel("Sources")
@@ -1470,7 +1483,7 @@ final class ClipboardStrip {
     }
 
     private func addActionCard(_ actions: [Action], frame: NSRect) {
-        let plate = surface(size: frame.size, lift: .float, weight: .highlighted, counted: false)
+        let plate = surface(size: frame.size, fill: .pane, stands: false)
         plate.frame = frame
         plate.setAccessibilityRole(.menu)
         shownActions = actions.map(\.label)
@@ -1526,7 +1539,7 @@ final class ClipboardStrip {
     /// offered name stands in the field until something is typed, so `⏎`
     /// alone is a complete answer; the folder is named at the right.
     private func addSaveField(name: String, offered: String, folder: String, frame: NSRect) {
-        let plate = surface(size: frame.size, lift: .float, weight: .normal, counted: false)
+        let plate = surface(size: frame.size, fill: .pane, stands: false)
         plate.frame = frame
         let width = frame.width, height = frame.height
 
@@ -1571,12 +1584,49 @@ final class ClipboardStrip {
         root.addSubview(plate)
     }
 
-    enum Weight {
-        case normal, highlighted
-        /// A free place: the same material, less frosted.
-        case empty
+    /// What a card is made of: the pane, the key step for the one the hand
+    /// is on, or a well for a free place.
+    enum CardFill {
+        case pane, key, well
     }
 }
 
 /// A row of the source list: the bars' raised step.
 private final class RaisedLine: RaisedRow {}
+
+/// A file's sheet on a card: content, drawn as it is, resting on the card
+/// with a short soft shadow cast from its own outline, as a picture does.
+final class SheetView: NSView {
+    private let radius: CGFloat
+    private let cast = CALayer()
+
+    init(radius: CGFloat) {
+        self.radius = radius
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        cast.shadowOffset = CGSize(width: 0, height: -Grid.tight)
+        cast.shadowRadius = Grid.tight + Grid.hair
+        cast.shadowOpacity = 1
+        layer?.insertSublayer(cast, at: 0)
+        tint()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        cast.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        tint()
+    }
+
+    private func tint() {
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        cast.shadowColor = Ceramic.resolved(BarTheme.shadowInk, in: self)
+        cast.shadowOpacity = dark ? 0.42 : 0.16
+    }
+}

@@ -62,7 +62,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private let root = NSView()
     private let field = NSTextField()
     private let magnifier = NSImageView()
-    private let separator = NSBox()
+    /// The field is a place you put something, so it sinks: a well one pane-inset
+    /// inside the pane, rounded as a thing nested in it.
+    private let well = WellView(cornerRadius: BarTheme.paneRowRadius)
     private let rowsStack = NSStackView()
     /// The footer: a note in the band under the rows, its keys drawn.
     private let footer = NSStackView()
@@ -159,8 +161,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
+        well.translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.orientation = .vertical
         rowsStack.spacing = Grid.hair
@@ -172,21 +173,22 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         footer.spacing = Grid.close
         footer.translatesAutoresizingMaskIntoConstraints = false
 
+        root.addSubview(well)
         root.addSubview(magnifier)
         root.addSubview(field)
-        root.addSubview(separator)
         root.addSubview(rowsStack)
         root.addSubview(footer)
         NSLayoutConstraint.activate([
             magnifier.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.fieldInset),
-            magnifier.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
+            magnifier.centerYAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.fieldArea - inputHeight / 2),
             field.leadingAnchor.constraint(equalTo: magnifier.trailingAnchor, constant: Grid.part),
             field.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.fieldInset),
-            field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
-            separator.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
-            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
-            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
-            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: Grid.close),
+            field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.fieldArea - inputHeight / 2),
+            well.topAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.paneInset),
+            well.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
+            well.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
+            well.heightAnchor.constraint(equalToConstant: inputHeight),
+            rowsStack.topAnchor.constraint(equalTo: well.bottomAnchor, constant: Grid.close),
             rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
             rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
             footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.fieldInset),
@@ -356,7 +358,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
         let rowsArea = BarTheme.rowsArea(count: rows.count)
-        let height = inputHeight + rowsArea + footerHeight + keys.height
+        let height = BarTheme.fieldArea + rowsArea + footerHeight + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
             x: visible.midX - panelWidth / 2,
@@ -366,9 +368,6 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     }
 
     private func reposition() {
-        // The rule under the field is the top of the rows: with none, it would
-        // hang below the bar.
-        separator.isHidden = rows.isEmpty
         panel.setFrame(SoftShadow.outset(barFrame()), display: true)
     }
 

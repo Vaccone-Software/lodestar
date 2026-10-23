@@ -9,7 +9,7 @@ import LodestarCore
 /// file named, so the φ table and the type scale stay the only source.
 final class DesignDriftTests: XCTestCase {
     /// The theme's homes: the values live here and nowhere else.
-    private static let homes: Set<String> = ["Ceramic.swift", "ModePill.swift", "Type.swift"]
+    private static let homes: Set<String> = ["Ceramic.swift", "Material.swift", "ModePill.swift", "Type.swift"]
 
     /// Every Swift file under a folder, subfolders included: a guard that
     /// read only the top level would exempt any folder added later.
@@ -212,8 +212,9 @@ final class DesignDriftTests: XCTestCase {
 
     /// Every colour a surface draws comes from the theme: none names a
     /// system colour, a literal, a pure white or black, or a material. Only
-    /// Ceramic.swift may build a colour, from the palette's steps, and may
-    /// name the glass material until the material contract replaces it.
+    /// the theme (Ceramic.swift, Material.swift) may build a colour, from the
+    /// palette's steps; none may name a material, which is glass or a
+    /// visual effect (design/04-material.md: nothing is translucent).
     func testNoSurfaceNamesAColourOrAMaterialOutsideTheTheme() throws {
         var offenders: [String] = []
         for file in Self.swiftFiles(under: Self.appSources) {
@@ -222,7 +223,6 @@ final class DesignDriftTests: XCTestCase {
             if Self.colourExempt.contains(name) || isDebugOnly(raw) { continue }
             let text = Self.code(raw)
             for (what, pattern) in Self.colourPatterns {
-                if what == "a material", name == "Ceramic.swift" { continue }
                 let regex = try NSRegularExpression(pattern: pattern)
                 for match in regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {
                     offenders.append("\(name): \(what): \((text as NSString).substring(with: match.range))")
@@ -383,11 +383,12 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(stale, [], "moved off the system popup: take it off the not-yet list")
     }
 
-    /// Honest matter: nothing is shaded by a gradient. The one fade is
-    /// the edge light's, in the theme, where a lit rim turns down into a
-    /// corner; a room may fade its own scroll edge. Chrome never does.
+    /// Honest matter: nothing is shaded by a gradient. A room may fade its
+    /// own scroll edge by a mask (and the overview keeps the pool of light
+    /// round its mark); the theme and chrome never do, and the rim is a clipped
+    /// strip, not a fade (MaterialTests holds the rest).
     func testChromeIsNeverShadedByAGradient() throws {
-        let homes: Set<String> = ["Ceramic.swift", "SettingsController.swift"]
+        let homes: Set<String> = ["SettingsController.swift"]
         let offenders = try sources()
             .filter { !homes.contains($0.name) }
             .filter { $0.text.contains("CAGradientLayer") || $0.text.contains("NSGradient(") }

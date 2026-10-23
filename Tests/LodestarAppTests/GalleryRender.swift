@@ -49,6 +49,9 @@ enum GalleryRender {
     /// the look is the window's, and every layer a view paints (a face, a
     /// lip, a row's rim, a shadow) is drawn by the same pass the screen takes.
     static func bitmap(of view: NSView, scale: CGFloat = GalleryRender.scale) -> NSBitmapImageRep {
+        // The compositor lays a pane's rim and edge over its content by
+        // position; this draws view by view, so they are brought to the front.
+        Ceramic.frontEdges(in: view)
         view.window?.contentView?.layoutSubtreeIfNeeded()
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
@@ -68,6 +71,7 @@ enum GalleryRender {
     /// only its last child in it; drawn singly, every child is there.
     static func bitmapBySiblings(of view: NSView, scale: CGFloat = GalleryRender.scale,
                                  room: CGFloat = 40) -> NSBitmapImageRep {
+        Ceramic.frontEdges(in: view)
         view.window?.contentView?.layoutSubtreeIfNeeded()
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()

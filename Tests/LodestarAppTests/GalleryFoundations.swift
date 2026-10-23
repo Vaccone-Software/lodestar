@@ -178,26 +178,25 @@ enum GalleryFoundations {
                 ("letter on the orange", steps.letterOnOrange, "Palette.\(id).letterOnOrange"),
             ], perRow: 5)
 
-            page.heading("In force in \(look.name)", "What the theme resolves in this look, laid over the pane when it is not opaque.")
+            page.heading("In force in \(look.name)", "What the theme resolves in this look, laid over the pane where it is not opaque.")
             let keyFace = themed(BarTheme.keyFill)
             let accent = themed(BarTheme.accent)
             page.swatches([
                 ("ink", themed(BarTheme.ink), "BarTheme.ink"),
                 ("quiet ink", themed(BarTheme.secondaryColor), "BarTheme.secondaryColor"),
                 ("hairline", themed(BarTheme.hairline), "BarTheme.hairline"),
-                ("well", themed(BarTheme.well), "ink at 5%"),
+                ("well", themed(BarTheme.well), "the pane darkened by 0.025 L by day, 0.02 by night"),
                 ("accent", accent, "BarTheme.accent"),
                 ("letter on the accent", themed(BarTheme.onAccent, over: accent), "BarTheme.onAccent"),
                 ("chosen row", themed(BarTheme.raised), "BarTheme.raised (the key step)"),
                 ("key face", keyFace, "BarTheme.keyFill"),
-                ("key side", themed(BarTheme.keyLip, over: pane), "BarTheme.keyLip"),
+                ("key side", themed(BarTheme.sideFill, over: pane), "BarTheme.sideFill"),
                 ("key letter", themed(BarTheme.keyLetter, over: keyFace), "BarTheme.keyLetter"),
-                ("key top edge", themed(BarTheme.keyTop, over: keyFace), "BarTheme.keyTop"),
-                ("lit key top edge", themed(BarTheme.litKeyTop, over: accent), "BarTheme.litKeyTop"),
-                ("lit key side", themed(BarTheme.litKeyLip, over: accent), "BarTheme.litKeyLip"),
+                ("rim", themed(BarTheme.rimFill, over: pane), "BarTheme.rimFill"),
+                ("lit key rim", themed(BarTheme.litRimFill, over: accent), "BarTheme.litRimFill"),
+                ("lit key side", themed(BarTheme.litSideFill, over: accent), "BarTheme.litSideFill"),
                 ("mark face", themed(BarTheme.markFill), "BarTheme.markFill"),
-                ("shadow", themed(BarTheme.shadow), "BarTheme.shadow"),
-                ("glass tint", themed(BarTheme.glassTint), "BarTheme.glassTint (the glass stays until the material contract)"),
+                ("shadow", themed(BarTheme.shadowInk), "BarTheme.shadowInk, at 14% by day and 40% by night"),
             ], perRow: 5)
 
             page.heading("Measured contrast", "WCAG contrast, ratio : 1, each against the floor of its role: 7 for text read at length, 4.5 for other text, 3 for a fill that carries meaning.")

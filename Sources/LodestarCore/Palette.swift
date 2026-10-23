@@ -38,10 +38,21 @@ public enum Palette {
         /// International Orange as this look's ground wants it: the best
         /// version of one colour for one ground, never one hex for both.
         public let orange: Readability.RGB
+        /// How far a well is darkened from the pane it sits in, in OKLab
+        /// lightness (design/04-material.md): a place you put something is
+        /// one step below its pane, never below the ground.
+        public let wellDrop: Double
 
         /// A letter on the orange: whichever of clay's key face and clay's
         /// ink measures higher on this look's orange, never white or black.
         public var letterOnOrange: Readability.RGB { Palette.letter(on: orange) }
+
+        /// A well: the pane darkened by `wellDrop`, one colour, never below
+        /// the ground. Chroma and hue stay the pane's, so it is the same
+        /// ceramic a step down.
+        public var well: Readability.RGB {
+            pane.with(lightness: max(ground.lightness, pane.lightness - wellDrop))
+        }
 
         /// Every step of the look, for a test that holds them all to one rule.
         public var all: [Readability.RGB] {
@@ -53,13 +64,13 @@ public enum Palette {
     public static let night = Steps(
         ground: rgb(0x120F0C), pane: rgb(0x1D1916), key: rgb(0x2B2622), side: rgb(0x110E0C),
         ink: rgb(0xF1EBE2), quietInk: rgb(0xA99F92), slab: rgb(0xF1E8DF), slabSide: rgb(0xADA093),
-        hairlineAlpha: 0.08, orange: rgb(0xFA5617))
+        hairlineAlpha: 0.08, orange: rgb(0xFA5617), wellDrop: 0.02)
 
     /// Clay: the day.
     public static let clay = Steps(
         ground: rgb(0xEDE4DA), pane: rgb(0xF6EFE8), key: rgb(0xFCF8F4), side: rgb(0xDCCEC1),
         ink: rgb(0x1E1814), quietInk: rgb(0x66584E), slab: rgb(0x2A221D), slabSide: rgb(0x120D0A),
-        hairlineAlpha: 0.10, orange: rgb(0xC83500))
+        hairlineAlpha: 0.10, orange: rgb(0xC83500), wellDrop: 0.025)
 
     /// Of the two letters Lodestar owns on a light ground (clay's key face
     /// and clay's ink), the one that measures higher on `fill`. Measured,
@@ -69,17 +80,6 @@ public enum Palette {
         let onFace = Readability.contrast(face.luminance, fill.luminance)
         let onInk = Readability.contrast(ink.luminance, fill.luminance)
         return onFace >= onInk ? face : ink
-    }
-
-    /// What the glass is tinted toward in a look: the look's pane (the warm
-    /// family, never a neutral grey) at the lightness the tint has always
-    /// had, which is the measured number: a neutral 0.25 at night, 0.92 by
-    /// day, tuned so the panel lands on its ground (Ceramic.swift). Only the
-    /// hue and the little chroma change; the lightness is what was measured,
-    /// and the material goes when the material contract replaces it.
-    public static func glassTint(of look: Steps, night: Bool) -> Readability.RGB {
-        let grey = night ? 0.25 : 0.92
-        return look.pane.with(lightness: Readability.RGB(red: grey, green: grey, blue: grey).lightness)
     }
 
     static func rgb(_ hex: Int) -> Readability.RGB {

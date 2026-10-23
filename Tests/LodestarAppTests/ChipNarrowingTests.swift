@@ -19,10 +19,11 @@ final class ChipNarrowingTests: XCTestCase {
         XCTAssertEqual(SelectOverlay.narrowed(chips, typed: "z").map(\.label), [], "a letter no label starts with leaves nothing")
     }
 
-    private func face(_ mark: NSView) -> CGColor? { mark.subviews.first?.layer?.backgroundColor }
+    private func standing(_ mark: NSView) -> Standing? { (mark as? MarkKey)?.standing }
+    private func face(_ mark: NSView) -> CGColor? { standing(mark)?.faceColor }
 
     private func label(_ mark: NSView) -> NSTextField? {
-        mark.subviews.first?.subviews.compactMap { $0 as? NSTextField }.first
+        mark.subviews.compactMap { $0 as? NSTextField }.first
     }
 
     private func ink(_ mark: NSView, at index: Int) -> NSColor? {
@@ -33,9 +34,9 @@ final class ChipNarrowingTests: XCTestCase {
         XCTAssertEqual(face(KeyMark.key("af", typed: "a")), BarTheme.markFill.cgColor, "no accent: the same cap")
         XCTAssertEqual(face(KeyMark.key("af", typed: "a")), face(KeyMark.key("af")), "typing changes the letters, not the key")
         let typed = KeyMark.key("af", typed: "a"), resting = KeyMark.key("af")
-        XCTAssertEqual(typed.subviews.first?.layer?.shadowColor, resting.subviews.first?.layer?.shadowColor, "the lip is the resting lip")
-        XCTAssertEqual(typed.subviews.first?.layer?.sublayers?.first?.backgroundColor,
-                       resting.subviews.first?.layer?.sublayers?.first?.backgroundColor, "and the top edge")
+        XCTAssertEqual(standing(typed)?.sideColor, standing(resting)?.sideColor, "the side is the resting side")
+        XCTAssertEqual(standing(typed)?.rimColor, standing(resting)?.rimColor, "and the rim")
+        XCTAssertEqual(standing(typed)?.visibleSide, Ceramic.Side.control, "on its side, inside its frame")
     }
 
     func testTheLettersAlreadyTypedDimAndTheRestKeepTheMarksInk() {
@@ -90,7 +91,7 @@ final class ChipNarrowingTests: XCTestCase {
 
     func testALensTagCarriesTheKeyAndTheFix() {
         let tag = KeyMark.tag(letter: "j", word: "receive")
-        let words = tag.subviews.first?.subviews.compactMap { $0 as? NSTextField }.map(\.stringValue) ?? []
+        let words = tag.subviews.compactMap { $0 as? NSTextField }.map(\.stringValue)
         XCTAssertEqual(words, ["receive"])
         XCTAssertGreaterThan(tag.frame.height, KeyMark.height, "the key stands inside the tag")
     }

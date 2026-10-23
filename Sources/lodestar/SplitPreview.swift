@@ -202,12 +202,10 @@ enum SplitPreview {
         held.append(window)
     }
 
-    /// The veil as a tint on the glass, which is what `TonedGlass` now
-    /// does everywhere: a merge is a property of the glass, not of the
-    /// content, and the neck between two merging views is glass that no
-    /// view inside it could cover. `tintColor` tints "the background and
-    /// glass effect", which is the thing that merges.
-    static var veil: NSColor { NSColor.black.withAlphaComponent(Ceramic.Weight.normal.alpha) }
+    /// The tint of the preview's glass: this harness stages a merge of real
+    /// glass views, which the app itself no longer draws, so it keeps the
+    /// glass's old tint.
+    static var veil: NSColor { NSColor.black.withAlphaComponent(0.92) }
 
     /// The draft's own keys, and the editor's whole grammar.
     ///

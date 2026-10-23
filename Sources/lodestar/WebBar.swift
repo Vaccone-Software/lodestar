@@ -41,7 +41,9 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let root = NSView()
     private let field = NSTextField()
     private let globe = NSImageView()
-    private let separator = NSBox()
+    /// The field is a place you put something, so it sinks: a well one pane-inset
+    /// inside the pane, rounded as a thing nested in it.
+    private let well = WellView(cornerRadius: BarTheme.paneRowRadius)
     private let rowsStack = NSStackView()
 
     /// Wired by the app delegate; refreshed on config reload.
@@ -111,8 +113,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
+        well.translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.orientation = .vertical
         rowsStack.spacing = Grid.hair
@@ -130,14 +131,14 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         inferredChip.translatesAutoresizingMaskIntoConstraints = false
         inferredChip.addSubview(inferredLabel)
 
+        root.addSubview(well)
         root.addSubview(globe)
         root.addSubview(field)
         root.addSubview(inferredChip)
-        root.addSubview(separator)
         root.addSubview(rowsStack)
         NSLayoutConstraint.activate([
             globe.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.fieldInset),
-            globe.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
+            globe.centerYAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.fieldArea - inputHeight / 2),
             field.leadingAnchor.constraint(equalTo: globe.trailingAnchor, constant: Grid.part),
             field.trailingAnchor.constraint(equalTo: inferredChip.leadingAnchor, constant: -Grid.part),
             inferredChip.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.fieldInset),
@@ -146,11 +147,12 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             inferredLabel.trailingAnchor.constraint(equalTo: inferredChip.trailingAnchor, constant: -Grid.half),
             inferredLabel.topAnchor.constraint(equalTo: inferredChip.topAnchor, constant: Grid.hair),
             inferredLabel.bottomAnchor.constraint(equalTo: inferredChip.bottomAnchor, constant: -Grid.hair),
-            field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight / 2),
-            separator.topAnchor.constraint(equalTo: root.topAnchor, constant: inputHeight),
-            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
-            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
-            rowsStack.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: Grid.close),
+            field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.fieldArea - inputHeight / 2),
+            well.topAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.paneInset),
+            well.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
+            well.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
+            well.heightAnchor.constraint(equalToConstant: inputHeight),
+            rowsStack.topAnchor.constraint(equalTo: well.bottomAnchor, constant: Grid.close),
             rowsStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.paneInset),
             rowsStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.paneInset),
         ])
@@ -266,7 +268,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// Row views are pooled and mutated — typing repaints, it never rebuilds.
     private var rowViews: [WebRowView] = []
     /// The inferred profile, at the end of the field.
-    private let inferredChip = ChipGround()
+    private let inferredChip = FlatChip()
     private let inferredLabel = NSTextField(labelWithString: "")
     /// Where a row goes when nothing decides otherwise.
     private var inferred: BrowserProfile?
@@ -293,7 +295,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private func barFrame() -> NSRect {
         let count = CGFloat(rows.count)
         let rowsArea = BarTheme.rowsArea(count: rows.count)
-        let height = inputHeight + rowsArea + keys.height
+        let height = BarTheme.fieldArea + rowsArea + keys.height
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(
             x: visible.midX - panelWidth / 2,
@@ -303,9 +305,6 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 
     private func reposition() {
-        // The rule under the field is the top of the rows: with none, it would
-        // hang below the bar.
-        separator.isHidden = rows.isEmpty
         panel.setFrame(SoftShadow.outset(barFrame()), display: true)
     }
 
@@ -519,33 +518,10 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 }
 
 /// One reusable web-bar row: symbol, destination, profile chip.
-/// A quiet chip's ground: the label colour at 8%, set again whenever the
-/// appearance changes, since a layer keeps the colour it was given.
-private final class ChipGround: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        tint()
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        tint()
-    }
-
-    private func tint() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Ceramic.resolved(BarTheme.well, in: self)
-        }
-    }
-}
-
 private final class WebRowView: RaisedRow {
     private let title = NSTextField(labelWithString: "")
     private let chipLabel = NSTextField(labelWithString: "")
-    private let chip = ChipGround()
+    private let chip = FlatChip()
     /// The title ends at the chip when the chip is shown, and at ⏎'s place
     /// when it is not: a hidden chip still holds its width in the layout,
     /// and a long address was cut short beside empty air.

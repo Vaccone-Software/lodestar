@@ -56,10 +56,11 @@ final class OneLightSweepTests: XCTestCase {
 
     // MARK: - Grey matter in two steps
 
-    func testWellAndHairlineAreTwoStepsOfOneInk() throws {
+    func testWellIsAStepOfThePaneAndHairlineIsTheInkAtAShare() throws {
         let well = try XCTUnwrap(BarTheme.well.usingColorSpace(.sRGB))
         let hairline = try XCTUnwrap(BarTheme.hairline.usingColorSpace(.sRGB))
-        XCTAssertEqual(well.alphaComponent, 0.05, accuracy: 0.001)
+        XCTAssertEqual(well.alphaComponent, 1, accuracy: 0.001, "a well is an opaque step of the pane, not the ink at a share")
+        XCTAssertEqual(well, BarTheme.palette.well.color.usingColorSpace(.sRGB), "the pane one step down")
         XCTAssertEqual(hairline.alphaComponent, CGFloat(BarTheme.palette.hairlineAlpha), accuracy: 0.001,
                        "a hairline is the ink at the look's own share: a tenth by day, 8 per cent at night")
     }

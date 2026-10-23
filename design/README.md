@@ -31,7 +31,7 @@ Primitives are made of foundations, so the foundations are settled first.
 | --- | ------------- | ------- |
 | 10  | Key           | Built   |
 | 11  | Slab          | Built   |
-| 12  | Well          | Planned |
+| 12  | Well          | Drafted |
 | 13  | Row           | Planned |
 | 14  | Stops         | Planned |
 | 15  | Countdown key | Planned |

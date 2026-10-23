@@ -86,6 +86,41 @@ enum Slab {
     }
 }
 
+extension NSView {
+    /// Words laid out by frame to fit in the look around a slab grow when the
+    /// look inside it sets them heavier (the night's weight is a step above
+    /// the day's): a single line that was cut to its words' width is given the
+    /// room its words now need, from the edge it stands on, and no more than
+    /// `padding` and its neighbour allow. Words laid out by constraints are
+    /// left to them.
+    func remeasureWords(padding: CGFloat) {
+        let fields = subviews.compactMap { $0 as? NSTextField }
+            .filter { $0.translatesAutoresizingMaskIntoConstraints && $0.maximumNumberOfLines <= 1
+                && !($0.cell?.wraps ?? false) && !$0.stringValue.isEmpty }
+        func natural(_ field: NSTextField) -> CGFloat? {
+            guard let style = field.typeStyle else { return nil }
+            // The field's own cell stands the text a few points in from its edges.
+            let cell = NSTextFieldCell(textCell: field.stringValue)
+            cell.font = style.font(in: field.effectiveAppearance)
+            return ceil(cell.cellSize.width)
+        }
+        var rightEdge: [NSTextField: CGFloat] = [:]
+        for field in fields where field.frame.maxX >= bounds.width - padding - 1 {
+            guard let width = natural(field), width > field.frame.width else { continue }
+            field.frame = NSRect(x: field.frame.maxX - width, y: field.frame.minY, width: width, height: field.frame.height)
+            rightEdge[field] = field.frame.minX
+        }
+        for field in fields where rightEdge[field] == nil {
+            guard let width = natural(field), width > field.frame.width else { continue }
+            var limit = bounds.width - padding - field.frame.minX
+            for (other, minX) in rightEdge where other.frame.intersects(field.frame.insetBy(dx: -bounds.width, dy: 0)) {
+                limit = min(limit, minX - Grid.close - field.frame.minX)
+            }
+            field.frame.size.width = max(field.frame.width, min(width, limit))
+        }
+    }
+}
+
 /// A view that may be a chosen slab, so what stands inside it can tell.
 protocol SlabSurface: AnyObject {
     var isSlab: Bool { get }
@@ -199,6 +234,7 @@ class SlabRow: NSView, CeramicDepth, SlabSurface {
         super.viewDidMoveToSuperview()
         flip.settle()
         paintSlab()
+        if chosen { remeasureWords(padding: Grid.part) }
     }
 
     override func viewDidMoveToWindow() {
@@ -210,6 +246,7 @@ class SlabRow: NSView, CeramicDepth, SlabSurface {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         paintSlab()
+        if chosen { remeasureWords(padding: Grid.part) }
     }
 
     /// The face, the side, the rim and the hairline, in this row's look,

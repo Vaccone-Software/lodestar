@@ -399,6 +399,33 @@ final class SlabTests: XCTestCase {
         XCTAssertEqual(sources.lit, [])
     }
 
+    /// The night sets words a step heavier than the day, so a day slab holds
+    /// wider words than the layout was cut for: none is clipped to the old width.
+    func testWordsOnADaySlabAreNotCutShortByTheHeavierLook() throws {
+        GalleryLook.day.apply()
+        for state in ["source-menu", "clips-newest-chosen", "card-actions"] {
+            let made = try XCTUnwrap(GalleryShots.all.first { $0.surface == "keep" && $0.state == state })
+            let (root, keep) = try made.build(.day)
+            root.layoutSubtreeIfNeeded()
+            for slab in slabs(in: root) {
+                walk(content(of: slab)) { view in
+                    guard let field = view as? NSTextField, let style = field.typeStyle, !field.stringValue.isEmpty,
+                          field.maximumNumberOfLines <= 1, !(field.cell?.wraps ?? false),
+                          field.lineBreakMode == .byTruncatingTail, field.superview === slab || field.superview === slab.superview
+                    else { return }
+                    let cell = NSTextFieldCell(textCell: field.stringValue)
+                    cell.font = style.font(in: field.effectiveAppearance)
+                    // A field may be shorter than its words only where the card has no more room.
+                    if field.frame.width < ceil(cell.cellSize.width) - 0.5 {
+                        XCTAssertGreaterThan(field.frame.maxX + Grid.group, slab.bounds.width - 40,
+                                             "\(state): \"\(field.stringValue)\" is cut short with room to spare")
+                    }
+                }
+            }
+            _ = keep
+        }
+    }
+
     func testChoosingAndLeavingAreInstant() {
         GalleryLook.day.apply()
         let (row, window) = chosenRow()

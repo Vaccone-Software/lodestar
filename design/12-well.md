@@ -41,7 +41,7 @@ Every height is on the size table; Keep's source list's 40-tall field becomes a 
 ### What lives in it
 
 - **Words:** ink, in the role the table gives. Never mono (type, rule: the voices are one family).
-- **Placeholder:** quiet ink in the same role and size as the words, so typing replaces it in place. At least 4.5 : 1 on the well at every eye-comfort level (5.1 : 1 at full by day, 5.4 : 1 by night).
+- **Placeholder:** quiet ink in the same role and size as the words, so typing replaces it in place. At least 4.5 : 1 on the well at every eye-comfort level (5.1 : 1 at full by day, 7.3 : 1 by night); the caret clears 3 : 1 in both (4.0 and 5.8).
 - **Caret:** the readable accent, 1.5 wide, as tall as the line (20 at field size, 18 at body), rounded at half its width; where the accent would fall below 3 : 1 on the well it is ink. One caret everywhere a well is, drawn by Lodestar or by AppKit.
 - **Selection:** one wash, ink at 30%, behind the words, in every well and in Keep's naming.
 - **A well inside the slab** is the slab's look's well, as everything in it is (slab, rule 2).

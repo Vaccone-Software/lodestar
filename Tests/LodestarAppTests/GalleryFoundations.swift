@@ -382,6 +382,6 @@ enum GalleryFoundations {
                 return (window.contentView!, keep)
             }
         }
-        return [shot("colour", colour), shot("type", type), shot("geometry", geometry)]
+        return [shot("colour", colour), shot("type", type), shot("geometry", geometry), shot("motion", motion)]
     }
 }

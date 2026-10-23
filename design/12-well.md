@@ -24,7 +24,7 @@ A keyboard app is mostly places you type into, and the eye should find the place
 | focused  | edge at ink 28%             | edge at ink 24%                          |
 | side, shadow, glow | none              | none                                     |
 
-**Focused.** The well the caret is in deepens its edge to twice its weight, at once. No ring, no accent, no fill change: the caret already says where the words will go, and the edge says it while the caret blinks off and when a room has two wells.
+**Focused.** The well the caret is in deepens its edge to twice its weight, at once. No ring, no accent, no fill change: the caret says where in the words, the edge says which well, which matters when a room has two.
 
 ### Sizes and shapes
 
@@ -42,7 +42,7 @@ Every height is on the size table; Keep's source list's 40-tall field becomes a 
 
 - **Words:** ink, in the role the table gives. Never mono (type, rule: the voices are one family).
 - **Placeholder:** quiet ink in the same role and size as the words, so typing replaces it in place. At least 4.5 : 1 on the well at every eye-comfort level (5.1 : 1 at full by day, 7.3 : 1 by night); the caret clears 3 : 1 in both (4.0 and 5.8).
-- **Caret:** the readable accent, 1.5 wide, as tall as the line (20 at field size, 18 at body), rounded at half its width; where the accent would fall below 3 : 1 on the well it is ink. One caret everywhere a well is, drawn by Lodestar or by AppKit.
+- **Caret:** the readable accent, 1.5 wide, as tall as the line (20 at field size, 18 at body), rounded at half its width, and still: it never blinks, so it is always where the eye looks for it. Where the accent would fall below 3 : 1 on the well it is ink. One caret everywhere a well is, drawn by Lodestar or by AppKit.
 - **Selection:** one wash, ink at 30%, behind the words, in every well and in Keep's naming.
 - **A well inside the slab** is the slab's look's well, as everything in it is (slab, rule 2).
 
@@ -72,8 +72,8 @@ Every height is on the size table; Keep's source list's 40-tall field becomes a 
 
 1. **Something goes in, so it sinks.** Every place Lodestar takes words or a thing is a well, and nothing else is.
 2. **One matter.** One fill and one edge per look, from the pane it sits in; no surface mixes its own.
-3. **One caret, one selection.** The readable accent at 1.5, ink at 30%, in every well.
-4. **Focus is the edge.** The focused well's edge deepens; no ring, glow or accent outline, and no system bezel or focus ring is ever drawn.
+3. **One caret, one selection.** The readable accent at 1.5, never blinking; ink at 30%; in every well.
+4. **Focus is the edge, and the caret holds still.** The focused well's edge deepens; no ring, glow or accent outline, and no system bezel or focus ring is ever drawn.
 5. **The placeholder is quiet ink at the words' size**, holding 4.5 : 1 at every level.
 6. **Shapes nest.** A well along a pane's or a band's edge rounds at the outer radius less its inset; a free well at the control rung; a slot at its thing's radius.
 
@@ -98,3 +98,8 @@ Planned. The bars, Settings' value fields, Feedback and the empty keepsake alrea
 
 - A translucent well is a stain, not a place; the well is opaque, a step of the pane.
 - A system bezel inside a room wears the Mac's accent and shape; every field draws its own well.
+
+## Decided in review
+
+- The caret does not blink (23 October 2026).
+- Focus is the edge doubling, not the caret alone (23 October 2026).

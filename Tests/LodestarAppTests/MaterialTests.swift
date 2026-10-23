@@ -57,7 +57,7 @@ final class MaterialTests: XCTestCase {
     }
 
     /// A file that is wholly a debug harness.
-    private static func isDebugOnly(_ text: String) -> Bool {
+    static func isDebugOnly(_ text: String) -> Bool {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map { $0.trimmingCharacters(in: .whitespaces) }
         return lines.first == "#if DEBUG" && lines.last == "#endif"
     }

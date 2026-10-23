@@ -20,6 +20,12 @@ enum KeySize: Equatable {
     var faceHeight: CGFloat { self == .standard ? 21 : 31 }
     /// The legend's role: a key's letter, or a figure read across the screen.
     var role: BarTheme.Role { self == .standard ? .key : .largeFigure }
+    /// What layout aligns: the face. The side hangs beneath it, so a key
+    /// beside words stands its face on their line and its side below, never
+    /// the whole frame (design/13-row.md, rule 4). Anything a row centres on
+    /// the line of its first words and that is a key's height (a key, a
+    /// sequence, the words beside them) says the same.
+    var hang: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: side, right: 0) }
 }
 
 /// What a key is for the hand right now. Instant: nothing animates.
@@ -30,7 +36,8 @@ enum KeyState: Equatable {
     case lit
     /// While it is down: the side gives up the rest and the face follows.
     case pressed
-    /// Shown but not pressable now, or disabled: no face, a hairline.
+    /// Shown but not pressable now, or disabled: a resting key left unfilled,
+    /// its face and side outlined in hairlines.
     case quiet
 }
 
@@ -165,8 +172,10 @@ enum KeyLegend {
 /// rim and its darkest for its side, and the letter in whichever ink reads
 /// on it. Resting, a quiet cap; in clay, the pictures' pale keycap.
 /// Pressed, its side falls to a point and the face follows it down, at
-/// once. Quiet, it lies flat: no side and no fill, a hairline and the quiet
-/// ink. Depth carries the importance, never a fade.
+/// once. Quiet, it is a resting key left unfilled: the same face on the same
+/// side, the face outlined by a hairline and the side a band in the
+/// hairline's tone, the letter in the quiet ink. Depth carries the
+/// importance, never a fade.
 final class Key: NSView, CeramicDepth {
     let size: KeySize
     /// What the key says, as typed: `e`, `⌘K`, `esc`, `⏎`.
@@ -211,7 +220,7 @@ final class Key: NSView, CeramicDepth {
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityLabel(KeyLegend.spoken(legend))
-        frame.size.width = intrinsicContentSize.width
+        frame.size.width = width
         refresh()
     }
 
@@ -227,7 +236,7 @@ final class Key: NSView, CeramicDepth {
         set { if newValue { if state != .lit { state = .quiet } } else if state == .quiet { state = .resting } }
     }
 
-    var depth: Ceramic.Depth { state == .quiet ? .flat : .standsUp(side: standing.side) }
+    var depth: Ceramic.Depth { state == .quiet ? .outlined(side: standing.side) : .standsUp(side: standing.side) }
     var drawnSide: CGFloat { standing.visibleSide }
 
     /// A key's width for a legend, in the look the Mac is in.
@@ -240,7 +249,12 @@ final class Key: NSView, CeramicDepth {
         KeyLegend.width(of: legend, size: size, night: BarTheme.isNight(effectiveAppearance))
     }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: width, height: size.height) }
+    /// Layout sees the face: the side hangs beneath it (`KeySize.hang`), so the
+    /// frame is `size.height` tall and the intrinsic size is the face's.
+    override var alignmentRectInsets: NSEdgeInsets { size.hang }
+    override var intrinsicContentSize: NSSize { NSSize(width: width, height: size.faceHeight) }
+    /// The frame a key is placed in by hand: the face and the side beneath it.
+    var frameSize: NSSize { NSSize(width: width, height: size.height) }
 
     /// Where the legend is drawn, on the key's own coordinates, for the tests.
     var placement: KeyLegend.Placement {
@@ -253,7 +267,7 @@ final class Key: NSView, CeramicDepth {
     var legendFont: NSFont { placement.font }
 
     /// The face as it is drawn now: the whole of a standing key's, and a
-    /// quiet key's hairline outline.
+    /// quiet key's hairline outline, the same 21 points.
     var face: CGRect { standing.faceFrame }
 
     /// The legend's colour as it is drawn now.
@@ -296,14 +310,16 @@ final class Key: NSView, CeramicDepth {
     }
 
     func refresh() {
-        let flat = state == .quiet
-        standing.flat = flat
+        let outlined = state == .quiet
+        standing.outlined = outlined
         standing.pressed = state == .pressed || pointer == .pressed
-        if flat {
-            // Shown, not pressable: no side, no face; the pane shows. Over
+        if outlined {
+            // Shown, not pressable: the resting key left unfilled. The face is
+            // a hairline and the side a band in the hairline's tone, so it is
+            // the shape of its neighbours; the pane shows through. Over
             // another app's window the pane's own step stands behind it, or
             // the content would run through the letter.
-            standing.paint(in: self, face: overContent ? BarTheme.paneFill : nil, side: nil, rim: nil,
+            standing.paint(in: self, face: overContent ? BarTheme.paneFill : nil, side: BarTheme.hairline, rim: nil,
                            edge: BarTheme.hairline)
             legendView.color = BarTheme.secondaryColor
         } else {
@@ -386,6 +402,7 @@ private final class KeyLegendView: NSView {
 /// stand 8 apart, each a group of its own.
 final class KeyStrokes: NSStackView {
     private(set) var caps: [Key] = []
+    private let size: KeySize
 
     /// One sequence.
     convenience init(_ legends: [String], double: Bool = false, lit: Bool = false, quiet: Bool = false,
@@ -396,6 +413,7 @@ final class KeyStrokes: NSStackView {
     /// Sequences, 8 apart from each other; `double` taps the last key twice.
     init(groups: [[String]], double: Bool = false, lit: Bool = false, quiet: Bool = false,
          size: KeySize = .standard, overContent: Bool = false) {
+        self.size = size
         super.init(frame: .zero)
         orientation = .horizontal
         alignment = .centerY
@@ -421,6 +439,9 @@ final class KeyStrokes: NSStackView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// Aligned by its face, as every key in it is.
+    override var alignmentRectInsets: NSEdgeInsets { size.hang }
 
     var lit: Bool {
         get { caps.allSatisfy { $0.state == .lit } }
@@ -463,7 +484,9 @@ final class KeyTimes: NSView {
             NSAttributedString(string: Self.text, attributes: [.font: font])), nil).maxX)
     }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: width, height: size.height) }
+    /// As tall as the key it follows, aligned by its face as the key is.
+    override var alignmentRectInsets: NSEdgeInsets { size.hang }
+    override var intrinsicContentSize: NSSize { NSSize(width: width, height: size.faceHeight) }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -542,7 +565,7 @@ enum KeyMark {
         var x: CGFloat = 0
         for key in keys {
             key.translatesAutoresizingMaskIntoConstraints = true
-            key.frame = NSRect(x: x, y: 0, width: key.width, height: key.size.height)
+            key.frame = NSRect(origin: NSPoint(x: x, y: 0), size: key.frameSize)
             group.addSubview(key)
             x += key.frame.width + Grid.tight
         }

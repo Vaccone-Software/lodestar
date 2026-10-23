@@ -201,12 +201,20 @@ final class MaterialTests: XCTestCase {
                             if abs(depth.drawnSide - side) > 0.01 { wrong.append("\(name): a \(kind) draws \(depth.drawnSide) of \(side)") }
                         case (.sinks, .sinks), (.flat, .flat):
                             if depth.drawnSide != 0 { wrong.append("\(name): a \(kind) has a side of \(depth.drawnSide)") }
+                        case (.outlined, .outlined(let side)):
+                            // A quiet key is not pressable, so it does not stand up, but it is
+                            // the shape of a key that does: its side is drawn in full, in the
+                            // hairline's tone (the key tests hold the tone).
+                            if abs(depth.drawnSide - side) > 0.01 { wrong.append("\(name): a \(kind) draws \(depth.drawnSide) of \(side)") }
+                            if side < Ceramic.Side.control - 0.01 || side > Ceramic.Side.large + 0.01 {
+                                wrong.append("\(name): a \(kind) shows a side of \(side)")
+                            }
                         default:
                             wrong.append("\(name): a \(kind) is \(depth.depth), not \(role)")
                         }
                     }
                     if let key = view as? Key {
-                        if key.quiet && !key.lit { counts["quiet keys", default: 0] += 1; expect(.flat, as: "quiet key") }
+                        if key.quiet && !key.lit { counts["quiet keys", default: 0] += 1; expect(.outlined(side: 0), as: "quiet key") }
                         else { counts["keys", default: 0] += 1; expect(.standsUp(side: 0), as: "key") }
                     } else if view is RoomButton {
                         counts["buttons", default: 0] += 1
@@ -311,14 +319,20 @@ final class MaterialTests: XCTestCase {
         XCTAssertEqual(Ceramic.Side.row, 4, "4 at a row's size")
     }
 
-    func testAQuietKeyLiesFlatWithAHairline() {
+    /// A quiet key cannot be pressed, so it does not stand up (material,
+    /// rule 3): its face has no fill and its side is not the side colour. It
+    /// is still the shape of the key beside it, so the depth sweep calls it
+    /// `outlined`: a side of the key's own height, drawn in the hairline's tone.
+    func testAQuietKeyIsAKeyLeftUnfilledAndNotOneThatStandsUp() {
         GalleryLook.day.apply()
         let key = Key("a")
         key.quiet = true
-        XCTAssertEqual(key.depth, .flat)
-        XCTAssertEqual(key.drawnSide, 0, "no side, and no well beneath it")
+        XCTAssertEqual(key.depth, .outlined(side: Ceramic.Side.control))
+        XCTAssertEqual(key.drawnSide, Ceramic.Side.control, "the resting key's 3 points")
         XCTAssertNil(key.standing.faceColor.flatMap { $0.alpha > 0 ? $0 : nil }, "no fill of its own: the pane shows")
         XCTAssertNotNil(key.standing.edgeColor, "a hairline")
+        XCTAssertEqual(key.standing.sideColor, Ceramic.resolved(BarTheme.hairline, in: key), "the hairline's tone")
+        XCTAssertNotEqual(key.standing.sideColor, Key("a").standing.sideColor, "not the side colour a pressable key stands on")
     }
 
     func testTheSidesAreTheContractsAndTheKnobStandsOnOne() {

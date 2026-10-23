@@ -49,6 +49,10 @@ extension Ceramic {
         case standsUp(side: CGFloat)
         case sinks
         case flat
+        /// A thing that is the shape of one that stands up, left unfilled,
+        /// and cannot be pressed: the quiet key. Its face is an outline and
+        /// its side a band in the hairline's tone, never the side colour.
+        case outlined(side: CGFloat)
     }
 }
 
@@ -717,6 +721,9 @@ final class Standing {
     /// The side at rest, by size.
     let rest: CGFloat
     private let sideLayer = CALayer()
+    /// The side of an outlined thing: the band beneath its face and nothing
+    /// under the face itself, since the face has no fill to hide it.
+    private let sideBand = CAShapeLayer()
     private let faceLayer = CALayer()
     private let rim = CAShapeLayer()
     private let edge = CAShapeLayer()
@@ -727,7 +734,7 @@ final class Standing {
     /// A row not chosen draws nothing: no face, no side, no rim.
     var hidden = false {
         didSet {
-            for layer in [sideLayer, faceLayer, rim, edge] { layer.isHidden = hidden }
+            for layer in [sideLayer, sideBand, faceLayer, rim, edge] { layer.isHidden = hidden }
             if !hidden { layout() }
         }
     }
@@ -738,10 +745,12 @@ final class Standing {
     /// it is chosen.
     var edgeWidth = Ceramic.Edge.line { didSet { if edgeWidth != oldValue { layout() } } }
 
-    /// A thing lying flat shows no side and is never pressed: its face stands
-    /// where the resting face stands, so what is drawn on it keeps its place
-    /// beside a key that does stand.
-    var flat = false { didSet { if flat != oldValue { layout() } } }
+    /// An outlined thing is the shape of one that stands, left unfilled (the
+    /// quiet key): the same face on the same side, but the face is only a
+    /// hairline and the side a band beneath it in a hairline's tone, and it is
+    /// never pressed. What is drawn on it keeps its place beside a key that
+    /// does stand.
+    var outlined = false { didSet { if outlined != oldValue { layout() } } }
 
     /// A control that draws its own words in its own layer (a button, a
     /// popup) paints its face and side in its draw pass beneath them, since
@@ -763,18 +772,19 @@ final class Standing {
     func install(in layer: CALayer) {
         if !drawsBody {
             layer.insertSublayer(sideLayer, at: 0)
-            layer.insertSublayer(faceLayer, at: 1)
+            layer.insertSublayer(sideBand, at: 1)
+            layer.insertSublayer(faceLayer, at: 2)
         }
         layer.addSublayer(rim)
         layer.addSublayer(edge)
     }
 
     /// The side showing now.
-    var side: CGFloat { flat ? 0 : faceRise }
+    var side: CGFloat { faceRise }
 
     /// How far the face's lower edge stands above the frame's: the rest of
     /// the side, or what is left of it pressed.
-    private var faceRise: CGFloat { pressed && !flat ? Ceramic.Side.pressed : rest }
+    private var faceRise: CGFloat { pressed && !outlined ? Ceramic.Side.pressed : rest }
 
     /// How far the face's middle is above the frame's middle: what a label
     /// on the face moves by to stay on it.
@@ -786,7 +796,7 @@ final class Standing {
     }
 
     /// The part of the side that shows beneath the face.
-    var visibleSide: CGFloat { flat || hidden ? 0 : faceFrame.minY - bounds.minY }
+    var visibleSide: CGFloat { hidden ? 0 : faceFrame.minY - bounds.minY }
 
     /// Lay the face and its side on a shape of `radius` filling `bounds`.
     /// `flipped` for a host whose layer counts from the top.
@@ -808,10 +818,22 @@ final class Standing {
         }
         faceLayer.frame = place(face)
         faceLayer.cornerRadius = faceRadius
-        let band = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: flat ? 0 : max(0, bounds.height - rest))
+        let band = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: max(0, bounds.height - rest))
         sideLayer.frame = place(band)
         sideLayer.cornerRadius = BarTheme.radius(radius, height: band.height)
-        sideLayer.isHidden = flat || hidden
+        sideLayer.isHidden = outlined || hidden
+        // The unfilled side is what the band shows beneath the face: the
+        // band's shape less the face's, a crescent along the foot.
+        sideBand.isHidden = !outlined || hidden
+        if outlined {
+            let bandRadius = BarTheme.radius(radius, height: band.height)
+            let whole = place(band).union(faceLayer.frame)
+            sideBand.frame = whole
+            var origin = CGAffineTransform(translationX: -whole.minX, y: -whole.minY)
+            let under = CGPath(roundedRect: place(band), cornerWidth: bandRadius, cornerHeight: bandRadius, transform: &origin)
+            let over = CGPath(roundedRect: faceLayer.frame, cornerWidth: faceRadius, cornerHeight: faceRadius, transform: &origin)
+            sideBand.path = under.subtracting(over)
+        }
         for layer in [rim, edge] { layer.frame = faceLayer.frame }
         let local = CGRect(origin: .zero, size: face.size)
         let line = edgeWidth
@@ -832,6 +854,7 @@ final class Standing {
         sideSource = side
         faceLayer.backgroundColor = face.map { Ceramic.resolved($0, in: view) }
         sideLayer.backgroundColor = side.map { Ceramic.resolved($0, in: view) }
+        sideBand.fillColor = side.map { Ceramic.resolved($0, in: view) }
         self.rim.fillColor = rim.map { Ceramic.resolved($0, in: view) }
         self.edge.strokeColor = edge.map { Ceramic.resolved($0, in: view) }
         CATransaction.commit()
@@ -844,7 +867,7 @@ final class Standing {
         func place(_ rect: CGRect) -> CGRect {
             flipped ? CGRect(x: rect.minX, y: bounds.height - rect.maxY, width: rect.width, height: rect.height) : rect
         }
-        if !flat, let sideSource {
+        if !outlined, let sideSource {
             let band = place(CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width,
                                     height: max(0, bounds.height - rest)))
             let r = BarTheme.radius(radius, height: band.height)
@@ -860,7 +883,7 @@ final class Standing {
 
     /// What is drawn, for the tests.
     var faceColor: CGColor? { faceLayer.backgroundColor }
-    var sideColor: CGColor? { flat ? nil : sideLayer.backgroundColor }
+    var sideColor: CGColor? { outlined ? sideBand.fillColor : sideLayer.backgroundColor }
     var rimColor: CGColor? { rim.fillColor }
     var edgeColor: CGColor? { edge.strokeColor }
 }

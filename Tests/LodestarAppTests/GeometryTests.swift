@@ -222,6 +222,14 @@ final class GeometryTests: XCTestCase {
     /// The frame of `view` in `root`'s coordinates.
     private func frame(of view: NSView, in root: NSView) -> NSRect { view.convert(view.bounds, to: root) }
 
+    /// Where a part stands on a line: the centre of its frame, and of a key's
+    /// face, since words beside a key align to the face and not to its side.
+    private func lineCentre(of view: NSView, in root: NSView) -> CGFloat {
+        let frame = frame(of: view, in: root)
+        let hang = view.alignmentRectInsets.bottom
+        return root.isFlipped ? frame.midY - hang / 2 : frame.midY + hang / 2
+    }
+
     private func walk(_ view: NSView, _ visit: (NSView) -> Void) {
         visit(view)
         for sub in view.subviews { walk(sub, visit) }
@@ -317,7 +325,7 @@ final class GeometryTests: XCTestCase {
                         for part in line.subviews where part.superview === line && !(part is NSStackView && part.subviews.contains { $0 === title.superview }) {
                             guard !part.isHidden else { continue }
                             let first = (part as? NSStackView)?.arrangedSubviews.first ?? part
-                            let mid = frame(of: first, in: root).midY
+                            let mid = lineCentre(of: first, in: root)
                             if abs(mid - centre) > 0.5 {
                                 rows.append("\(name): \(type(of: part)) \(mid) is off the title's \(centre)")
                             }
@@ -332,7 +340,7 @@ final class GeometryTests: XCTestCase {
                         walk(view) { part in
                             guard !part.isHidden, part is Key || (part is NSImageView && !(part.superview is NSTextField)) else { return }
                             if part is NSImageView, part.superview?.superview is Key { return }
-                            let mid = frame(of: part, in: root).midY
+                            let mid = lineCentre(of: part, in: root)
                             if abs(mid - centre) > 0.5 {
                                 rows.append("\(name): \(type(of: part)) \(mid) is off the title's \(centre)")
                             }

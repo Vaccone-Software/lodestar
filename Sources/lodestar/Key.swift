@@ -42,12 +42,12 @@ enum KeyState: Equatable {
 enum KeyLegend {
     /// What a legend is centred on, vertically.
     enum Band: Equatable {
-        /// No capitals, digits or symbols: the x-height band.
+        /// No capitals, digits, symbols or punctuation: the x-height band.
         case xHeight
-        /// Anything else: the cap-height band.
+        /// Anything else, punctuation alone included: the cap-height band of
+        /// the legend's own font, so a `,` and a `.` sit low, a `'` high and a
+        /// `-` in the middle, as on a real keycap.
         case capHeight
-        /// Punctuation alone: its own ink, because at the letters' size it is a speck.
-        case ink
     }
 
     /// Punctuation alone on a key (`'`, `` ` ``, `;`, `/`, `.`): ASCII, no
@@ -57,12 +57,10 @@ enum KeyLegend {
     }
 
     static func band(of legend: String) -> Band {
-        if isPunctuation(legend) { return .ink }
-        return !legend.isEmpty && legend.allSatisfy({ $0.isLetter && $0.isLowercase }) ? .xHeight : .capHeight
+        !isPunctuation(legend) && !legend.isEmpty && legend.allSatisfy({ $0.isLetter && $0.isLowercase })
+            ? .xHeight : .capHeight
     }
 
-    /// The legend as a line of CoreText, in the colour the context holds
-    /// when it is drawn (without the attribute CoreText draws in black).
     private static func line(_ legend: String, font: NSFont) -> CTLine {
         CTLineCreateWithAttributedString(NSAttributedString(string: legend, attributes: [
             .font: font, NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
@@ -72,8 +70,7 @@ enum KeyLegend {
     private static func ink(_ line: CTLine) -> CGRect { CTLineGetImageBounds(line, nil) }
 
     /// The font a legend is drawn in: the key's role in the look, and for a
-    /// punctuation legend the size on the type scale whose ink comes
-    /// nearest the role's cap height, so a tick or a dot is seen.
+    /// punctuation legend the title step of the type scale (18).
     static func font(for legend: String, size: KeySize, night: Bool) -> NSFont {
         measure(legend, size: size, night: night).font
     }
@@ -92,20 +89,11 @@ enum KeyLegend {
         lock.lock()
         if let hit = cache[id] { lock.unlock(); return hit }
         lock.unlock()
-        let base = size.role.font(night: night)
-        var font = base
-        if isPunctuation(legend) {
-            let weight = size.role.weight(night: night)
-            let candidates = [BarTheme.Scale.meta, BarTheme.Scale.body, BarTheme.Scale.title, BarTheme.Scale.input]
-                .filter { $0 >= base.pointSize }
-            let target = base.capHeight
-            var best = (distance: CGFloat.greatestFiniteMagnitude, font: base)
-            for points in candidates {
-                let candidate = points == base.pointSize ? base : NSFont.systemFont(ofSize: points, weight: weight)
-                let distance = abs(ink(line(legend, font: candidate)).height - target)
-                if distance < best.distance { best = (distance, candidate) }
-            }
-            font = best.font
+        var font = size.role.font(night: night)
+        // At the letters' size punctuation is a speck: it stands at the
+        // title step of the type scale, semibold like every key.
+        if isPunctuation(legend), size == .standard {
+            font = NSFont.systemFont(ofSize: BarTheme.Scale.title, weight: size.role.weight(night: night))
         }
         let made = Measure(font: font, ink: ink(line(legend, font: font)))
         lock.lock()
@@ -134,8 +122,7 @@ enum KeyLegend {
     }
 
     /// Centred on `face` across by its ink, and up and down by its band:
-    /// the x-height or cap-height band from the font's metrics, or the
-    /// ink itself for punctuation. Descenders never move it, so a row of
+    /// the x-height or cap-height band from the font's metrics. Descenders never move it, so a row of
     /// keys shares a baseline. `scale` is the pixels to a point, so the
     /// baseline stands on a pixel and the letters stay crisp.
     static func place(_ legend: String, size: KeySize, night: Bool, in face: CGRect,
@@ -145,18 +132,10 @@ enum KeyLegend {
         let ink = ink(line)
         func snap(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
         let x = snap(face.midX - ink.midX)
-        let y: CGFloat
-        let range: ClosedRange<CGFloat>
         let kind = band(of: legend)
-        switch kind {
-        case .ink:
-            y = snap(face.midY - ink.midY)
-            range = (y + ink.minY)...(y + ink.maxY)
-        case .xHeight, .capHeight:
-            let height = kind == .xHeight ? font.xHeight : font.capHeight
-            y = snap(face.midY - height / 2)
-            range = y...(y + height)
-        }
+        let height = kind == .xHeight ? font.xHeight : font.capHeight
+        let y = snap(face.midY - height / 2)
+        let range = y...(y + height)
         return Placement(font: font, line: line, origin: CGPoint(x: x, y: y), band: range,
                          ink: ink.offsetBy(dx: x, dy: y))
     }

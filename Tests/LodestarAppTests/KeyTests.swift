@@ -74,7 +74,7 @@ final class KeyTests: XCTestCase {
     /// Letters and digits are drawn with their own ink, so the rendered ink
     /// is their band: the x-height for a lowercase letter, the cap height
     /// for a capital or a digit.
-    private static let inkIsTheBand: Set<String> = ["a", "e", "s", "A", "1", "'", ";"]
+    private static let inkIsTheBand: Set<String> = ["a", "e", "s", "A", "1"]
 
     func testALegendIsCentredOnTheFaceInEveryStateAndLook() {
         var wrong: [String] = []
@@ -98,7 +98,7 @@ final class KeyTests: XCTestCase {
                     }
                     // A glyph is drawn within its band, give or take what a
                     // symbol's own design adds.
-                    if drawn.ink.minY < band.lowerBound - 2 && !["g", "y"].contains(legend)
+                    if drawn.ink.minY < band.lowerBound - 2 && !["g", "y", ";"].contains(legend)
                         || drawn.ink.maxY > band.upperBound + 2 {
                         wrong.append("\(name): ink \(drawn.ink.minY)…\(drawn.ink.maxY) leaves its band \(band)")
                     }
@@ -201,22 +201,23 @@ final class KeyTests: XCTestCase {
 
     // MARK: - Punctuation
 
-    func testPunctuationAloneIsDrawnLargerAndCentredByItsInk() {
+    func testPunctuationAloneIsDrawnAtTheTitleStepAndStandsOnTheCapBandLikeOnARealKeycap() {
         for look in GalleryLook.all {
-            let letter = Self.draw("e", state: .resting, look: look)
-            for mark in ["'", "`", ";", "/", "."] {
-                let drawn = Self.draw(mark, state: .resting, look: look)
-                XCTAssertEqual(drawn.ink.midX, drawn.face.midX, accuracy: 0.5, "\(mark) \(look.name) across")
-                XCTAssertEqual(drawn.ink.midY, drawn.face.midY, accuracy: 0.5, "\(mark) \(look.name) up and down")
-                XCTAssertGreaterThan(drawn.key.legendFont.pointSize, BarTheme.Scale.meta - 0.01, "\(mark)")
+            let ink = { (mark: String) in Self.draw(mark, state: .resting, look: look) }
+            let comma = ink(","), period = ink("."), tick = ink("'"), backtick = ink("`"), dash = ink("-")
+            for drawn in [comma, period, tick, backtick, dash, ink(";"), ink("/"), ink("=")] {
+                let mark = drawn.key.legend
+                XCTAssertEqual(drawn.key.legendFont.pointSize, BarTheme.Scale.title, "\(mark) \(look.name): the title step")
+                XCTAssertEqual(drawn.ink.midX, drawn.face.midX, accuracy: 0.5, "\(mark) \(look.name): across, by its ink")
+                let band = drawn.key.placement.band
+                XCTAssertEqual((band.lowerBound + band.upperBound) / 2, drawn.face.midY, accuracy: 0.5, "\(mark) \(look.name): the cap band is centred on the face")
             }
-            // A tick is drawn large enough to see: its ink is a good share of the face's cap height.
-            let capHeight = BarTheme.Role.key.font(night: look == .night).capHeight
-            for mark in ["'", "`"] {
-                let tick = Self.draw(mark, state: .resting, look: look)
-                XCTAssertGreaterThan(tick.ink.height, capHeight * 0.4, "\(mark) \(look.name): \(tick.ink.height) of \(capHeight)")
-                XCTAssertGreaterThan(tick.key.legendFont.pointSize, letter.key.legendFont.pointSize, "\(mark) is larger than a letter")
-            }
+            XCTAssertLessThan(comma.ink.midY, comma.face.midY - 1, "\(look.name): a comma sits low")
+            XCTAssertLessThan(period.ink.midY, period.face.midY - 1, "\(look.name): a period sits low")
+            XCTAssertGreaterThan(tick.ink.midY, tick.face.midY + 1, "\(look.name): an apostrophe sits high")
+            XCTAssertGreaterThan(backtick.ink.midY, backtick.face.midY + 1, "\(look.name): a backtick sits high")
+            XCTAssertGreaterThanOrEqual(tick.ink.midY - comma.ink.midY, 3, "\(look.name): an apostrophe and a comma are told apart")
+            XCTAssertEqual(dash.ink.midY, dash.face.midY, accuracy: 3, "\(look.name): a dash sits near the middle")
         }
     }
 
@@ -230,7 +231,7 @@ final class KeyTests: XCTestCase {
         XCTAssertEqual(KeyLegend.band(of: "⏎"), .capHeight)
         XCTAssertEqual(KeyLegend.band(of: "⌘K"), .capHeight)
         XCTAssertEqual(KeyLegend.band(of: "⇧"), .capHeight)
-        for mark in ["'", "`", ";", "/", ".", ",", "-", "="] { XCTAssertEqual(KeyLegend.band(of: mark), .ink, mark) }
+        for mark in ["'", "`", ";", "/", ".", ",", "-", "="] { XCTAssertEqual(KeyLegend.band(of: mark), .capHeight, mark) }
     }
 
     // MARK: - States

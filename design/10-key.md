@@ -28,8 +28,8 @@ A key is as wide as its legend plus 8 at each side (a grid step), and never narr
 
 - **Centred on the face,** not the whole key: the side is below the face and is not part of where the legend sits.
 - **One band per key, ignoring descenders.** A legend with no capitals, digits or symbols is centred on its x-height band; any other legend on its cap-height band. A `g`, `j`, `p` or `y` never moves its key's legend; a row of keys shares one baseline.
-- **Punctuation** alone on a key (`'`, `` ` ``, `;`, `/`, `.`) is drawn larger, its ink about the face's cap height, and centred by its ink, because at the letters' size it is a speck.
-- **Across,** a legend is centred by its ink.
+- **Punctuation** alone on a key (`'`, `` ` ``, `;`, `/`, `.`, `,`) is drawn larger, at the title step of the type scale (18, semibold), because at the letters' size it is a speck. It stands on the cap-height band of its own font like any other legend that is not lowercase, so a `,` and a `.` sit low, a `'` and a `` ` `` high and a `-` in the middle, as on a real keycap; it is never centred by its ink up and down, which made every mark a floating blob.
+- **Across,** a legend is centred by its ink (punctuation too).
 
 ### What a key says
 
@@ -80,7 +80,7 @@ Measured by rendering every legend in every state and both looks and reading the
 
 - `a g y e s A ⏎ ⇧ 1 esc ⌘K ' ;` are centred across the face within 0.5 pt and their band (x-height or cap height) is centred on the face within 0.5 pt; lowercase legends share a baseline within 0.5 pt whatever their descenders, in all four states and both looks.
 - A key is `ceil(ink) + 16` wide, square (24) at the least; `a`, `i`, `l`, `1`, `'` are all 24, `esc` 38, `⌘K` 36, `lode` 42 (day).
-- Punctuation is drawn at the step of the type scale whose ink comes nearest the key's cap height (9.2), and centred by its ink: `'` `` ` `` `.` `,` `-` `=` at 23 (6.3, 3.8, 3.4, 6.2, 2.5 and 8.3 points of ink), `;` and `/` stay at 13 (9.0 and 11.9). Ink about the cap height for a tick would mean a 35-point glyph and a nine-point dot, so the type scale's top step is the limit; the render is the judge.
+- Punctuation is drawn at 18 semibold on the cap band: a `,` and a `.` have their ink centre below the face's centre, a `'` and a `` ` `` above it, a `'` and a `,` at least 3 pt apart, and every mark is centred across by its ink and its band on the face within 0.5 pt, in both looks.
 - The large key's figure is centred on its face (`7`, `3`, `10`) within 0.5 pt.
 - Every key on every gallery surface, in both looks, is as wide as its legend needs and no wider, spaces no letters, and has no identical `lode` beside it.
 

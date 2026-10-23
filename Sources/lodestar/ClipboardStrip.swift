@@ -1616,7 +1616,10 @@ final class SheetView: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         cast.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        CATransaction.commit()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1626,7 +1629,10 @@ final class SheetView: NSView {
 
     private func tint() {
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         cast.shadowColor = Ceramic.resolved(BarTheme.shadowInk, in: self)
         cast.shadowOpacity = dark ? 0.42 : 0.16
+        CATransaction.commit()
     }
 }

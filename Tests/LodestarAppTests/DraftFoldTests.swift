@@ -185,21 +185,20 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertFalse(panel.takesPointer)
     }
 
-    /// The fold moves quickly and ends exactly where the layout said.
-    func testAFoldSettlesWhereTheLayoutSaid() {
+    /// The fold is instant: the window is where the layout said the moment
+    /// `show` returns, with no motion to wait for (design/05-motion.md).
+    func testAFoldIsInstantAndEndsWhereTheLayoutSaid() {
         panel.show(view(long, ghost: "spoken"))
+        let folded = panel.frame
         var open = view(long, editor: .normal)
         open.expanded = true
         panel.show(open)
-        let goal = panel.frame
-        // Settles, rather than settles by a clock: a cold first run after
-        // a build can stall the main thread past any fixed wait.
-        let deadline = Date().addingTimeInterval(3)
-        while SoftShadow.inset(panel.panel.frame) != goal, Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-        XCTAssertEqual(SoftShadow.inset(panel.panel.frame), goal)
-        XCTAssertLessThanOrEqual(DraftPanel.foldSeconds, 0.12, "sudden, not a glide")
+        XCTAssertEqual(SoftShadow.inset(panel.panel.frame), panel.frame, "open, at once")
+        XCTAssertGreaterThan(panel.frame.height, folded.height)
+        XCTAssertEqual(MotionTests.animations(in: panel.panel.contentView), [], "and nothing is left running")
+        panel.show(view(long, ghost: "spoken"))
+        XCTAssertEqual(SoftShadow.inset(panel.panel.frame), panel.frame, "shut, at once")
+        XCTAssertEqual(panel.frame.height, folded.height, accuracy: 0.5)
     }
 
     /// The input menu is drawn: the foot names the microphone, the card
@@ -261,24 +260,17 @@ final class DraftFoldTests: XCTestCase {
     }
 
     /// After `zo` then `zc` the glass shows the last lines again, not the
-    /// first: the scroll is laid out where the motion left the glass.
+    /// first: the scroll is laid out for the glass as it now stands.
     func testFoldingBackShowsTheLastLines() {
         var open = view(long)
         open.expanded = true
         panel.show(view(long, ghost: "x"))
         panel.show(open)
-        settleMotion()
         panel.show(view(long))
-        settleMotion()
         let clip = panel.textView.enclosingScrollView!.contentView
         XCTAssertGreaterThan(clip.bounds.minY, 0, "scrolled to the end, not the top")
         XCTAssertEqual(visibleLines().cut, 0)
         XCTAssertTrue(lineOfCaretIsVisible())
-    }
-
-    private func settleMotion() {
-        let deadline = Date().addingTimeInterval(DraftPanel.foldSeconds + 0.4)
-        while Date() < deadline { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
     }
 
     /// Speaking over a selection is the microphone writing, so the light

@@ -196,12 +196,12 @@ final class ModePill {
     // MARK: - The keys
 
     /// The lens's keys, above the row, in the pill's own glass. The row
-    /// never moves: the glass grows around it, upward and outward, and
-    /// the keys fade in above.
+    /// never moves: the glass takes room for the keys at once, upward and
+    /// outward, and the keys are there with it.
     private var keys: NSView?
     /// The edges that ask the glass to be big enough for the keys. Taken
     /// off before the glass shrinks, or the departing keys would still
-    /// hold it wide while they fade.
+    /// hold it wide.
     private var keyEdges: [NSLayoutConstraint] = []
     var keysShown: Bool { keys != nil }
 
@@ -213,15 +213,14 @@ final class ModePill {
         guard panel.isVisible, let content else { return }
         keys?.removeFromSuperview()
         let columns = CheatSheet.columns(sections)
-        columns.alphaValue = 0
         root.addSubview(columns)
         // Laid out once at their own width, centred on the row and standing
-        // on it, so the glass reveals them as it grows and nothing inside
-        // it moves or reflows. The edges that ask the glass to be big
+        // on it, so nothing inside the glass moves or reflows when it
+        // takes its new size. The edges that ask the glass to be big
         // enough sit below the window-size threshold: above it AppKit
-        // would size the window to them at once, ahead of the motion, and
-        // the row would sit off centre until the glass caught up. They
-        // still decide the fitting size the motion grows toward.
+        // would size the window to them itself, ahead of the placement,
+        // and the row would sit off centre. They still decide the
+        // fitting size the placement takes.
         let width = columns.fittingSize.width
         let edges = [
             columns.topAnchor.constraint(equalTo: root.topAnchor, constant: Self.inset),
@@ -236,9 +235,9 @@ final class ModePill {
             columns.bottomAnchor.constraint(equalTo: content.topAnchor, constant: -Self.wingGap),
         ])
         keys = columns
-        // The glass moves while it grows; that is placement, not a drag.
+        // The glass moves to its end frame; that is placement, not a drag.
         placing = true
-        KeysMotion.grow(panel, to: SoftShadow.outset(frameForContent()), revealing: columns) { [weak self] in self?.placing = false }
+        KeysSheet.open(panel, to: SoftShadow.outset(frameForContent())) { [weak self] in self?.placing = false }
     }
 
     func hideKeys() {
@@ -247,7 +246,7 @@ final class ModePill {
         NSLayoutConstraint.deactivate(keyEdges)
         keyEdges = []
         placing = true
-        KeysMotion.shrink(panel, to: SoftShadow.outset(frameForContent()), hiding: going) { [weak self] in self?.placing = false }
+        KeysSheet.close(panel, to: SoftShadow.outset(frameForContent()), removing: going) { [weak self] in self?.placing = false }
     }
 
     // MARK: - Construction

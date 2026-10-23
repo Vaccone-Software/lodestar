@@ -327,15 +327,15 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(missing, [], "host the surface on SoftShadow")
     }
 
-    /// One curve for everything that moves: `BarTheme.motion`. Three
+    /// One curve for everything that moves: `Motion.curve`. Three
     /// curves chosen surface by surface made the app move like three
     /// materials.
     func testEverythingMovesOnOneCurve() throws {
         let offenders = try sources()
-            .filter { $0.text.contains("CAMediaTimingFunction(") && !($0.name == "Ceramic.swift"
+            .filter { $0.text.contains("CAMediaTimingFunction(") && !($0.name == "Motion.swift"
                 && $0.text.components(separatedBy: "CAMediaTimingFunction(").count == 2) }
             .map(\.name)
-        XCTAssertEqual(offenders, [], "use BarTheme.motion")
+        XCTAssertEqual(offenders, [], "use Motion.curve")
     }
 
     /// Grey matter is a well or a hairline (`BarTheme.well`,
@@ -402,14 +402,6 @@ final class DesignDriftTests: XCTestCase {
             .filter { $0.text.contains(".systemRed") }
             .map(\.name)
         XCTAssertEqual(offenders, [], "no alarm colour: say it in words, set it apart by place")
-    }
-
-    /// Motion is sudden: a surface changing its own shape (the draft
-    /// folding or opening) moves in a tenth of a second, and not at all
-    /// under Reduce Motion. Only a new band arriving, the keys, glides.
-    func testASurfaceChangesShapeSuddenly() {
-        XCTAssertLessThanOrEqual(DraftPanel.foldSeconds, 0.12)
-        XCTAssertLessThan(DraftPanel.foldSeconds, KeysMotion.growSeconds)
     }
 
     // MARK: - One key, keys drawn, labels as names

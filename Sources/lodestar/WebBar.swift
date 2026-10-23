@@ -170,14 +170,14 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     func showKeys(_ sections: [CheatSheet.Section]) {
         guard panel.isVisible else { return }
-        let view = keys.show(sections)
+        keys.show(sections)
         root.layoutSubtreeIfNeeded()
-        KeysMotion.grow(panel, to: SoftShadow.outset(barFrame()), revealing: view)
+        KeysSheet.open(panel, to: SoftShadow.outset(barFrame()))
     }
 
     func hideKeys() {
         guard let view = keys.hide() else { return }
-        KeysMotion.shrink(panel, to: SoftShadow.outset(barFrame()), hiding: view)
+        KeysSheet.close(panel, to: SoftShadow.outset(barFrame()), removing: view)
     }
 
     func toggle() {

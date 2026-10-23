@@ -84,9 +84,6 @@ final class VoiceLight: NSView {
     /// What a silent room still shows, so a listening draft is never
     /// mistaken for a closed one.
     static let floor: CGFloat = 0.22
-    /// How long a falling level takes to come down. A rising one arrives
-    /// on the next frame: the voice leads, the light follows.
-    static let release: CFTimeInterval = 0.35
     static let lineWidth: CGFloat = 2
     private(set) var length: CGFloat = 0
 
@@ -116,8 +113,11 @@ final class VoiceLight: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         stroke.frame = bounds
         stroke.path = Self.edge(in: bounds)
+        CATransaction.commit()
     }
 
     /// The top of the outline, from partway down the left corner, across,
@@ -177,23 +177,42 @@ final class VoiceLight: NSView {
             paint(BarTheme.readableAccent)
             // Reduce Motion holds the light still at its whole length:
             // it still says listening, and nothing moves.
-            target = Accessibility.reduceMotion()
+            target = Motion.reduced
                 ? 1 : Self.floor + (1 - Self.floor) * CGFloat(max(0, min(1, level)))
             setAccessibilityValue("listening")
         }
         guard target != length else { return }
         let falling = target < length
         length = target
+        // The end length is set first, at once; a level that is falling
+        // is then drawn coming down to it over `Motion.meterFall`, on the
+        // one curve. A level rising arrives on the next frame: the voice
+        // leads, the light follows. Dropped, the motion leaves nothing
+        // wrong.
+        let from = (start: stroke.presentation()?.strokeStart ?? stroke.strokeStart,
+                    end: stroke.presentation()?.strokeEnd ?? stroke.strokeEnd)
         CATransaction.begin()
-        if falling, target > 0, !Accessibility.reduceMotion() {
-            CATransaction.setAnimationDuration(Self.release)
-            CATransaction.setAnimationTimingFunction(BarTheme.motion)
-        } else {
-            CATransaction.setDisableActions(true)
-        }
+        CATransaction.setDisableActions(true)
+        stroke.removeAllAnimations()
         stroke.strokeStart = 0.5 - target / 2
         stroke.strokeEnd = 0.5 + target / 2
         CATransaction.commit()
+        if falling, target > 0, !Motion.reduced {
+            for (key, from, to) in [("strokeStart", from.start, stroke.strokeStart),
+                                    ("strokeEnd", from.end, stroke.strokeEnd)] {
+                let fall = CABasicAnimation(keyPath: key)
+                fall.fromValue = from
+                fall.toValue = to
+                fall.duration = Motion.meterFall
+                fall.timingFunction = Motion.curve
+                stroke.add(fall, forKey: key)
+            }
+        }
+    }
+
+    /// The fall in progress, for the tests.
+    var fallingAnimations: [CABasicAnimation] {
+        (stroke.animationKeys() ?? []).compactMap { stroke.animation(forKey: $0) as? CABasicAnimation }
     }
 }
 
@@ -205,16 +224,9 @@ final class DraftPanel {
     let panel: NSPanel
     private let root = AppearanceRoot()
     private let gate: PointerGate
-    /// Where the glass is going: the surface's frame as last laid out,
-    /// which a quick fold reaches a tenth of a second later.
+    /// Where the glass stands: the surface's frame as last laid out. A
+    /// fold or a growth takes its end frame at once.
     private var target: NSRect?
-    /// A fold in motion, by generation, so a render that lands mid-way
-    /// carries the motion on rather than fighting it.
-    private var foldMotion = 0
-    private var restaging = false
-    /// How long the glass takes to fold or open: fast enough to read as
-    /// sudden, long enough that the eye sees where the text went.
-    static let foldSeconds: TimeInterval = 0.1
     private var backdrop: NSView?
 
     // The foot: made once, placed on every render, so a menu that is
@@ -388,15 +400,13 @@ final class DraftPanel {
         expanded = false
         inputMenu.hide()
         target = nil
-        foldMotion = 0
         voiceLight.show(level: nil)
         gate.stop()
         panel.orderOut(nil)
     }
 
     /// Where the panel stands and what its lines say, for the tests.
-    /// The glass's frame — where it stands, or where a fold in motion
-    /// is taking it — without the shadow's margin.
+    /// The glass's frame without the shadow's margin.
     var frame: NSRect { target ?? SoftShadow.inset(panel.frame) }
     /// Whether the window takes the mouse right now, for the tests.
     var takesPointer: Bool { gate.open }
@@ -520,8 +530,6 @@ final class DraftPanel {
                 self.show(last)
             }
         }
-        let opening = lastView == nil
-        let wasExpanded = expanded
         lastView = view
         expanded = view.expanded
         let screen = ActivePolicy.presentationFrame
@@ -695,7 +703,6 @@ final class DraftPanel {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
-        let from = panel.frame
         let outset = SoftShadow.outset(frame)
         target = frame
         panel.setFrame(outset, display: false)
@@ -860,36 +867,6 @@ final class DraftPanel {
         CATransaction.commit()
         NSAnimationContext.endGrouping()
 
-        // Folding or opening moves the glass quickly rather than not at
-        // all: laid out where it is going, put back where it was, and
-        // carried there on the subviews' masks, the keys' own method. A
-        // render that lands mid-way carries the motion on.
-        let folds = !opening && !restaging && panel.isVisible
-            && (expanded != wasExpanded || foldMotion != 0)
-        if folds, from != outset, !Accessibility.reduceMotion() {
-            panel.setFrame(from, display: false)
-            foldMotion += 1
-            let motion = foldMotion
-            // Correctness cannot depend on the animation: under load a
-            // window animation can fail to move at all, so when its time
-            // is up the glass is put exactly where the layout said,
-            // whether or not the motion ran.
-            let land = { [weak self] in
-                guard let self, self.foldMotion == motion else { return }
-                self.foldMotion = 0
-                // Laid out again where it stands: the motion carried the
-                // glass but the scroll view clamped its window on the way,
-                // and the pointer gate read the old frame.
-                if let last = self.lastView { self.show(last) }
-            }
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = Self.foldSeconds
-                context.timingFunction = BarTheme.motion
-                panel.animator().setFrame(outset, display: true)
-            }, completionHandler: land)
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.foldSeconds + 0.05, execute: land)
-        }
-
         if !panel.isVisible { panel.orderFrontRegardless() }
         gate.start()
     }
@@ -938,56 +915,20 @@ final class DraftPanel {
                                width: columns.fittingSize.width,
                                height: columns.fittingSize.height)
         columns.autoresizingMask = [.maxYMargin]
-        columns.alphaValue = 0
         root.addSubview(columns)
         keysView = columns
         keysShown = true
-        KeysMotion.grow(panel, to: restaged(last).to, revealing: columns,
-                        completion: { [weak self] in self?.relay() })
+        // Laid out once, for the glass the keys make, and standing there
+        // from the first frame.
+        show(last)
     }
 
     func hideKeys() {
         guard keysShown, let last = lastView else { return }
         keysShown = false
-        let going = keysView
+        keysView?.removeFromSuperview()
         keysView = nil
-        KeysMotion.shrink(panel, to: restaged(last).to, hiding: going,
-                          completion: { [weak self] in self?.relay() })
-    }
-
-    /// Lay the panel out for where it is going, then put the glass back
-    /// where it was so the animation has somewhere to travel from.
-    ///
-    /// The layout used to be corrected in the animation's completion
-    /// handler, and that was wrong twice over. A frame animation whose
-    /// target equals its current value never runs, and AppKit never
-    /// calls the handler — so a draft already standing at the top of the
-    /// screen, which cannot grow, drew its keys straight over the last
-    /// hundred points of its own text and left them there until some
-    /// other keystroke happened to re-render it. Correctness cannot
-    /// depend on an animation: the layout is right from the first frame
-    /// now, and the motion only carries the glass between two frames
-    /// that are both already true. The subviews ride on their
-    /// autoresizing masks the whole way.
-    /// Lay the panel out again where a motion left it: the glass is right,
-    /// but a folded window's scroll was clamped while the frame travelled.
-    private func relay() {
-        guard panel.isVisible, let last = lastView else { return }
         show(last)
-    }
-
-    @discardableResult
-    private func restaged(_ view: DraftView) -> (from: NSRect, to: NSRect) {
-        let from = panel.frame
-        // The keys' motion owns the glass now; a fold landing late must not
-        // put it back where the fold was going.
-        foldMotion = 0
-        restaging = true
-        show(view)
-        restaging = false
-        let to = panel.frame
-        panel.setFrame(from, display: false)
-        return (from, to)
     }
 
     /// What the microphone is doing, as the light shows it.

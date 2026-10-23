@@ -469,7 +469,7 @@ final class AccentSwitchTests: XCTestCase {
         _ = toggle.accessibilityPerformPress()
         let knob = toggle.layer!.sublayers![1]
         XCTAssertNotNil(knob.animation(forKey: "slide"), "the knob crosses the track")
-        XCTAssertNotNil(toggle.layer!.sublayers![0].animation(forKey: "tint"), "and the track's colour crosses with it")
+        XCTAssertNil(toggle.layer!.sublayers![0].animationKeys(), "and the track's colour changes at once (design/05-motion.md)")
         Accessibility.reduceMotion = { true }
         let (window2, still) = hosted()
         _ = still.accessibilityPerformPress()

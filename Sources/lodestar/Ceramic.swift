@@ -269,12 +269,6 @@ class CeramicPanel: NSPanel {
 /// search must feel like a single instrument — same width, rhythm, and
 /// type — so the tokens live here, where drift can't hide in literals.
 enum BarTheme {
-    /// How everything Lodestar draws moves: one curve, decelerating, so a
-    /// thing arrives and settles the way an object set down does. A
-    /// surface, a switch's knob and a line falling back all move alike;
-    /// only the time differs, and nothing moves under Reduce Motion.
-    static var motion: CAMediaTimingFunction { CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1) }
-
     static let footerHeight: CGFloat = Grid.section
     /// One key-and-label row, shared by every surface that draws them: the
     /// chain guide, the cheat sheet, and the clipboard's actions menu. Left
@@ -1018,8 +1012,9 @@ final class ChoiceMenuItemView: NSView {
 /// from the system accent and offers no way to say otherwise, so a
 /// person who chose International Orange saw the settings' switches in
 /// the Mac's colour. This one is the same gesture — click, space, the
-/// screen reader's press — drawn by the theme. The knob slides; nothing
-/// else moves.
+/// screen reader's press — drawn by the theme. The knob slides, over
+/// `Motion.knobSlide`; nothing else moves, and the track's colour
+/// changes at once.
 final class AccentSwitch: NSControl, CeramicDepth {
     private let track = CALayer()
     /// The knob is a thing you press, so it stands up: a face on a side, as
@@ -1034,9 +1029,6 @@ final class AccentSwitch: NSControl, CeramicDepth {
     var state: NSControl.StateValue = .off {
         didSet { paint() }
     }
-    /// How long the knob takes to cross, when motion is welcome.
-    static let slide: TimeInterval = 0.18
-
     override init(frame frameRect: NSRect) {
         super.init(frame: NSRect(origin: frameRect.origin, size: Self.size))
         wantsLayer = true
@@ -1073,10 +1065,12 @@ final class AccentSwitch: NSControl, CeramicDepth {
         paint()
     }
 
-    /// The knob slides and the track's colour crosses with it, unless a
-    /// person has asked the system for less motion, in which case both
-    /// simply arrive. A layout pass never animates: the switch drawn
-    /// into place must not slide into it.
+    /// The switch is painted in its end state, the knob and the track's
+    /// colour at once. A flip then draws the knob's slide on top, over
+    /// `Motion.knobSlide` on the one curve, unless a person has asked the
+    /// system for less motion, in which case the knob simply arrives. A
+    /// layout pass never animates: the switch drawn into place must not
+    /// slide into it.
     private func paint(animated: Bool = false) {
         let on = state == .on
         let tint = Ceramic.resolved(on ? BarTheme.accent : BarTheme.inkAt(0.22), in: self)
@@ -1087,7 +1081,6 @@ final class AccentSwitch: NSControl, CeramicDepth {
         let knobFrame = NSRect(x: on ? bounds.width - knobSize - Grid.hair : Grid.hair,
                                y: trackFrame.minY + Grid.hair, width: knobSize, height: knobSize)
         let fromPosition = knob.presentation()?.position ?? knob.position
-        let fromTint = track.presentation()?.backgroundColor ?? track.backgroundColor
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         track.frame = trackFrame
@@ -1097,20 +1090,14 @@ final class AccentSwitch: NSControl, CeramicDepth {
         CATransaction.commit()
         // A layout pass leaves a running slide alone; only a new slide
         // replaces one.
-        if animated, !Accessibility.reduceMotion() {
+        if animated, !Motion.reduced {
             knob.removeAnimation(forKey: "slide")
-            track.removeAnimation(forKey: "tint")
             let slide = CABasicAnimation(keyPath: "position")
             slide.fromValue = NSValue(point: fromPosition)
             slide.toValue = NSValue(point: knob.position)
-            slide.duration = Self.slide
-            slide.timingFunction = BarTheme.motion
+            slide.duration = Motion.knobSlide
+            slide.timingFunction = Motion.curve
             knob.add(slide, forKey: "slide")
-            let cross = CABasicAnimation(keyPath: "backgroundColor")
-            cross.fromValue = fromTint
-            cross.toValue = tint
-            cross.duration = Self.slide
-            track.add(cross, forKey: "tint")
         }
         setAccessibilityValue(on ? 1 : 0)
     }

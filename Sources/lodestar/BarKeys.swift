@@ -3,8 +3,8 @@ import LodestarCore
 
 /// The keys a bar holds when asked: the sections as columns beneath its
 /// rows, inside the bar's own glass, with air and no line between. The
-/// bar grows to hold them and shrinks when they go; nothing arrives
-/// beside it.
+/// bar takes the room for them at once and gives it back when they go;
+/// nothing arrives beside it.
 final class BarKeys {
     private weak var root: NSView?
     private weak var rows: NSView?
@@ -27,14 +27,13 @@ final class BarKeys {
         return Self.above + view.fittingSize.height + Grid.section
     }
 
-    /// Builds the keys in place, invisible, and reports the view so the
-    /// bar can reveal it once its glass has grown.
+    /// Builds the keys in place and reports the view; the bar then takes
+    /// its end frame at once.
     @discardableResult
     func show(_ sections: [CheatSheet.Section]) -> NSView? {
         guard let root, let rows else { return nil }
         view?.removeFromSuperview()
         let columns = CheatSheet.columns(sections)
-        columns.alphaValue = 0
         root.addSubview(columns)
         // Below required, so a wide label truncates inside the bar rather
         // than pushing the glass wider than the bar it belongs to.
@@ -50,8 +49,8 @@ final class BarKeys {
         return columns
     }
 
-    /// Takes the keys out of the layout at once; the caller fades and
-    /// removes the view it is handed.
+    /// Takes the keys out of the layout at once; the caller removes the
+    /// view it is handed.
     @discardableResult
     func hide() -> NSView? {
         guard isShown else { return nil }
@@ -62,61 +61,24 @@ final class BarKeys {
     }
 }
 
-/// One object changing size: the glass leads, the words follow. The
-/// timing is the system's own for a window changing frame, no overshoot
-/// and no spring, and the surface itself never fades, only what it
-/// reveals. Reduced motion shows the result in place.
-enum KeysMotion {
-    static let growSeconds: TimeInterval = 0.3
-    static let shrinkSeconds: TimeInterval = 0.22
-    static let revealDelay: TimeInterval = 0.08
-
-    static var animates: Bool {
-        !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+/// One object changing size, at once: the glass takes its end frame and
+/// the keys are there or gone with it. Nothing grows and nothing fades in
+/// (design/05-motion.md): a surface opened four hundred times a day does
+/// not make the hand wait for the eye. The end state is the whole of it,
+/// so Reduce Motion needs no case of its own.
+enum KeysSheet {
+    /// The window to `frame`; its keys, already in the view tree, are
+    /// there. `completion` runs before this returns.
+    static func open(_ panel: NSPanel, to frame: NSRect, completion: () -> Void = {}) {
+        panel.setFrame(frame, display: true)
+        completion()
     }
 
-    /// The window to `frame`, then the keys in.
-    static func grow(_ panel: NSPanel, to frame: NSRect, revealing view: NSView?,
-                     completion: @escaping () -> Void = {}) {
-        guard animates else {
-            panel.setFrame(frame, display: true)
-            view?.alphaValue = 1
-            completion()
-            return
-        }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = growSeconds
-            context.timingFunction = BarTheme.motion
-            panel.animator().setFrame(frame, display: true)
-        }, completionHandler: completion)
-        guard let view else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + revealDelay) {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = growSeconds - revealDelay
-                context.timingFunction = BarTheme.motion
-                view.animator().alphaValue = 1
-            }
-        }
-    }
-
-    /// The keys out, then the window to `frame`; the view is removed
-    /// once it is gone.
-    static func shrink(_ panel: NSPanel, to frame: NSRect, hiding view: NSView?,
-                       completion: @escaping () -> Void = {}) {
-        guard animates else {
-            view?.removeFromSuperview()
-            panel.setFrame(frame, display: true)
-            completion()
-            return
-        }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = shrinkSeconds
-            context.timingFunction = BarTheme.motion
-            view?.animator().alphaValue = 0
-            panel.animator().setFrame(frame, display: true)
-        }, completionHandler: {
-            view?.removeFromSuperview()
-            completion()
-        })
+    /// The keys out of the view tree, then the window to `frame`.
+    /// `completion` runs before this returns.
+    static func close(_ panel: NSPanel, to frame: NSRect, removing view: NSView?, completion: () -> Void = {}) {
+        view?.removeFromSuperview()
+        panel.setFrame(frame, display: true)
+        completion()
     }
 }

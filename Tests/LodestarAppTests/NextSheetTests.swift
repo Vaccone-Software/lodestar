@@ -58,12 +58,12 @@ final class NextSheetTests: XCTestCase {
         XCTAssertEqual(keys.height, 0, "a bar owes its keys nothing while they are away")
         let view = keys.show(HotkeyEngine.askSections)
         XCTAssertNotNil(view)
-        XCTAssertEqual(view?.alphaValue, 0, "built invisible; the glass grows first, then the keys fade in")
+        XCTAssertEqual(view?.alphaValue, 1, "built in place and whole: nothing fades in (design/05-motion.md)")
         XCTAssertTrue(keys.isShown)
         XCTAssertGreaterThan(keys.height, BarKeys.above + Grid.section,
                              "the bar grows by the columns and their air")
         let going = keys.hide()
-        XCTAssertTrue(going === view, "the same view is handed back to fade out")
+        XCTAssertTrue(going === view, "the same view is handed back to be removed")
         XCTAssertFalse(keys.isShown)
         XCTAssertEqual(keys.height, 0)
     }
@@ -74,8 +74,6 @@ final class NextSheetTests: XCTestCase {
         let row = pill.frame
         XCTAssertEqual(row.height, ModePill.height)
         XCTAssertFalse(pill.keysShown)
-        // Motion is asynchronous on the glass; the reduced-motion path
-        // sets the frame at once, so the geometry is checked through it.
         pill.toggleKeys(HotkeyEngine.launcherSections)
         XCTAssertTrue(pill.keysShown)
         let grown = pill.frameForContent()
@@ -88,12 +86,6 @@ final class NextSheetTests: XCTestCase {
                        "the glass comes back to the row's own size: the departing keys must not hold it wide")
         pill.hide()
         XCTAssertFalse(pill.keysShown, "hidden with the pill")
-    }
-
-    func testTheMotionIsTheSystemsOwnAndNeverASpring() {
-        XCTAssertLessThanOrEqual(KeysMotion.growSeconds, 0.35)
-        XCTAssertLessThan(KeysMotion.shrinkSeconds, KeysMotion.growSeconds, "folding back is quicker")
-        XCTAssertLessThan(KeysMotion.revealDelay, KeysMotion.growSeconds, "the glass leads, the words follow")
     }
 
     func testOneDoorToTheKeys() {

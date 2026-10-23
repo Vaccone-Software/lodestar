@@ -115,10 +115,10 @@ enum SplitPreview {
         let middle = draftGlass()
         for view in [left, middle, right] { inner.addSubview(view) }
 
-        /// `KeysMotion`'s own curve — cubic-bezier(0.25, 0.1, 0.25, 1),
-        /// the system's for a window changing frame — so the harness is
-        /// judged on the timing the surface would actually ship with,
-        /// and not on a smoothstep that flatters it.
+        /// `Motion.curve`, cubic-bezier(0.25, 0.1, 0.25, 1), so the
+        /// harness is judged on the timing a motion would ship with,
+        /// and not on a smoothstep that flatters it. (The keys sheet
+        /// itself no longer moves; this stages the old gesture.)
         func ease(_ t: CGFloat) -> CGFloat {
             var lo: CGFloat = 0, hi: CGFloat = 1, u: CGFloat = t
             func bez(_ a: CGFloat, _ b: CGFloat, _ s: CGFloat) -> CGFloat {
@@ -175,8 +175,8 @@ enum SplitPreview {
             layout(CGFloat(progress))
         } else {
             layout(0)
-            // The shipping cadence: `KeysMotion.growSeconds` out,
-            // `shrinkSeconds` back, and long enough at each end to read
+            // The cadence the gesture was staged at: 0.30 out, 0.22
+            // back, and long enough at each end to read
             // the state before it moves again.
             let grow = 0.30, shrink = 0.22, hold = 1.4
             let cycleLength = grow + hold + shrink + hold

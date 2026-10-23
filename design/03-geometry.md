@@ -26,7 +26,7 @@ Geometry is what makes surfaces read as made by one hand: the same curve at the 
 
 Each rung is the one above over φ² (22 / 2.618 = 8.40; 8.40 / 2.618 = 3.21).
 
-**Nested:** a thing inside another rounds at `max(rung, outer − inset)`. A row 12 points inside a pane rounds at 10; a field 12 points inside a pane rounds at 10; a key inside a row rounds at its own rung, 8.4, because the row's radius less the inset falls below it. A surface smaller than twice its radius is a stadium.
+**Nested:** a thing inside another rounds at `max(rung, outer − inset)`. A row 12 points inside a pane rounds at 10; a field always rounds at 8.4, whatever holds it (the well, contract 12); a key inside a row rounds at its own rung, 8.4, because the row's radius less the inset falls below it. A surface smaller than twice its radius is a stadium.
 
 ### Spacing
 
@@ -83,7 +83,7 @@ Every surface in the gallery. The geometry sheet, `foundation-geometry`, draws t
 
 ## Status
 
-Built 22 October 2026. Before it, main rounded surfaces at 16.8, controls at 6.4 and marks at 2.5; rows rounded at the pane's own 16.8 and did not nest; spacing used eighteen values. The build moved some gaps visibly onto the grid (Keep's from 10 to 12, the draft's margin from 22 to 24, rooms' insets to 24 or 16), made Settings' groups panes of rows, and found three things drawn outside their frames on main: the launcher's rule under an empty field, the overview's ring, and the meeting's "min ago". A bar's field has no visible well yet, so its curve waits for the well contract.
+Built 22 October 2026. Before it, main rounded surfaces at 16.8, controls at 6.4 and marks at 2.5; rows rounded at the pane's own 16.8 and did not nest; spacing used eighteen values. The build moved some gaps visibly onto the grid (Keep's from 10 to 12, the draft's margin from 22 to 24, rooms' insets to 24 or 16), made Settings' groups panes of rows, and found three things drawn outside their frames on main: the launcher's rule under an empty field, the overview's ring, and the meeting's "min ago".
 
 ## Prototype lessons
 

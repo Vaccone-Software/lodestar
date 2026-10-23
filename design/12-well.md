@@ -9,7 +9,7 @@ A keyboard app is mostly places you type into, and the eye should find the place
 ## Origin
 
 - **Material** (`design/04-material.md`) gave the well its matter: the pane darkened by 0.05 by day (`#E6DED6` in a clay pane, edge ink 14%) and 0.04 by night (`#14100D`, never below the ground, edge ink 12%), no side, no inner shadow. A step of 0.025 read flat, so it was doubled (22 October 2026).
-- **Geometry** gave its corners: a control rounds at 8.4, and a field 12 inside a pane nests at 10. Geometry's Status left "a bar's field curve" waiting for this contract; the bars' wells were built with material, so that note is closed here.
+- **Geometry** gave its corners: a control rounds at 8.4, and a field 12 inside a pane nested at 10. Review chose one radius for every input over nesting (below). Geometry's Status left "a bar's field curve" waiting for this contract; the bars' wells were built with material, so that note is closed here.
 - **DESIGN.md** called a well "what a field, a note box, a choice, a group's card or a read-only chip lies in". Material has since made a choice stand up and a chip or group flat, so the well is now only a place something goes.
 - **The prototype** (`design/ceramic`) drew its well as ink at 5%, translucent, with a 44-tall bar well rounded at 12, and left Settings' fields in the system's bezel. Translucency read as a stain on clay, and the bezel wore the Mac's accent.
 
@@ -30,10 +30,10 @@ A keyboard app is mostly places you type into, and the eye should find the place
 
 | Well            | Height                | Corners                         | Words inset | Words in      |
 | --------------- | --------------------- | ------------------------------- | ----------- | ------------- |
-| a bar's field   | 60                    | 10, nested 12 inside the pane   | 12          | field (23)    |
+| a bar's field   | 60                    | 8.4                             | 12          | field (23)    |
 | a field         | 32                    | 8.4, the control rung           | 12          | body (16)     |
 | a note          | at least 4 lines, 150 in Feedback | 8.4                  | 12          | body (16)     |
-| a band's field  | 32, 4 inside its band | nested: the band's radius − 4   | 12          | the band's role |
+| a band's field  | 32, 4 inside its band | 8.4; the band rounds at 12.4    | 12          | the band's role |
 | an empty slot   | the thing it waits for | the thing's own radius         | n/a         | meta (13), quiet |
 
 Every height is on the size table; Keep's source list's 40-tall field becomes a field (32). A well that holds a key or a symbol at its leading edge (the launcher's mark, Settings' and Keep's `/`) holds it 12 in, and the words start 12 after it.
@@ -75,14 +75,14 @@ Every height is on the size table; Keep's source list's 40-tall field becomes a 
 3. **One caret, one selection.** The readable accent at 1.5, never blinking; ink at 30%; in every well.
 4. **Focus is the edge, and the caret holds still.** The focused well's edge deepens; no ring, glow or accent outline, and no system bezel or focus ring is ever drawn.
 5. **The placeholder is quiet ink at the words' size**, holding 4.5 : 1 at every level.
-6. **Shapes nest.** A well along a pane's or a band's edge rounds at the outer radius less its inset; a free well at the control rung; a slot at its thing's radius.
+6. **One radius for every input.** A field, a note and a bar's field round at 8.4, wherever they sit. A band that holds only a field takes its corners from the field (8.4 + its 4-point inset = 12.4), so the gap stays even; an empty slot keeps its thing's radius.
 
 ## Enforcement
 
 - `CeramicTests.testTheWellIsOneStepBelowThePane` holds the fill and edge per look (exists); a new test holds the focused edge at twice the resting weight.
 - A test holds the placeholder at 4.5 : 1 on the well at full, evening and bedtime, in both looks.
 - A gallery test finds every editable text view on every surface and checks it sits in a `WellView` or `WellField`, unless it is the draft; and that each caret is the readable accent at 1.5.
-- A gallery test checks every well's radius: nested where it meets an outer edge at its inset, 8.4 where free.
+- A gallery test checks every input well rounds at 8.4 and every field band at 12.4.
 - `DesignDriftTests` fails a text field that leaves `isBezeled` on or draws a focus ring (today it catches only `bezelStyle`), and a literal field height off the size table.
 
 ## Renders
@@ -103,3 +103,4 @@ Planned. The bars, Settings' value fields, Feedback and the empty keepsake alrea
 
 - The caret does not blink (23 October 2026).
 - Focus is the edge doubling, not the caret alone (23 October 2026).
+- One radius for every input, 8.4, over nesting each in what holds it: nesting made the launcher's field 10, Keep's a capsule and Settings' 8.4, three shapes for one act. Keep's search and save bands round at 12.4 instead of as capsules (23 October 2026).

@@ -107,23 +107,22 @@ final class DotColumn: NSView {
 /// legend (an x-height centred on the face is a point above a cap height
 /// centred on it). So words beside a key are set on the key's line by their
 /// baseline:
-/// - words at the legend's size (meta, 13) share the baseline of the legend
-///   of the key they follow, whatever its band;
-/// - larger words, and words beside no key, stand with their capital height
-///   centred on the face, as a legend of capitals does.
+/// - words at the legend's size (meta, 13) share the baseline the lowercase
+///   legends of keys share (an x-height centred on the face, which is where
+///   mostly-lowercase words look centred), whichever key they stand beside, so
+///   every word of a line, and the `esc` and `lode` beside it, stand on one;
+/// - larger words stand with their capital height centred on the face, as a
+///   legend of capitals does.
 /// The view is a key's height, aligned by its face as a key is, so a row that
 /// centres it centres the face.
 final class KeyWords: NSView {
     let label: NSTextField
     let role: BarTheme.Role
-    /// The legend of the key these words follow, when there is one.
-    let legend: String?
     private let size = KeySize.standard
 
     init(_ text: String, role: BarTheme.Role = .meta, color: NSColor = BarTheme.secondaryColor,
-         following legend: String? = nil, truncates: Bool = true) {
+         truncates: Bool = true) {
         self.role = role
-        self.legend = legend
         label = NSTextField(labelWithString: text)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -169,14 +168,14 @@ final class KeyWords: NSView {
     }
 
     /// Where the words' baseline stands, from the bottom of this view: the
-    /// legend's baseline when the words share it, else the capital height
-    /// centred on the face.
+    /// baseline lowercase legends share for meta words, else the capital
+    /// height centred on the face.
     var baseline: CGFloat {
         let scale = window?.backingScaleFactor ?? 2
         let night = BarTheme.isNight(effectiveAppearance)
         let face = CGRect(x: 0, y: size.side, width: 0, height: size.faceHeight)
-        if role == .meta, let legend, !legend.isEmpty {
-            return KeyLegend.place(legend, size: size, night: night, in: face, scale: scale).origin.y
+        if role == .meta {
+            return KeyLegend.place(KeyLegend.shared, size: size, night: night, in: face, scale: scale).origin.y
         }
         let capital = (label.font ?? role.font).capHeight
         return ((face.midY - capital / 2) * scale).rounded() / scale

@@ -1163,7 +1163,7 @@ final class WalkController: NSObject {
         } else {
             row.addArrangedSubview(strokes)
         }
-        row.addArrangedSubview(KeyWords(meaning, following: keys.last))
+        row.addArrangedSubview(KeyWords(meaning))
         return LegendRow(row)
     }
 

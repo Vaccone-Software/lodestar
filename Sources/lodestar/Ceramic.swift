@@ -754,18 +754,10 @@ enum Keycaps {
         // must not stretch it (a tie with the column's own pull at 250).
         row.setContentHuggingPriority(.required, for: .horizontal)
         let parts = FlashLine.parts(line)
-        // Words stand on the baseline of the key they follow, or of the one
-        // they lead into when no key comes before them.
-        func legend(of part: FlashLine.Part?, last: Bool) -> String? {
-            guard case .keys(let keys)? = part else { return nil }
-            return last ? keys.last : keys.first
-        }
-        for (index, part) in parts.enumerated() {
+        for part in parts {
             switch part {
             case .words(let text):
-                let before = index > 0 ? legend(of: parts[index - 1], last: true) : nil
-                let after = index + 1 < parts.count ? legend(of: parts[index + 1], last: false) : nil
-                row.addArrangedSubview(KeyWords(text, following: before ?? after))
+                row.addArrangedSubview(KeyWords(text))
             case .keys(let keys):
                 // One key per keystroke, 4 apart, as typed.
                 row.addArrangedSubview(strokes(keys))
@@ -811,9 +803,6 @@ enum Keycaps {
         row.spacing = Grid.tight
         row.setContentHuggingPriority(.required, for: .horizontal)
         var previous: NSView?
-        // The legend of the key the words that come next follow: words beside
-        // a key stand on its baseline (design/13-row.md, rule 4).
-        var previousLegend: String?
 
         func add(_ view: NSView, spacingBefore: CGFloat? = nil) {
             if let spacingBefore, let previous { row.setCustomSpacing(spacingBefore, after: previous) }
@@ -823,7 +812,7 @@ enum Keycaps {
 
         for (index, gesture) in gestures.enumerated() {
             if index > 0 {
-                add(KeyWords("·", following: previousLegend), spacingBefore: Grid.close)
+                add(KeyWords("·"), spacingBefore: Grid.close)
             }
             let keys = strokes(gesture.keys, double: gesture.double, lit: gesture.lit && !gesture.quiet,
                                quiet: gesture.quiet)
@@ -837,10 +826,8 @@ enum Keycaps {
             }
             // A label is a name, capitalized wherever it is written from:
             // "esc Back", never "esc back".
-            previousLegend = gesture.keys.last
             let verb = KeyWords(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(),
-                                color: gesture.lit && !gesture.quiet ? BarTheme.ink : BarTheme.secondaryColor,
-                                following: previousLegend)
+                                color: gesture.lit && !gesture.quiet ? BarTheme.ink : BarTheme.secondaryColor)
             add(verb, spacingBefore: Grid.close)
         }
         return LegendRow(row)

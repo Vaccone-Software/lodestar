@@ -147,6 +147,10 @@ enum KeyLegend {
                          ink: ink.offsetBy(dx: x, dy: y))
     }
 
+    /// A lowercase legend, whose baseline every lowercase legend shares and the
+    /// words beside a key stand on.
+    static let shared = "e"
+
     /// What VoiceOver says for a legend.
     static func spoken(_ legend: String) -> String {
         let names: [Character: String] = [
@@ -261,6 +265,13 @@ final class Key: NSView, CeramicDepth {
         let face = standing.faceFrame
         return KeyLegend.place(legend, size: size, night: BarTheme.isNight(effectiveAppearance), in: face,
                                scale: window?.backingScaleFactor ?? 2)
+    }
+
+    /// The baseline lowercase legends share on this key's face, in its own
+    /// coordinates: where the words beside it stand.
+    var lowercaseBaseline: CGFloat {
+        KeyLegend.place(KeyLegend.shared, size: size, night: BarTheme.isNight(effectiveAppearance), in: standing.faceFrame,
+                        scale: window?.backingScaleFactor ?? 2).origin.y
     }
 
     /// The legend's font as it is drawn now.

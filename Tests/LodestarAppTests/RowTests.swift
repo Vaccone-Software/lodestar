@@ -294,9 +294,10 @@ extension RowTests {
         return ((height - CGFloat(lowest) - 1) / scale, (height - CGFloat(highest)) / scale, CGFloat(leftmost) / scale)
     }
 
-    /// A key's legend baseline in `root`'s coordinates.
+    /// The baseline lowercase legends share on a key's face, in `root`'s coordinates:
+    /// where the words beside the key stand, whatever the key itself says.
     private func baseline(of key: Key, in root: NSView) -> CGFloat {
-        root.convert(NSPoint(x: 0, y: key.placement.origin.y), from: key).y
+        root.convert(NSPoint(x: 0, y: key.lowercaseBaseline), from: key).y
     }
 
     private func keys(in view: NSView) -> [Key] {
@@ -324,8 +325,9 @@ extension RowTests {
                 var words: [KeyWords] = []
                 walk(root) { if let w = $0 as? KeyWords { words.append(w) } }
                 let all = keys(in: root).filter { $0.state == .resting }
-                for word in words {
-                    guard let legend = word.legend, let key = all.first(where: { $0.legend == legend }) else { continue }
+                // The record and "Not now" stand on one baseline with `lode` (and `⌫`'s face).
+                for (word, legend) in zip(words, ["lode", "⌫"]) {
+                    guard let key = all.first(where: { $0.legend == legend }) else { continue }
                     guard let found = ink(of: word.label, in: root) else { wrong.append("\(look.name) coach: no ink for \"\(word.stringValue)\""); continue }
                     measured += 1
                     let want = baseline(of: key, in: root)
@@ -431,7 +433,8 @@ extension RowTests {
             ("breath", Recommendation(kind: .breath, target: "\(first) + \(second)",
                                       detail: "\(first) and \(second) travel together 9999× at lift 99.9 · composed side by side 99× · a breath would bring them back with one key",
                                       secondsPerWeek: 4000, probability: 0.9, evidence: [], display: "\(first) + \(second)",
-                                      edit: .composeBreath(apps: [first, second], path: "b"))),
+                                      edit: .composeBreath(apps: [first, second], path: "b"),
+                                      record: "\(first) and \(second) travel together 9999×")),
         ]
         var wrong: [String] = []
         for look in GalleryLook.all {

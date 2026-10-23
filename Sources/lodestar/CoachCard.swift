@@ -67,14 +67,14 @@ enum CoachCard {
         card.addSubview(whisper)
         let decline = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode", "⌫"]), action: offer.decline)
         decline.setAccessibilityLabel("Not now")
-        let record = KeyWords(offer.record, following: "lode")
+        let record = KeyWords(offer.record)
         record.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         whisper.addArrangedSubview(record)
         let gap = NSView()
         gap.setContentHuggingPriority(.defaultLow, for: .horizontal)
         whisper.addArrangedSubview(gap)
         whisper.addArrangedSubview(decline)
-        whisper.addArrangedSubview(KeyWords("Not now", following: "⌫"))
+        whisper.addArrangedSubview(KeyWords("Not now"))
 
         NSLayoutConstraint.activate([
             card.widthAnchor.constraint(greaterThanOrEqualToConstant: width),

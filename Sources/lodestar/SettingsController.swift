@@ -2128,7 +2128,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let parts = hit.address.split(separator: " ").map(String.init)
             var trailing: [NSView] = []
             if index == 0, suggestion != nil {
-                trailing.append(KeyWords("Suggested", following: parts.first))
+                trailing.append(KeyWords("Suggested"))
             }
             trailing.append(KeyStrokes(parts))
             if selected {

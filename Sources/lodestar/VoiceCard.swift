@@ -130,7 +130,7 @@ enum VoiceCard {
             line.alignment = .centerY
             line.spacing = Grid.tight
             line.addArrangedSubview(Keycaps.strokes(keymap.keys))
-            let arrow = KeyWords("→", following: keymap.keys.last)
+            let arrow = KeyWords("→")
             line.addArrangedSubview(arrow)
             line.addArrangedSubview(KeyWords(keymap.target, role: .body, color: BarTheme.ink))
             line.setCustomSpacing(Grid.close, after: line.arrangedSubviews[0])

@@ -883,65 +883,25 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 }
 
 /// A reusable searcher row. The icon is loaded once per identity; selection
-/// is a repaint, not a rebuild.
-private final class SearcherRowView: SlabRow {
-    private let icon = NSImageView()
-    private let name = NSTextField(labelWithString: "")
-    private let stack = NSStackView()
+/// is a repaint, not a rebuild. A row of the row contract (`ListRow`): the
+/// app's icon, its name and, when it is running, the quiet dot 8 after it;
+/// the address keys at the trailing edge, then ⏎ on the chosen row.
+private final class SearcherRowView: ListRow {
+    private let icon = RowIcon.view(nil)
     private var keys: [KeyStrokes] = []
     /// ⏎ on the chosen row: the key that opens it, the only one that lights.
     private let enter = Key("⏎")
-    private var dot: NSTextField?
+    private var dot: RowDot?
     private var identity = ""
     private var trailingSignature = ""
     private var selectedState = false
 
     init(rowHeight: CGFloat) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
-        setupSlab()
-
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: BarTheme.appIconSize),
-            icon.heightAnchor.constraint(equalToConstant: BarTheme.appIconSize),
-        ])
-
-        name.setRole(.title)
-        name.textColor = BarTheme.ink
-        name.lineBreakMode = .byTruncatingTail
-        name.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = Grid.part
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: Grid.part, bottom: 0, right: Grid.part)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        // Absorbs the slack so the address chips land at the trailing edge,
-        // in one column down the list — the same place the guides and the
-        // clipboard's menu keep their keys.
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        spacer.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: Grid.section).isActive = true
-
-        stack.addArrangedSubview(icon)
-        stack.addArrangedSubview(name)
-        stack.addArrangedSubview(spacer)
+        super.init(height: rowHeight)
+        setLead(icon)
         enter.lit = true
         enter.isHidden = true
-        stack.addArrangedSubview(enter)
-
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
+        setTrailing([enter])
     }
 
     required init?(coder: NSCoder) { nil }
@@ -950,36 +910,23 @@ private final class SearcherRowView: SlabRow {
                    chips: [[String]], showDot: Bool) {
         if identity != self.identity {
             self.identity = identity
-            icon.image = iconLoader()
+            icon.image = iconLoader() ?? NSImage()
         }
-        name.stringValue = title
+        self.title.stringValue = title
 
-        let signature = chips.map { $0.joined(separator: ",") }.joined(separator: "|") + (showDot ? "|●" : "")
+        let signature = chips.map { $0.joined(separator: ",") }.joined(separator: "|") + (showDot ? "|dot" : "")
         if signature != trailingSignature {
             trailingSignature = signature
-            for view in keys { stack.removeArrangedSubview(view); view.removeFromSuperview() }
-            keys = []
-            if let dot { stack.removeArrangedSubview(dot); dot.removeFromSuperview() }
-            dot = nil
-            // The dot's tighter gap goes with it, or a reused row keeps it.
-            stack.setCustomSpacing(NSStackView.useDefaultSpacing, after: name)
-
-            // The address keys, then ⏎ (shown only when chosen), then the dot.
-            let enterIndex = stack.arrangedSubviews.firstIndex(of: enter) ?? stack.arrangedSubviews.count
-            for (offset, chip) in chips.enumerated() {
-                // One key per keystroke, 4 apart.
-                let strokes = KeyStrokes(chip)
-                keys.append(strokes)
-                stack.insertArrangedSubview(strokes, at: enterIndex + offset)
-            }
+            keys = chips.map { KeyStrokes($0) }
+            // The address keys, then ⏎ (shown only when chosen).
+            setTrailing(keys + [enter])
             // The open dot belongs to the app, so it sits beside its name.
+            if let dot { titleLine.removeArrangedSubview(dot); dot.removeFromSuperview() }
+            dot = nil
             if showDot {
-                let dotLabel = NSTextField(labelWithString: "●")
-                dotLabel.font = BarTheme.dotFont
-                dot = dotLabel
-                let afterName = (stack.arrangedSubviews.firstIndex(of: name) ?? 0) + 1
-                stack.insertArrangedSubview(dotLabel, at: afterName)
-                stack.setCustomSpacing(Grid.close, after: name)
+                let mark = RowDot(.quiet)
+                titleLine.addArrangedSubview(mark)
+                dot = mark
             }
             restyle()
         }
@@ -997,11 +944,9 @@ private final class SearcherRowView: SlabRow {
     /// which row is chosen.
     private func restyle() {
         choose(selectedState)
-        name.textColor = BarTheme.ink
+        title.textColor = BarTheme.ink
         enter.isHidden = !selectedState
-        // Running is a state, not where the hand goes: a quiet dot, the same
-        // on every row, as the Dock marks a running app.
-        dot?.textColor = BarTheme.secondaryColor
+        refreshTrailing()
     }
 }
 

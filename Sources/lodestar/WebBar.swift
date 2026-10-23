@@ -517,33 +517,22 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 }
 
-/// One reusable web-bar row: symbol, destination, profile chip.
-private final class WebRowView: SlabRow {
-    private let title = NSTextField(labelWithString: "")
+/// One reusable web-bar row: destination, profile chip, ⏎. A row of the row
+/// contract (`ListRow`): the title ends at the chip when the chip is shown,
+/// and at ⏎'s place when it is not, so a long address is never cut short
+/// beside empty air.
+private final class WebRowView: ListRow {
     private let chipLabel = NSTextField(labelWithString: "")
     private let chip = FlatChip()
-    /// The title ends at the chip when the chip is shown, and at ⏎'s place
-    /// when it is not: a hidden chip still holds its width in the layout,
-    /// and a long address was cut short beside empty air.
-    private var titleToChip: NSLayoutConstraint!
-    private var titleToEnter: NSLayoutConstraint!
     private var kind: WebBarController.WebRow.Kind?
     private var selectedState = false
     /// ⏎ on the chosen row, lit: the key that opens it.
     private let enter = Key("⏎")
 
     init(height: CGFloat) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: height).isActive = true
-        setupSlab()
+        super.init(height: height)
         enter.lit = true
         enter.isHidden = true
-
-
-        title.setRole(.title)
-        title.lineBreakMode = .byTruncatingTail
-        title.translatesAutoresizingMaskIntoConstraints = false
 
         chipLabel.setRole(.key)
         chipLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -551,26 +540,13 @@ private final class WebRowView: SlabRow {
         chip.layer?.cornerRadius = BarTheme.controlRadius
         chip.translatesAutoresizingMaskIntoConstraints = false
         chip.addSubview(chipLabel)
-
-        addSubview(title)
-        addSubview(chip)
-        addSubview(enter)
         NSLayoutConstraint.activate([
-            // Where the commands bar's rows start their words.
-            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Grid.part),
-            title.centerYAnchor.constraint(equalTo: centerYAnchor),
             chipLabel.leadingAnchor.constraint(equalTo: chip.leadingAnchor, constant: Grid.half),
             chipLabel.trailingAnchor.constraint(equalTo: chip.trailingAnchor, constant: -Grid.half),
             chipLabel.topAnchor.constraint(equalTo: chip.topAnchor, constant: Grid.hair),
             chipLabel.bottomAnchor.constraint(equalTo: chip.bottomAnchor, constant: -Grid.hair),
-            chip.centerYAnchor.constraint(equalTo: centerYAnchor),
-            enter.centerYAnchor.constraint(equalTo: centerYAnchor),
-            enter.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Grid.part),
-            chip.trailingAnchor.constraint(equalTo: enter.leadingAnchor, constant: -Grid.close),
         ])
-        titleToChip = title.trailingAnchor.constraint(lessThanOrEqualTo: chip.leadingAnchor, constant: -Grid.part)
-        titleToEnter = title.trailingAnchor.constraint(lessThanOrEqualTo: enter.leadingAnchor, constant: -Grid.part)
-        titleToChip.isActive = true
+        setTrailing([chip, enter])
         restyle()
     }
 
@@ -611,8 +587,7 @@ private final class WebRowView: SlabRow {
         }
         if chipLabel.stringValue != row.profile.display { chipLabel.stringValue = row.profile.display }
         chip.isHidden = !showsProfile
-        titleToChip.isActive = showsProfile
-        titleToEnter.isActive = !showsProfile
+        refreshTrailing()
     }
 
     /// Whether the row names its own profile, for the tests.
@@ -631,6 +606,7 @@ private final class WebRowView: SlabRow {
         choose(selectedState)
         chipLabel.textColor = BarTheme.secondaryColor
         enter.isHidden = !selectedState
+        refreshTrailing()
     }
 }
 

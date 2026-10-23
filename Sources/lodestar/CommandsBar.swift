@@ -289,10 +289,9 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 }
 
 /// One reusable commands row: title over breadcrumb, a source chip when the
-/// list mixes feeds, and the native-shortcut chip at the edge.
-private final class CommandsRowView: SlabRow {
-    private let title = NSTextField(labelWithString: "")
-    private let crumb = NSTextField(labelWithString: "")
+/// list mixes feeds, and the native-shortcut chip at the edge. A row of the
+/// row contract (`ListRow`) with a line beneath its title, so 52 tall.
+private final class CommandsRowView: ListRow {
     /// The app's own shortcut for the command, a real key, at rest: ⏎ is the
     /// key that acts.
     private let chip = Key("")
@@ -300,62 +299,28 @@ private final class CommandsRowView: SlabRow {
     private let enter = Key("⏎")
     private let sourceLabel = NSTextField(labelWithString: "")
     private let sourceChip = FlatChip()
-    private let trailing = NSStackView()
     private var selectedState = false
 
     init(height: CGFloat) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: height).isActive = true
-        setupSlab()
+        super.init(height: height)
         enter.lit = true
         enter.isHidden = true
 
-        title.setRole(.title)
-        title.lineBreakMode = .byTruncatingTail
-        title.translatesAutoresizingMaskIntoConstraints = false
-        crumb.setRole(.meta)
-        crumb.lineBreakMode = .byTruncatingTail
-        crumb.translatesAutoresizingMaskIntoConstraints = false
-
-        for (box, label) in [(sourceChip, sourceLabel)] {
-            label.setRole(.key)
-            label.translatesAutoresizingMaskIntoConstraints = false
-            box.translatesAutoresizingMaskIntoConstraints = false
-            box.addSubview(label)
-            NSLayoutConstraint.activate([
-                label.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: Grid.half),
-                label.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -Grid.half),
-                label.topAnchor.constraint(equalTo: box.topAnchor, constant: Grid.hair),
-                label.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -Grid.hair),
-            ])
-        }
+        sourceLabel.setRole(.key)
+        sourceLabel.translatesAutoresizingMaskIntoConstraints = false
+        sourceChip.translatesAutoresizingMaskIntoConstraints = false
+        sourceChip.addSubview(sourceLabel)
+        NSLayoutConstraint.activate([
+            sourceLabel.leadingAnchor.constraint(equalTo: sourceChip.leadingAnchor, constant: Grid.half),
+            sourceLabel.trailingAnchor.constraint(equalTo: sourceChip.trailingAnchor, constant: -Grid.half),
+            sourceLabel.topAnchor.constraint(equalTo: sourceChip.topAnchor, constant: Grid.hair),
+            sourceLabel.bottomAnchor.constraint(equalTo: sourceChip.bottomAnchor, constant: -Grid.hair),
+        ])
 
         // A trailing stack, so a hidden chip leaves no hole: the source
         // chip appears only when the list mixes feeds, and the shortcut
         // chip only when the app printed one.
-        trailing.orientation = .horizontal
-        trailing.spacing = Grid.close
-        trailing.translatesAutoresizingMaskIntoConstraints = false
-        trailing.addArrangedSubview(sourceChip)
-        trailing.addArrangedSubview(chip)
-        trailing.addArrangedSubview(enter)
-
-        addSubview(title)
-        addSubview(crumb)
-        addSubview(trailing)
-        NSLayoutConstraint.activate([
-            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Grid.part),
-            title.topAnchor.constraint(equalTo: topAnchor, constant: Grid.tight),
-            crumb.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Grid.part),
-            crumb.topAnchor.constraint(equalTo: title.bottomAnchor, constant: Grid.hair),
-            trailing.centerYAnchor.constraint(equalTo: title.centerYAnchor),
-            trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Grid.part),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor,
-                                            constant: -Grid.part),
-            crumb.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor,
-                                            constant: -Grid.part),
-        ])
+        setTrailing([sourceChip, chip, enter])
         restyle()
     }
 
@@ -363,7 +328,7 @@ private final class CommandsRowView: SlabRow {
 
     func configure(_ row: Commands.Row, showSource: Bool) {
         if title.stringValue != row.title { title.stringValue = row.title }
-        if crumb.stringValue != row.crumb { crumb.stringValue = row.crumb }
+        detailText = row.crumb
 
         // Hidden state set unconditionally: the guard is only a repaint
         // saver, and a chip born visible must still learn it is empty.
@@ -373,6 +338,7 @@ private final class CommandsRowView: SlabRow {
         let shortcut = row.shortcut ?? ""
         chip.legend = shortcut
         chip.isHidden = shortcut.isEmpty
+        refreshTrailing()
     }
 
     func setSelected(_ selected: Bool) {
@@ -387,8 +353,9 @@ private final class CommandsRowView: SlabRow {
     private func restyle() {
         choose(selectedState)
         title.textColor = BarTheme.ink
-        crumb.textColor = BarTheme.secondaryColor
+        detail.textColor = BarTheme.secondaryColor
         sourceLabel.textColor = BarTheme.secondaryColor
         enter.isHidden = !selectedState
+        refreshTrailing()
     }
 }

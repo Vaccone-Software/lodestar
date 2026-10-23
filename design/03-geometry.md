@@ -43,7 +43,7 @@ Every gap, inset and padding is a step of the grid:
 | 7    | 32     | a room's outer margin                                       |
 | 8    | 48     | between a room's columns                                    |
 
-Inside a key or a chip, a half-step of 6 is allowed for the horizontal padding, because 4 crowds a letter and 8 makes a short key wide. A control that holds words (a popup, a button) pads 12 at the sides, and a popup's chevron sits 8 from its words: 6 put the words against the border (owner's review, 22 October 2026).
+Inside a chip that is read rather than pressed, a half-step of 6 is allowed for the horizontal padding, because 4 crowds a letter and 8 makes a short chip wide. A key pads 8 each side (the key contract). A control that holds words (a popup, a button) pads 12 at the sides, and a popup's chevron sits 8 from its words: 6 put the words against the border (owner's review, 22 October 2026).
 
 A menu or a card of plain rows insets them 12 above and below and 16 at the sides. A room (Settings, Feedback, the walk) has a margin of 32 or a section of 24, and Settings' groups are panes that inset their rows by 12.
 
@@ -55,7 +55,7 @@ A menu or a card of plain rows insets them 12 above and below and 16 at the side
 | bar's field    | 60 tall                 | holds the 23-point field role                      |
 | row            | 48 tall                 | one line of body with an icon                      |
 | pill           | 44 tall                 | its ends define the surface radius                 |
-| key            | 22 tall                 | the key contract sets its width and parts          |
+| key            | 24 tall                 | the key contract sets its width and parts          |
 | app icon in a row | 32               | its artwork carries its own margin                 |
 | symbol in a row   | 16               | a symbol leading a row, at the body's size         |
 | pointer target | at least 24 × 24        | anything clickable, though Lodestar is keyed first |

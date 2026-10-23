@@ -74,7 +74,25 @@ On the slab (the chosen row) a key takes the slab's look; the slab contract sets
 
 ## Status
 
-Not yet built. Main draws keys 22 tall and at least 34 wide, a sequence as one chip ("e p"), bare keystrokes in capitals on Keep's cards, the guide, hint marks and flashes ("Breath JK saved"), a double tap as two identical keys, and the large key's figure left of centre.
+Built 23 October 2026. Before it, main drew keys in seven places (`KeyFace`, `MarkKey`, `KeyMark`, Keep's `placedCap`, the ⌘K card's `keycap`, Settings' and the walk's own `keycap`) at 22 tall and at least 34 wide, a sequence as one chip ("e p"), bare keystrokes in capitals on Keep's cards, the guide, hint marks, flashes ("Breath JK saved") and the coach ("lode F → Figma"), a double tap as two identical keys, and the large key's figure left of centre. Now `Key` (`Key.swift`) is the one key: `KeySize` (standard 24 = 21 + 3, large 36 = 31 + 5) and `KeyState` (resting, lit, pressed, quiet) are values, `KeyStrokes` draws a sequence (4 apart), a double tap (`×2` on the key's own baseline) and keys that are not one sequence (8 apart), and `KeyMark` draws hints and the peek from it. The legend is set by CoreText from the font's metrics (`KeyLegend`), never by a text field's line box.
+
+Measured by rendering every legend in every state and both looks and reading the ink back (`KeyTests`):
+
+- `a g y e s A ⏎ ⇧ 1 esc ⌘K ' ;` are centred across the face within 0.5 pt and their band (x-height or cap height) is centred on the face within 0.5 pt; lowercase legends share a baseline within 0.5 pt whatever their descenders, in all four states and both looks.
+- A key is `ceil(ink) + 16` wide, square (24) at the least; `a`, `i`, `l`, `1`, `'` are all 24, `esc` 38, `⌘K` 36, `lode` 42 (day).
+- Punctuation is drawn at the step of the type scale whose ink comes nearest the key's cap height (9.2), and centred by its ink: `'` `` ` `` `.` `,` `-` `=` at 23 (6.3, 3.8, 3.4, 6.2, 2.5 and 8.3 points of ink), `;` and `/` stay at 13 (9.0 and 11.9). Ink about the cap height for a tick would mean a 35-point glyph and a nine-point dot, so the type scale's top step is the limit; the render is the judge.
+- The large key's figure is centred on its face (`7`, `3`, `10`) within 0.5 pt.
+- Every key on every gallery surface, in both looks, is as wide as its legend needs and no wider, spaces no letters, and has no identical `lode` beside it.
+
+What the build found and decided:
+
+- **A quiet key stands where the resting face stands.** Its hairline outlines the 21-point face, not the whole 24, so a row of mixed states shares one baseline. Over another app's window (a typed hint) a quiet key keeps the pane's own step behind its letter, or the content would run through it.
+- **Keep's cards** lost two points of body to the taller key; the gap under the key went from 4 to 2 (the key's own side is part of it) so the file's sheet still fits, and every title on a card now stands on the middle of its key's face.
+- **Guides and the cheat sheet** write a key as groups: `zo zc` is two sequences, `h j k l` four keys 8 apart, `esc`, `⌘K`, `⇧F` and `a…z` one key each.
+- **`uppercased()`** on a bare keystroke is gone from flashes, the coach, the advisor, the config history, the launcher's verdicts, Keep's cards and the guides; the ones that remain are chords (⌥J, ⇧⌘V), VoiceOver's speech, or not keystrokes, and a source test lists each with its reason.
+- **Chips that are read** (Ask's profile, the commands bar's source, the meeting's unit) are not keys and keep their own view; the drift test names them, and the list only shrinks.
+
+Click hints, on trial: `hints-dense-{day,night}` lays 55 hints over a busy page (nav, sidebar, tabs, filters, ten rows, a rail), and `hints-dense-oneKey-{day,night}` draws the same hints as one key each for comparison. Two keys a hint are 52 wide and cover on average 58 percent of the width of the thing they point at (19 of 55 cover it whole); one key is 27.5 wide, 40 percent, 6 of 55 whole. Neither makes hints overlap each other. See Open.
 
 ## Prototype lessons
 
@@ -82,9 +100,16 @@ Not yet built. Main draws keys 22 tall and at least 34 wide, a sequence as one c
 - **Line boxes lie.** A text field centres its line, not its letters; the legend has to be placed from the font's x-height and cap height.
 - **Ink boxes lie too.** Centring each legend's own ink moved `g` and `y` up; one band per kind keeps the baseline.
 
+## Main lessons
+
+- **One drawing, one place.** Seven keys meant seven centrings: a text field per key, each with its own constant. A key that draws its legend itself, from the font's metrics, cannot disagree with another.
+- **Test the ink, not the frame.** A legend's frame can be centred while its letters are not. The tests render the key with and without its legend and measure the pixels that differ.
+- **A taller key moves what stands beside it.** Two points on the key took two points from Keep's cards' bodies, which a file's sheet had filled exactly.
+- **Display and data share a string.** `uppercased()` on a letter was used to show a key and, nearby, to say a chord's capital or what VoiceOver reads; each was read, and a test lists the survivors.
+
 ## Open
 
-- **Click hints on trial.** A screen of hints shows dozens of two-letter sequences; drawn as two keys each, they may crowd the screen and hide what they point at. If the dense render says so, a hint alone may draw its sequence as one key with the letters set tight (`sd`), because a hint is a name to type rather than a key to find. Decided by the render, not in advance.
+- **Click hints on trial.** A screen of hints shows dozens of two-letter sequences; drawn as two keys each, they may crowd the screen and hide what they point at. If the dense render says so, a hint alone may draw its sequence as one key with the letters set tight (`sd`), because a hint is a name to type rather than a key to find. Decided by the render, not in advance. The build drew both (see Status); the numbers there are the evidence, and the choice is the owner's.
 - **Pressed in the dark look** is hard to see: the side is close to the ground, so losing two points of it barely shows. Acceptable for now; noted for the slab and sound, which also mark a press.
 
 ## Decided in review

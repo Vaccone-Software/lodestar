@@ -57,9 +57,9 @@ A row is the thing, then its keys: what it is leads, how to reach it trails. A l
 
 An **off** setting is not unavailable: it is a switch turned off, wearing the dot when off is not the default, and reads in full ink.
 
-### The coach's whisper
+### The coach's record
 
-The record under the coach's offer stays one line beside `lode ⌫` and "Not now", as it is today, and is cut at the tail only past the card's 540. Wrapping it was drawn and refused in review: the keys no longer lined up with the words, and the line it saved became empty card. The coach's records are written to fit (about 55 characters).
+The record under the coach's offer is a sentence, so it wraps. It stands in its own column, from the card's inset (12) to 8 before `lode ⌫` and "Not now", and is whole: no ellipsis, nothing clipped, nothing outside the card. The keys and "Not now" stand on the record's first line, their words on the baseline lowercase legends share; further lines start flush with the first and the card grows to hold every line. The card's width rule (428 to 540) is unchanged, and a record that fits on one line looks as it always has. A record that cannot fit takes the card to its 540. A breath's record carries its lift ("Messages and Mail travel together 12× at lift 3.4").
 
 ## Rules
 
@@ -67,7 +67,7 @@ The record under the coach's offer stays one line beside `lode ⌫` and "Not now
 2. **One order.** A row leads with what it is and trails with its keys, the acting key last; a legend leads with its keys.
 3. **One rhythm.** Rows 2 apart, settings by a hairline, lines touching, legends 8 apart.
 4. **Trailing parts align to the first line, and words beside a key align to its face.** Today the coach's record, its "Not now" and every footer's words sit 1.5 to 2.5 points below their keys' letters, centred on the key's whole frame, side included.
-5. **Names are cut at the tail; sentences wrap.** The coach's one-line record is the exception.
+5. **Names are cut at the tail; sentences wrap.** The coach's record is a sentence: it wraps within its column and is never cut.
 6. **Quiet, never faded.** Nothing in a row or a card is translucent.
 
 ## Enforcement
@@ -77,7 +77,7 @@ The record under the coach's offer stays one line beside `lode ⌫` and "Not now
 - A test sets every name field's truncation to tail and every sentence field to wrap.
 - `DesignDriftTests` fails an `alphaValue` below 1 or a layer opacity below 1 on a row, a card or a control (motion's fades excepted), and a dot drawn as a glyph.
 - A pixel test holds the words beside a key on its legend's baseline (the coach, a footer, a Settings title's keys).
-- A test holds every record the coach writes within its line at the card's widest, with the longest app names the gallery uses.
+- A test holds every record the coach writes whole at the card's widest, with the longest app names the gallery uses and the biggest numbers: nothing cut, every part of the card inside its bounds, the keys on the first line's baseline. A second holds a wrapped record's lines under each other and the card at 540.
 
 ## Renders
 
@@ -94,9 +94,9 @@ Now `Row.swift` and the tokens in `Geometry.swift` hold the four rows. `ListRow`
 Measured by laying out and drawing every gallery surface in both looks and reading it back (`RowTests`, `GeometryTests`, `KeyTests`, `DesignDriftTests`):
 
 - **Every list line is one of the four** (a sweep of every surface): a row is 48, or 52 with its detail; its icon 12 in and 32 or 24; its words 12 after the icon, or 12 in; its detail 2 under its title; its trailing parts 8 apart, the last 12 from the edge, each centred on the title's first line (a key by its face) and the lit key last; rows stand 2 apart. A line is 32, its words 12 in, 12 after its dot column or symbol, its parts 8 apart and on its line, touching its neighbours (or a rule's 16 between), its slab rounded at 14. A setting is at least 48 and its letters stand in one column with the titles after it. A legend is 24, its words 8 after its keys, and the cheat sheet's legends 8 apart.
-- **Names are cut at the tail and sentences wrap**: every row's title and detail, every line's words, the words beside a key and every setting's title end in "…" on one line; every setting's detail, problem and readout wraps. Today's ⌘K card cut nothing and overflowed; its names now cut, and the card is never wider than a sentence's measure.
+- **Names are cut at the tail and sentences wrap**: every row's title and detail, every line's words, the words beside a key (but a coach's record, which wraps) and every setting's title end in "…" on one line; every setting's detail, problem and readout wraps. Today's ⌘K card cut nothing and overflowed; its names now cut, and the card is never wider than a sentence's measure.
 - **Words beside a key stand on its line**, read from the ink: the coach's record and "Not now", a footer's four words and a Settings title's capital are within half a point, day and night; before, the same measure put them 1 to 2.5 points low. Moving the shared baseline by one point makes the test fail.
-- **The coach's records** (a bind, a shorten, a flatten, a retire, a route, a nudge, a meeting, a breath, at the longest app names the gallery uses and the biggest numbers) stand whole on one line at the card's widest.
+- **The coach's records** (a bind, a shorten, a flatten, a retire, a route, a nudge, a meeting, a breath, at the longest app names the gallery uses and the biggest numbers) stand whole at the card's widest, wrapping when they must: the column is 373.5 wide beside the 134.5 of `lode ⌫ Not now`, the first line's baseline is the keys', and the second line stands under the first, flush at 12. The gallery's `coach-record-wraps` draws a breath of two long names with its lift.
 - **The quiet key** is the resting key's frame, face, baseline and centred legend, its face clear with a hairline round it, its side the hairline's share of the ink and as tall as a resting key's (3, and 5 large), in both looks.
 - **Nothing is translucent**: no alpha or layer opacity below 1 in the sources, and none on any view or layer of any surface; no dot glyph in the sources or on a surface. Each guard has a sample it is shown to catch.
 
@@ -108,7 +108,7 @@ Measured by laying out and drawing every gallery surface in both looks and readi
 - **A Settings result leads with its title and trails its address keys** (4 apart) and ⏎, as every row does; it led with the keys. The coach's offer keeps the approved mock's order: icons, name, its quiet address 8 after the name (4 apart), then the lit chord and ×2 at the trailing edge.
 - **A guide's lines stand on the card's own inset**, not 12 inside a line of their own: a guide has no slab and nothing in it is chosen, so its words stay under the card's title. Its key is at least 12 from the name, where it was 24.
 - **A flash's words stand 8 from the keys beside them**, as a footer's do (4 before).
-- **The breath's record is the count** ("Messages and Mail travel together 12×"). The lift went to the report: it is not a count the hand can check, and two long app names left no room for it on the card's one line. It is a typed `Recommendation.record`, tested in Core.
+- **The breath's record is the whole record**, the lift in it ("Messages and Mail travel together 12× at lift 3.4"). It was cut to the count and a typed `Recommendation.record` for the card's one line; both went when the record was allowed to wrap (see below).
 - **Keep's source list stands its field and its lines 8 inside the menu**, and the rule between "All apps" and the rest takes 16 (8 above, 8 below). Keep's missing-file card is quiet: its words and key in the quiet ink, its sheets as they are (content).
 - **A popup's disabled item keeps the quiet ink and never becomes the slab**; a dimmed Settings row's popup and fields show their value in the quiet ink.
 - **`keep-missing-file-dimmed` is `keep-missing-file-quiet`**, and the new sheets are `foundation-row`, `settings-observations-waiting`, `optionscard-*` and `cheatsheet-two-sections`.
@@ -122,6 +122,6 @@ Measured by laying out and drawing every gallery surface in both looks and readi
 
 - A quiet key is a resting key left unfilled: the same face and side, its letter centred on its face. A single outline round face and side together was drawn first and read as a round chip (23 October 2026).
 - Words beside a key align to its face: review found the coach's record and the footers sitting below their keys' letters (23 October 2026).
-- The coach's record stays one line beside its keys; wrapping was refused (23 October 2026).
+- The coach's record stays one line beside its keys; wrapping was refused (23 October 2026). The owner reversed this on 23 October 2026: it may wrap, as long as it is all visible ("it's fine if they don't always use one line, as long as you can see"), and the lift is back in a breath's record.
 - The coach's offer leads with its apps' icons, 24 each, the second overlapping the first by 6, as today; the overlap and the size are tokens (`titleIconSize`), not `Grid.section` (23 October 2026).
 - Approved 23 October 2026.

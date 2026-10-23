@@ -13,7 +13,7 @@ import XCTest
 /// really have (a text link is its text, a button its box, a sidebar row its
 /// whole row), and the hints are the door's own: `SelectOverlay.compose` places
 /// them, pinned at each target's top-left corner, with labels from
-/// `HintLabels` on the home row.
+/// `HintLabels` on the home row. A hint is one key with its letters set tight.
 final class MockPage: NSView {
     override var isFlipped: Bool { true }
 
@@ -214,9 +214,7 @@ enum GalleryHints {
 
     /// The page with its hints. `typed` is what the hand has typed of them:
     /// only the hints it can still complete stand, their letters so far quiet.
-    /// `oneKey` draws each hint as one key with the letters set tight, the
-    /// alternative the contract names, for the decision.
-    static func screen(night: Bool, typed: String, oneKey: Bool = false) -> (NSView, [AnyObject]) {
+    static func screen(night: Bool, typed: String) -> (NSView, [AnyObject]) {
         let page = MockPage(size: size, night: night)
         let rects = page.targets
         // Reading order: top to bottom, then left to right, in bands of a line.
@@ -231,21 +229,7 @@ enum GalleryHints {
         let made = SelectOverlay.compose(
             chips: chips, anchor: [], typed: typed, bounds: page.bounds, look: overlay,
             local: { NSRect(x: $0.minX, y: size.height - $0.maxY, width: $0.width, height: $0.height) })
-        let marks: [NSView]
-        if oneKey {
-            // Each hint as one key whose legend is its letters, set tight.
-            marks = made.marks.compactMap { mark in
-                guard let first = mark.subviews.first as? Key else { return nil }
-                let label = mark.subviews.compactMap { $0 as? Key }.map(\.legend).joined()
-                let key = Key(label, overContent: true)
-                key.translatesAutoresizingMaskIntoConstraints = true
-                key.frame = NSRect(x: mark.frame.minX, y: mark.frame.minY, width: key.width, height: key.size.height)
-                _ = first
-                return key
-            }
-        } else {
-            marks = made.marks
-        }
+        let marks = made.marks
         for view in made.underlays + marks { overlay.addSubview(view) }
         let host = NSView(frame: page.bounds)
         host.addSubview(page)
@@ -253,15 +237,15 @@ enum GalleryHints {
         return (host, [page, overlay])
     }
 
-    static func shot(_ state: String, typed: String, oneKey: Bool = false) -> GalleryShot {
+    static func shot(_ state: String, typed: String) -> GalleryShot {
         GalleryShot(surface: "hints", state: state, looks: GalleryLook.all) { look in
-            let (host, keep) = screen(night: look == .night, typed: typed, oneKey: oneKey)
+            let (host, keep) = screen(night: look == .night, typed: typed)
             let window = GalleryHost.window(host, size: size, look: look)
             return (window.contentView!, keep + [window])
         }
     }
 
     static var shots: [GalleryShot] {
-        [shot("dense", typed: ""), shot("dense-typed", typed: "j"), shot("dense-oneKey", typed: "", oneKey: true)]
+        [shot("dense", typed: ""), shot("dense-typed", typed: "j")]
     }
 }

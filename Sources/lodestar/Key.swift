@@ -187,6 +187,11 @@ final class Key: NSView, CeramicDepth {
     private var pointer = Keycaps.CapState.resting
     let standing: Standing
     private let legendView: KeyLegendView
+    /// How many of the legend's first letters are drawn in quiet ink inside
+    /// the one key: a hint whose first letters the hand has typed.
+    var quietPrefix = 0 {
+        didSet { if quietPrefix != oldValue { legendView.quietPrefix = quietPrefix } }
+    }
 
     init(_ legend: String, size: KeySize = .standard, state: KeyState = .resting, overContent: Bool = false) {
         self.size = size
@@ -254,6 +259,9 @@ final class Key: NSView, CeramicDepth {
     /// The legend's colour as it is drawn now.
     var legendColor: NSColor { legendView.color }
 
+    /// The ink the legend's letter at `index` is drawn in.
+    func legendInk(at index: Int) -> NSColor { index < quietPrefix ? BarTheme.secondaryColor : legendView.color }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         fit()
@@ -317,6 +325,7 @@ private final class KeyLegendView: NSView {
     var legend: String { didSet { needsDisplay = true } }
     let size: KeySize
     var color: NSColor = BarTheme.ink { didSet { needsDisplay = true } }
+    var quietPrefix = 0 { didSet { needsDisplay = true } }
 
     init(legend: String, size: KeySize) {
         self.legend = legend
@@ -342,7 +351,28 @@ private final class KeyLegendView: NSView {
         context.textMatrix = .identity
         context.setFillColor(Ceramic.resolved(color, in: self))
         context.textPosition = placement.origin
-        CTLineDraw(placement.line, context)
+        let typed = min(quietPrefix, (legend as NSString).length)
+        if typed > 0 {
+            // The letters already typed, quiet, then the rest in the ink, on
+            // one baseline and set tight.
+            func line(_ text: String) -> CTLine {
+                CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
+                    .font: placement.font,
+                    NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+                ]))
+            }
+            let head = line((legend as NSString).substring(to: typed))
+            let tail = line((legend as NSString).substring(from: typed))
+            let advance = CGFloat(CTLineGetTypographicBounds(head, nil, nil, nil))
+            context.setFillColor(Ceramic.resolved(BarTheme.secondaryColor, in: self))
+            context.textPosition = placement.origin
+            CTLineDraw(head, context)
+            context.setFillColor(Ceramic.resolved(color, in: self))
+            context.textPosition = CGPoint(x: placement.origin.x + advance, y: placement.origin.y)
+            CTLineDraw(tail, context)
+        } else {
+            CTLineDraw(placement.line, context)
+        }
         context.restoreGState()
     }
 }
@@ -466,10 +496,11 @@ final class KeyTimes: NSView {
 
 /// Marks laid over another app's window, drawn as the one key: the pale cap
 /// on its side, with a hairline so it reads over any app, light or dark. A
-/// hint is a sequence, one key per keystroke, 4 apart; letters the hand has
-/// already typed take the quiet state, and the ones still to press keep the
-/// key's own. Built by hand, without layout, because a window of click
-/// hints can be four hundred of them at once.
+/// hint is one key holding its letters set tight (the one place a sequence is
+/// not a key per keystroke); letters the hand has already typed go quiet
+/// inside it, and the ones still to press keep the ink. Built by hand,
+/// without layout, because a window of click hints can be four hundred of
+/// them at once.
 enum KeyMark {
     static let height: CGFloat = KeySize.standard.height
     /// The peek's numerals: the same key at a size read across the screen.
@@ -488,14 +519,15 @@ enum KeyMark {
         !typed.isEmpty && text.lowercased().hasPrefix(typed.lowercased()) ? typed.count : 0
     }
 
-    /// A hint: one key per letter of `text`, 4 apart, origin at zero, the
-    /// letters typed so far quiet. A view of plain frames, no layout.
+    /// A hint: one key whose legend is the letters to type, set tight, origin
+    /// at zero. A hint is a name to type, not a key to find, so its letters
+    /// share one key (a dense screen of two keys a hint hid 19 of 55
+    /// targets against 6); the letters the hand has typed so far go quiet
+    /// inside it. A view of plain frames, no layout.
     static func key(_ text: String, typed: String = "") -> NSView {
-        let done = done(text, typed: typed)
-        let keys = text.enumerated().map { offset, letter in
-            Key(String(letter), state: offset < done ? .quiet : .resting, overContent: true)
-        }
-        return run(keys)
+        let key = Key(text, overContent: true)
+        key.quietPrefix = done(text, typed: typed)
+        return run([key])
     }
 
     /// The peek's figure: one large key, centred.

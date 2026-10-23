@@ -19,40 +19,38 @@ final class ChipNarrowingTests: XCTestCase {
         XCTAssertEqual(SelectOverlay.narrowed(chips, typed: "z").map(\.label), [], "a letter no label starts with leaves nothing")
     }
 
-    /// A hint is a sequence: one key for each letter.
+    /// A hint is a name to type, not a key to find: its letters share one key.
     private func keys(_ mark: NSView) -> [Key] { mark.subviews.compactMap { $0 as? Key } }
 
-    func testAHintIsOneKeyForEachKeystrokeFourApart() {
+    func testAHintIsOneKeyHoldingItsLettersSetTight() {
         let mark = KeyMark.key("afg")
-        XCTAssertEqual(keys(mark).map(\.legend), ["a", "f", "g"], "as typed: lowercase, a key each")
-        let frames = keys(mark).map(\.frame)
-        XCTAssertEqual(frames[1].minX - frames[0].maxX, Grid.tight)
-        XCTAssertEqual(frames[2].minX - frames[1].maxX, Grid.tight)
-        XCTAssertEqual(mark.frame.width, frames[2].maxX, "the hint is as wide as its keys")
+        XCTAssertEqual(keys(mark).map(\.legend), ["afg"], "as typed: lowercase, one key")
+        XCTAssertEqual(mark.frame.width, keys(mark)[0].width, "the hint is as wide as its key")
+        XCTAssertEqual(keys(KeyMark.key("a"))[0].width, 24, "a single letter is square")
+        XCTAssertTrue(keys(mark)[0].overContent)
     }
 
-    func testAMarkTheHandHasBegunTypingKeepsTheRestingKeysAndQuietsTheTypedOnes() {
-        let typed = keys(KeyMark.key("af", typed: "a")), resting = keys(KeyMark.key("af"))
-        XCTAssertEqual(typed.map(\.state), [.quiet, .resting], "the typed letter is quiet, the other stands")
-        XCTAssertEqual(resting.map(\.state), [.resting, .resting])
-        XCTAssertEqual(typed[1].standing.faceColor, BarTheme.markFill.cgColor, "no accent: the same cap")
-        XCTAssertEqual(typed[1].standing.faceColor, resting[1].standing.faceColor)
-        XCTAssertEqual(typed[1].standing.sideColor, resting[1].standing.sideColor, "the side is the resting side")
-        XCTAssertEqual(typed[1].standing.rimColor, resting[1].standing.rimColor, "and the rim")
-        XCTAssertEqual(typed[1].standing.visibleSide, Ceramic.Side.control, "on its side, inside its frame")
-        XCTAssertEqual(typed[0].drawnSide, 0, "a quiet key lies flat")
+    func testAMarkTheHandHasBegunTypingKeepsTheKeyStandingAndQuietsTheTypedLetters() {
+        let typed = keys(KeyMark.key("af", typed: "a"))[0], resting = keys(KeyMark.key("af"))[0]
+        XCTAssertEqual(typed.state, .resting, "the key stands")
+        XCTAssertEqual(typed.quietPrefix, 1, "its first letter is quiet")
+        XCTAssertEqual(resting.quietPrefix, 0)
+        XCTAssertEqual(typed.standing.faceColor, BarTheme.markFill.cgColor, "no accent: the same cap")
+        XCTAssertEqual(typed.standing.faceColor, resting.standing.faceColor)
+        XCTAssertEqual(typed.standing.sideColor, resting.standing.sideColor, "the side is the resting side")
+        XCTAssertEqual(typed.standing.rimColor, resting.standing.rimColor, "and the rim")
+        XCTAssertEqual(typed.standing.visibleSide, Ceramic.Side.control, "on its side, inside its frame")
     }
 
     func testTheLettersAlreadyTypedGoQuietAndTheRestKeepTheMarksInk() {
-        let mark = keys(KeyMark.key("afg", typed: "af"))
-        XCTAssertEqual(mark.map(\.legend), ["a", "f", "g"], "the label is whole, as typed")
-        XCTAssertEqual(mark[0].legendColor, BarTheme.secondaryColor, "typed, quiet")
-        XCTAssertEqual(mark[1].legendColor, BarTheme.secondaryColor)
-        XCTAssertEqual(mark[2].legendColor, BarTheme.ink, "still to press, at full strength")
-        XCTAssertNotEqual(mark[0].legendColor, mark[2].legendColor)
-        XCTAssertEqual(keys(KeyMark.key("af"))[0].legendColor, BarTheme.ink, "nothing typed, nothing quiet")
-        XCTAssertEqual(keys(KeyMark.key("af", typed: "AF"))[1].state, .quiet, "typed compares without case")
-        XCTAssertEqual(keys(KeyMark.key("af", typed: "k"))[0].state, .resting, "a prefix the label lacks quiets nothing")
+        let mark = keys(KeyMark.key("afg", typed: "af"))[0]
+        XCTAssertEqual(mark.legend, "afg", "the label is whole, as typed")
+        XCTAssertEqual(mark.legendInk(at: 0), BarTheme.secondaryColor, "typed, quiet")
+        XCTAssertEqual(mark.legendInk(at: 1), BarTheme.secondaryColor)
+        XCTAssertEqual(mark.legendInk(at: 2), BarTheme.ink, "still to press, at full strength")
+        XCTAssertEqual(keys(KeyMark.key("af"))[0].legendInk(at: 0), BarTheme.ink, "nothing typed, nothing quiet")
+        XCTAssertEqual(keys(KeyMark.key("af", typed: "AF"))[0].quietPrefix, 2, "typed compares without case")
+        XCTAssertEqual(keys(KeyMark.key("af", typed: "k"))[0].quietPrefix, 0, "a prefix the label lacks quiets nothing")
     }
 
     func testTypingNeverChangesTheKeysSize() {

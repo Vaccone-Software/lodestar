@@ -36,7 +36,7 @@ A key is as wide as its legend plus 8 at each side (a grid step), and never narr
 - **A bare keystroke is shown as typed:** lowercase. A capital appears only where Shift is actually pressed.
 - **A chord with modifiers** follows macOS: the modifiers' glyphs, then the letter as a capital, on one key (`⌘K`, `⌥J`, `⌥⇧⌘V`).
 - **Named keys** are words where macOS uses words (`esc`, `tab`, `space`, and Lodestar's own `lode`) and glyphs where it uses glyphs (`⏎`, `⌫`, `⇧`, `⌘`, `⌥`, `⌃`, `↑ ↓ ← →`).
-- **A sequence** (keys pressed one after another) is one key per keystroke, 4 apart: `e` `p`, never a chip reading "e p". This holds for click hints too, on trial: a screen of hints is the dense case, and its render decides whether hints keep it (see Open).
+- **A sequence** (keys pressed one after another) is one key per keystroke, 4 apart: `e` `p`, never a chip reading "e p". The one exception is a click hint: a hint is a name to type, not a key to find, so its letters share one key, set tight (`jk`), and the letters already typed go quiet inside it (see Decided in review).
 - **A double tap** is one key followed by `×2` in quiet ink at the meta size, 4 after it: `lode` ×2.
 - **A key named in a sentence** (a flash, a caption, the coach) is drawn as a key, inline, or written as typed; never capitalised to stand out.
 
@@ -56,7 +56,7 @@ On the slab (the chosen row) a key takes the slab's look; the slab contract sets
 1. **One key, everywhere.** Every place Lodestar draws a key uses this primitive; no surface draws its own.
 2. **On its face, on one band.** Legends sit on the face, centred by band, so a row of keys shares a baseline.
 3. **As typed.** Lowercase for a bare keystroke; capitals only for Shift, and in a modifier chord.
-4. **One keystroke, one key.** Sequences are separate keys; a double tap is one key and ×2.
+4. **One keystroke, one key.** Sequences are separate keys; a double tap is one key and ×2. A click hint alone draws its letters in one key.
 5. **One lit key at a time.** The orange marks where the hand goes next; a second lit key means one is wrong (a chord's keys, pressed together, count as one).
 6. **Hugs its legend.** No minimum width beyond square.
 7. **Instant.** Pressing and lighting do not animate (motion contract).
@@ -65,7 +65,7 @@ On the slab (the chosen row) a key takes the slab's look; the slab contract sets
 
 - Rendered-legend tests: for a set of legends (`a`, `g`, `y`, `e`, `s`, `A`, `⏎`, `⇧`, `1`, `esc`, `⌘K`, `'`, `;`) in every state and both looks, the legend's band is centred on the face within 0.5 pt, and lowercase legends share a baseline within 0.5 pt.
 - A source test fails on `uppercased()` applied to a bare keystroke shown on a key or in a flash.
-- A gallery test: no key is wider than its legend plus padding (or square), no key's text contains a space between single letters, and no view shows two identical keys in a row where a double tap is meant.
+- A gallery test: no key is wider than its legend plus padding (or square), no key's text contains a space between single letters, no key but a hint holds several bare letters, and no view shows two identical keys in a row where a double tap is meant.
 - The drift test fails on a surface drawing a key-shaped view of its own.
 
 ## Renders
@@ -92,7 +92,7 @@ What the build found and decided:
 - **`uppercased()`** on a bare keystroke is gone from flashes, the coach, the advisor, the config history, the launcher's verdicts, Keep's cards and the guides; the ones that remain are chords (⌥J, ⇧⌘V), VoiceOver's speech, or not keystrokes, and a source test lists each with its reason.
 - **Chips that are read** (Ask's profile, the commands bar's source, the meeting's unit) are not keys and keep their own view; the drift test names them, and the list only shrinks.
 
-Click hints, on trial: `hints-dense-{day,night}` lays 55 hints over a busy page (nav, sidebar, tabs, filters, ten rows, a rail), and `hints-dense-oneKey-{day,night}` draws the same hints as one key each for comparison. Two keys a hint are 52 wide and cover on average 58 percent of the width of the thing they point at (19 of 55 cover it whole); one key is 27.5 wide, 40 percent, 6 of 55 whole. Neither makes hints overlap each other. See Open.
+Click hints: `hints-dense-{day,night}` lays 55 hints over a busy page (nav, sidebar, tabs, filters, ten rows, a rail), and `hints-dense-typed-{day,night}` shows it after the first letter. The build drew the hints both ways: two keys a hint were 52 wide and covered on average 58 percent of the width of the thing they point at (19 of 55 whole); one key is 27.5 wide, 40 percent, 6 of 55 whole. Neither made hints overlap each other. Hints are one key (see Decided in review).
 
 ## Prototype lessons
 
@@ -109,10 +109,11 @@ Click hints, on trial: `hints-dense-{day,night}` lays 55 hints over a busy page 
 
 ## Open
 
-- **Click hints on trial.** A screen of hints shows dozens of two-letter sequences; drawn as two keys each, they may crowd the screen and hide what they point at. If the dense render says so, a hint alone may draw its sequence as one key with the letters set tight (`sd`), because a hint is a name to type rather than a key to find. Decided by the render, not in advance. The build drew both (see Status); the numbers there are the evidence, and the choice is the owner's.
 - **Pressed in the dark look** is hard to see: the side is close to the ground, so losing two points of it barely shows. Acceptable for now; noted for the slab and sound, which also mark a press.
 
 ## Decided in review
+
+- **Click hints are one key** (23 October 2026): the owner wanted two keys for consistency, but the dense render showed one key reads far better. A hint is a name to type, not a key to find, and two keys hid 19 of 55 targets against 6. A hint draws its letters set tight in one key (`jk`), and the letters already typed go quiet inside it, in the quiet ink; a single letter is a square key. Everywhere else a sequence stays a key per keystroke.
 
 - **More room** (23 October 2026): the first draft (22 tall, 6 each side) felt cramped; the key is 24 tall with 8 each side, and separate keys stand 8 apart.
 - The large key, centred, and the four states are approved as drafted.

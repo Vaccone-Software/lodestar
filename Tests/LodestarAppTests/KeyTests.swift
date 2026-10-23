@@ -283,6 +283,38 @@ final class KeyTests: XCTestCase {
 
     private func allViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(allViews) }
 
+    func testAHintDrawsItsTypedLettersQuietInsideTheOneKey() {
+        for look in GalleryLook.all {
+            look.apply()
+            let key = Key("jk", overContent: true)
+            key.quietPrefix = 1
+            let host = NSView(frame: NSRect(x: 0, y: 0, width: 60, height: 40))
+            key.translatesAutoresizingMaskIntoConstraints = true
+            key.frame = NSRect(x: 8, y: 8, width: key.width, height: 24)
+            host.addSubview(key)
+            let window = GalleryHost.window(host, size: host.frame.size, look: look)
+            defer { window.close() }
+            let rep = GalleryRender.bitmap(of: host)
+            // The face's left half holds `j`, the right `k`: the quiet one is dimmer.
+            func strongest(_ columns: Range<Int>) -> CGFloat {
+                var best: CGFloat = 0
+                let face = BarTheme.markFill.usingColorSpace(.sRGB)!
+                for column in columns {
+                    for row in 26..<50 {
+                        guard let c = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB) else { continue }
+                        best = max(best, abs(c.redComponent - face.redComponent) + abs(c.greenComponent - face.greenComponent))
+                    }
+                }
+                return best
+            }
+            // `jk` is about 13 points of ink in the middle of the key: `j` is its
+            // first third, `k` its last.
+            let left = Int((8 + key.width / 2 - 6.5) * 2), right = Int((8 + key.width / 2 + 6.5) * 2)
+            XCTAssertLessThan(strongest(left..<(left + 6)), strongest((right - 14)..<right),
+                              "\(look.name): the typed j is quieter than the k still to press")
+        }
+    }
+
     func testASequenceIsOneKeyPerKeystrokeFourApart() {
         GalleryLook.day.apply()
         let strokes = Keycaps.strokes(["e", "p"])
@@ -373,6 +405,13 @@ final class KeyTests: XCTestCase {
                         }
                         if key.frame.width < key.size.height - 0.01 { wrong.append("\(name): \"\(legend)\" is narrower than tall") }
                         if key.frame.width > key.width + 0.5 { wrong.append("\(name): \"\(legend)\" is wider than its legend") }
+                        // Only a hint holds several bare letters in one key; a sequence
+                        // anywhere else is a key a keystroke.
+                        let named: Set<String> = ["esc", "tab", "space", "lode", "fn", "return", "delete"]
+                        if legend.count > 1, legend.allSatisfy({ $0.isLetter && $0.isLowercase }),
+                           !named.contains(legend), !key.overContent {
+                            wrong.append("\(name): the key \"\(legend)\" is a sequence in one key; only a hint may be")
+                        }
                         if ["lode"].contains(legend), let parent = key.superview {
                             let twins = parent.subviews.compactMap { $0 as? Key }.filter { $0.legend == legend }
                             if twins.count > 1 { wrong.append("\(name): two \"\(legend)\" keys side by side, a double tap is ×2") }

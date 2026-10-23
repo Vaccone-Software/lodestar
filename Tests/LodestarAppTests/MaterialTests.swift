@@ -146,14 +146,15 @@ final class MaterialTests: XCTestCase {
         XCTAssertEqual(shadows, 1, "the theme file shades only the picture; the pane's shadow is Material.swift's")
     }
 
-    /// The one fade that remains is the Settings scroll's foot, a mask whose
-    /// alpha alone is read; and the overview's pool of light around its mark,
-    /// part of that picture. Nothing else in chrome is shaded.
+    /// The one gradient that remains is the Settings scroll's foot, a mask
+    /// whose alpha alone is read. Nothing else in chrome is shaded, and no
+    /// glow stands behind the overview's mark.
     func testNoChromeIsShadedByAGradientButTheScrollFootsMask() throws {
         let settings = DesignDriftTests.code(try String(
             contentsOf: DesignDriftTests.appSources.appendingPathComponent("SettingsController.swift"), encoding: .utf8))
-        XCTAssertEqual(settings.components(separatedBy: "CAGradientLayer()").count - 1, 2,
-                       "the scroll foot's mask and the mark's pool, and no third")
+        XCTAssertEqual(settings.components(separatedBy: "CAGradientLayer()").count - 1, 1,
+                       "the scroll foot's mask, and no glow")
+        XCTAssertFalse(settings.contains("MarkPool") || settings.contains(".type = .radial"), "no pool of light behind the mark")
         XCTAssertTrue(settings.contains("scroll.layer?.mask = fade"), "the fade is a mask, never a colour")
         for file in DesignDriftTests.swiftFiles(under: DesignDriftTests.appSources) where file.lastPathComponent != "SettingsController.swift" {
             let raw = try String(contentsOf: file, encoding: .utf8)

@@ -157,7 +157,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private static let placeTile = NSSize(width: 224, height: 136)
     /// The ring the ten places stand on, around the mark.
     private static let ring = NSSize(width: 372, height: 228)
-    private static let poolReach = CGSize(width: 1.1, height: 1.25)
     /// The most a readout's value takes before it wraps.
     private static let readoutWidth: CGFloat = 224
 
@@ -1149,11 +1148,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let ring = ToneView(edge: BarTheme.inkAt(Tone.systemDark ? 0.06 : 0.11), edgeWidth: 1, radius: ry)
         ring.frame = NSRect(x: center.x - rx, y: center.y - ry, width: rx * 2, height: ry * 2)
         field.addSubview(ring)
-
-        // The pool the mark floats in reaches a little past the ring.
-        let reach = Self.poolReach
-        field.addSubview(MarkPool(frame: NSRect(x: center.x - rx * reach.width, y: center.y - ry * reach.height,
-                                                width: rx * reach.width * 2, height: ry * reach.height * 2)))
 
         let markSize = BarTheme.settingsMarkSize
         let mark = NSImageView(frame: NSRect(x: center.x - markSize / 2, y: center.y - markSize / 2,
@@ -2439,52 +2433,3 @@ extension SettingsController {
 /// own raised row.
 final class LandingStep: RaisedRow {}
 
-/// The mark's light on the light page: a faint warm pool spreading from
-/// the star under the ring, so the shadows falling away from it have a
-/// source. The night needs none; the mark already glows on Slip. The pool
-/// is the mark's own light, so it is the accent: a fixed orange
-/// beside any other accent was a second light in the room.
-final class MarkPool: NSView {
-    private let glow = CAGradientLayer()
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        glow.type = .radial
-        glow.locations = [0, 0.45, 1]
-        glow.startPoint = CGPoint(x: 0.5, y: 0.5)
-        glow.endPoint = CGPoint(x: 1, y: 1)
-        layer?.addSublayer(glow)
-        restyle()
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func layout() {
-        super.layout()
-        glow.frame = bounds
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        restyle()
-    }
-
-    private func restyle() {
-        glow.frame = bounds
-        glow.isHidden = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let light = BarTheme.accent
-        // Warmer and paler as it spreads, as the fixed pool was.
-        let spread = light.blended(withFraction: 0.18, of: BarTheme.lightest) ?? light
-        glow.colors = [light.withAlphaComponent(0.13).cgColor,
-                       spread.withAlphaComponent(0.05).cgColor,
-                       spread.withAlphaComponent(0).cgColor]
-    }
-
-    #if DEBUG
-    /// The pool's colours, centre outward, for the tests.
-    var colors: [CGColor] { (glow.colors as? [CGColor]) ?? [] }
-    #endif
-}

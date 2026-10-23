@@ -20,28 +20,6 @@ final class OneLightSweepTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - The pool is the mark's own light
-
-    private func components(_ color: CGColor) -> [CGFloat] {
-        let srgb = color.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)
-        return srgb?.components ?? []
-    }
-
-    func testThePoolTakesTheAccentNotAFixedOrange() throws {
-        for accent in [NSColor(srgbRed: 0.1, green: 0.4, blue: 0.9, alpha: 1),
-                       NSColor(srgbRed: 0.2, green: 0.6, blue: 0.3, alpha: 1)] {
-            BarTheme.accentColor = { accent }
-            let pool = MarkPool(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-            let centre = try XCTUnwrap(pool.colors.first)
-            let c = components(centre)
-            XCTAssertEqual(c[0], accent.redComponent, accuracy: 0.01, "the centre is the accent")
-            XCTAssertEqual(c[1], accent.greenComponent, accuracy: 0.01)
-            XCTAssertEqual(c[2], accent.blueComponent, accuracy: 0.01)
-            XCTAssertEqual(c[3], 0.13, accuracy: 0.001, "faint, as the fixed pool was")
-            XCTAssertEqual(components(try XCTUnwrap(pool.colors.last))[3], 0, "and it fades to nothing")
-        }
-    }
-
     // MARK: - Every size read is on the scale
 
     func testTheMeetingStubReadsOnTheScale() {

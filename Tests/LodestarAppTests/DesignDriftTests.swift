@@ -384,9 +384,8 @@ final class DesignDriftTests: XCTestCase {
     }
 
     /// Honest matter: nothing is shaded by a gradient. A room may fade its
-    /// own scroll edge by a mask (and the overview keeps the pool of light
-    /// round its mark); the theme and chrome never do, and the rim is a clipped
-    /// strip, not a fade (MaterialTests holds the rest).
+    /// own scroll edge by a mask; the theme and chrome never do, and the rim
+    /// is a clipped strip, not a fade (MaterialTests holds the rest).
     func testChromeIsNeverShadedByAGradient() throws {
         let homes: Set<String> = ["SettingsController.swift"]
         let offenders = try sources()

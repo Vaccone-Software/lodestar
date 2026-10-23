@@ -1077,12 +1077,17 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             ink()
         }
 
+        /// A choice that waits on another keeps its value, drawn in the quiet ink.
+        var quiet = false { didSet { if quiet != oldValue { ink() } } }
+
         /// The popup draws its chosen title in the system's control text
         /// colour; each item names its own, in the ink and the popup's font.
         private func ink() {
             for item in itemArray where !item.isSeparatorItem {
+                // A choice that cannot be taken is quiet, whatever the row is.
+                let color = quiet || !item.isEnabled ? BarTheme.secondaryColor : BarTheme.ink
                 item.attributedTitle = NSAttributedString(
-                    string: item.title, attributes: BarTheme.attributes(typeStyle?.role ?? .control, color: BarTheme.ink))
+                    string: item.title, attributes: BarTheme.attributes(typeStyle?.role ?? .control, color: color))
             }
             followLook()
         }
@@ -1130,6 +1135,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private final class HandStack: NSStackView {
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .pointingHand)
+        }
+    }
+
+    /// A search result: a row that can be clicked.
+    private final class HitRow: ListRow {
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: .pointingHand)
         }
@@ -1253,7 +1265,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let rowsWidth = cardWidth - BarTheme.paneInset * 2
         // The letters of this place are one column, as wide as its widest.
         let letters = section.rows.compactMap(\.letter)
-        let letterWidth = ceil(letters.map { BarTheme.width(of: $0, in: .name) }.max() ?? 0)
+        let letterWidth = letters.map { Key.width(of: $0) }.max() ?? 0
         for group in groups {
             let block = NSStackView()
             block.orientation = .vertical
@@ -1419,7 +1431,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let line = NSView()
         line.translatesAutoresizingMaskIntoConstraints = false
         line.widthAnchor.constraint(equalToConstant: width).isActive = true
-        if row.dimmed { line.alphaValue = 0.45 }
+        // A row that cannot act now is quiet, never faded (design/13-row.md):
+        // its title and detail in the quiet ink, its keys quiet, its control
+        // keeping its value in the quiet ink. Nothing is drawn translucent.
+        let quiet = row.dimmed
         let padding = Grid.part
 
         let text = NSStackView()
@@ -1431,15 +1446,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         titleRow.orientation = .horizontal
         titleRow.alignment = .centerY
         titleRow.spacing = Grid.close
-        let title = label(row.title, role: .label, color: BarTheme.ink)
+        let title = label(row.title, role: .label, color: quiet ? BarTheme.secondaryColor : BarTheme.ink)
         titleRow.addArrangedSubview(title)
-        for cap in row.keycaps { titleRow.addArrangedSubview(Keycaps.cap(cap)) }
+        // The title's own keys are one sequence, 4 apart, 8 after the title.
+        if !row.keycaps.isEmpty { titleRow.addArrangedSubview(KeyStrokes(row.keycaps, quiet: quiet)) }
         text.addArrangedSubview(titleRow)
         let armed = armedAction == index
         if let detail = armed ? row.action?.confirm : row.detail, !detail.isEmpty {
             let wrapped = NSTextField(wrappingLabelWithString: detail)
             wrapped.setRole(.meta)
-            wrapped.textColor = armed ? BarTheme.ink : BarTheme.secondaryColor
+            wrapped.textColor = armed && !quiet ? BarTheme.ink : BarTheme.secondaryColor
             wrapped.isSelectable = false
             text.addArrangedSubview(wrapped)
             inTrack.append(wrapped)
@@ -1515,20 +1531,27 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             trailing.append(control)
         }
 
+        // A setting stands at least 48 tall and grows with its detail: its text
+        // is centred on the row between the padding above and below it, so a
+        // short one is centred in the 48 and a tall one has 12 above and below.
         var constraints = [
-            text.topAnchor.constraint(equalTo: line.topAnchor, constant: padding),
-            text.bottomAnchor.constraint(equalTo: line.bottomAnchor, constant: -padding),
+            line.heightAnchor.constraint(greaterThanOrEqualToConstant: BarTheme.settingMinimumHeight),
+            text.centerYAnchor.constraint(equalTo: line.centerYAnchor),
+            text.topAnchor.constraint(greaterThanOrEqualTo: line.topAnchor, constant: padding),
+            text.bottomAnchor.constraint(lessThanOrEqualTo: line.bottomAnchor, constant: -padding),
         ]
-        // The letter column holds no room when no row in the place has one.
+        // The letter is a key at rest, in a column as wide as the widest key of
+        // the place and no wider; the column holds no room when no row in the
+        // place has one.
         if letterWidth > 0 {
-            let letter = label(row.letter ?? "", role: .name, color: BarTheme.secondaryColor)
+            let letter = Key(row.letter ?? "", state: quiet ? .quiet : .resting)
+            letter.isHidden = row.letter == nil
             letter.translatesAutoresizingMaskIntoConstraints = false
             line.addSubview(letter)
             constraints += [
                 letter.leadingAnchor.constraint(equalTo: line.leadingAnchor, constant: padding),
-                letter.widthAnchor.constraint(equalToConstant: letterWidth),
                 letter.centerYAnchor.constraint(equalTo: title.centerYAnchor),
-                text.leadingAnchor.constraint(equalTo: letter.trailingAnchor, constant: padding),
+                text.leadingAnchor.constraint(equalTo: line.leadingAnchor, constant: padding + letterWidth + padding),
             ]
         } else {
             constraints.append(text.leadingAnchor.constraint(equalTo: line.leadingAnchor, constant: padding))
@@ -1550,9 +1573,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 part.bottomAnchor.constraint(lessThanOrEqualTo: line.bottomAnchor, constant: -Grid.hair),
             ]
             next = part.leadingAnchor
-            edge = Grid.part
+            // Trailing parts are 8 apart.
+            edge = Grid.close
         }
-        constraints.append(text.trailingAnchor.constraint(lessThanOrEqualTo: next, constant: -edge))
+        constraints.append(text.trailingAnchor.constraint(lessThanOrEqualTo: next, constant: -Grid.part))
         NSLayoutConstraint.activate(constraints)
         line.setAccessibilityElement(true)
         line.setAccessibilityLabel([row.title, row.detail].compactMap { $0 }.joined(separator: ". "))
@@ -1592,6 +1616,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 popup.selectItem(at: at)
             }
             popup.setRole(.control)
+            popup.quiet = row.dimmed
             popup.target = self
             popup.action = #selector(choicePressed(_:))
             popups[index] = popup
@@ -1601,7 +1626,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             holder.orientation = .horizontal
             holder.alignment = .centerY
             holder.spacing = Grid.close
-            let field = editableField(String(value), width: BarTheme.Field.number)
+            let field = editableField(String(value), width: BarTheme.Field.number, quiet: row.dimmed)
             field.identifier = NSUserInterfaceItemIdentifier(row.path)
             fields[index] = field
             holder.addArrangedSubview(field)
@@ -1614,7 +1639,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             // As wide as what it holds: a year, a folder, an address.
             let width = row.path == "web.search-url" ? BarTheme.Field.wide
                 : row.path == "health.born" ? BarTheme.Field.number : BarTheme.Field.regular
-            let field = editableField(value, width: width)
+            let field = editableField(value, width: width, quiet: row.dimmed)
             field.identifier = NSUserInterfaceItemIdentifier(row.path)
             field.setPlaceholder(placeholder)
             fields[index] = field
@@ -2061,7 +2086,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let results = NSStackView()
         results.orientation = .vertical
         results.alignment = .leading
-        results.spacing = Grid.tight
+        // Rows in a pane stand 2 apart, so a slab's side never touches the next.
+        results.spacing = BarTheme.rowGap
         results.translatesAutoresizingMaskIntoConstraints = false
         hitsStack = results
         list.addArrangedSubview(results)
@@ -2088,33 +2114,30 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         let width = Self.contentWidth
         for (index, hit) in shownHits.enumerated() {
             let selected = index == hitSelection
-            let row = HandStack()
-            row.orientation = .horizontal
-            row.alignment = .centerY
-            row.spacing = Grid.part
-            row.edgeInsets = NSEdgeInsets(top: Grid.close, left: Grid.part, bottom: Grid.close, right: Grid.part)
-            row.translatesAutoresizingMaskIntoConstraints = false
+            // A result is a row of the row contract: what it is (its title, and
+            // the place it lives in, quiet), then its keys at the end, the
+            // acting key last. The chosen result is the launcher's chosen row:
+            // the slab, and ⏎ on it, the key that lands there, lit. The address
+            // rests, one key per keystroke, 4 apart.
+            let row = HitRow(height: BarTheme.rowHeight, titleRole: .label)
             row.widthAnchor.constraint(equalToConstant: width).isActive = true
+            row.title.stringValue = hit.title
+            let place = label(hit.sectionName, role: .meta, color: BarTheme.secondaryColor)
+            row.titleLine.addArrangedSubview(place)
+            row.titleLine.setCustomSpacing(Grid.part, after: row.title)
             let parts = hit.address.split(separator: " ").map(String.init)
-            // The chosen result is the launcher's chosen row: the slab, and
-            // ⏎ on it, the key that lands there, lit. The address rests.
-            for part in parts {
-                row.addArrangedSubview(Keycaps.cap(part))
-            }
-            row.addArrangedSubview(label(hit.title, role: .label, color: BarTheme.ink))
-            row.addArrangedSubview(label(hit.sectionName, role: .meta,
-                                         color: BarTheme.secondaryColor))
-            row.addArrangedSubview(spacer())
+            var trailing: [NSView] = []
             if index == 0, suggestion != nil {
-                row.addArrangedSubview(label("Suggested", role: .meta,
-                                             color: BarTheme.secondaryColor))
+                trailing.append(KeyWords("Suggested", following: parts.first))
             }
+            trailing.append(KeyStrokes(parts))
             if selected {
-                let enter = Keycaps.cap("⏎")
+                let enter = Key("⏎")
                 enter.lit = true
-                row.addArrangedSubview(enter)
-                raise(row, sides: 0, ends: 0)
+                trailing.append(enter)
             }
+            row.setTrailing(trailing)
+            row.choose(selected)
             row.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(hitClicked(_:))))
             row.setAccessibilityElement(true)
             row.setAccessibilityRole(.button)
@@ -2244,20 +2267,17 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     static func dot() -> NSView {
-        let dot = ToneView(fill: BarTheme.ink, radius: BarTheme.dotRadius)
-        dot.translatesAutoresizingMaskIntoConstraints = false
-        dot.widthAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true
-        dot.heightAnchor.constraint(equalToConstant: BarTheme.dotDiameter).isActive = true
+        let dot = RowDot(.ink)
         dot.setAccessibilityElement(true)
         dot.setAccessibilityLabel("Set by you")
         return dot
     }
 
-    private func editableField(_ value: String, width: CGFloat) -> NSTextField {
+    private func editableField(_ value: String, width: CGFloat, quiet: Bool = false) -> NSTextField {
         let field = WellField(frame: .zero)
         field.stringValue = value
         field.setRole(.body)
-        field.textColor = BarTheme.ink
+        field.textColor = quiet ? BarTheme.secondaryColor : BarTheme.ink
         field.delegate = self
         // No target/action on purpose: an action fires on *every* end of
         // editing, so a re-render or a tab committed half-typed values.
@@ -2383,6 +2403,10 @@ extension SettingsController {
 
     /// For the tests: the switch standing for a config path right now.
     func switchView(for path: String) -> AccentSwitch? { switches[path] }
+    /// For the tests and the pictures: one setting as a place draws it.
+    func settingRowForTesting(_ row: SettingsModel.Row, index: Int = 0, width: CGFloat, letterWidth: CGFloat) -> NSView {
+        buildRow(row, index: index, width: width, letterWidth: letterWidth)
+    }
     /// For the tests: a render, the way a config write causes one.
     func rerender() { render() }
     /// For the tests: a place drawn without the window ever being shown.

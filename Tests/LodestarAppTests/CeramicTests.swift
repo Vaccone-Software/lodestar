@@ -74,7 +74,7 @@ final class PaneTests: XCTestCase {
     }
 
     /// The rim: 1.5 points along the top, the clay key step by day and the
-    /// ink at 10% by night, clipped to the corners so it thins into the curve.
+    /// ink at 10% by night, following the outline round the corners so it thins into the curve.
     func testTheRimIsOnTheTopAndThinsIntoTheCorners() throws {
         for look in GalleryLook.all {
             let steps = look == .night ? Palette.night : Palette.clay
@@ -82,12 +82,21 @@ final class PaneTests: XCTestCase {
             let edge = try XCTUnwrap(pane.edge)
             let path = try XCTUnwrap(edge.rimPath)
             let box = path.boundingBoxOfPath
-            XCTAssertEqual(box.height, Ceramic.Edge.rim, accuracy: 0.01, "1.5 points tall")
             XCTAssertEqual(Ceramic.Edge.rim, 1.5)
             XCTAssertEqual(box.maxY, pane.face.maxY, accuracy: 0.01, "along the top, the light from above")
-            XCTAssertFalse(path.contains(CGPoint(x: 0.2, y: pane.face.maxY - 0.2)),
-                           "clipped to the corner: the curve has turned away from the light there")
+            // 1.5 thick along the flat top, and no thicker.
             XCTAssertTrue(path.contains(CGPoint(x: pane.face.midX, y: pane.face.maxY - 0.7)))
+            XCTAssertTrue(path.contains(CGPoint(x: pane.face.midX, y: pane.face.maxY - 1.4)))
+            XCTAssertFalse(path.contains(CGPoint(x: pane.face.midX, y: pane.face.maxY - 1.7)))
+            XCTAssertFalse(path.contains(CGPoint(x: 0.2, y: pane.face.maxY - 0.2)),
+                           "outside the corner: the curve has turned away from the light there")
+            // It follows the outline down the curve and thins to nothing where the
+            // curve turns vertical: its leftmost and rightmost points are the
+            // outline's own, far below the flat top, never the cut end of a strip.
+            XCTAssertEqual(box.minX, pane.face.minX, accuracy: 0.1, "the leftmost point is on the outline")
+            XCTAssertEqual(box.maxX, pane.face.maxX, accuracy: 0.1, "and the rightmost")
+            XCTAssertFalse(path.contains(CGPoint(x: pane.face.minX + 0.5, y: pane.face.midY)), "nothing down the sides")
+            XCTAssertFalse(path.contains(CGPoint(x: pane.face.midX, y: pane.face.minY + 0.7)), "nothing along the foot")
             let color = try srgb(edge.rimColor)
             if look == .night {
                 near(color, steps.ink, "night: the ink", tolerance: 0.01)
@@ -106,6 +115,68 @@ final class PaneTests: XCTestCase {
                 : steps.key
             near(try pixel(rep, x: 80, y: 1.0), over, "\(look.name): on the rim", tolerance: 0.02)
             _ = window
+        }
+    }
+
+    /// The rim follows the outline of a capsule: on a pane as round as a pill it
+    /// is a crescent along the top, not a strip cut off where the curve begins.
+    func testTheRimOfACapsuleHasNoCutEnds() {
+        let height = BarTheme.pillHeight, width: CGFloat = 300
+        let rect = CGRect(x: 0, y: 0, width: width, height: height)
+        let path = Ceramic.rimPath(in: rect, radius: height / 2)
+        let box = path.boundingBoxOfPath
+        XCTAssertEqual(box.minX, 0, accuracy: 0.1, "the leftmost point is the capsule's own end")
+        XCTAssertEqual(box.maxX, width, accuracy: 0.1)
+        // Where the rim is thick (the flat top) and where the curve has turned, it is the outline's:
+        XCTAssertTrue(path.contains(CGPoint(x: width / 2, y: height - 1)))
+        XCTAssertFalse(path.contains(CGPoint(x: 1, y: height / 2)), "nothing on the vertical of the end")
+        // It follows the outline round the corner: a point just inside the curve at
+        // a quarter turn is in the rim, and one 3 points inside is not.
+        let radius = height / 2
+        let outline = CGPoint(x: radius - radius * 0.7071, y: radius + radius * 0.7071)
+        XCTAssertTrue(path.contains(CGPoint(x: outline.x + 0.3 * 0.7071, y: outline.y - 0.3 * 0.7071)), "rim on the curve")
+        XCTAssertFalse(path.contains(CGPoint(x: outline.x + 3 * 0.7071, y: outline.y - 3 * 0.7071)))
+        // The flipped path (a layer that counts from the top) is the same crescent upside down.
+        let flipped = Ceramic.rimPath(in: rect, radius: radius, flipped: true).boundingBoxOfPath
+        XCTAssertEqual(flipped.minX, 0, accuracy: 0.1)
+        XCTAssertEqual(flipped.minY, 0, accuracy: 0.01, "along the top, which a flipped layer counts as 0")
+    }
+
+    /// Where the meeting's lit stub reaches the pane's top edge, the rim is the
+    /// lit rim: the pane's clay rim does not cross the orange.
+    func testTheClayRimDoesNotCrossTheLitStub() throws {
+        for look in GalleryLook.all {
+            look.apply()
+            let shot = try XCTUnwrap(GalleryShots.all.first { $0.name(in: look) == "meeting-lit-now-\(look.name)" })
+            let (view, keep) = try shot.build(look)
+            let rep = GalleryRender.bitmap(of: view)
+            let clay = (look == .night ? Palette.night : Palette.clay)
+            let clayRim = look == .night
+                ? RGB(red: clay.pane.red + (clay.ink.red - clay.pane.red) * 0.10,
+                      green: clay.pane.green + (clay.ink.green - clay.pane.green) * 0.10,
+                      blue: clay.pane.blue + (clay.ink.blue - clay.pane.blue) * 0.10)
+                : clay.key
+            let accent = try srgb(BarTheme.accent.cgColor)
+            // The stub's middle column: the orange at the vertical middle.
+            let rowMid = rep.pixelsHigh / 2
+            var column: Int?
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: rowMid)?.usingColorSpace(.sRGB) else { continue }
+                if abs(c.redComponent - accent.redComponent) < 0.05, abs(c.greenComponent - accent.greenComponent) < 0.05,
+                   abs(c.blueComponent - accent.blueComponent) < 0.05 { column = x; break }
+            }
+            let x = try XCTUnwrap(column, "\(look.name): the lit stub is drawn") + 20
+            // Down from the top to the first solid pixel: the first three rows are the rim.
+            var top: Int?
+            for y in 0..<rep.pixelsHigh where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.95 { top = y; break }
+            let first = try XCTUnwrap(top)
+            for y in first..<(first + 3) {
+                let c = try XCTUnwrap(rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                let nearClay = abs(c.redComponent - clayRim.red) < 0.02 && abs(c.greenComponent - clayRim.green) < 0.02
+                    && abs(c.blueComponent - clayRim.blue) < 0.02
+                XCTAssertFalse(nearClay, "\(look.name): row \(y - first) of the stub's top edge is not the pane's clay rim")
+            }
+            _ = keep
         }
     }
 

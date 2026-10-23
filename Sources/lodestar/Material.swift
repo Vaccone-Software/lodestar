@@ -213,6 +213,11 @@ final class CeramicPane: NSView, CeramicDepth {
 /// own look. It stands above its siblings by position in the compositor.
 final class PaneEdge: NSView {
     private weak var pane: CeramicPane?
+    /// Where a lit fill (the meeting's stub) reaches the pane's top edge, in
+    /// this view's coordinates: the rim there is the lit rim, the accent
+    /// lifted, as a lit key wears it, and the pane's clay rim never crosses
+    /// the orange.
+    var litRegion: CGRect? { didSet { if litRegion != oldValue { needsDisplay = true } } }
 
     init(pane: CeramicPane) {
         self.pane = pane
@@ -239,8 +244,25 @@ final class PaneEdge: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let pane, bounds.width > 0, bounds.height > 0 else { return }
-        BarTheme.rimFill.setFill()
-        NSBezierPath(cgPath: Ceramic.rimPath(in: pane.face, radius: pane.faceRadius)).fill()
+        let rim = NSBezierPath(cgPath: Ceramic.rimPath(in: pane.face, radius: pane.faceRadius))
+        if let lit = litRegion {
+            NSGraphicsContext.saveGraphicsState()
+            let outside = NSBezierPath(rect: bounds)
+            outside.appendRect(lit)
+            outside.windingRule = .evenOdd
+            outside.addClip()
+            BarTheme.rimFill.setFill()
+            rim.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(rect: lit).addClip()
+            BarTheme.litRimFill.setFill()
+            rim.fill()
+            NSGraphicsContext.restoreGraphicsState()
+        } else {
+            BarTheme.rimFill.setFill()
+            rim.fill()
+        }
         let line = Ceramic.Edge.line
         let radius = max(0, pane.faceRadius - line / 2)
         let edge = NSBezierPath(roundedRect: pane.face.insetBy(dx: line / 2, dy: line / 2),
@@ -269,14 +291,16 @@ extension Ceramic {
     /// Above everything a surface lays inside it.
     static let overContent: CGFloat = 100
 
-    /// The rim: a strip of `Edge.rim` along the top of a rounded rectangle,
-    /// clipped to its corners, so it thins into the curve where the surface
-    /// turns away from the light.
+    /// The rim: the shape less itself moved down by `Edge.rim`, a crescent
+    /// along the top edge that follows the outline round each corner and
+    /// thins to nothing where the curve turns vertical. It never ends in a
+    /// cut, so on a capsule (the pill, the meeting's chip) it is a light on a
+    /// curve and not a line that stops.
     static func rimPath(in rect: CGRect, radius: CGFloat, flipped: Bool = false) -> CGPath {
         let shape = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
-        let strip = CGRect(x: rect.minX, y: flipped ? rect.minY : rect.maxY - Edge.rim,
-                           width: rect.width, height: Edge.rim)
-        return shape.intersection(CGPath(rect: strip, transform: nil))
+        var down = CGAffineTransform(translationX: 0, y: flipped ? Edge.rim : -Edge.rim)
+        let moved = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: &down)
+        return shape.subtracting(moved)
     }
 
     /// Lay a pane under `root`'s content and its rim and edge over it, both

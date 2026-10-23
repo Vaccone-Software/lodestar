@@ -23,7 +23,7 @@ Material is what a surface is made of, and so how it shows what it is: a pane yo
 | edge   | 0.5 pt all round, ink at 10%                 | 0.5 pt all round, ink at 8%      |
 | shadow   | one, soft: quiet ink at 14%, 24 blur, 8 down | one, faint: espresso ground at 40%, 24 blur, 8 down |
 
-The rim is clipped to the pane's corners, so it thins into the curve where the surface turns away from the light. The edge is drawn above the pane's content, so a picture that fills the pane does not cover it. The shadow follows the pane's outline.
+The rim is the shape less itself moved down by 1.5: a crescent along the top that follows the outline round each corner and thins to nothing where the curve turns vertical, so it never ends in a cut. Where a lit fill reaches the pane's top edge (the meeting's stub) the rim there is the lit rim, the accent lifted, as a lit key wears it, and the pane's own rim never crosses the orange. The edge is drawn above the pane's content, so a picture that fills the pane does not cover it. The shadow follows the pane's outline.
 
 ### Depth by role
 
@@ -64,6 +64,10 @@ Glass had three weights (normal, raised, faint), each a different opacity. An op
 ## Status
 
 Built 22 October 2026. Before it, main's panels were glass (`TonedGlass`, an `NSGlassEffectView`, with a visual-effect fallback) with a veil at 0.9, 0.94 or 0.8 by weight; keys stood on a hard 1.5-point shadow with a lit top edge; a quiet key sat in a shallow well; a lifted card cast a small shadow by day. The build made the bar's field a visible well (a bar with no rows is now 84 tall, the well sitting 12 inside the pane), made two-line rows 52 tall so their face stays 48, and removed the glow behind Settings' mark.
+
+## Main lessons
+
+- **A rim is a crescent, not a strip.** The first build cut a flat 1.5 pt strip with the pane's outline. On a flat pane that is the same, but on a capsule (the pill, the meeting's chip) the strip stopped abruptly where the curve began and read as a stray white line, and over the meeting's lit stub it ran straight across the orange (changed 23 October 2026). The rim is now the shape minus itself moved down by the rim's height, which follows the outline, and a lit fill that reaches the top edge wears the lit rim.
 
 ## Prototype lessons
 

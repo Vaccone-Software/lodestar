@@ -490,6 +490,9 @@ final class MeetingController: NSObject {
             }
         }
         content.addSubview(stubView)
+        // Where the orange reaches the glass's top edge, the rim is the lit rim.
+        (root.subviews.first { $0 is PaneEdge } as? PaneEdge)?.litRegion =
+            stub.lit ? NSRect(x: 0, y: 0, width: Self.stubWidth, height: Ceramic.Shadow.reach * 100) : nil
         let ink: NSColor = stub.lit ? BarTheme.onAccent : recess.ink
         let number = NSTextField(labelWithString: stub.number)
         // The countdown ticks in place, so its digits hold their width.

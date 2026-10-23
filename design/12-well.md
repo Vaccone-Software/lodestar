@@ -92,7 +92,41 @@ Every height is on the size table; Keep's source list's 40-tall field becomes a 
 
 ## Status
 
-Planned. The bars, Settings' value fields, Feedback and the empty keepsake already draw the well's matter; the shapes, the caret, the focus edge and the surfaces without a well are not built.
+Built 23 October 2026. Before it, the bars' wells rounded at 10 (a row's nested radius) and Settings' fields at 8.4; Settings' search, Keep's search and Bring's, Keep's save band and the source list's filter put their words straight on the pane (the filter in a 40-tall line), and a Keep card being named washed its name at 14%. The caret came in three colours and widths (the bars' and Settings' fields in the accent at the system's width, Feedback's note in ink, its reply's in the system's accent), Feedback's note was inset 10, Settings' search field kept its bezel on (`isBezeled` was never turned off), and no well deepened its edge for focus.
+
+Now `WellText` is the one text view words are edited in: every Lodestar field's cell (`InputCell`, behind `InputField` and `WellField`) hands back one `WellText` as its field editor, and Feedback's note (`NoteWell`) is one. It sets the system's caret clear and places a `CaretMark` (1.5 wide, the readable accent judged on the well, ink below 3 : 1, rounded at half its width, 20 tall beside the field role's words and 18 beside the body's) at the insertion point; it never animates, so it never blinks. The selection is ink at 30% (`BarTheme.wash`) in every field editor and in Keep's naming. `WellView`, `WellField` and `RoomField` watch the field they surround (`hold`) and draw the edge at twice its share, at once, while the caret is in it (`BarTheme.wellEdgeFocused`); Keep's drawn fields are always focused except the band while the list of sources is open. The bars' wells, Settings' fields and search, Feedback's note and reply and Keep's field bands all round at 8.4, and Keep's bands at 12.4 (`BarTheme.bandRadius`, 8.4 + the 4-point `bandInset`), 40 tall (`bandHeight`, a field and its inset). The source list's filter is a field of 32; a card being named is a well beside its key, in the slab's look, with no caret while its offered name stands selected. The draft keeps its 3-point bar as `BarTheme.draftBarWidth`.
+
+Measured by drawing every gallery surface and reading the pixels back (`WellTests`, beside `PaneTests.testTheFocusedWellsEdgeIsTwiceTheRestingWeightInEachLook`):
+
+- **The caret** in every real field of the well sheet is 3 device pixels of the accent at 2x (1.5 points), at the insertion point, and no other saturated pixel stands in the field's row (the system's caret is gone); held for two blink periods (four samples 0.45 s apart) it is whole every time and nothing animates it.
+- **The edge** is the ink at 14% (day) and 12% (night) at rest, and 28% and 24% with the caret in it, read off the one row of pixels the half-point edge is.
+- **Every editable text view** on every gallery surface (the launcher, Ask, Commands, Settings' fields and search, Feedback's note and reply) sits in a well, draws no bezel, border or focus ring, is edited in the one editor and holds the one caret; the draft's text view is not editable and is not a field.
+- **Every input well** rounds at 8.4, every field band at 12.4, every field is 32 tall and every band 40, with its field 4 inside it.
+
+| Placeholder, quiet ink on the well | full | evening (88%) | bedtime (80%) |
+| ---------------------------------- | ---- | ------------- | ------------- |
+| day | 5.16 | 4.58 | 4.51 |
+| night | 7.26 | 6.50 | 5.99 |
+
+The caret's accent on the well: 3.99, 3.88 and 3.88 by day, 5.77, 5.19 and 4.89 by night, over its floor of 3. The day placeholder at bedtime is the tightest, 4.51 against 4.5.
+
+**Decided in the build** (each worth the owner's eye):
+
+- **A selection has no caret,** in a real field or a drawn one: the wash says where typing lands. Keep's offered name stands selected with the wash and no caret; once it is edited the caret stands at its end. Before, it drew both.
+- **Keep's band is 40 tall, not 44.** The contract's 32 field and 4 inset give 40; the cards below moved up by 4.
+- **A name too long for its well scrolls as a field's does:** the end, where the caret is, stays in view (the head is cut); the selected offered name shows its head. A name has about 100 points on a card 150 wide, since the well takes 12 each side.
+- **While the list of sources is open its field has the caret and the band over it rests,** its edge at the resting weight and no caret: one caret on a surface.
+- **The caret and the focused edge are shown while the window has the keys, and in a window nobody can see.** AppKit draws a caret only in the key window, and Settings' window cannot take the keys while the app is not active, which is how every render is drawn; a window that is not on a display is drawn as if it had them. A visible window without the keys shows neither.
+- **A clip named before it has a place** is named on the band's card, the slab, and its card in the row is no second slab.
+- **The pictures are drawn with the keys:** a panel that is typed in is brought key for the bitmap, off every display, and put away (`GalleryRender.holdingKeys`).
+
+## Main lessons
+
+- **The system's caret has a width of its own.** macOS 14 and after draw it as `NSTextInsertionIndicator`, a view in a private overlay inside the field, 1 point wide and blinking, with no property for either; `insertionPointColor` clear hides it, and the one caret is drawn where the insertion point is. The classic path (`_useTextInsertionIndicator` false) draws a 1-point view in the same overlay, so it does not help.
+- **A field editor shows the Mac's grey in a window without the keys.** An unemphasized selection ignores `selectedTextAttributes`, so a picture of a selection is taken with the keys.
+- **A window can take the keys only if it may.** An activating panel (Settings) cannot while the app is not active; the harness keeps such a window away and draws it as one nobody can see.
+- **Anchors are alignment rects.** A borderless text field's frame is 2 points wider each side than its anchors, and its words start at the anchor: a test of "12 in" reads `alignmentRect`, not the frame.
+- **`firstRect(forCharacterRange:)` needs a screen.** In a window no display shows it answers nothing; the insertion point is found from the text layout itself.
 
 ## Prototype lessons
 

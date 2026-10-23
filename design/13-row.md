@@ -11,6 +11,7 @@ Lodestar is mostly lists, and today each list was laid out where it was drawn: t
 - **Geometry** set the row at 48 with a 4-point side when chosen, 12 inside its pane, rounded at 10, and two-line rows at 52 so their face stays 48.
 - **The key** said a Settings row's letter is a key, and a sequence is keys 4 apart.
 - **The slab** made the chosen row a slab, its address keys resting and only the acting key lit.
+- **The key** made a quiet key outline only its face; beside resting keys it read as a smaller key, so review made it the full key's size (the key contract is amended).
 - **The well** left "a Settings row that is off dims whole" to this contract.
 - **The prototype** (`design/ceramic`) drew a dimmed row's title in quiet ink rather than fading it, and drew Settings' letters as keys in a 34-wide column, which stretched (geometry records the bug).
 
@@ -47,7 +48,7 @@ A row is the thing, then its keys: what it is leads, how to reach it trails. A l
 
 ### Words
 
-**Names are cut at the tail; sentences wrap.** A title, an app, a file or a menu line is a name and ends in "…" when it does not fit. Detail in a row that holds a name is one line, cut at the tail. A setting's detail, a readout, a problem and the coach's record are sentences and wrap; the row grows. Nothing read is cut mid-sentence. Today the ⌘K card cuts nothing and overflows; the coach's record is cut at about 55 characters.
+**Names are cut at the tail; sentences wrap.** A title, an app, a file or a menu line is a name and ends in "…" when it does not fit. Detail in a row that holds a name is one line, cut at the tail. A setting's detail, a readout and a problem are sentences and wrap; the row grows. Today the ⌘K card cuts nothing and overflows.
 
 ### When a row cannot act
 
@@ -57,7 +58,7 @@ An **off** setting is not unavailable: it is a switch turned off, wearing the do
 
 ### The coach's whisper
 
-The record under the coach's offer is a sentence: it wraps, the card grows by its lines, and `lode ⌫` and "Not now" stay centred on its first line. The card's width stays 428 to 540.
+The record under the coach's offer stays one line beside `lode ⌫` and "Not now", as it is today, and is cut at the tail only past the card's 540. Wrapping it was drawn and refused in review: the keys no longer lined up with the words, and the line it saved became empty card. The coach's records are written to fit (about 55 characters).
 
 ## Rules
 
@@ -65,7 +66,7 @@ The record under the coach's offer is a sentence: it wraps, the card grows by it
 2. **One order.** A row leads with what it is and trails with its keys, the acting key last; a legend leads with its keys.
 3. **One rhythm.** Rows 2 apart, settings by a hairline, lines touching, legends 8 apart.
 4. **Trailing parts align to the first line.**
-5. **Names are cut at the tail; sentences wrap.**
+5. **Names are cut at the tail; sentences wrap.** The coach's one-line record is the exception.
 6. **Quiet, never faded.** Nothing in a row or a card is translucent.
 
 ## Enforcement
@@ -74,7 +75,7 @@ The record under the coach's offer is a sentence: it wraps, the card grows by it
 - A gallery sweep finds every list line on every surface and checks it is one of the four, at its height, its words 12 in, its trailing parts centred on its first line (extending today's check beyond Settings and the bars).
 - A test sets every name field's truncation to tail and every sentence field to wrap.
 - `DesignDriftTests` fails an `alphaValue` below 1 or a layer opacity below 1 on a row, a card or a control (motion's fades excepted), and a dot drawn as a glyph.
-- A test holds the coach's record whole at 120 characters.
+- A test holds every record the coach writes within its line at the card's widest, with the longest app names the gallery uses.
 
 ## Renders
 
@@ -90,3 +91,8 @@ Planned.
 
 - A dimmed row in quiet ink reads as waiting; a faded one reads as broken, and over a desktop as glass.
 - A key column sized by a minimum width stretches; size it by its widest key.
+
+## Decided in review
+
+- A quiet key is the same size as a resting key: its hairline outlines face and side together (23 October 2026).
+- The coach's record stays one line beside its keys; wrapping was refused (23 October 2026).

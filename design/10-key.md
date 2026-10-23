@@ -86,7 +86,7 @@ Measured by rendering every legend in every state and both looks and reading the
 
 What the build found and decided:
 
-- **A quiet key stands where the resting face stands.** Its hairline outlines the 21-point face, not the whole 24, so a row of mixed states shares one baseline. Over another app's window (a typed hint) a quiet key keeps the pane's own step behind its letter, or the content would run through it.
+- **A quiet key is the same size as a resting one.** Its hairline outlines the whole key, face and side together (24 at the standard size, 36 at the large), so a quiet key never looks smaller than its neighbours; its letter stays on the resting face's band, so a row of mixed states shares one baseline. (Until the row contract, 23 October 2026, it outlined only the 21-point face, and beside a resting or lit key it read as a smaller key.) Over another app's window (a typed hint) a quiet key keeps the pane's own step behind its letter, or the content would run through it.
 - **Keep's cards** lost two points of body to the taller key; the gap under the key went from 4 to 2 (the key's own side is part of it) so the file's sheet still fits, and every title on a card now stands on the middle of its key's face.
 - **Guides and the cheat sheet** write a key as groups: `zo zc` is two sequences, `h j k l` four keys 8 apart, `esc`, `⌘K`, `⇧F` and `a…z` one key each.
 - **`uppercased()`** on a bare keystroke is gone from flashes, the coach, the advisor, the config history, the launcher's verdicts, Keep's cards and the guides; the ones that remain are chords (⌥J, ⇧⌘V), VoiceOver's speech, or not keystrokes, and a source test lists each with its reason.

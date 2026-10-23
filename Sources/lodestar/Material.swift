@@ -71,7 +71,7 @@ extension BarTheme {
         NSColor(name: nil) { appearance in pick(steps(for: appearance)) }
     }
 
-    static func isNight(_ look: Palette.Steps) -> Bool { look == Palette.night }
+    static func isNight(_ look: Palette.Steps) -> Bool { look.isDark }
 
     /// What a pane is made of.
     static let paneFill = dynamic { $0.pane.color }

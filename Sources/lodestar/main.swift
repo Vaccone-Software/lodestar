@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         KeyboardLayout.install()
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
+        EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         // A layout switched at lunch renames the keys by the afternoon:
         // the overlay recomputes the moment the input source changes.
         NotificationCenter.default.addObserver(
@@ -1013,7 +1014,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// appearance on its own (packaging/Lodestar.icon).
     private func refreshAppIcon() {
         NSApp.effectiveAppearance.performAsCurrentDrawingAppearance {
-            NSApp.applicationIconImage = AppIconArt.current(dark: Tone.systemDark, accent: BarTheme.accent)
+            // The icon is drawn as it is at every hour: the brand's own
+            // orange, not the one Eye comfort has calmed for the evening.
+            NSApp.applicationIconImage = AppIconArt.current(dark: Tone.systemDark, accent: BarTheme.brandOrange)
         }
     }
 
@@ -2401,6 +2404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
+        EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         engine.config = loaded
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate

@@ -562,6 +562,9 @@ final class HotkeyEngine {
     /// event fed here walks exactly the path a hardware one does, verdict
     /// included.
     func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // A key is attention: the pill and the meeting's chip, if they have
+        // grown quiet, come back at once (design/06-eye-comfort.md).
+        if type == .keyDown { Attention.key() }
         let verdict = route(type: type, event: event)
         // A press the engine kept is a gesture. The verdict is known only
         // once the whole route has run, so it is written back onto the

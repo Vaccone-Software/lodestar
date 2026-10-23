@@ -107,7 +107,12 @@ public enum Palette {
     /// and clay's ink), the one that measures higher on `fill`. Measured,
     /// never assumed: white on the night's orange is 3.3 to 1.
     public static func letter(on fill: Readability.RGB) -> Readability.RGB {
-        let face = clay.key, ink = clay.ink
+        letter(on: fill, face: clay.key, ink: clay.ink)
+    }
+
+    /// The same choice between a given face and ink, which are clay's own
+    /// steps as Eye comfort has them at the level in force.
+    public static func letter(on fill: Readability.RGB, face: Readability.RGB, ink: Readability.RGB) -> Readability.RGB {
         let onFace = Readability.contrast(face.luminance, fill.luminance)
         let onInk = Readability.contrast(ink.luminance, fill.luminance)
         return onFace >= onInk ? face : ink

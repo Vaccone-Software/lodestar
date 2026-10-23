@@ -77,6 +77,15 @@ final class MeetingController: NSObject {
     /// The chip: floating glass, never key.
     private let panel = Ceramic.makePanel(level: .floating)
     private let root = NSView()
+    /// The chip recedes when left alone (design/06-eye-comfort.md): its ink
+    /// to 5.5 to 1 and its quiet ink to 4.5 to 1 on its pane after twenty
+    /// seconds without attention, back at once on the pointer, a key, or the
+    /// meeting becoming due. The lit stub never recedes.
+    let recess = Recess()
+    private var hover: RecessHover?
+    /// Which meeting the chip last showed, and whether it was lit, so a
+    /// change of either is attention and a minute ticking over is not.
+    private var shown: (key: String, lit: Bool)?
     /// The prime card: mouse-first and keyable, in the door's family.
     private let prime = KeyablePanel(
         contentRect: BarTheme.unplaced,
@@ -90,6 +99,9 @@ final class MeetingController: NSObject {
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(panel)
         _ = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
+        recess.mayRecede = { [weak self] in !(self?.chipLit ?? false) }
+        recess.onChange = { [weak self] in self?.root.redrawAll() }
+        hover = RecessHover(root, recess: recess)
         prime.level = .modalPanel
         prime.isOpaque = false
         prime.backgroundColor = .clear
@@ -110,6 +122,17 @@ final class MeetingController: NSObject {
     }
 
     var chipVisible: Bool { panel.isVisible }
+
+    /// The chip is lit: the door is open and joining is the thing to do.
+    var chipLit: Bool { current.map { Self.stub(for: $0.phase).lit } ?? false }
+
+    /// The chip goes away, and takes its receding with it: the next one
+    /// stands at full ink.
+    private func hideChip() {
+        panel.orderOut(nil)
+        shown = nil
+        recess.stop()
+    }
 
     /// A meeting is running now, answered from the calendar rather than
     /// from the chip. The chip is spent by the join, so it stops being
@@ -218,9 +241,8 @@ final class MeetingController: NSObject {
     /// the standing occurrence's phase is recomputed, and the chip redraws
     /// only when its words would differ. A meeting that has ended, or
     /// one whose window has passed, hands back to the full evaluation.
-    private func advanceCountdown() {
+    func advanceCountdown(now: Date = Date()) {
         guard let standing = current else { return }
-        let now = Date()
         guard now < standing.occurrence.end else { evaluate(); return }
         let phase = Meetings.phase(untilStart: standing.occurrence.start.timeIntervalSince(now))
         guard phase != standing.phase else { return }
@@ -239,7 +261,7 @@ final class MeetingController: NSObject {
         grantPoll?.invalidate(); grantPoll = nil
         occurrences = []
         current = nil
-        panel.orderOut(nil)
+        hideChip()
         prime.orderOut(nil)
     }
 
@@ -307,7 +329,7 @@ final class MeetingController: NSObject {
                                            spent: loadSpent())
         current = candidate
         guard let candidate, !suppressed() else {
-            panel.orderOut(nil)
+            hideChip()
             return
         }
         if !offered.contains(candidate.occurrence.key) {
@@ -398,7 +420,7 @@ final class MeetingController: NSObject {
         observations?.meetingChip(action: action,
                                   provider: occurrence.link.provider.rawValue,
                                   decider: decider, lead: lead)
-        panel.orderOut(nil)
+        hideChip()
         current = nil
         // An overlapping meeting may be next in line this same minute.
         evaluate()
@@ -468,7 +490,7 @@ final class MeetingController: NSObject {
             }
         }
         content.addSubview(stubView)
-        let ink: NSColor = stub.lit ? BarTheme.onAccent : BarTheme.ink
+        let ink: NSColor = stub.lit ? BarTheme.onAccent : recess.ink
         let number = NSTextField(labelWithString: stub.number)
         // The countdown ticks in place, so its digits hold their width.
         number.setRole(stub.unit == nil ? .emphasis : .figure)
@@ -477,7 +499,7 @@ final class MeetingController: NSObject {
         let unitField = NSTextField(labelWithString: "")
         if let unit = stub.unit {
             let attributes = BarTheme.attributes(
-                .key, color: stub.lit ? BarTheme.onAccent.withAlphaComponent(0.8) : BarTheme.secondaryColor)
+                .key, color: stub.lit ? BarTheme.onAccent.withAlphaComponent(0.8) : recess.quietInk)
             unitField.attributedStringValue = NSAttributedString(string: unit.uppercased(), attributes: attributes)
             unitField.followLook()
         }
@@ -497,12 +519,12 @@ final class MeetingController: NSObject {
 
         let title = NSTextField(labelWithString: occurrence.title)
         title.setRole(.quietVoice)
-        title.textColor = BarTheme.ink
+        title.textColor = recess.ink
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         let detail = NSTextField(labelWithString: meta)
         detail.setRole(.meta)
-        detail.textColor = BarTheme.secondaryColor
+        detail.textColor = recess.quietInk
         detail.lineBreakMode = .byTruncatingTail
         detail.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         let body = NSStackView(views: [title, detail])
@@ -565,6 +587,10 @@ final class MeetingController: NSObject {
         // Only on the way up: render is called again to retitle a chip that
         // is already standing, and that is not a fresh claim.
         if !wasVisible { onChipShown() }
+        // A new chip, another meeting, or the door opening is attention; a
+        // minute ticking over on the same one is not.
+        if !wasVisible || shown?.key != occurrence.key || shown?.lit != stub.lit { recess.touch() }
+        shown = (occurrence.key, stub.lit)
     }
 
     #if DEBUG
@@ -578,7 +604,9 @@ final class MeetingController: NSObject {
         }
         return chipContent.map(words) ?? []
     }
-    var stubLit: Bool { current.map { Self.stub(for: $0.phase).lit } ?? false }
+    var stubLit: Bool { chipLit }
+    /// What the chip is drawn in, for the tests that hold its receding.
+    var chipRoot: NSView { root }
     #endif
 
     // MARK: - The prime card

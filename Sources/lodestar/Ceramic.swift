@@ -323,10 +323,13 @@ enum BarTheme {
     /// not filed, so it wears wind rather than a window.
     static let breathSymbol = "wind"
     /// The palette of the look an appearance is: espresso in dark, clay in
-    /// light. Every colour below resolves through this, in the look of the
-    /// view that draws it.
+    /// light, at the Eye comfort level in force (design/06-eye-comfort.md).
+    /// Every colour below resolves through this, in the look of the view that
+    /// draws it, and nothing else in the app reads a palette: the level lives
+    /// here and nowhere else, so a surface is dimmed, calmed and receded
+    /// without a line of its own. The look is the Mac's, and only the Mac's.
     static func steps(for appearance: NSAppearance) -> Palette.Steps {
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? Palette.night : Palette.clay
+        EyeComfortState.shared.steps(dark: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
     }
 
     /// The ink: tinted, never pure black or pure white (the ceiling),
@@ -369,9 +372,10 @@ enum BarTheme {
         return field
     }
 
-    /// The palette in force: the night in dark mode, clay in light.
+    /// The palette in force: the night in dark mode, clay in light, at the
+    /// Eye comfort level.
     static var palette: Palette.Steps {
-        Tone.systemDark ? Palette.night : Palette.clay
+        EyeComfortState.shared.steps(dark: Tone.systemDark)
     }
 
     /// The pane as a colour that knows both looks, for a layer that must
@@ -427,13 +431,19 @@ enum BarTheme {
     /// What a content picture's shadow is cast in (a picture is content, not
     /// chrome): the night's ground, and by day the quiet ink. A pane casts
     /// `shadowInk`, the same two, at the contract's share.
-    static var shadow: NSColor { Tone.systemDark ? Palette.night.ground.color : Palette.clay.quietInk.color }
+    static var shadow: NSColor { palette.isDark ? palette.ground.color : palette.quietInk.color }
+    /// The light look as the level has it: clay's own steps, which the dark
+    /// look borrows for its lightest and darkest things.
+    private static var clayInForce: Palette.Steps { EyeComfortState.shared.steps(dark: false) }
     /// A switch's knob: the lightest step the palette has, in both looks.
-    static var knob: NSColor { Palette.clay.key.color }
+    /// By day it is the key step as dimmed with the pane it stands on; by
+    /// night it is clay's key as it is, because night's bright things are
+    /// the ink, the quiet ink and the slab, and the knob is none of them.
+    static var knob: NSColor { lightest }
     /// The lightest and the darkest step the palette owns, which a lit key
     /// is shaded toward: its rim catches the key's face, its side falls in
     /// the slab's side, the way the mark's faces are shaded.
-    static var lightest: NSColor { Palette.clay.key.color }
+    static var lightest: NSColor { (palette.isDark ? Palette.clay : palette).key.color }
     static var darkest: NSColor { Palette.clay.slabSide.color }
 
     /// The accent, as a closure so a test can try the text rule and the
@@ -455,10 +465,16 @@ enum BarTheme {
     /// (white on the night's orange is 3.3 to 1), decided from the fill
     /// itself.
     static var onAccent: NSColor {
-        guard let fill = accent.usingColorSpace(.sRGB) else { return Palette.clay.ink.color }
+        let light = clayInForce
+        guard let fill = accent.usingColorSpace(.sRGB) else { return light.ink.color }
         return Palette.letter(on: Readability.RGB(red: fill.redComponent, green: fill.greenComponent,
-                                                  blue: fill.blueComponent)).color
+                                                  blue: fill.blueComponent), face: light.key, ink: light.ink).color
     }
+
+    /// International Orange exactly as Palette holds it for the look in
+    /// force, at full level: for what is drawn as it is at every hour (the
+    /// app's icon), never calmed for the evening.
+    static var brandOrange: NSColor { (Tone.systemDark ? Palette.night : Palette.clay).orange.color }
 
     /// International Orange as the look in force wants it: #FA5617 at night,
     /// #C83500 on clay, one value per look (Palette).

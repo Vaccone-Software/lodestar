@@ -127,10 +127,19 @@ final class ModePill {
 
     private let panel: NSPanel
     private let root = AppearanceRoot()
+    /// The pill recedes when left alone (design/06-eye-comfort.md): its ink
+    /// to 5.5 to 1 and its quiet ink to 4.5 to 1 after twenty seconds without
+    /// attention, back at once on the pointer, a key or a change of state.
+    let recess = Recess()
+    private var hover: RecessHover?
     private var content: NSStackView?
     private(set) var state: State?
     var isVisible: Bool { panel.isVisible }
     var frame: NSRect { panel.paneFrame }
+    #if DEBUG
+    /// What the pill is drawn in, for the tests that hold its receding.
+    var drawnRoot: NSView { root }
+    #endif
     /// Where the hand put the pill, as a displacement from its home, so
     /// a dragged pill comes back where it was left for the rest of the
     /// session. Zero until dragged; the home is the guide's.
@@ -145,6 +154,8 @@ final class ModePill {
         // Draggable by its glass, the way the coach's chip is: one home by
         // default, and a remembered displacement once the hand moves it.
         Movable.enable(panel)
+        recess.onChange = { [weak self] in self?.root.redrawAll() }
+        hover = RecessHover(root, recess: recess)
         // A change of look changes every word's weight, and the words' width
         // with it: the glass is fitted to them again.
         root.onAppearance = { [weak self] in
@@ -183,9 +194,11 @@ final class ModePill {
         self.state = state
         build(state)
         present()
+        recess.touch()
     }
 
     func hide() {
+        recess.stop()
         state = nil
         keys?.removeFromSuperview()
         keys = nil
@@ -211,6 +224,7 @@ final class ModePill {
 
     func showKeys(_ sections: [CheatSheet.Section]) {
         guard panel.isVisible, let content else { return }
+        recess.touch()
         keys?.removeFromSuperview()
         let columns = CheatSheet.columns(sections)
         root.addSubview(columns)
@@ -242,6 +256,7 @@ final class ModePill {
 
     func hideKeys() {
         guard let going = keys else { return }
+        recess.touch()
         keys = nil
         NSLayoutConstraint.deactivate(keyEdges)
         keyEdges = []
@@ -300,16 +315,16 @@ final class ModePill {
             let image = NSImage(systemSymbolName: name, accessibilityDescription: state.mode.word)?
                 .withSymbolConfiguration(BarTheme.symbol)
             let view = NSImageView(image: image ?? NSImage())
-            view.contentTintColor = BarTheme.ink
+            view.contentTintColor = recess.ink
             view.setContentHuggingPriority(.required, for: .horizontal)
             return view
         case .modeWord(let word):
-            return Self.label(word, role: .body, color: BarTheme.ink)
+            return Self.label(word, role: .body, color: recess.ink)
         case .offer(let offer):
             // The pill's one light, when the offer is ⏎: the key, lit.
             return Keycaps.line([.init([offer.key], offer.words, lit: offer.lit, quiet: !offer.lit)])
         case .appWord(let word):
-            return Self.label(word, role: .body, color: BarTheme.secondaryColor)
+            return Self.label(word, role: .body, color: recess.quietInk)
         case .appIcon:
             let view = NSImageView(image: state.icon ?? NSImage())
             view.imageScaling = .scaleProportionallyUpOrDown
@@ -324,8 +339,8 @@ final class ModePill {
         case .anchored(let word):
             // The word already taken, then a quiet dot before whatever
             // comes next: the far end's letters, or the caret waiting.
-            let label = Self.label(word, role: Self.textRole, color: BarTheme.ink)
-            let dot = Self.label("·", role: .body, color: BarTheme.secondaryColor)
+            let label = Self.label(word, role: Self.textRole, color: recess.ink)
+            let dot = Self.label("·", role: .body, color: recess.quietInk)
             let pair = NSStackView(views: [label, dot])
             pair.orientation = .horizontal
             pair.alignment = .centerY
@@ -336,7 +351,7 @@ final class ModePill {
             // The letters and their caret, and no more: a slot reserved
             // ahead of the typing left a gap before the icon that read as
             // something missing. The pill fits what has been said.
-            let label = Self.label(text, role: Self.textRole, color: BarTheme.ink)
+            let label = Self.label(text, role: Self.textRole, color: recess.ink)
             let slot = NSStackView(views: [label, Self.caret(alpha: 1)])
             slot.orientation = .horizontal
             slot.alignment = .centerY

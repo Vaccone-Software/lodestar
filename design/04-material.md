@@ -35,7 +35,7 @@ The rim is clipped to the pane's corners, so it thins into the curve where the s
 
 **The side.** A band of the side colour beneath the face, as tall as its size calls for: 3 points at a control's size, 4 at a row's, 5 at a large key's. Pressing collapses it to 1 point at once, the face moving down by what the side gave up. The side sits inside the thing's frame (geometry, rule 6).
 
-**The well** by day is the pane darkened by 0.025 in lightness (about `#ECE4DC` in a clay pane); by night it is the pane darkened by 0.02, never below the ground.
+**The well** by day is the pane darkened by 0.025 in lightness (about `#EEE7E0` in a clay pane); by night it is the pane darkened by 0.02, never below the ground.
 
 ### Weights retire
 
@@ -43,10 +43,10 @@ Glass had three weights (normal, raised, faint), each a different opacity. An op
 
 ## Rules
 
-1. **Opaque.** Nothing Lodestar draws lets the desktop through. No glass, no blur, no vibrancy, no transparency setting to honour, because there is nothing to make opaque.
+1. **Opaque.** Nothing Lodestar draws lets the desktop through. No glass, no blur, no vibrancy, no transparency setting to honour, because there is nothing to make opaque. A window may be clear around its pane, for the corners and the shadow; the pane itself never is.
 2. **One light, from above.** Every rim is on a top edge, every side beneath a face, every shadow falls down. Nothing is lit from the side or below.
 3. **Depth follows role.** Stands up, sinks, or flat, by what the thing does. Nothing sinks only to make its neighbour look raised, and nothing stands up that cannot be pressed.
-4. **Thickness over shadow.** Pressability is a side, never a shadow. A shadow only separates a floating pane from the desktop: soft by day, faint at night.
+4. **Thickness over shadow.** Pressability is a side, never a shadow. A shadow only separates a floating pane from the desktop: soft by day, faint at night. A pressable thing that floats on the desktop itself (Keep's cards) is both: a side, and the pane's shadow.
 5. **No gradients, no inner shadows, no glows.** A face is one colour; a well is one colour and an edge.
 6. **The edge is on top.** A pane's hairline and rim are drawn above its content.
 7. **Content is not material.** Pictures, app icons and previews are drawn as they are, with no rim, edge or side of their own unless they are a key.
@@ -63,7 +63,7 @@ Glass had three weights (normal, raised, faint), each a different opacity. An op
 
 ## Status
 
-Not yet built. Main's panels are glass (`TonedGlass`, an `NSGlassEffectView`, with a visual-effect fallback) with a veil at 0.9, 0.94 or 0.8 by weight; keys stand on a hard 1.5-point shadow as their side, with a lit top edge; a quiet key sits in a shallow well; a lifted card casts a small shadow by day.
+Built 22 October 2026. Before it, main's panels were glass (`TonedGlass`, an `NSGlassEffectView`, with a visual-effect fallback) with a veil at 0.9, 0.94 or 0.8 by weight; keys stood on a hard 1.5-point shadow with a lit top edge; a quiet key sat in a shallow well; a lifted card cast a small shadow by day. The build made the bar's field a visible well (a bar with no rows is now 84 tall, the well sitting 12 inside the pane), made two-line rows 52 tall so their face stays 48, and removed the glow behind Settings' mark.
 
 ## Prototype lessons
 

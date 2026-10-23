@@ -23,7 +23,7 @@ Primitives are made of foundations, so the foundations are settled first.
 | 01  | Colour      | Built   |
 | 02  | Type        | Built   |
 | 03  | Geometry    | Built   |
-| 04  | Material    | Planned |
+| 04  | Material    | Built   |
 | 05  | Motion      | Planned |
 | 06  | Eye comfort | Planned |
 

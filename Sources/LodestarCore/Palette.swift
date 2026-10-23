@@ -40,18 +40,26 @@ public enum Palette {
         public let orange: Readability.RGB
         /// How far a well is darkened from the pane it sits in, in OKLab
         /// lightness (design/04-material.md): a place you put something is
-        /// one step below its pane, never below the ground.
+        /// one step below its pane.
         public let wellDrop: Double
+        /// Whether a well may sink no lower than the ground: by night it
+        /// stops there; by day the ground is nearer the pane than a well
+        /// that reads clearly is, so the day well goes below it.
+        public let wellStopsAtGround: Bool
+        /// A well's edge is the ink at this share, firmer than a hairline so
+        /// the well reads as one.
+        public let wellEdgeAlpha: Double
 
         /// A letter on the orange: whichever of clay's key face and clay's
         /// ink measures higher on this look's orange, never white or black.
         public var letterOnOrange: Readability.RGB { Palette.letter(on: orange) }
 
-        /// A well: the pane darkened by `wellDrop`, one colour, never below
-        /// the ground. Chroma and hue stay the pane's, so it is the same
-        /// ceramic a step down.
+        /// A well: the pane darkened by `wellDrop`, one colour, and by night
+        /// never below the ground. Chroma and hue stay the pane's, so it is
+        /// the same ceramic a step down.
         public var well: Readability.RGB {
-            pane.with(lightness: max(ground.lightness, pane.lightness - wellDrop))
+            let lowered = pane.lightness - wellDrop
+            return pane.with(lightness: wellStopsAtGround ? max(ground.lightness, lowered) : lowered)
         }
 
         /// Every step of the look, for a test that holds them all to one rule.
@@ -64,13 +72,13 @@ public enum Palette {
     public static let night = Steps(
         ground: rgb(0x120F0C), pane: rgb(0x1D1916), key: rgb(0x2B2622), side: rgb(0x110E0C),
         ink: rgb(0xF1EBE2), quietInk: rgb(0xA99F92), slab: rgb(0xF1E8DF), slabSide: rgb(0xADA093),
-        hairlineAlpha: 0.08, orange: rgb(0xFA5617), wellDrop: 0.02)
+        hairlineAlpha: 0.08, orange: rgb(0xFA5617), wellDrop: 0.04, wellStopsAtGround: true, wellEdgeAlpha: 0.12)
 
     /// Clay: the day.
     public static let clay = Steps(
         ground: rgb(0xEDE4DA), pane: rgb(0xF6EFE8), key: rgb(0xFCF8F4), side: rgb(0xDCCEC1),
         ink: rgb(0x1E1814), quietInk: rgb(0x66584E), slab: rgb(0x2A221D), slabSide: rgb(0x120D0A),
-        hairlineAlpha: 0.10, orange: rgb(0xC83500), wellDrop: 0.025)
+        hairlineAlpha: 0.10, orange: rgb(0xC83500), wellDrop: 0.05, wellStopsAtGround: false, wellEdgeAlpha: 0.14)
 
     /// Of the two letters Lodestar owns on a light ground (clay's key face
     /// and clay's ink), the one that measures higher on `fill`. Measured,

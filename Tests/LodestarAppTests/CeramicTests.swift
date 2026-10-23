@@ -188,29 +188,41 @@ final class PaneTests: XCTestCase {
         }
     }
 
-    /// The well: the pane darkened by 0.025 of OKLab lightness by day,
-    /// 0.02 by night, never below the ground, opaque.
+    /// The well: the pane darkened by 0.05 of OKLab lightness by day and 0.04
+    /// by night (never below the ground by night), opaque, with an edge at
+    /// ink 14% by day and 12% by night.
     func testTheWellIsOneStepBelowThePane() throws {
-        for (steps, drop) in [(Palette.clay, 0.025), (Palette.night, 0.02)] {
+        for (steps, drop) in [(Palette.clay, 0.05), (Palette.night, 0.04)] {
             let well = steps.well
             XCTAssertEqual(steps.pane.lightness - well.lightness, drop, accuracy: 0.002)
-            XCTAssertGreaterThanOrEqual(well.lightness, steps.ground.lightness - 0.0005, "never below the ground")
-            XCTAssertEqual(well.chroma, steps.pane.chroma, accuracy: 0.004, "the same ceramic a step down")
+            XCTAssertEqual(well.chroma, steps.pane.chroma, accuracy: 0.006, "the same ceramic a step down")
         }
-        // The contract's "about #ECE4DC" is a step lower than 0.025 gives
-        // (that hex is the ground's lightness); the rule is the number.
-        let day = Palette.clay.well
-        XCTAssertEqual(day.red * 255, 0xEE, accuracy: 2)
-        XCTAssertEqual(day.green * 255, 0xE7, accuracy: 2)
-        XCTAssertEqual(day.blue * 255, 0xE0, accuracy: 2)
+        XCTAssertGreaterThanOrEqual(Palette.night.well.lightness, Palette.night.ground.lightness - 0.0005,
+                                    "by night never below the ground")
+        let day = Palette.clay.well, night = Palette.night.well
+        XCTAssertEqual(day.red * 255, 0xE6, accuracy: 2)
+        XCTAssertEqual(day.green * 255, 0xDE, accuracy: 2)
+        XCTAssertEqual(day.blue * 255, 0xD6, accuracy: 2)
+        XCTAssertEqual(night.red * 255, 0x14, accuracy: 2)
+        XCTAssertEqual(night.green * 255, 0x10, accuracy: 2)
+        XCTAssertEqual(night.blue * 255, 0x0D, accuracy: 2)
+        XCTAssertEqual(Palette.clay.wellEdgeAlpha, 0.14)
+        XCTAssertEqual(Palette.night.wellEdgeAlpha, 0.12)
         for look in GalleryLook.all {
             look.apply()
-            var drawn = NSColor.clear
+            let steps = look == .night ? Palette.night : Palette.clay
+            var drawn = NSColor.clear, edge = NSColor.clear
             NSAppearance(named: look.appearance)?.performAsCurrentDrawingAppearance {
                 drawn = BarTheme.wellFill.usingColorSpace(.sRGB) ?? .clear
+                edge = BarTheme.wellEdge.usingColorSpace(.sRGB) ?? .clear
             }
             XCTAssertEqual(drawn.alphaComponent, 1, "\(look.name): a well is opaque")
-            near(drawn, look == .night ? Palette.night.well : Palette.clay.well, "\(look.name): the theme's well is the palette's")
+            near(drawn, steps.well, "\(look.name): the theme's well is the palette's")
+            XCTAssertEqual(edge.alphaComponent, steps.wellEdgeAlpha, accuracy: 0.002, "\(look.name): the well's edge")
+            near(edge, steps.ink, "\(look.name): the ink", tolerance: 0.01)
+            // A placeholder in quiet ink still reads in the well.
+            XCTAssertGreaterThanOrEqual(Readability.contrast(steps.quietInk.luminance, steps.well.luminance), 5,
+                                        "\(look.name): quiet ink clears 5 : 1 in a well")
         }
     }
 

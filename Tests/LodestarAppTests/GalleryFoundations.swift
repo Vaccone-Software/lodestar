@@ -185,7 +185,7 @@ enum GalleryFoundations {
                 ("ink", themed(BarTheme.ink), "BarTheme.ink"),
                 ("quiet ink", themed(BarTheme.secondaryColor), "BarTheme.secondaryColor"),
                 ("hairline", themed(BarTheme.hairline), "BarTheme.hairline"),
-                ("well", themed(BarTheme.well), "the pane darkened by 0.025 L by day, 0.02 by night"),
+                ("well", themed(BarTheme.well), "the pane darkened by 0.05 L by day, 0.04 by night"),
                 ("accent", accent, "BarTheme.accent"),
                 ("letter on the accent", themed(BarTheme.onAccent, over: accent), "BarTheme.onAccent"),
                 ("chosen row", themed(BarTheme.raised), "BarTheme.raised (the key step)"),

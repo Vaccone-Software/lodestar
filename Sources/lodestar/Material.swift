@@ -82,6 +82,9 @@ extension BarTheme {
     /// A place you put something: the pane one step down, never below the
     /// ground.
     static let wellFill = dynamic { $0.well.color }
+    /// A well's edge: the ink at 14% by day and 12% by night, firmer than a
+    /// hairline.
+    static let wellEdge = dynamic { $0.ink.color.withAlphaComponent($0.wellEdgeAlpha) }
     /// The polished rim: clay's key step by day, the ink at 10% by night.
     static let rimFill = dynamic { look in
         isNight(look) ? look.ink.color.withAlphaComponent(Ceramic.nightRimShare) : look.key.color
@@ -334,7 +337,7 @@ class WellView: NSView, CeramicDepth {
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: line / 2, dy: line / 2),
                                 xRadius: max(0, radius - line / 2), yRadius: max(0, radius - line / 2))
         path.lineWidth = line
-        BarTheme.hairline.setStroke()
+        BarTheme.wellEdge.setStroke()
         path.stroke()
     }
 
@@ -569,7 +572,7 @@ final class WellField: NSTextField, CeramicDepth {
         let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: line / 2, dy: line / 2),
                                 xRadius: max(0, radius - line / 2), yRadius: max(0, radius - line / 2))
         edge.lineWidth = line
-        BarTheme.hairline.setStroke()
+        BarTheme.wellEdge.setStroke()
         edge.stroke()
         super.draw(dirtyRect)
     }

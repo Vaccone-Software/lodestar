@@ -338,6 +338,28 @@ extension RowTests {
                 _ = keep
             }
 
+            // Feedback's footer: the version at its leading edge stands on the same
+            // baseline as "Cancel" and "Send" at the other (it stood 2 points below).
+            let (feedback, feedbackKeep) = try GalleryChrome.feedback(45)
+            feedback.window?.contentView?.layoutSubtreeIfNeeded()
+            var feedbackWords: [KeyWords] = []
+            walk(feedback) { if let w = $0 as? KeyWords { feedbackWords.append(w) } }
+            let feedbackKey = keys(in: feedback).first { $0.legend == "esc" }
+            let version = feedbackWords.first { $0.stringValue.hasPrefix("Lodestar ") }
+            if let version, let feedbackKey, let found = ink(of: version.label, in: feedback) {
+                measured += 1
+                let want = baseline(of: feedbackKey, in: feedback)
+                if abs(found.low - want) > 0.5 { wrong.append("\(look.name) feedback: the version stands on \(found.low), the footer's keys' words on \(want)") }
+                for word in feedbackWords where word !== version && word.stringValue != "·" {
+                    guard let own = ink(of: word.label, in: feedback) else { continue }
+                    measured += 1
+                    if abs(own.low - found.low) > 0.5 { wrong.append("\(look.name) feedback \"\(word.stringValue)\" is \(own.low), the version \(found.low)") }
+                }
+            } else {
+                wrong.append("\(look.name) feedback: no version footer found")
+            }
+            _ = feedbackKeep
+
             // A footer: each word on the baseline of the key before it.
             let footer = Keycaps.line([.init(["esc"], "Back"), .init(["⏎"], "Choose", lit: true),
                                        .init(["lode", "⌫"], "Not now"), .init(["e", "p"], "Open")])

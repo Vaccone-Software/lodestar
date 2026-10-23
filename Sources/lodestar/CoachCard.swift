@@ -44,16 +44,18 @@ enum CoachCard {
 
         // The offer is a row of the row contract, always the slab: a breath's
         // apps lead, overlapping the way their windows will stand together;
-        // then its name; at the end the address on offer in quiet keys (what
-        // you would press later, not now) and the chord that accepts it, lit,
-        // last. Nothing else on the card is lit, so the one light means yes.
+        // then its name, and 8 after it the address on offer in quiet keys
+        // (what you would press later, not now), 4 apart; at the trailing end
+        // the chord that accepts it, lit. Nothing else on the card is lit, so
+        // the one light means yes.
         let row = OfferRow()
         row.title.stringValue = offer.name
         if !offer.icons.isEmpty { row.setLead(RowIcon.overlapped(offer.icons)) }
         let accept = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode"], double: true, lit: true),
                                       action: offer.accept)
         accept.setAccessibilityLabel("Accept")
-        row.setTrailing([Keycaps.strokes(offer.address, quiet: true), accept])
+        row.titleLine.addArrangedSubview(Keycaps.strokes(offer.address, quiet: true))
+        row.setTrailing([accept])
         card.addSubview(row)
 
         // The whisper: the record, and the way out, both quiet, on the baseline

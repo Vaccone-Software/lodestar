@@ -294,9 +294,11 @@ final class FeedbackController: NSObject, NSTextViewDelegate {
             let footer = NSStackView()
             footer.orientation = .horizontal
             footer.spacing = Grid.part
-            footer.addArrangedSubview(label("Lodestar \(Lodestar.version) · macOS \(Feedback.macosVersion)",
-                                            role: .meta,
-                                            color: BarTheme.secondaryColor))
+            // Meta words in the footer stand on its legend's baseline, as the
+            // keys' words on the right do.
+            let version = NSStackView(views: [KeyWords("Lodestar \(Lodestar.version) · macOS \(Feedback.macosVersion)")])
+            version.alignment = .centerY
+            footer.addArrangedSubview(LegendRow(version))
             let spacer = NSView()
             spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             footer.addArrangedSubview(spacer)

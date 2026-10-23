@@ -53,7 +53,7 @@ A row is the thing, then its keys: what it is leads, how to reach it trails. A l
 
 ### When a row cannot act
 
-**Quiet, never faded.** A row that cannot act now (a setting that waits on another, an unavailable action, a disabled popup item) draws its title and detail in quiet ink, its keys quiet (flat, the key's quiet state), and its control in the control's own off state. Nothing is drawn translucent: the 0.45 fade on a row and on Keep's missing-file card goes (material, rule 1: opaque). Quiet ink holds 4.5 : 1 on the pane at every level, so what cannot act is still read.
+**Quiet, never faded.** A row that cannot act now (a setting that waits on another, an unavailable action, a disabled popup item) draws its title and detail in quiet ink, its keys quiet (the key's quiet state), and its control keeps its value, drawn quiet: an on switch's track is quiet ink instead of the accent, opaque, so what the setting will be is still shown. Nothing is drawn translucent: the 0.45 fade on a row and on Keep's missing-file card goes (material, rule 1: opaque). Quiet ink holds 4.5 : 1 on the pane at every level, so what cannot act is still read.
 
 An **off** setting is not unavailable: it is a switch turned off, wearing the dot when off is not the default, and reads in full ink.
 

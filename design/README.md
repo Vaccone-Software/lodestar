@@ -24,7 +24,7 @@ Primitives are made of foundations, so the foundations are settled first.
 | 02  | Type        | Built   |
 | 03  | Geometry    | Built   |
 | 04  | Material    | Built   |
-| 05  | Motion      | Planned |
+| 05  | Motion      | Built   |
 | 06  | Eye comfort | Planned |
 
 Then the primitives, each made only of the foundations above: the key, the slab, the well, the row, stops, and the countdown key. Then sound.

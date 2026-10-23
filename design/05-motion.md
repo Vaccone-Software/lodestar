@@ -30,7 +30,7 @@ Everything a hand does often, and everything that appears:
 
 | What                    | Why it moves                                      | How                                                     |
 | ----------------------- | ------------------------------------------------- | ------------------------------------------------------- |
-| the draft's voice meter | it is a level that is changing now                | follows the voice; falls back over 150 ms when it drops |
+| the draft's voice meter | it is a level that is changing now                | follows the voice; falls over 150 ms when it drops to a lower level, and goes out at once |
 | the switch's knob       | a rare change of state; the travel says which way | slides over 120 ms; the track's colour changes at once  |
 
 ### The curve
@@ -61,12 +61,12 @@ Motion does not render in a still; the gallery shows end states, which is the po
 
 ## Status
 
-Not yet built. Main slides the switch's knob over 0.18 seconds with a colour cross-fade, lets the voice meter fall over 0.35 seconds, folds the draft over 0.1 seconds, and grows the keys sheet over 0.3 seconds and shrinks it over 0.22, fading its keys in after 0.08.
+Built 22 October 2026. Before it, main slid the switch's knob over 0.18 seconds with a colour cross-fade, let the voice meter fall over 0.35 seconds, folded the draft over 0.1 seconds, and grew the keys sheet over 0.3 seconds and shrank it over 0.22, fading its keys in after 0.08. The constants live in `Motion.swift`. A disabled row's 0.45 dim is a state, not a fade, and stays until the primitives decide how a disabled thing looks.
 
 ## Lessons from main
 
 - **A window animation can fail under load.** The draft's fold already guards for it: when its time is up, the panel is put exactly where the layout said, whether or not the motion ran (rule 4). Making the fold instant removes the guard's reason to exist.
 
-## Open
+## Decided in review
 
-- Whether the switch's knob should slide at all, or jump like everything else.
+- The switch's knob keeps a 120 ms slide: it is rare, and the travel says which way it went (22 October 2026).

@@ -183,17 +183,19 @@ enum GalleryKeys {
             chosen.choose(true)
             column.addArrangedSubview(chosen)
             let (onRow, made) = row(legends)
-            let (litOnRow, litMade) = row(legends) { $0.lit = true }
-            keys += made + litMade
-            let both = NSStackView(views: [onRow, litOnRow])
-            both.orientation = .vertical
-            both.alignment = .leading
-            both.spacing = Grid.close
+            // Only the key that acts lights on the slab: one ⏎, the rest rest.
+            let enter = Key("⏎")
+            enter.lit = true
+            keys += made + [enter]
+            let both = NSStackView(views: [onRow, enter])
+            both.orientation = .horizontal
+            both.alignment = .centerY
+            both.spacing = Grid.section
             both.translatesAutoresizingMaskIntoConstraints = false
             chosen.addSubview(both)
             NSLayoutConstraint.activate([
                 chosen.widthAnchor.constraint(equalToConstant: 1070),
-                chosen.heightAnchor.constraint(equalToConstant: 88),
+                chosen.heightAnchor.constraint(equalToConstant: BarTheme.rowHeight),
                 both.leadingAnchor.constraint(equalTo: chosen.leadingAnchor, constant: Grid.part),
                 both.centerYAnchor.constraint(equalTo: chosen.centerYAnchor),
             ])

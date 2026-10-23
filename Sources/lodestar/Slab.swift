@@ -163,7 +163,8 @@ class SlabRow: NSView, CeramicDepth, SlabSurface {
         refit()
     }
 
-    private func press(_ down: Bool) {
+    /// Hold the row down or let it up: only a chosen row is pressed.
+    func press(_ down: Bool) {
         guard chosen, down != pressed else { return }
         pressed = down
         standing.pressed = down

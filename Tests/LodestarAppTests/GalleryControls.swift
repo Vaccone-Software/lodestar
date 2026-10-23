@@ -80,7 +80,7 @@ enum GalleryControls {
     }
 
     /// A choice menu open: the rows are the Settings popup's own, the
-    /// current one carrying the accent's dot.
+    /// current one carrying a dot and the one the pointer is on the slab.
     static func openMenu(look: GalleryLook) -> (NSWindow, [AnyObject]) {
         var made: [AnyObject] = []
         let window = GalleryHost.pane(size: NSSize(width: 300, height: 190), look: look) { root in
@@ -96,6 +96,12 @@ enum GalleryControls {
             root.addSubview(menu)
             for (index, item) in popup.itemArray.enumerated() {
                 let row = ChoiceMenuItemView(item: item, current: index == 1, width: 244, popup: popup)
+                // The pointer is on the third row, which is the slab.
+                row.highlighted = index == 2
+                // A menu item's view has a frame, not constraints: the stack is told its size.
+                row.translatesAutoresizingMaskIntoConstraints = false
+                row.widthAnchor.constraint(equalToConstant: 244).isActive = true
+                row.heightAnchor.constraint(equalToConstant: ChoiceMenuItemView.height).isActive = true
                 menu.addArrangedSubview(row)
                 made.append(row)
             }

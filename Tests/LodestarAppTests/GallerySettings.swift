@@ -61,6 +61,9 @@ enum GallerySettings {
                 $0.openForTesting(page: page)
             })
         }
+        all.append(settings("landing-row") {
+            $0.landForTesting(place: SettingsModel.placeIndex("Keep")!, row: 1)
+        })
         all.append(settings("search-clipboard") {
             $0.renderForTesting(place: nil)
             $0.searchForTesting("clipboard")

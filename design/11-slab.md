@@ -101,6 +101,7 @@ Not yet built. Main marks the chosen row by raising it onto the key step (`Raise
 - **Resolve in the slab's look.** Dots and chips baked as CGColor kept the surrounding look when their row flipped; everything in the slab resolves under the slab's appearance in the draw pass.
 - **One lit key.** Lighting the address with ⏎ made three orange keys on one row.
 
-## Open
+## Decided in review
 
-- **Keep's chosen card as a whole slab.** A card is far larger than a row; a full espresso card by day is the strongest mark Lodestar would draw. Shown on the review page beside a card that keeps its clay face and wears the slab only as its key strip; decided there.
+- **Keep's chosen card is the slab, whole** (23 October 2026): one rule everywhere, and the only mark that finds the chosen card among nine at a glance. A card whose top band alone was the slab read as a label rather than a choice.
+- The design, the one lit acting key, and the surfaces are approved as drafted.

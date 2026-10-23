@@ -44,7 +44,7 @@ final class ImageDoorScenarioTests: XCTestCase {
         let (stage, clip) = stageWithImage()
         openPanel(stage)
         let keys = HotkeyEngine.panelActions(for: clip).map(\.key)
-        XCTAssertEqual(keys, ["K", "E", "S", "D", "X"])
+        XCTAssertEqual(keys, ["k", "e", "s", "d", "x"])
         let labels = HotkeyEngine.panelActions(for: clip).map(\.label)
         XCTAssertTrue(labels.contains("View"))
         XCTAssertTrue(labels.contains("Save as"))

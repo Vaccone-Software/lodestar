@@ -9,7 +9,7 @@ import LodestarCore
 /// file named, so the φ table and the type scale stay the only source.
 final class DesignDriftTests: XCTestCase {
     /// The theme's homes: the values live here and nowhere else.
-    private static let homes: Set<String> = ["Ceramic.swift", "Material.swift", "ModePill.swift", "Type.swift"]
+    private static let homes: Set<String> = ["Ceramic.swift", "Key.swift", "Material.swift", "ModePill.swift", "Type.swift"]
 
     /// Every Swift file under a folder, subfolders included: a guard that
     /// read only the top level would exempt any folder added later.
@@ -350,7 +350,7 @@ final class DesignDriftTests: XCTestCase {
             "SettingsController.swift": 1, // the overview's ring
         ]
         var offenders: [String] = []
-        for (name, text) in try sources() where name != "Ceramic.swift" {
+        for (name, text) in try sources() where name != "Ceramic.swift" && name != "Key.swift" {
             let count = text.components(separatedBy: "BarTheme.inkAt(").count - 1
             if count > notMatter[name, default: 0] { offenders.append(name) }
         }

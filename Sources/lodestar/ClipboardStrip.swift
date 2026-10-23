@@ -209,9 +209,14 @@ final class ClipboardStrip {
 
     private static let pad = Grid.part
     /// The key's inset from a card's top edge, the gap under it, and the
-    /// foot's height.
+    /// foot's height. The key's own side (3 points) is part of the gap under
+    /// its face, so the gap stays a hair: the key is 24 tall and a card's
+    /// body is as tall as the file's sheet it holds.
     private static let head = Grid.part
-    private static let keyGap = Grid.tight
+    private static let keyGap = Grid.hair
+    /// How far below a card's top inset the middle of a key's face is: the
+    /// face stands half its side above the middle of the key's frame.
+    private static let keyLine = BarTheme.keyHeight / 2 - Ceramic.Side.control / 2
     /// A card stands on a side inside its frame, so what it holds starts
     /// above it: the foot and the footer are measured from the face.
     private static let cardSide = Ceramic.Side.row
@@ -662,7 +667,7 @@ final class ClipboardStrip {
         let card = surface(size: size, fill: raised ? .key : .pane)
         shownCards[clip.id] = card
         let width = size.width, height = size.height
-        let line = height - Self.head - BarTheme.keyHeight / 2
+        let line = height - Self.head - Self.keyLine
         var leading = Self.pad
         if let key {
             shownKeys[clip.id] = key
@@ -989,7 +994,7 @@ final class ClipboardStrip {
             shownKeys[clip.id] = key
             leading = addKey(key, lit: false, to: card, height: height).frame.maxX + Grid.close
         }
-        let line = height - Self.head - BarTheme.keyHeight / 2
+        let line = height - Self.head - Self.keyLine
 
         let name = naming?.text ?? Clipboard.name(of: clip)
         shownNames[slot] = name
@@ -1071,7 +1076,7 @@ final class ClipboardStrip {
         label.textColor = BarTheme.secondaryColor
         label.sizeToFit()
         label.frame.origin = NSPoint(x: leading,
-                                     y: size.height - Self.head - BarTheme.keyHeight / 2 - label.frame.height / 2)
+                                     y: size.height - Self.head - Self.keyLine - label.frame.height / 2)
         card.addSubview(label)
         card.setAccessibilityLabel("Keepsake \(slot), free")
         return card

@@ -288,27 +288,27 @@ final class ClipDoorScenarioTests: XCTestCase {
             Clipboard.Clip(id: "x", kind: kind, created: Date(), sourceBundleID: nil,
                            sourceAppName: nil, preview: "x", bytes: 1, nativeTypes: natives)
         }
-        XCTAssertEqual(HotkeyEngine.panelActions(for: card(.text)).map(\.key), ["K", "E", "D"])
+        XCTAssertEqual(HotkeyEngine.panelActions(for: card(.text)).map(\.key), ["k", "e", "d"])
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.image, natives: ["public.png"])).map(\.key),
-                       ["K", "E", "S", "D"], "an image views and saves where a text card edits")
+                       ["k", "e", "s", "d"], "an image views and saves where a text card edits")
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.text, natives: [Clipboard.fileURLType])).map(\.key),
-                       ["K", "E", "F", "O", "D"], "a file views, shows and opens, and edits nothing")
+                       ["k", "e", "f", "o", "d"], "a file views, shows and opens, and edits nothing")
         XCTAssertEqual(HotkeyEngine.panelActions(for: card(.file, natives: [Clipboard.fileURLType]),
                                                  finderInFront: true).map(\.key),
-                       ["K", "E", "F", "O", "M", "D"], "and moves only where the Finder is in front")
+                       ["k", "e", "f", "o", "m", "d"], "and moves only where the Finder is in front")
         let group = Clipboard.Clip(id: "g", kind: .file, created: Date(), sourceBundleID: nil,
                                    sourceAppName: nil, preview: "x", bytes: 1,
                                    nativeTypes: [Clipboard.fileURLType], otherItemTypes: [[Clipboard.fileURLType]])
         XCTAssertEqual(HotkeyEngine.panelActions(for: group, finderInFront: true).map(\.key),
-                       ["K", "F", "M", "D"], "a group shows and moves, and neither opens nor views")
-        let view = HotkeyEngine.panelActions(for: card(.file, natives: [Clipboard.fileURLType])).first { $0.key == "E" }
+                       ["k", "f", "m", "d"], "a group shows and moves, and neither opens nor views")
+        let view = HotkeyEngine.panelActions(for: card(.file, natives: [Clipboard.fileURLType])).first { $0.key == "e" }
         XCTAssertEqual(view?.label, "View", "one file is viewed, as a picture is")
         XCTAssertEqual(view?.symbol, "arrow.up.left.and.arrow.down.right")
         var kept = card(.text)
         kept.pinnedSlot = 4
         XCTAssertEqual(HotkeyEngine.panelActions(for: kept).map(\.label), ["Let go", "Rename", "Edit", "Delete"],
                        "K lets a keepsake go, and only a keepsake has a name to change")
-        let edit = HotkeyEngine.panelActions(for: card(.text)).first { $0.key == "E" }
+        let edit = HotkeyEngine.panelActions(for: card(.text)).first { $0.key == "e" }
         XCTAssertEqual(edit?.label, "Edit")
         XCTAssertEqual(edit?.isDestructive, false)
     }

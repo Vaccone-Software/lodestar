@@ -80,7 +80,7 @@ final class StripLayoutTests: XCTestCase {
         let kept = stage.seedClip("kept text")
         XCTAssertTrue(stage.clipboard.history.pin(kept.id))
         stage.openStrip()
-        XCTAssertEqual(stage.engine.strip.shownKeys[newer.id], "J")
+        XCTAssertEqual(stage.engine.strip.shownKeys[newer.id], "j")
         XCTAssertEqual(stage.engine.strip.shownKeys[kept.id], "4")
         stage.press("/")
         stage.press("b")

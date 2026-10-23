@@ -381,7 +381,7 @@ final class AnalysisTests: XCTestCase {
         let bind = recommendations.first { $0.kind == .bind }
         XCTAssertNotNil(bind, "daily searches, priced launcher, free letter: bind it")
         XCTAssertEqual(bind?.target, "facetime")
-        XCTAssertTrue(bind?.detail.contains("lode F") ?? false, "the mnemonic slot")
+        XCTAssertTrue(bind?.detail.contains("lode f") ?? false, "the mnemonic slot")
         XCTAssertGreaterThan(bind?.secondsPerWeek ?? 0, 0)
         XCTAssertGreaterThanOrEqual(bind?.probability ?? 0, 0.9, "gated, not guessed")
         XCTAssertEqual(bind?.edit, .bindTarget(chain: ["f"], target: "facetime"),
@@ -504,8 +504,8 @@ final class AnalysisTests: XCTestCase {
         let rebind = Advisor.recommend(context).first { $0.kind == .rebind }
         XCTAssertNotNil(rebind, "prefix evidence must reach the advisor")
         XCTAssertEqual(rebind?.target, "v")
-        XCTAssertTrue(rebind?.detail.contains("lode V") ?? false)
-        XCTAssertTrue(rebind?.detail.contains("X") ?? false,
+        XCTAssertTrue(rebind?.detail.contains("lode v") ?? false)
+        XCTAssertTrue(rebind?.detail.contains("x") ?? false,
                       "the evidence names the letter")
     }
 
@@ -714,7 +714,7 @@ final class AnalysisTests: XCTestCase {
         // misfires counted, the supersede verb telling the truth.
         guard let flatten else { return }
         let chip = Coach.chip(for: flatten, observations: o)
-        XCTAssertTrue(chip.headline.contains("lode Z → Zoom"), chip.headline)
+        XCTAssertTrue(chip.headline.contains("lode z → Zoom"), chip.headline)
         XCTAssertTrue(chip.evidence.contains("misfired 12 times"), chip.evidence)
         XCTAssertTrue(chip.footer.contains("moves it"),
                       "the old address stops working, and the verb says so")

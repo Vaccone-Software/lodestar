@@ -41,7 +41,7 @@ final class SupersedeTests: XCTestCase {
 
     func testAnAcceptedSupersedeNamesWhereTheAddressWent() {
         let o = accepted(old: "b x", new: "x")
-        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt), "X")
+        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt), "x")
     }
 
     func testAnAddressThatWasNeverBoundHasNotMoved() {
@@ -77,7 +77,7 @@ final class SupersedeTests: XCTestCase {
     /// supersedes exactly as much.
     func testASameLengthRebindAlsoSupersedes() {
         let o = accepted(old: "v", new: "x", kind: .rebind)
-        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["v"], now: acceptedAt), "X")
+        XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["v"], now: acceptedAt), "x")
         XCTAssertTrue(Recommendation.Kind.rebind.supersedes)
         XCTAssertTrue(Recommendation.Kind.shorten.supersedes)
     }
@@ -110,7 +110,7 @@ final class SupersedeTests: XCTestCase {
         for _ in 0..<(Coach.bentCompletions - 1) { record.trigger.add(0.2) }
         o.addresses["x"] = record
         XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"],
-                                          now: acceptedAt), "X")
+                                          now: acceptedAt), "x")
     }
 
     /// The backstop, for an address so rarely used the curve never bends.
@@ -120,7 +120,7 @@ final class SupersedeTests: XCTestCase {
         let justInside = weekStart(2955 + Coach.supersedeCutoffWeeks - 1)
         let past = weekStart(2955 + Coach.supersedeCutoffWeeks)
         XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"],
-                                          now: justInside), "X")
+                                          now: justInside), "x")
         XCTAssertNil(Coach.supersededBy(observations: o, letters: ["b", "x"],
                                         now: past))
     }
@@ -131,7 +131,7 @@ final class SupersedeTests: XCTestCase {
         var o = accepted(old: "b x", new: "x")
         o.ledger[0].acceptedWeek = nil
         XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"],
-                                          now: weekStart(2955 + 200)), "X")
+                                          now: weekStart(2955 + 200)), "x")
     }
 
     // MARK: - What the old address does when it is pressed
@@ -151,11 +151,11 @@ final class SupersedeTests: XCTestCase {
     /// waiting to type a letter that is never coming back.
     func testASupersededAddressLeavesTheChainInsteadOfStranding() {
         var (engine, world) = core(graph: ["b": .deeper, "bx": .miss],
-                                   superseded: ["bx": "X"])
+                                   superseded: ["bx": "x"])
         _ = engine.keyDown(key: "b", held: true, shift: false, world: world)
         let effects = engine.keyDown(key: "x", held: true, shift: false, world: world)
 
-        XCTAssertEqual(effects, [.hideGuide, .flash("✕ That address moved\n[lode][B][X] is now [lode][X]")])
+        XCTAssertEqual(effects, [.hideGuide, .flash("✕ That address moved\n[lode][b][x] is now [lode][x]")])
         XCTAssertEqual(engine.state, .idle,
                        "a moved address ends the gesture, it does not park you in a mode")
     }
@@ -168,7 +168,7 @@ final class SupersedeTests: XCTestCase {
         let effects = engine.keyDown(key: "q", held: true, shift: false, world: world)
 
         XCTAssertEqual(effects, [.showGuide(kind: .graph, letters: ["b"], deleting: false,
-                                            note: "✕ B Q is not on the graph")],
+                                            note: "✕ b q is not on the graph")],
                        "a typo mid-traversal stays put and shows the way out")
         XCTAssertEqual(engine.state, .chain(kind: .graph, letters: ["b"], deleting: false))
     }
@@ -176,10 +176,10 @@ final class SupersedeTests: XCTestCase {
     /// A first-letter miss on a superseded address redirects too — the
     /// same fact, reached by a shorter road.
     func testAFirstLetterMissRedirectsAsWell() {
-        var (engine, world) = core(graph: ["v": .miss], superseded: ["v": "X"])
+        var (engine, world) = core(graph: ["v": .miss], superseded: ["v": "x"])
         let effects = engine.keyDown(key: "v", held: true, shift: false, world: world)
 
-        XCTAssertEqual(effects, [.hideGuide, .flash("✕ That address moved\n[lode][V] is now [lode][X]")])
+        XCTAssertEqual(effects, [.hideGuide, .flash("✕ That address moved\n[lode][v] is now [lode][x]")])
         XCTAssertEqual(engine.state, .idle)
     }
 
@@ -250,7 +250,7 @@ final class SupersedeTests: XCTestCase {
             display: "Brave (Xonar)",
             edit: .supersede(old: ["b", "x"], new: ["x"], target: "brave:xonar"))
         let chip = Coach.chip(for: rec, observations: Observations())
-        XCTAssertEqual(chip.headline, "lode X → Brave (Xonar)")
+        XCTAssertEqual(chip.headline, "lode x → Brave (Xonar)")
         XCTAssertEqual(chip.sentence, "Brave (Xonar) could be reached with fewer keys",
                        "a shorten says what is gained; the address line says where it lands")
         XCTAssertTrue(chip.footer.contains("moves it"), "got \(chip.footer)")
@@ -308,7 +308,7 @@ final class SupersedeTests: XCTestCase {
     func testAHandMoveSaysWhereTheAddressWent() {
         let o = handMoved(old: "b x", new: "x", at: acceptedAt)
         XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt),
-                       "X", "a hand edit earns the same signpost an accepted chip does")
+                       "x", "a hand edit earns the same signpost an accepted chip does")
     }
 
     func testAHandMoveRedirectExpiresWhenTheNewCurveBends() {
@@ -338,6 +338,6 @@ final class SupersedeTests: XCTestCase {
         event.epoch = 1
         o.apply(event)
         XCTAssertEqual(Coach.supersededBy(observations: o, letters: ["b", "x"], now: acceptedAt),
-                       "X", "the coach's own record of where it sent the address answers first")
+                       "x", "the coach's own record of where it sent the address answers first")
     }
 }

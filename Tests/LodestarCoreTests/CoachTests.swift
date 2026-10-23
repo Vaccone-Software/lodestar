@@ -231,7 +231,7 @@ final class CoachTests: XCTestCase {
         reach.typed = 3
         for _ in 0..<31 { o.apply(reach) }
         let chip = Coach.chip(for: bindRec(seconds: 40), observations: o)
-        XCTAssertEqual(chip.headline, "lode F → facetime")
+        XCTAssertEqual(chip.headline, "lode f → facetime")
         XCTAssertEqual(chip.sentence, "facetime could be one key away", "what the offer means, said plainly")
         XCTAssertTrue(chip.evidence.hasPrefix("Searched 31 times across"),
                       "the user can verify every clause from experience, and the line opens with a capital")
@@ -251,8 +251,8 @@ final class CoachTests: XCTestCase {
                                     probability: 0.95, evidence: [],
                                     edit: .removeChain(chain: ["q"]))
         let chip = Coach.chip(for: retire, observations: Observations())
-        XCTAssertEqual(chip.headline, "retire lode Q")
-        XCTAssertEqual(chip.sentence, "Lode Q has gone unused and the letter could be freed")
+        XCTAssertEqual(chip.headline, "retire lode q")
+        XCTAssertEqual(chip.sentence, "Lode q has gone unused and the letter could be freed")
         XCTAssertTrue(chip.footer.contains("retires it"))
     }
 
@@ -404,7 +404,7 @@ final class ClosedRoadTests: XCTestCase {
                                  display: "Slack",
                                  edit: .closeRoad(app: "slack", chain: ["s"]))
         let chip = Coach.chip(for: rec, observations: Observations())
-        XCTAssertEqual(chip.headline, "lode S → Slack")
+        XCTAssertEqual(chip.headline, "lode s → Slack")
         XCTAssertTrue(chip.footer.contains("closes the launcher road"), chip.footer)
         XCTAssertEqual(Coach.cue(for: rec), .app("slack"))
         XCTAssertNotNil(Coach.standingOffer(observations: Observations(),

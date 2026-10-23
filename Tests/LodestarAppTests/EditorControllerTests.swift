@@ -1174,7 +1174,8 @@ final class EditorConsentTests: XCTestCase {
         XCTAssertTrue(shown.sentence.contains("every app"))
         XCTAssertTrue(shown.sentence.contains("never kept"))
         XCTAssertEqual(shown.rows.map(\.label), ["Accept", "Decline"])
-        XCTAssertEqual(shown.rows.map(\.keys), [["lode", "lode"], ["lode", "⌫"]])
+        XCTAssertEqual(shown.rows.map(\.keys), [["lode"], ["lode", "⌫"]])
+        XCTAssertEqual(shown.rows.map(\.double), [true, false], "accept is lode tapped twice: one key and ×2")
     }
 
     func testLodeLodeAcceptsOnlyTheCardThatIsShowing() {

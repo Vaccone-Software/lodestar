@@ -28,10 +28,10 @@ final class GraphJsonEditorTests: XCTestCase {
 
     func testRefusesTakenAndBlockedPaths() {
         XCTAssertThrowsError(try GraphJsonEditor.addingPath(["g"], target: "Ghostty", in: base)) {
-            XCTAssertEqual($0 as? GraphJsonEditor.EditError, .taken("G"))
+            XCTAssertEqual($0 as? GraphJsonEditor.EditError, .taken("g"))
         }
         XCTAssertThrowsError(try GraphJsonEditor.addingPath(["g", "h"], target: "Anything", in: base)) {
-            XCTAssertEqual($0 as? GraphJsonEditor.EditError, .blockedByLeaf("G"))
+            XCTAssertEqual($0 as? GraphJsonEditor.EditError, .blockedByLeaf("g"))
         }
     }
 
@@ -49,7 +49,7 @@ final class GraphJsonEditorTests: XCTestCase {
 
     func testDeleteRefusesMissingPathsAndBranches() {
         XCTAssertThrowsError(try GraphJsonEditor.deletingPath(["q"], in: base)) {
-            XCTAssertEqual($0 as? GraphJsonEditor.EditError, .missing("Q"))
+            XCTAssertEqual($0 as? GraphJsonEditor.EditError, .missing("q"))
         }
         // Deleting a branch by its prefix would take children the caller
         // never named.

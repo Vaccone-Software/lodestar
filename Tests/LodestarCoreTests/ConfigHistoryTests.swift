@@ -60,7 +60,7 @@ final class ConfigHistoryTests: XCTestCase {
             ConfigHistory.Entry(group: 3, index: 0, at: now, path: ["graph", "s"], old: nil, new: .string("Slack"), source: "The coach"),
         ], now: now)
         XCTAssertEqual(items.map(\.title), ["Letters", "Words", "Scroll speed"], "newest first")
-        XCTAssertTrue(items[0].detail.hasPrefix("Added lode S · The coach"))
+        XCTAssertTrue(items[0].detail.hasPrefix("Added lode s · The coach"))
         XCTAssertTrue(items[1].detail.hasPrefix("Added Kindora · The editor"))
         XCTAssertTrue(items[2].detail.hasPrefix("1800 → 1200 · Settings"))
         XCTAssertTrue(items.allSatisfy(\.today))

@@ -82,7 +82,7 @@ final class CoachPowersTests: XCTestCase {
         XCTAssertEqual(candidate?.rec.edit,
                        .supersede(old: ["b", "g"], new: ["g"], target: "Ghostty"))
         XCTAssertEqual(candidate?.rec.display, "Ghostty")
-        XCTAssertTrue(candidate?.rec.detail.contains("lode G") ?? false)
+        XCTAssertTrue(candidate?.rec.detail.contains("lode g") ?? false)
     }
 
     func testLauncherRecoveriesProposeABind() {
@@ -216,7 +216,7 @@ final class CoachPowersTests: XCTestCase {
             return XCTFail()
         }
         let chip = Coach.chip(for: rec, observations: Observations())
-        XCTAssertTrue(chip.headline.contains("lode ' B"), chip.headline)
+        XCTAssertTrue(chip.headline.contains("lode ' b"), chip.headline)
         XCTAssertTrue(chip.footer.contains("saves them side by side"), chip.footer)
     }
 
@@ -228,7 +228,7 @@ final class CoachPowersTests: XCTestCase {
             probability: 0.9, evidence: [], display: "Ghostty",
             edit: .supersede(old: ["b", "g"], new: ["g"], target: "Ghostty"))
         let chip = Coach.chip(for: rec, observations: Observations())
-        XCTAssertEqual(chip.headline, "lode G → Ghostty")
+        XCTAssertEqual(chip.headline, "lode g → Ghostty")
         XCTAssertTrue(chip.footer.contains("moves it"),
                       "consent language: the old address stops working")
         XCTAssertEqual(Coach.cue(for: rec), .app("ghostty"))

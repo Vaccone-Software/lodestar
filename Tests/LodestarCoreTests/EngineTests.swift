@@ -359,7 +359,7 @@ final class EngineTests: XCTestCase {
     func testEveryLetterWalksTheGraph() {
         for letter in ["x", "z", "o"] {
             XCTAssertEqual(press(letter),
-                           [.hideGuide, .flash("✕ \(letter.uppercased()) is not on the graph")])
+                           [.hideGuide, .flash("✕ \(letter) is not on the graph")])
             XCTAssertEqual(core.state, .idle)
         }
     }
@@ -386,7 +386,7 @@ final class EngineTests: XCTestCase {
     }
 
     func testFirstLetterMissExitsWithFlash() {
-        XCTAssertEqual(press("q"), [.hideGuide, .flash("✕ Q is not on the graph")])
+        XCTAssertEqual(press("q"), [.hideGuide, .flash("✕ q is not on the graph")])
         XCTAssertEqual(core.state, .idle, "a stray lode+letter must not trap the user in a mode")
     }
 
@@ -394,7 +394,7 @@ final class EngineTests: XCTestCase {
         world.graph = ["e": .deeper]
         _ = press("e")
         XCTAssertEqual(press("q"), [.showGuide(kind: .graph, letters: ["e"], deleting: false,
-                                               note: "✕ E Q is not on the graph")])
+                                               note: "✕ e q is not on the graph")])
         XCTAssertEqual(core.state, .chain(kind: .graph, letters: ["e"], deleting: false))
     }
 

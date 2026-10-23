@@ -433,13 +433,14 @@ final class DesignDriftTests: XCTestCase {
     }
 
     /// The key is drawn in one place (design/10-key.md, rule 1): a face on a
-    /// side whose legend is set by `KeyLegend`. No other file stands a face
+    /// side whose legend is set by `KeyLegend` (and `KeyWords`, in Row.swift, sets
+    /// the words beside it on that legend's baseline). No other file stands a face
     /// on a control's side, places a legend by CoreText, or sets the key
     /// role. The three that read a word rather than ask for a press (a
     /// popup's drawn bezel, Ask's profile chip and the commands bar's source
     /// chip, the meeting's unit) are named, and the list only shrinks.
     func testNoSurfaceDrawsAKeyOfItsOwn() throws {
-        let homes: Set<String> = ["Key.swift", "Ceramic.swift", "Material.swift"]
+        let homes: Set<String> = ["Key.swift", "Ceramic.swift", "Material.swift", "Row.swift"]
         let popup: Set<String> = ["SettingsController.swift"]
         let readsAWord: Set<String> = ["WebBar.swift", "CommandsBar.swift", "MeetingController.swift"]
         var offenders: [String] = []

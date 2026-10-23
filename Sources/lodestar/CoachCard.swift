@@ -28,8 +28,8 @@ enum CoachCard {
     static let textInset = Grid.part
     /// Wide enough for one sentence of the voice on a line, a row's worth;
     /// a breath's two names and longer address may take it to `maxWidth`.
-    static let width: CGFloat = 428
-    static let maxWidth: CGFloat = 540
+    static let width = BarTheme.offerWidth
+    static let maxWidth = BarTheme.offerMaxWidth
 
     static func build(_ offer: Offer) -> NSView {
         let card = NSView()
@@ -42,66 +42,39 @@ enum CoachCard {
         voice.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(voice)
 
+        // The offer is a row of the row contract, always the slab: a breath's
+        // apps lead, overlapping the way their windows will stand together;
+        // then its name; at the end the address on offer in quiet keys (what
+        // you would press later, not now) and the chord that accepts it, lit,
+        // last. Nothing else on the card is lit, so the one light means yes.
         let row = OfferRow()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(row)
-        let line = NSStackView()
-        line.orientation = .horizontal
-        line.alignment = .centerY
-        line.spacing = Grid.part
-        line.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(line)
-        // A breath's apps overlap the way their windows will stand together.
-        let icons = NSStackView()
-        icons.orientation = .horizontal
-        icons.spacing = -Grid.half
-        for image in offer.icons.prefix(2) {
-            let view = NSImageView(image: image)
-            view.translatesAutoresizingMaskIntoConstraints = false
-            view.widthAnchor.constraint(equalToConstant: Grid.section).isActive = true
-            view.heightAnchor.constraint(equalToConstant: Grid.section).isActive = true
-            icons.addArrangedSubview(view)
-        }
-        if !offer.icons.isEmpty { line.addArrangedSubview(icons) }
-        let name = NSTextField(labelWithString: offer.name)
-        name.setRole(.body)
-        name.textColor = BarTheme.ink
-        name.lineBreakMode = .byTruncatingTail
-        name.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-        line.addArrangedSubview(name)
-        // The address on offer, quiet: what you would press later, not now.
-        line.addArrangedSubview(Keycaps.strokes(offer.address, quiet: true))
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        line.addArrangedSubview(spacer)
+        row.title.stringValue = offer.name
+        if !offer.icons.isEmpty { row.setLead(RowIcon.overlapped(offer.icons)) }
         let accept = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode"], double: true, lit: true),
                                       action: offer.accept)
         accept.setAccessibilityLabel("Accept")
-        line.addArrangedSubview(accept)
+        row.setTrailing([Keycaps.strokes(offer.address, quiet: true), accept])
+        card.addSubview(row)
 
-        // The whisper: the record, and the way out, both quiet.
+        // The whisper: the record, and the way out, both quiet, on the baseline
+        // of the keys they stand beside. The record stays one line, cut at the
+        // tail only past the card's width.
         let whisper = NSStackView()
         whisper.orientation = .horizontal
         whisper.alignment = .centerY
         whisper.spacing = Grid.close
         whisper.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(whisper)
-        let record = NSTextField(labelWithString: offer.record)
-        record.setRole(.meta)
-        record.textColor = BarTheme.secondaryColor
-        record.lineBreakMode = .byTruncatingTail
+        let decline = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode", "⌫"]), action: offer.decline)
+        decline.setAccessibilityLabel("Not now")
+        let record = KeyWords(offer.record, following: "lode")
         record.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         whisper.addArrangedSubview(record)
         let gap = NSView()
         gap.setContentHuggingPriority(.defaultLow, for: .horizontal)
         whisper.addArrangedSubview(gap)
-        let decline = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode", "⌫"]), action: offer.decline)
-        decline.setAccessibilityLabel("Not now")
         whisper.addArrangedSubview(decline)
-        let notNow = NSTextField(labelWithString: "Not now")
-        notNow.setRole(.meta)
-        notNow.textColor = BarTheme.secondaryColor
-        whisper.addArrangedSubview(notNow)
+        whisper.addArrangedSubview(KeyWords("Not now", following: "⌫"))
 
         NSLayoutConstraint.activate([
             card.widthAnchor.constraint(greaterThanOrEqualToConstant: width),
@@ -112,10 +85,6 @@ enum CoachCard {
             row.topAnchor.constraint(equalTo: voice.bottomAnchor, constant: Grid.close),
             row.leadingAnchor.constraint(equalTo: card.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            row.heightAnchor.constraint(equalToConstant: BarTheme.rowHeight),
-            line.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Grid.part),
-            line.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -Grid.part),
-            line.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             whisper.topAnchor.constraint(equalTo: row.bottomAnchor, constant: Grid.close),
             whisper.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: textInset),
             whisper.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -textInset),
@@ -128,11 +97,11 @@ enum CoachCard {
     }
 
     /// The offer's row: always the slab, the way the launcher's chosen row is
-    /// the one the hand is about to take.
-    final class OfferRow: SlabRow {
-        override init(frame: NSRect) {
-            super.init(frame: frame)
-            setupSlab()
+    /// the one the hand is about to take. A card's row, so its title is the
+    /// label.
+    final class OfferRow: ListRow {
+        init() {
+            super.init(height: BarTheme.rowHeight, titleRole: .label)
             choose(true)
         }
 

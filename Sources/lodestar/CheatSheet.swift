@@ -83,7 +83,8 @@ final class CheatSheet {
             let column = NSStackView()
             column.orientation = .vertical
             column.alignment = .leading
-            column.spacing = Grid.close
+            // Legends stand 8 apart.
+            column.spacing = BarTheme.legendGap
             column.setClippingResistancePriority(.init(900), for: .horizontal)
 
             // The pill's rule: one text size, tone for hierarchy. A header
@@ -108,6 +109,10 @@ final class CheatSheet {
         return columns
     }
 
+    /// One gesture of the sheet, a legend of the row contract: its keys first,
+    /// then what they do, 8 apart, 24 tall (the key's height). The words are the
+    /// body's, larger than a key's own, so they stand with their capital height
+    /// centred on the key's face (`KeyWords`).
     private static func makeRow(_ row: GuideRow) -> NSView {
         let container = NSStackView()
         container.orientation = .horizontal
@@ -115,15 +120,13 @@ final class CheatSheet {
         container.spacing = Grid.close
 
         // The one key: a key per keystroke, groups that are not one sequence apart.
-        // A dormant gesture draws quiet, as every quiet key is: lying flat.
+        // A dormant gesture draws quiet, as every quiet key is: the resting key
+        // left unfilled.
         let chip = KeyStrokes(groups: row.groups, double: row.double, quiet: row.dimmed)
 
-        let text = NSTextField(labelWithString: row.label)
-        text.setRole(.body)
         // A dormant gesture draws quiet, cap and all: the eye reads the
         // sheet for what it uses, and a row it never uses recedes.
-        text.textColor = row.dimmed ? BarTheme.secondaryColor : BarTheme.ink
-        text.lineBreakMode = .byTruncatingTail
+        let text = KeyWords(row.label, role: .body, color: row.dimmed ? BarTheme.secondaryColor : BarTheme.ink)
         text.setContentCompressionResistancePriority(.init(500), for: .horizontal)
         container.setClippingResistancePriority(.init(900), for: .horizontal)
 

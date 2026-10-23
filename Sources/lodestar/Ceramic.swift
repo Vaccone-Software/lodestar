@@ -651,6 +651,7 @@ enum Keycaps {
     /// says what the keys do, and a label that is also a button makes the
     /// sentence ambiguous about where to aim.
     final class CapGroup: NSView {
+        private let content: NSView
         private let paint: (CapState) -> Void
         private let action: () -> Void
         private var hovering = false { didSet { restyle() } }
@@ -662,6 +663,7 @@ enum Keycaps {
         /// be dragged into this file's shape just to become pressable.
         init(content: NSView, paint: @escaping (CapState) -> Void,
              action: @escaping () -> Void) {
+            self.content = content
             self.paint = paint
             self.action = action
             super.init(frame: .zero)
@@ -691,6 +693,16 @@ enum Keycaps {
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("not from a nib") }
+
+        /// As aligned as what it holds: by the keys' faces, with their sides
+        /// inside the group's own frame, where the click lands.
+        override var alignmentRectInsets: NSEdgeInsets { content.alignmentRectInsets }
+
+        /// As wide as its keys, said, so a row that holds it hugs it: a view
+        /// with no width of its own is the one a stack hands the slack to.
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: content.intrinsicContentSize.width, height: NSView.noIntrinsicMetric)
+        }
 
         private func restyle() {
             paint(pressing ? .pressed : (hovering ? .hovered : .resting))
@@ -740,10 +752,22 @@ enum Keycaps {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = Grid.tight
-        for part in FlashLine.parts(line) {
+        // A legend is as wide as its keys and words: a column that holds it
+        // must not stretch it (a tie with the column's own pull at 250).
+        row.setContentHuggingPriority(.required, for: .horizontal)
+        let parts = FlashLine.parts(line)
+        // Words stand on the baseline of the key they follow, or of the one
+        // they lead into when no key comes before them.
+        func legend(of part: FlashLine.Part?, last: Bool) -> String? {
+            guard case .keys(let keys)? = part else { return nil }
+            return last ? keys.last : keys.first
+        }
+        for (index, part) in parts.enumerated() {
             switch part {
             case .words(let text):
-                row.addArrangedSubview(word(text, color: BarTheme.secondaryColor))
+                let before = index > 0 ? legend(of: parts[index - 1], last: true) : nil
+                let after = index + 1 < parts.count ? legend(of: parts[index + 1], last: false) : nil
+                row.addArrangedSubview(KeyWords(text, following: before ?? after))
             case .keys(let keys):
                 // One key per keystroke, 4 apart, as typed.
                 row.addArrangedSubview(strokes(keys))
@@ -787,7 +811,11 @@ enum Keycaps {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = Grid.tight
+        row.setContentHuggingPriority(.required, for: .horizontal)
         var previous: NSView?
+        // The legend of the key the words that come next follow: words beside
+        // a key stand on its baseline (design/13-row.md, rule 4).
+        var previousLegend: String?
 
         func add(_ view: NSView, spacingBefore: CGFloat? = nil) {
             if let spacingBefore, let previous { row.setCustomSpacing(spacingBefore, after: previous) }
@@ -797,7 +825,7 @@ enum Keycaps {
 
         for (index, gesture) in gestures.enumerated() {
             if index > 0 {
-                add(word("·", color: BarTheme.secondaryColor), spacingBefore: Grid.close)
+                add(KeyWords("·", following: previousLegend), spacingBefore: Grid.close)
             }
             let keys = strokes(gesture.keys, double: gesture.double, lit: gesture.lit && !gesture.quiet,
                                quiet: gesture.quiet)
@@ -811,19 +839,13 @@ enum Keycaps {
             }
             // A label is a name, capitalized wherever it is written from:
             // "esc Back", never "esc back".
-            let verb = word(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(),
-                            color: gesture.lit && !gesture.quiet ? BarTheme.ink : BarTheme.secondaryColor)
+            previousLegend = gesture.keys.last
+            let verb = KeyWords(gesture.verb.prefix(1).uppercased() + gesture.verb.dropFirst(),
+                                color: gesture.lit && !gesture.quiet ? BarTheme.ink : BarTheme.secondaryColor,
+                                following: previousLegend)
             add(verb, spacingBefore: Grid.close)
         }
         return row
-    }
-
-    private static func word(_ text: String, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.setRole(.meta)
-        field.textColor = color
-        field.lineBreakMode = .byTruncatingTail
-        return field
     }
 }
 
@@ -958,46 +980,58 @@ final class RoomButton: NSButton, CeramicDepth {
     }
 }
 
-/// A row in a room's choice menu, drawn by Lodestar: the system's menu
-/// highlights in the Mac's accent, so each item wears this view. The row the
-/// menu has chosen, by the pointer or the arrow keys alike, is the slab, as
-/// the bars' chosen row is, and the one in use is marked with a dot.
+/// A line in a room's choice menu, drawn by Lodestar: the system's menu
+/// highlights in the Mac's accent, so each item wears this view. A line of the
+/// row contract (`ListLine`): 32 tall, touching the next, 8 inside the menu,
+/// a dot column leading (the dot marks the choice in use), a symbol after it
+/// if the item has one, then the words, cut at the tail. The line the menu has
+/// chosen, by the pointer or the arrow keys alike, is the slab, as the bars'
+/// chosen row is, rounded at the menu's radius less its inset. A choice that
+/// cannot be taken keeps its words in the quiet ink and never becomes the slab.
 final class ChoiceMenuItemView: NSView {
-    /// The row inside the item's frame: the slab when chosen, holding the
+    /// The line inside the item's frame: the slab when chosen, holding the
     /// dot, the icon and the words.
-    private final class Row: SlabRow {}
+    private final class Row: ListLine {}
     private let step = Row()
-    private let label = NSTextField(labelWithString: "")
-    private let icon = NSImageView()
-    private let dot = ToneView(fill: BarTheme.ink, radius: BarTheme.dotRadius)
     private weak var popup: NSPopUpButton?
-    /// 32 tall: the slab's face is 24 of it, a pointer target, so words stand
-    /// with room above and below them.
-    static let height: CGFloat = Grid.margin
+    private let hasIcon: Bool
+    static let height = BarTheme.lineHeight
     /// A test's say on whether the row is the chosen one; the menu's own
     /// highlight says it otherwise.
     var highlighted: Bool? { didSet { sync() } }
 
-    /// The width a menu of these labels needs: the dot's room, the icon's if
-    /// any, the longest label, and a part to each side.
+    /// The width a menu of these labels needs: a line's inset, the dot's
+    /// column, the symbol's if any, the longest label, each 12 apart and 12
+    /// from the line's edges, and the inset again.
     static func width(forLabel widest: CGFloat, withIcon icon: Bool) -> CGFloat {
-        (Grid.part + BarTheme.dotDiameter + Grid.close + (icon ? Grid.section : 0) + widest + Grid.part).rounded(.up)
+        (BarTheme.lineInset * 2 + Grid.part + BarTheme.dotColumnWidth + Grid.part
+            + (icon ? BarTheme.symbolSize + Grid.part : 0) + widest + Grid.part).rounded(.up)
     }
 
     init(item: NSMenuItem, current: Bool, width: CGFloat, popup: NSPopUpButton) {
         self.popup = popup
+        hasIcon = item.image != nil
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
         wantsLayer = true
-        label.stringValue = item.title
-        label.setRole(.control)
-        label.textColor = item.isEnabled ? BarTheme.ink : BarTheme.secondaryColor
-        label.lineBreakMode = .byTruncatingTail
-        icon.image = item.image
-        dot.isHidden = !current
-        step.setupSlab()
+        step.label.stringValue = item.title
+        step.label.setRole(.control)
+        step.label.textColor = item.isEnabled ? BarTheme.ink : BarTheme.secondaryColor
+        let lead = NSStackView()
+        lead.orientation = .horizontal
+        lead.alignment = .centerY
+        lead.spacing = Grid.part
+        lead.addArrangedSubview(DotColumn(marked: current))
+        if let image = item.image {
+            let icon = NSImageView(image: image)
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                icon.widthAnchor.constraint(equalToConstant: BarTheme.symbolSize),
+                icon.heightAnchor.constraint(equalToConstant: BarTheme.symbolSize),
+            ])
+            lead.addArrangedSubview(icon)
+        }
+        step.setLead(lead)
         addSubview(step)
-        [dot, icon, label].forEach(step.addSubview)
-        place()
         setAccessibilityElement(true)
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(item.title)
@@ -1012,36 +1046,12 @@ final class ChoiceMenuItemView: NSView {
     /// The slab's frame and side, for the tests.
     var slab: SlabRow { step }
 
+    /// The line's words, for the tests.
+    var label: NSTextField { step.label }
+
     override func layout() {
         super.layout()
-        step.frame = bounds.insetBy(dx: Grid.tight, dy: Grid.hair)
-    }
-
-    /// The dot, the icon and the words stand on the middle of the step by
-    /// constraints, so the slab's lift puts them on the middle of its face.
-    private func place() {
-        let inset = Grid.part - Grid.tight
-        for view in [dot, icon, label] { view.translatesAutoresizingMaskIntoConstraints = false }
-        var constraints = [
-            dot.leadingAnchor.constraint(equalTo: step.leadingAnchor, constant: inset),
-            dot.centerYAnchor.constraint(equalTo: step.centerYAnchor),
-            dot.widthAnchor.constraint(equalToConstant: BarTheme.dotDiameter),
-            dot.heightAnchor.constraint(equalToConstant: BarTheme.dotDiameter),
-            label.centerYAnchor.constraint(equalTo: step.centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: step.trailingAnchor, constant: -inset),
-        ]
-        if icon.image != nil {
-            constraints += [
-                icon.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: Grid.close),
-                icon.centerYAnchor.constraint(equalTo: step.centerYAnchor),
-                icon.widthAnchor.constraint(equalToConstant: Grid.section - Grid.tight),
-                icon.heightAnchor.constraint(equalToConstant: Grid.part),
-                label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: Grid.close + Grid.section),
-            ]
-        } else {
-            constraints.append(label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: Grid.close))
-        }
-        NSLayoutConstraint.activate(constraints)
+        step.frame = bounds.insetBy(dx: BarTheme.lineInset, dy: 0)
     }
 
     /// Choose the row, or let it go, as the menu's highlight moves.
@@ -1139,7 +1149,10 @@ final class AccentSwitch: NSControl, CeramicDepth {
     /// slide into it.
     private func paint(animated: Bool = false) {
         let on = state == .on
-        let tint = Ceramic.resolved(on ? BarTheme.accent : BarTheme.inkAt(0.22), in: self)
+        // A switch that cannot be turned keeps its value, drawn quiet and
+        // opaque: an on track is the quiet ink and not the accent.
+        let tint = Ceramic.resolved(on ? (isEnabled ? BarTheme.accent : BarTheme.secondaryColor) : BarTheme.inkAt(0.22),
+                                    in: self)
         knobStanding.paint(in: self, face: BarTheme.knob, side: BarTheme.sideFill, rim: nil, edge: nil)
         let knobSize = Self.trackHeight - Grid.tight
         let trackFrame = NSRect(x: 0, y: ((bounds.height - Self.trackHeight) / 2).rounded(),
@@ -1152,7 +1165,6 @@ final class AccentSwitch: NSControl, CeramicDepth {
         track.frame = trackFrame
         track.backgroundColor = tint
         knob.frame = knobFrame
-        layer?.opacity = isEnabled ? 1 : 0.45
         CATransaction.commit()
         // A layout pass leaves a running slide alone; only a new slide
         // replaces one.

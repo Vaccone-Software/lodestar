@@ -443,6 +443,27 @@ final class KeyStrokes: NSStackView {
     /// Aligned by its face, as every key in it is.
     override var alignmentRectInsets: NSEdgeInsets { size.hang }
 
+    /// As wide as its keys, said: a stack with no width of its own is the view
+    /// a row hands its slack to, and a sequence stretched across a row is not
+    /// a sequence. Keys and gaps, as the stack lays them.
+    override var intrinsicContentSize: NSSize {
+        let shown = arrangedSubviews.filter { !$0.isHidden }
+        var width: CGFloat = 0
+        for (index, view) in shown.enumerated() {
+            width += (view as? Key)?.width ?? (view as? KeyTimes)?.width ?? view.fittingSize.width
+            if index < shown.count - 1 {
+                let custom = customSpacing(after: view)
+                width += custom == NSStackView.useDefaultSpacing ? spacing : custom
+            }
+        }
+        return NSSize(width: width, height: NSView.noIntrinsicMetric)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        invalidateIntrinsicContentSize()
+    }
+
     var lit: Bool {
         get { caps.allSatisfy { $0.state == .lit } }
         set { for cap in caps { cap.lit = newValue } }

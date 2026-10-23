@@ -137,6 +137,25 @@ extension BarTheme {
     /// side inside its frame, and two lines need as much face as one line
     /// had frame.
     static let detailRowHeight: CGFloat = rowHeight + Grid.tight
+    /// A setting stands at least this tall and grows with its detail.
+    static let settingMinimumHeight: CGFloat = rowHeight
+    /// A line of a menu: the input menu, a popup's choices, Keep's source list
+    /// and card actions, the ⌘K card, a guide's row. Lines touch.
+    static let lineHeight: CGFloat = 32
+    /// Lines stand this far inside their menu on every side, so a chosen
+    /// line's slab rounds at the menu's radius less it: 22 - 8 = 14.
+    static let lineInset: CGFloat = Grid.close
+    static let lineRadius: CGFloat = nested(outer: surfaceRadius, inset: lineInset, rung: controlRadius)
+    /// A legend is a key's height, and legends stand 8 apart.
+    static let legendHeight: CGFloat = keyHeight
+    static let legendGap: CGFloat = Grid.close
+    /// Rows in a pane stand 2 apart, so a slab's side never touches the next row.
+    static let rowGap: CGFloat = Grid.hair
+    /// The column a line's dot is centred in, so the words align whether or
+    /// not the line has a dot.
+    static let dotColumnWidth: CGFloat = Grid.group
+    /// Detail stands this far under its title.
+    static let detailGap: CGFloat = Grid.hair
     /// A key's height: 21 of face on 3 of side. The key contract sets its
     /// width (its legend and a step each side) and parts (design/10-key.md).
     static let keyHeight: CGFloat = KeySize.standard.height
@@ -153,8 +172,14 @@ extension BarTheme {
     /// Where a window stands before it has content: sized by what it holds,
     /// not by this.
     static let unplaced = NSRect(x: 0, y: 0, width: 100, height: 100)
-    /// An app's icon beside a title.
+    /// An app's icon beside a title in a card; a breath's two overlap by 6.
     static let titleIconSize: CGFloat = 24
+    static let titleIconOverlap: CGFloat = Grid.half
+    /// The coach's offer: wide enough for one sentence of the voice on a
+    /// line, and, for a breath's two names and a longer address, at most the
+    /// wider width.
+    static let offerWidth: CGFloat = 428
+    static let offerMaxWidth: CGFloat = 540
     /// A bar's caret: a hairline in the accent, as tall as the line it stands in.
     static let caretWidth: CGFloat = 1.5
     static let caretHeight: CGFloat = 20

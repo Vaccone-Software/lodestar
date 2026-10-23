@@ -83,7 +83,7 @@ final class MotionTests: XCTestCase {
         ("a keyframe, spring, group or transition", #"CAKeyframeAnimation|CASpringAnimation|CAAnimationGroup|CATransition"#),
         ("an old-style animation", #"NSViewAnimation|NSAnimation\b"#),
         ("a transaction's animation", #"setAnimationDuration|CATransaction\.setAnimation"#),
-        ("an alpha fade", #"alphaValue\s*+=\s*+(?!0\.45\b)"#),
+        ("an alpha fade", #"alphaValue\s*+=\s*+"#),
     ]
 
     /// Where a basic animation may be made, and how many: the meter's fall
@@ -123,11 +123,11 @@ final class MotionTests: XCTestCase {
                        "context.timingFunction = x; view.animator().alphaValue = 1",
                        "let t = CATransition()", "CAKeyframeAnimation(keyPath: \"position\")",
                        "CASpringAnimation(keyPath: \"position\")", "CATransaction.setAnimationDuration(0.35)",
-                       "columns.alphaValue = 0", "view.alphaValue = shown"] {
+                       "columns.alphaValue = 0", "view.alphaValue = shown", "line.alphaValue = 0.45"] {
             XCTAssertFalse(try offenders(in: sample).isEmpty, "the guard misses: \(sample)")
         }
         for sample in ["NSAnimationContext.current.duration = 0\n", "NSAnimationContext.current.duration = 0.0;",
-                       "CATransaction.setDisableActions(true)", "line.alphaValue = 0.45",
+                       "CATransaction.setDisableActions(true)",
                        "panel.setFrame(frame, display: true)"] {
             XCTAssertEqual(try offenders(in: sample), [], "the guard flags what is allowed: \(sample)")
         }

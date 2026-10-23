@@ -22,10 +22,10 @@ Lodestar is mostly lists, and today each list was laid out where it was drawn: t
 | ---------- | ------------------------------ | ------------------------------------------------------------ | --------------------- | ----------------- |
 | **row**    | 48; 52 with a line beneath     | the launcher, Ask, the commands and web bars, the searcher, Settings' search results, the coach's offer | title (18) in a bar; label (16 medium) in a room or card | an app icon, 32 in a bar, 24 in a card |
 | **setting** | at least 48; grows by its detail | a Settings group                                           | label (16 medium)     | its letter, a key |
-| **line**   | 32                             | a menu: the input menu, Settings' popups, Keep's source list and card actions, the ⌘K card | body (16)  | a dot column, 16 wide, or a symbol, 16 |
-| **legend** | 24, the key's height           | the guides, the cheat sheet, a footer                        | body (16), or meta (13) in a footer | its keys |
+| **line**   | 32                             | a menu: the input menu, Settings' popups, Keep's source list and card actions, the ⌘K card; the guides | body (16)  | a dot column, 16 wide, or a symbol, 16 |
+| **legend** | 24, the key's height           | the cheat sheet, a footer                                    | body (16), or meta (13) in a footer | its keys |
 
-A row is the thing, then its keys: what it is leads, how to reach it trails. A legend is the reverse, keys then what they do, as a footer reads ("esc Back"): its keys are the point. The guides are rows of keys in a card, so they become legends, the same as the cheat sheet (today one puts keys first and the other last).
+A row is the thing, then its keys: what it is leads, how to reach it trails. A legend is the reverse, keys then what they do, as a footer reads ("esc Back"): its keys are the point. The guides list what each key opens (Safari `s`), so they are lines, the thing then its key, at the 32 pitch they keep today (a 24 key and 8 between); the cheat sheet lists what each gesture does, so it is a legend. That is why one leads with keys and the other trails with them, and both stay.
 
 ### Inside a row
 

@@ -24,6 +24,20 @@ public enum Readability {
         }
         public var luminance: Double { Readability.luminance(red: red, green: green, blue: blue) }
 
+        /// The colour with every channel scaled together in linear light, so
+        /// its luminance is `factor` times what it was and its hue and its
+        /// saturation (OKLab chroma over lightness) are exactly what they
+        /// were. A factor above one stops at the gamut's edge.
+        public func scaled(luminanceBy factor: Double) -> RGB {
+            func decode(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+            func encode(_ v: Double) -> Double {
+                let c = min(1, max(0, v))
+                return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1 / 2.4) - 0.055
+            }
+            return RGB(red: encode(decode(red) * factor), green: encode(decode(green) * factor),
+                       blue: encode(decode(blue) * factor))
+        }
+
         /// The colour in OKLab: lightness L (0 black, 1 white) and the two
         /// opponent axes. Lightness is how light a surface looks, which is
         /// what the brightness ceiling is about; WCAG luminance is the

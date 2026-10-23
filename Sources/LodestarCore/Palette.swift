@@ -49,17 +49,40 @@ public enum Palette {
         /// A well's edge is the ink at this share, firmer than a hairline so
         /// the well reads as one.
         public let wellEdgeAlpha: Double
-
-        /// A letter on the orange: whichever of clay's key face and clay's
-        /// ink measures higher on this look's orange, never white or black.
-        public var letterOnOrange: Readability.RGB { Palette.letter(on: orange) }
-
+        /// Whether this is the dark look. Said by the palette, not found by
+        /// comparing it with `Palette.night`, because Eye comfort resolves
+        /// the same look at other levels (design/06-eye-comfort.md).
+        public let isDark: Bool
         /// A well: the pane darkened by `wellDrop`, one colour, and by night
         /// never below the ground. Chroma and hue stay the pane's, so it is
         /// the same ceramic a step down.
-        public var well: Readability.RGB {
-            let lowered = pane.lightness - wellDrop
-            return pane.with(lightness: wellStopsAtGround ? max(ground.lightness, lowered) : lowered)
+        public let well: Readability.RGB
+        /// The letter a look at an Eye comfort level has chosen for itself.
+        private let chosenLetter: Readability.RGB?
+        /// A letter on the orange: whichever of clay's key face and clay's
+        /// ink measures higher on this look's orange, never white or black.
+        /// (Worked out when asked: the palette's own steps are built from
+        /// the same table the letter is chosen from.)
+        public var letterOnOrange: Readability.RGB { chosenLetter ?? Palette.letter(on: orange) }
+
+        /// A look from its steps. The well and the letter are worked out
+        /// from them unless the caller has them already (a look at an Eye
+        /// comfort level, whose well is the full well dimmed with the rest).
+        public init(ground: Readability.RGB, pane: Readability.RGB, key: Readability.RGB, side: Readability.RGB,
+                    ink: Readability.RGB, quietInk: Readability.RGB, slab: Readability.RGB,
+                    slabSide: Readability.RGB, hairlineAlpha: Double, orange: Readability.RGB,
+                    wellDrop: Double, wellStopsAtGround: Bool, wellEdgeAlpha: Double, isDark: Bool,
+                    well: Readability.RGB? = nil, letterOnOrange: Readability.RGB? = nil) {
+            self.ground = ground; self.pane = pane; self.key = key; self.side = side
+            self.ink = ink; self.quietInk = quietInk; self.slab = slab; self.slabSide = slabSide
+            self.hairlineAlpha = hairlineAlpha; self.orange = orange
+            self.wellDrop = wellDrop; self.wellStopsAtGround = wellStopsAtGround
+            self.wellEdgeAlpha = wellEdgeAlpha; self.isDark = isDark
+            self.well = well ?? {
+                let lowered = pane.lightness - wellDrop
+                return pane.with(lightness: wellStopsAtGround ? max(ground.lightness, lowered) : lowered)
+            }()
+            self.chosenLetter = letterOnOrange
         }
 
         /// Every step of the look, for a test that holds them all to one rule.
@@ -72,13 +95,13 @@ public enum Palette {
     public static let night = Steps(
         ground: rgb(0x120F0C), pane: rgb(0x1D1916), key: rgb(0x2B2622), side: rgb(0x110E0C),
         ink: rgb(0xF1EBE2), quietInk: rgb(0xA99F92), slab: rgb(0xF1E8DF), slabSide: rgb(0xADA093),
-        hairlineAlpha: 0.08, orange: rgb(0xFA5617), wellDrop: 0.04, wellStopsAtGround: true, wellEdgeAlpha: 0.12)
+        hairlineAlpha: 0.08, orange: rgb(0xFA5617), wellDrop: 0.04, wellStopsAtGround: true, wellEdgeAlpha: 0.12, isDark: true)
 
     /// Clay: the day.
     public static let clay = Steps(
         ground: rgb(0xEDE4DA), pane: rgb(0xF6EFE8), key: rgb(0xFCF8F4), side: rgb(0xDCCEC1),
         ink: rgb(0x1E1814), quietInk: rgb(0x66584E), slab: rgb(0x2A221D), slabSide: rgb(0x120D0A),
-        hairlineAlpha: 0.10, orange: rgb(0xC83500), wellDrop: 0.05, wellStopsAtGround: false, wellEdgeAlpha: 0.14)
+        hairlineAlpha: 0.10, orange: rgb(0xC83500), wellDrop: 0.05, wellStopsAtGround: false, wellEdgeAlpha: 0.14, isDark: false)
 
     /// Of the two letters Lodestar owns on a light ground (clay's key face
     /// and clay's ink), the one that measures higher on `fill`. Measured,

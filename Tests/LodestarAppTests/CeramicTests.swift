@@ -143,39 +143,61 @@ final class PaneTests: XCTestCase {
     }
 
     /// Where the meeting's lit stub reaches the pane's top edge, the rim is the
-    /// lit rim: the pane's clay rim does not cross the orange.
-    func testTheClayRimDoesNotCrossTheLitStub() throws {
+    /// lit rim, and only there: it ends exactly where the orange does, and the
+    /// pane's clay rim neither crosses the orange nor stops short of it.
+    func testTheLitRimFollowsTheStubsOwnShapeAndTheClayRimTakesOverBeyondIt() throws {
         for look in GalleryLook.all {
             look.apply()
             let shot = try XCTUnwrap(GalleryShots.all.first { $0.name(in: look) == "meeting-lit-now-\(look.name)" })
             let (view, keep) = try shot.build(look)
             let rep = GalleryRender.bitmap(of: view)
-            let clay = (look == .night ? Palette.night : Palette.clay)
+            let steps = look == .night ? Palette.night : Palette.clay
             let clayRim = look == .night
-                ? RGB(red: clay.pane.red + (clay.ink.red - clay.pane.red) * 0.10,
-                      green: clay.pane.green + (clay.ink.green - clay.pane.green) * 0.10,
-                      blue: clay.pane.blue + (clay.ink.blue - clay.pane.blue) * 0.10)
-                : clay.key
+                ? RGB(red: steps.pane.red + (steps.ink.red - steps.pane.red) * 0.10,
+                      green: steps.pane.green + (steps.ink.green - steps.pane.green) * 0.10,
+                      blue: steps.pane.blue + (steps.ink.blue - steps.pane.blue) * 0.10)
+                : steps.key
             let accent = try srgb(BarTheme.accent.cgColor)
-            // The stub's middle column: the orange at the vertical middle.
+            let litRim = try srgb(Ceramic.resolved(BarTheme.litRimFill, in: view))
+            func near(_ c: NSColor, _ r: (red: CGFloat, green: CGFloat, blue: CGFloat), _ tolerance: CGFloat) -> Bool {
+                abs(c.redComponent - r.red) < tolerance && abs(c.greenComponent - r.green) < tolerance
+                    && abs(c.blueComponent - r.blue) < tolerance
+            }
+            // The orange along the vertical middle: its first and last column (the end is square).
             let rowMid = rep.pixelsHigh / 2
-            var column: Int?
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: rowMid)?.usingColorSpace(.sRGB) else { continue }
-                if abs(c.redComponent - accent.redComponent) < 0.05, abs(c.greenComponent - accent.greenComponent) < 0.05,
-                   abs(c.blueComponent - accent.blueComponent) < 0.05 { column = x; break }
+            let orange = (0..<rep.pixelsWide).filter { x in
+                rep.colorAt(x: x, y: rowMid)?.usingColorSpace(.sRGB).map { near($0, (accent.redComponent, accent.greenComponent, accent.blueComponent), 0.05) } ?? false
             }
-            let x = try XCTUnwrap(column, "\(look.name): the lit stub is drawn") + 20
-            // Down from the top to the first solid pixel: the first three rows are the rim.
-            var top: Int?
-            for y in 0..<rep.pixelsHigh where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.95 { top = y; break }
-            let first = try XCTUnwrap(top)
-            for y in first..<(first + 3) {
-                let c = try XCTUnwrap(rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
-                let nearClay = abs(c.redComponent - clayRim.red) < 0.02 && abs(c.greenComponent - clayRim.green) < 0.02
-                    && abs(c.blueComponent - clayRim.blue) < 0.02
-                XCTAssertFalse(nearClay, "\(look.name): row \(y - first) of the stub's top edge is not the pane's clay rim")
+            let first = try XCTUnwrap(orange.first, "\(look.name): the lit stub is drawn")
+            // The stub is the first run of orange (its countdown's letters leave gaps
+            // of a few columns); the lit key at the far end is another.
+            var last = first
+            for x in orange where x - last <= 24 { last = x }
+            func topRows(at x: Int) -> [NSColor] {
+                guard let top = (0..<rep.pixelsHigh).first(where: { (rep.colorAt(x: x, y: $0)?.alphaComponent ?? 0) > 0.95 }) else { return [] }
+                return (top..<(top + 3)).compactMap { rep.colorAt(x: x, y: $0)?.usingColorSpace(.sRGB) }
             }
+            // Inside the stub's shape, away from its curved end: no clay rim.
+            for x in stride(from: first + 40, to: last - 2, by: 8) {
+                let rows = topRows(at: x)
+                XCTAssertEqual(rows.count, 3)
+                for (row, c) in rows.enumerated() {
+                    XCTAssertFalse(near(c, (clayRim.red, clayRim.green, clayRim.blue), 0.02),
+                                   "\(look.name): the clay rim crosses the orange at column \(x) row \(row)")
+                }
+            }
+            // Outside it: no lit rim, from the square end on.
+            // (The perforation covers the stub's last point, so the end is counted from a little on.)
+            for x in (last + 6)..<(last + 60) where x < rep.pixelsWide {
+                for (row, c) in topRows(at: x).enumerated() {
+                    XCTAssertFalse(near(c, (litRim.redComponent, litRim.greenComponent, litRim.blueComponent), 0.02),
+                                   "\(look.name): the lit rim runs on past the orange at column \(x) row \(row)")
+                }
+            }
+            // And the clay rim is there, right beyond it.
+            let beyond = topRows(at: last + 10)
+            XCTAssertTrue(beyond.contains { near($0, (clayRim.red, clayRim.green, clayRim.blue), 0.03) },
+                          "\(look.name): the clay rim begins where the orange ends")
             _ = keep
         }
     }

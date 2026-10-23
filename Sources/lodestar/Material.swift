@@ -213,11 +213,11 @@ final class CeramicPane: NSView, CeramicDepth {
 /// own look. It stands above its siblings by position in the compositor.
 final class PaneEdge: NSView {
     private weak var pane: CeramicPane?
-    /// Where a lit fill (the meeting's stub) reaches the pane's top edge, in
-    /// this view's coordinates: the rim there is the lit rim, the accent
-    /// lifted, as a lit key wears it, and the pane's clay rim never crosses
-    /// the orange.
-    var litRegion: CGRect? { didSet { if litRegion != oldValue { needsDisplay = true } } }
+    /// The shape of a lit fill (the meeting's stub) that reaches the pane's top
+    /// edge, in this view's coordinates, its own curves included: the rim
+    /// within it is the lit rim, the accent lifted, as a lit key wears it, and
+    /// the pane's clay rim begins exactly where the orange curves away.
+    var litShape: CGPath? { didSet { if litShape != oldValue { needsDisplay = true } } }
 
     init(pane: CeramicPane) {
         self.pane = pane
@@ -245,17 +245,17 @@ final class PaneEdge: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let pane, bounds.width > 0, bounds.height > 0 else { return }
         let rim = NSBezierPath(cgPath: Ceramic.rimPath(in: pane.face, radius: pane.faceRadius))
-        if let lit = litRegion {
+        if let lit = litShape {
             NSGraphicsContext.saveGraphicsState()
-            let outside = NSBezierPath(rect: bounds)
-            outside.appendRect(lit)
+            let outside = NSBezierPath(rect: bounds.insetBy(dx: -Ceramic.Shadow.reach, dy: -Ceramic.Shadow.reach))
+            outside.append(NSBezierPath(cgPath: lit))
             outside.windingRule = .evenOdd
             outside.addClip()
             BarTheme.rimFill.setFill()
             rim.fill()
             NSGraphicsContext.restoreGraphicsState()
             NSGraphicsContext.saveGraphicsState()
-            NSBezierPath(rect: lit).addClip()
+            NSBezierPath(cgPath: lit).addClip()
             BarTheme.litRimFill.setFill()
             rim.fill()
             NSGraphicsContext.restoreGraphicsState()

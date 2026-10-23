@@ -479,20 +479,18 @@ final class MeetingController: NSObject {
 
         // The stub, lit at the door: the accent's face on the glass's
         // leading corners, the countdown in the ink that reads on it.
-        let stubView = NSView()
+        let stubView = StubFace(lit: stub.lit)
         stubView.translatesAutoresizingMaskIntoConstraints = false
-        stubView.wantsLayer = true
-        stubView.layer?.cornerRadius = BarTheme.surfaceRadius
-        stubView.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-        if stub.lit {
-            stubView.effectiveAppearance.performAsCurrentDrawingAppearance {
-                stubView.layer?.backgroundColor = BarTheme.accent.cgColor
-            }
-        }
         content.addSubview(stubView)
-        // Where the orange reaches the glass's top edge, the rim is the lit rim.
-        (root.subviews.first { $0 is PaneEdge } as? PaneEdge)?.litRegion =
-            stub.lit ? NSRect(x: 0, y: 0, width: Self.stubWidth, height: Ceramic.Shadow.reach * 100) : nil
+        // Where the orange reaches the glass's top edge, the rim is the lit
+        // rim: the stub tells the edge its own shape, and again when it moves.
+        let edge = root.subviews.first { $0 is PaneEdge } as? PaneEdge
+        stubView.onShape = { [weak edge] stub, path in
+            guard let edge else { return }
+            var move = CGAffineTransform(translationX: edge.convert(NSPoint.zero, from: stub).x,
+                                         y: edge.convert(NSPoint.zero, from: stub).y)
+            edge.litShape = stub.lit ? path.copy(using: &move) : nil
+        }
         let ink: NSColor = stub.lit ? BarTheme.onAccent : recess.ink
         let number = NSTextField(labelWithString: stub.number)
         // The countdown ticks in place, so its digits hold their width.
@@ -792,6 +790,62 @@ extension MeetingController {
 
 /// The stub's tear line: short dashes down the seam, flat, one hairline
 /// wide, in whatever ink reads on the side it is drawn against.
+/// The meeting's stub: the countdown on the accent's face at the glass's
+/// leading end, its leading corners as round as the glass's and its end at the
+/// perforation square. Drawn from one path, which the glass's rim also takes,
+/// so the lit rim ends exactly where the orange does.
+final class StubFace: NSView {
+    let lit: Bool
+    /// Told the stub's shape, in its own coordinates, whenever it is laid out.
+    var onShape: ((StubFace, CGPath) -> Void)? {
+        didSet { if let path = shape { onShape?(self, path) } }
+    }
+    private var shape: CGPath?
+
+    init(lit: Bool) {
+        self.lit = lit
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// The leading corners round at the glass's radius, the trailing ones square.
+    static func path(in rect: CGRect, radius: CGFloat) -> CGPath {
+        let r = min(radius, rect.height / 2)
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.minX, y: rect.minY + r), radius: r)
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX + r, y: rect.maxY), radius: r)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+
+    override func layout() {
+        super.layout()
+        let path = Self.path(in: bounds, radius: BarTheme.surfaceRadius)
+        shape = path
+        onShape?(self, path)
+        needsDisplay = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard lit, let shape else { return }
+        BarTheme.accent.setFill()
+        NSBezierPath(cgPath: shape).fill()
+    }
+}
+
 final class PerforationView: NSView {
     var ink: NSColor = BarTheme.hairline { didSet { needsDisplay = true } }
 

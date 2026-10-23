@@ -23,7 +23,7 @@ Material is what a surface is made of, and so how it shows what it is: a pane yo
 | edge   | 0.5 pt all round, ink at 10%                 | 0.5 pt all round, ink at 8%      |
 | shadow   | one, soft: quiet ink at 14%, 24 blur, 8 down | one, faint: espresso ground at 40%, 24 blur, 8 down |
 
-The rim is the shape less itself moved down by 1.5: a crescent along the top that follows the outline round each corner and thins to nothing where the curve turns vertical, so it never ends in a cut. Where a lit fill reaches the pane's top edge (the meeting's stub) the rim there is the lit rim, the accent lifted, as a lit key wears it, and the pane's own rim never crosses the orange. The edge is drawn above the pane's content, so a picture that fills the pane does not cover it. The shadow follows the pane's outline.
+The rim is the shape less itself moved down by 1.5: a crescent along the top that follows the outline round each corner and thins to nothing where the curve turns vertical, so it never ends in a cut. Where a lit fill reaches the pane's top edge (the meeting's stub) the rim there is the lit rim, the accent lifted, as a lit key wears it, clipped to the fill's own shape (its curves included) so it ends exactly where the orange does, and the pane's own rim never crosses the orange. The edge is drawn above the pane's content, so a picture that fills the pane does not cover it. The shadow follows the pane's outline.
 
 ### Depth by role
 

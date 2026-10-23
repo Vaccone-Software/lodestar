@@ -61,8 +61,12 @@ enum KeyLegend {
         return !legend.isEmpty && legend.allSatisfy({ $0.isLetter && $0.isLowercase }) ? .xHeight : .capHeight
     }
 
+    /// The legend as a line of CoreText, in the colour the context holds
+    /// when it is drawn (without the attribute CoreText draws in black).
     private static func line(_ legend: String, font: NSFont) -> CTLine {
-        CTLineCreateWithAttributedString(NSAttributedString(string: legend, attributes: [.font: font]))
+        CTLineCreateWithAttributedString(NSAttributedString(string: legend, attributes: [
+            .font: font, NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+        ]))
     }
 
     private static func ink(_ line: CTLine) -> CGRect { CTLineGetImageBounds(line, nil) }
@@ -357,7 +361,7 @@ private final class KeyLegendView: NSView {
                                         scale: window?.backingScaleFactor ?? 2)
         context.saveGState()
         context.textMatrix = .identity
-        context.setFillColor(color.cgColor)
+        context.setFillColor(Ceramic.resolved(color, in: self))
         context.textPosition = placement.origin
         CTLineDraw(placement.line, context)
         context.restoreGState()
@@ -467,12 +471,12 @@ final class KeyTimes: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: Self.text, attributes: [.font: font]))
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: Self.text, attributes: [
+            .font: font, NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+        ]))
         context.saveGState()
         context.textMatrix = .identity
-        // In a draw pass the colour resolves in this view's own look.
-        let ink = BarTheme.secondaryColor
-        context.setFillColor(ink.cgColor)
+        context.setFillColor(Ceramic.resolved(BarTheme.secondaryColor, in: self))
         context.textPosition = CGPoint(x: 0, y: baseline)
         CTLineDraw(line, context)
         context.restoreGState()

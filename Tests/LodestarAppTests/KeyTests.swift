@@ -19,6 +19,8 @@ final class KeyTests: XCTestCase {
         let key: Key
         let ink: CGRect
         let face: CGRect
+        /// The brightness (0…1) of the legend's strongest pixel.
+        var inkBrightness: CGFloat = 0
     }
 
     /// The legend's ink, read by drawing the key with and without it and
@@ -42,11 +44,16 @@ final class KeyTests: XCTestCase {
         guard let a = with.bitmapData, let b = without.bitmapData else { return Drawn(key: key, ink: .null, face: face) }
         let scale = CGFloat(with.pixelsWide) / host.frame.width
         var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
+        var strongest = 0, brightness: CGFloat = 0
         for row in 0..<with.pixelsHigh {
             for column in 0..<with.pixelsWide {
                 let at = row * with.bytesPerRow + column * 4
                 var difference = 0
                 for channel in 0..<4 { difference += abs(Int(a[at + channel]) - Int(b[at + channel])) }
+                if difference > strongest {
+                    strongest = difference
+                    brightness = (CGFloat(a[at]) + CGFloat(a[at + 1]) + CGFloat(a[at + 2])) / (3 * 255)
+                }
                 if difference > 60 {
                     minX = min(minX, column); maxX = max(maxX, column)
                     minY = min(minY, row); maxY = max(maxY, row)
@@ -59,7 +66,7 @@ final class KeyTests: XCTestCase {
         let ink = CGRect(x: CGFloat(minX) / scale - margin, y: (height - CGFloat(maxY) - 1) / scale - margin,
                          width: CGFloat(maxX - minX + 1) / scale,
                          height: CGFloat(maxY - minY + 1) / scale)
-        return Drawn(key: key, ink: ink, face: face)
+        return Drawn(key: key, ink: ink, face: face, inkBrightness: brightness)
     }
 
     // MARK: - The legend is centred on the face, on one band
@@ -112,6 +119,17 @@ final class KeyTests: XCTestCase {
                 XCTAssertLessThan(drawn[3].ink.minY, bottoms[0] - 1, "the descender of g hangs below the baseline, \(name)")
             }
         }
+    }
+
+    /// A legend is drawn in the ink of the look the key is in: light on
+    /// espresso, dark on clay (and not the other look's, which a colour
+    /// resolved outside the view's own appearance would give).
+    func testALegendIsInTheInkOfItsLook() {
+        let day = Self.draw("e", state: .resting, look: .day), night = Self.draw("e", state: .resting, look: .night)
+        XCTAssertLessThan(day.inkBrightness, 0.35, "dark ink on clay")
+        XCTAssertGreaterThan(night.inkBrightness, 0.65, "light ink on espresso")
+        let quietNight = Self.draw("e", state: .quiet, look: .night)
+        XCTAssertGreaterThan(quietNight.inkBrightness, 0.4, "quiet ink on espresso is light too")
     }
 
     func testAnEmptyLegendDrawsNothingAndAKeyWithoutOneStillStands() {

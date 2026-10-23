@@ -794,6 +794,71 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.state["open"] as? Bool, false)
         XCTAssertEqual(stage.pasteboard, ["h"])
     }
+
+    /// `draft type` maps a newline to shift-return. Insert mode breaks the
+    /// line there; normal mode used to commit on any return, so the newline
+    /// pasted the draft and the rest of the string never arrived. After
+    /// escape the whole string is still text, and a plain return commits.
+    func testDraftTypeInsertsNewlinesAfterEscape() {
+        let stage = Stage()
+        stage.lode(".", shift: true)
+        XCTAssertNil(ControlVerbs.type("hello", into: stage.draft))
+        XCTAssertEqual(stage.draft.buffer.text, "hello")
+        XCTAssertEqual(stage.draft.mode, .insert)
+
+        cmd(stage, "escape")
+        XCTAssertEqual(stage.draft.mode, .normal)
+
+        XCTAssertNil(ControlVerbs.type("\nwide\nworld", into: stage.draft))
+        XCTAssertTrue(stage.draft.isOpen, "a newline must not paste the draft")
+        XCTAssertEqual(stage.pasteboard, [], "nothing was committed")
+        XCTAssertEqual(stage.draft.buffer.text, "hello\nwide\nworld",
+                       "the newline and the characters around it are text")
+        XCTAssertEqual(stage.draft.mode, .insert)
+
+        cmd(stage, "escape")
+        XCTAssertEqual(stage.draft.mode, .normal)
+        cmd(stage, "return")
+        XCTAssertFalse(stage.draft.isOpen, "plain return in normal mode still commits")
+        XCTAssertEqual(stage.pasteboard, ["hello\nwide\nworld"])
+    }
+
+    /// Already in insert mode, the newline lands at the cursor the hand
+    /// left, and the draft stays open for the rest of the string.
+    func testDraftTypeNewlineInInsertModeLandsAtTheCursor() {
+        let stage = Stage()
+        stage.lode(".", shift: true)
+        cmd(stage, "a"); cmd(stage, "b"); cmd(stage, "left")
+        XCTAssertEqual(stage.draft.buffer.cursor, 1)
+        XCTAssertEqual(stage.draft.mode, .insert)
+        XCTAssertNil(ControlVerbs.type("X\nY", into: stage.draft))
+        XCTAssertTrue(stage.draft.isOpen)
+        XCTAssertEqual(stage.draft.buffer.text, "aX\nYb")
+    }
+
+    /// Shift-return is a newline in normal mode too — the key `draft type`
+    /// sends for `\n`, and the key a hand presses. Plain return commits.
+    func testShiftReturnInNormalModeInsertsANewlineAndPlainReturnCommits() {
+        let stage = Stage()
+        stage.lode(".", shift: true)
+        cmd(stage, "a"); cmd(stage, "b")
+        cmd(stage, "escape")
+        XCTAssertEqual(stage.draft.mode, .normal)
+        XCTAssertEqual(stage.draft.buffer.text, "ab")
+
+        XCTAssertTrue(stage.press("return", shift: true))
+        XCTAssertTrue(stage.draft.isOpen)
+        XCTAssertEqual(stage.draft.mode, .normal, "the break stays in normal mode")
+        XCTAssertEqual(stage.draft.buffer.text, "ab\n")
+        XCTAssertEqual(stage.pasteboard, [])
+
+        cmd(stage, "u")
+        XCTAssertEqual(stage.draft.buffer.text, "ab", "the break is one undo step")
+
+        cmd(stage, "return")
+        XCTAssertFalse(stage.draft.isOpen)
+        XCTAssertEqual(stage.pasteboard, ["ab"])
+    }
     /// Dictate, type, dictate: words still a ghost when the hand starts
     /// typing are reserved where they stand, the typed characters land
     /// after them, and the final that arrives later revises the reserved

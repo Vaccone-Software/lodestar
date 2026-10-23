@@ -86,7 +86,7 @@ enum GalleryChrome {
 
     /// A breath of two long names, its record whole with the lift, so it wraps
     /// beside `lode ⌫` and "Not now" on a card at its widest.
-    static let wrappedRecord = "Activity Monitor and Brave Browser travel together 124× at lift 12.3"
+    static let wrappedRecord = CoachCard.record(from: "Activity Monitor and Brave Browser travel together 124× at lift 12.3")
 
     static func coachWrapped() throws -> (NSView, [AnyObject]) {
         try hud { hud in

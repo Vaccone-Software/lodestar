@@ -102,7 +102,7 @@ enum CoachCard {
         ])
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.group)
-        card.setAccessibilityLabel("\(offer.sentence). \(offer.record)")
+        card.setAccessibilityLabel("\(offer.sentence). \(offer.record.replacingOccurrences(of: noBreak, with: " "))")
         return card
     }
 
@@ -125,9 +125,30 @@ enum CoachCard {
         return name.split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
     }
 
-    /// The record's first clause: the count, without the rest of the sums.
+    /// The record's first clause: the count, without the rest of the sums. A
+    /// figure is never parted from its label when the record wraps: each number
+    /// is joined to the word before it and the one after it (a count to its
+    /// unit, "at lift" to its figure) with no-break spaces, and a figure that
+    /// ends in "×" to the word before it only.
     static func record(from evidence: String) -> String {
         let first = evidence.components(separatedBy: " · ").first ?? evidence
-        return first.trimmingCharacters(in: .whitespaces)
+        return unbroken(first.trimmingCharacters(in: .whitespaces))
+    }
+
+    static let noBreak = "\u{00A0}"
+
+    static func unbroken(_ text: String) -> String {
+        let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        func figure(_ word: String) -> Bool { word.contains(where: \.isNumber) }
+        var out = ""
+        for (index, word) in words.enumerated() {
+            if index > 0 {
+                let before = words[index - 1]
+                let joined = figure(word) || (figure(before) && !before.hasSuffix("×")) || (word == "lift" && before == "at")
+                out += joined ? noBreak : " "
+            }
+            out += word
+        }
+        return out
     }
 }

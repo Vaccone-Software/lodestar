@@ -59,7 +59,7 @@ An **off** setting is not unavailable: it is a switch turned off, wearing the do
 
 ### The coach's record
 
-The record under the coach's offer is a sentence, so it wraps. It stands in its own column, from the card's inset (12) to 8 before `lode ⌫` and "Not now", and is whole: no ellipsis, nothing clipped, nothing outside the card. The keys and "Not now" stand on the record's first line, their words on the baseline lowercase legends share; further lines start flush with the first and the card grows to hold every line. The card's width rule (428 to 540) is unchanged, and a record that fits on one line looks as it always has. A record that cannot fit takes the card to its 540. A breath's record carries its lift ("Messages and Mail travel together 12× at lift 3.4").
+The record under the coach's offer is a sentence, so it wraps. It stands in its own column, from the card's inset (12) to 8 before `lode ⌫` and "Not now", and is whole: no ellipsis, nothing clipped, nothing outside the card. The keys and "Not now" stand on the record's first line, their words on the baseline lowercase legends share; further lines start flush with the first and the card grows to hold every line. The card's width rule (428 to 540) is unchanged, and a record that fits on one line looks as it always has. A record that cannot fit takes the card to its 540. A figure is never parted from its label when the record wraps: a number is joined to the words either side of it with no-break spaces, and "at lift" to its figure. A breath's record carries its lift ("Messages and Mail travel together 12× at lift 3.4").
 
 ## Rules
 

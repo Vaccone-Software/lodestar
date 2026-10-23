@@ -503,6 +503,13 @@ extension RowTests {
                     wrong.append("\(name): \"\(record)\" is cut on one line")
                 }
                 if label.frame.height > 20 { wrapped += 1 }
+                // A figure is never parted from its label: no line after the first starts on a number.
+                for line in Self.lines(of: label).dropFirst() where line.first?.isNumber == true {
+                    wrong.append("\(name): a line starts with a bare number: \"\(line)\"")
+                }
+                for piece in record.split(separator: " ").dropFirst() where piece.first?.isNumber == true {
+                    wrong.append("\(name): \"\(record)\" may break before \"\(piece)\"")
+                }
                 // The card is as wide as the rule says, and everything on it is inside it.
                 if card.frame.width > BarTheme.offerMaxWidth + 0.5 || card.frame.width < BarTheme.offerWidth - 0.5 {
                     wrong.append("\(name): the card is \(card.frame.width) wide")
@@ -535,6 +542,23 @@ extension RowTests {
         XCTAssertGreaterThan(wrapped, 0, "the longest breath wraps, so the wrap was measured")
     }
 
+    /// The lines a field's words are set in, at the width it was given.
+    static func lines(of label: NSTextField) -> [String] {
+        let storage = NSTextStorage(attributedString: label.attributedStringValue)
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: label.frame.width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        manager.ensureLayout(for: container)
+        var lines: [String] = []
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, _, _, glyphs, _ in
+            let range = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+            lines.append((storage.string as NSString).substring(with: range))
+        }
+        return lines
+    }
+
     /// A record that wraps keeps its second line under its first, flush with
     /// its leading edge, and the card holds both.
     func testAWrappedRecordsLinesStandUnderEachOther() throws {
@@ -547,9 +571,13 @@ extension RowTests {
             let shown = try XCTUnwrap(record, "\(look.name): the record")
             let label = shown.label
             XCTAssertGreaterThan(label.frame.height, 28, "\(look.name): two lines")
-            let lines = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width, height: 10_000)).height ?? 0
-            XCTAssertLessThanOrEqual(lines, label.frame.height + 0.5, "\(look.name): every line fits its frame")
-            let card = try XCTUnwrap(GalleryLauncher.find(NSView.self, in: root, where: { $0.accessibilityRole() == .group && $0.accessibilityLabel()?.contains(GalleryChrome.wrappedRecord) == true }))
+            let lines = Self.lines(of: label)
+            XCTAssertEqual(lines.count, 2, "\(look.name): \(lines)")
+            XCTAssertTrue(lines.last?.hasPrefix("lift") == true || lines.last?.hasPrefix("at\u{00A0}lift") == true, "\(look.name): the lift stays with its figure: \(lines)")
+            XCTAssertTrue(lines.last?.hasSuffix("lift\u{00A0}12.3") == true, "\(look.name): \(lines)")
+            let needed = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width, height: 10_000)).height ?? 0
+            XCTAssertLessThanOrEqual(needed, label.frame.height + 0.5, "\(look.name): every line fits its frame")
+            let card = try XCTUnwrap(GalleryLauncher.find(NSView.self, in: root, where: { $0.accessibilityRole() == .group && $0.accessibilityLabel()?.contains(GalleryChrome.wrappedRecord.replacingOccurrences(of: CoachCard.noBreak, with: " ")) == true }))
             let at = card.convert(shown.frame, from: shown.superview)
             XCTAssertEqual(at.minX, CoachCard.textInset, accuracy: 0.5, "\(look.name): flush with the card's inset")
             XCTAssertEqual(card.frame.width, CoachCard.maxWidth, accuracy: 0.5, "\(look.name): a wrapped record's card is the widest")

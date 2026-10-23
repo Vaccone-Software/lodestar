@@ -26,8 +26,10 @@ final class InputMenu {
     weak var owner: NSWindow?
     var onChoose: ((String?) -> Void)?
 
-    static let inset = BarTheme.paneInset
-    static let rowHeight: CGFloat = 36
+    /// The lines of the row contract (design/13-row.md): 32 tall, touching,
+    /// 8 inside the menu on every side.
+    static let inset = BarTheme.lineInset
+    static let rowHeight = BarTheme.lineHeight
     static let gap = Grid.part
 
     init() {
@@ -53,7 +55,8 @@ final class InputMenu {
     func present(_ choices: [Choice], chosen: Int, beside glass: NSRect) {
         rows.forEach { $0.removeFromSuperview() }
         let widest = choices.map { BarTheme.width(of: $0.title, in: .body) }.max() ?? 0
-        let width = (widest + Self.inset * 2 + InputMenuRow.padding * 2 + BarTheme.dotDiameter + Grid.part).rounded(.up)
+        // The line's words stand 12 inside it, after a dot column and 12 more.
+        let width = (widest + Self.inset * 2 + InputMenuRow.padding * 2 + BarTheme.dotColumnWidth + Grid.part).rounded(.up)
         let height = Self.inset * 2 + Self.rowHeight * CGFloat(choices.count)
         rows = choices.enumerated().map { index, choice in
             let row = InputMenuRow(choice: choice, current: index == chosen)
@@ -116,15 +119,14 @@ final class InputMenu {
 }
 
 /// One microphone: its name, and a dot before it when it is the one in use.
+/// A line of the row contract (`ListLine`): the dot column, then the name.
 /// The row under the pointer is the slab, the bars' chosen row, because the
 /// pointer is where the hand is going and this card takes no keys.
-final class InputMenuRow: SlabRow {
+final class InputMenuRow: ListLine {
     let choice: InputMenu.Choice
     /// The microphone the draft is using.
     let current: Bool
     var onPick: (() -> Void)?
-    private let label = NSTextField(labelWithString: "")
-    private let dot = ToneView(fill: BarTheme.ink, radius: BarTheme.dotRadius)
     /// The row's own padding, so its words stand where a bar's rows' do.
     static let padding = Grid.part
 
@@ -132,14 +134,8 @@ final class InputMenuRow: SlabRow {
         self.choice = choice
         self.current = current
         super.init(frame: .zero)
-        setupSlab()
         label.stringValue = choice.title
-        label.setRole(.body)
-        label.textColor = BarTheme.ink
-        label.lineBreakMode = .byTruncatingTail
-        dot.isHidden = !current
-        addSubview(dot)
-        addSubview(label)
+        setLead(DotColumn(marked: current))
         setAccessibilityElement(true)
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(choice.title)
@@ -147,18 +143,6 @@ final class InputMenuRow: SlabRow {
     }
 
     required init?(coder: NSCoder) { nil }
-
-    override func layout() {
-        super.layout()
-        let leading = Self.padding
-        dot.frame = NSRect(x: leading, y: ((bounds.height - BarTheme.dotDiameter) / 2).rounded(),
-                           width: BarTheme.dotDiameter, height: BarTheme.dotDiameter)
-        let text = leading + BarTheme.dotDiameter + Grid.part
-        let natural = label.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
-                                                height: CGFloat.greatestFiniteMagnitude)).height
-        label.frame = NSRect(x: text, y: ((bounds.height - natural) / 2).rounded(),
-                             width: bounds.width - text - leading, height: natural)
-    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

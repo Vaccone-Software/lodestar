@@ -149,6 +149,32 @@ final class OptionsCard {
         stack.spacing = Grid.close
         stack.translatesAutoresizingMaskIntoConstraints = false
 
+        /// What is not a line (a header, a note, a footer) stands where a
+        /// line's words do: 12 inside the line, which is 8 inside the card.
+        func addWords(_ view: NSView) {
+            let holder = NSStackView(views: [view])
+            holder.orientation = .horizontal
+            holder.edgeInsets = NSEdgeInsets(top: 0, left: Grid.part, bottom: 0, right: Grid.part)
+            holder.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(holder)
+        }
+        /// Lines of one menu touch.
+        func addLines(_ items: [Item]) {
+            guard !items.isEmpty else { return }
+            let lines = NSStackView()
+            lines.orientation = .vertical
+            lines.alignment = .leading
+            lines.spacing = 0
+            lines.translatesAutoresizingMaskIntoConstraints = false
+            for item in items {
+                let line = actionRow(item)
+                lines.addArrangedSubview(line)
+                line.widthAnchor.constraint(equalTo: lines.widthAnchor).isActive = true
+            }
+            stack.addArrangedSubview(lines)
+            lines.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+
         switch content {
         case .items(let menu):
             // A row's actions carry no app name: the card is top-aligned
@@ -156,33 +182,27 @@ final class OptionsCard {
             // again is furniture. A field's values do get a header — nothing
             // else on screen says which field they belong to.
             if let header = menu.header {
-                stack.addArrangedSubview(label(header, role: .meta,
-                                               color: BarTheme.secondaryColor))
+                addWords(label(header, role: .meta, color: BarTheme.secondaryColor))
             }
-            for item in menu.items {
-                let row = actionRow(item)
-                stack.addArrangedSubview(row)
-                row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-            }
+            addLines(menu.items)
             if let error = menu.error {
-                stack.addArrangedSubview(label("✕ \(error)", role: .meta,
-                                               color: BarTheme.ink))
+                addWords(label("✕ \(error)", role: .meta, color: BarTheme.ink))
             }
             if let note = menu.note {
                 let noteLabel = label(note, role: .meta, color: BarTheme.secondaryColor)
                 noteLabel.lineBreakMode = .byTruncatingTail
                 noteLabel.widthAnchor.constraint(lessThanOrEqualToConstant: BarTheme.measure).isActive = true
-                stack.addArrangedSubview(noteLabel)
+                addWords(noteLabel)
             }
             if let footer = menu.footer {
-                stack.addArrangedSubview(Self.footerLine(footer))
+                addWords(Self.footerLine(footer))
             }
 
         case .typing(let typing):
-            stack.addArrangedSubview(label(typing.header, role: .meta,
-                                           color: BarTheme.secondaryColor))
+            addWords(label(typing.header, role: .meta, color: BarTheme.secondaryColor))
             let bodyRow = NSStackView()
             bodyRow.orientation = .horizontal
+            bodyRow.alignment = .centerY
             bodyRow.spacing = Grid.tight
             switch typing.body {
             case .keys(let letters):
@@ -206,95 +226,59 @@ final class OptionsCard {
                                                  role: .title,
                                                  color: text.isEmpty ? BarTheme.secondaryColor : BarTheme.ink))
             }
-            stack.addArrangedSubview(bodyRow)
+            addWords(bodyRow)
             let verdictLabel = label("\(typing.problem ? "✕" : "↵") \(typing.verdict)",
                                      role: .meta,
                                      color: typing.problem ? BarTheme.ink : BarTheme.secondaryColor)
             verdictLabel.lineBreakMode = .byTruncatingTail
             verdictLabel.widthAnchor.constraint(lessThanOrEqualToConstant: BarTheme.measure).isActive = true
-            stack.addArrangedSubview(verdictLabel)
-            if let control = typing.control {
-                let row = actionRow(control)
-                stack.addArrangedSubview(row)
-                row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-            }
+            addWords(verdictLabel)
+            if let control = typing.control { addLines([control]) }
             if let detail = typing.detail {
                 let detailLabel = label(detail, role: .meta,
                                         color: BarTheme.secondaryColor)
                 detailLabel.lineBreakMode = .byTruncatingTail
                 detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: BarTheme.measure).isActive = true
-                stack.addArrangedSubview(detailLabel)
+                addWords(detailLabel)
             }
-            stack.addArrangedSubview(Self.footerLine(typing.footer))
+            addWords(Self.footerLine(typing.footer))
         }
 
+        // The lines stand 8 inside the card, and a card of words as far as a
+        // line's words stand in; a long name is cut at the tail, never grows the
+        // card past a sentence's measure.
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: Grid.part),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Grid.part),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Grid.part),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Grid.part),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.lineInset),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -BarTheme.lineInset),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.lineInset),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -BarTheme.lineInset),
+            stack.widthAnchor.constraint(lessThanOrEqualToConstant: BarTheme.measure),
         ])
         self.content = stack
     }
 
-    /// Icon, name, then key — the clipboard menu's row exactly. Nothing is
+    /// A line of the row contract (`ListLine`): a symbol, the name cut at the
+    /// tail, and the key that fires it at the end, the keys that only say
+    /// something (a chain, a browser) quiet before it, 8 apart. Nothing is
     /// highlighted: every action here is fired by the key it shows, so a
     /// selection would only be a second way to mean the same thing.
     private func actionRow(_ item: Item) -> NSView {
-        let container = NSView()
-
-        let stack = NSStackView()
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = Grid.close
-        stack.edgeInsets = NSEdgeInsets(top: Grid.tight, left: Grid.tight, bottom: Grid.tight, right: Grid.tight)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
+        let line = ListLine(frame: .zero)
+        line.translatesAutoresizingMaskIntoConstraints = false
+        line.heightAnchor.constraint(equalToConstant: BarTheme.lineHeight).isActive = true
         // Told by its place under the rule, never painted.
-        let tint: NSColor = BarTheme.ink
-        let icon = NSImageView(image: NSImage(
-            systemSymbolName: item.symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(BarTheme.symbol) ?? NSImage())
-        icon.contentTintColor = tint
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: BarTheme.symbolSize),
-            icon.heightAnchor.constraint(equalToConstant: BarTheme.symbolSize),
-        ])
-
-        let title = label(item.title, role: .body, color: tint)
-        title.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        spacer.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: Grid.section).isActive = true
-
-        stack.addArrangedSubview(icon)
-        stack.addArrangedSubview(title)
-        if let detail = item.detail {
-            stack.addArrangedSubview(keycap(detail, quiet: true))
-        }
+        line.setLead(ListLine.symbol(item.symbol))
+        line.label.stringValue = item.title
+        var trailing: [NSView] = []
+        if let detail = item.detail { trailing.append(keycap(detail, quiet: true)) }
         // Several bindings carry the same title and differ only by chain, so
-        // the chain travels with the title it distinguishes. Only the key
-        // you press sits at the trailing edge — beside it the chain would
-        // read as one run of chips and hide which one is pressable.
-        for letter in item.chain {
-            stack.addArrangedSubview(keycap(letter, quiet: true))
-        }
-        stack.addArrangedSubview(spacer)
-        stack.addArrangedSubview(keycap(item.keycap))
-
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-        return container
+        // the chain travels with the title it distinguishes: a sequence, quiet,
+        // before the one key you press, which stands last.
+        if !item.chain.isEmpty { trailing.append(KeyStrokes(item.chain, quiet: true)) }
+        trailing.append(keycap(item.keycap))
+        line.setTrailing(trailing)
+        return line
     }
 
     /// The one key, as typed: lowercase for a bare keystroke. Quiet where it

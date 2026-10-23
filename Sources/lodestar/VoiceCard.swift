@@ -34,7 +34,7 @@ enum GuideRows {
             // key sit at the same trailing edge instead of trailing its own
             // label.
             columnStack.alignment = .width
-            columnStack.spacing = Grid.close
+            columnStack.spacing = 0
             for row in slice {
                 columnStack.addArrangedSubview(GuideRows.row(row, reserveIcon: hasIcons))
             }
@@ -43,16 +43,18 @@ enum GuideRows {
         return grid
     }
 
+    /// A guide's row is a line of the row contract (`ListLine`): the thing, then
+    /// its key at the end, 32 tall and touching the next, so a 24 key has 8
+    /// between it and the next. The icon's slot is held even when a row has
+    /// none, so the names line up down the column rather than stepping in and
+    /// out. A guide is not a menu and nothing in it is chosen, so its lines
+    /// stand on the card's own inset.
     static func row(_ guideRow: GuideRow, reserveIcon: Bool) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = Grid.close
-
-        // Icon, name, then key — the order the clipboard's actions menu
-        // reads in. The icon's slot is held even when a row has none, so
-        // the names line up down the column rather than stepping in and out.
-        var iconView: NSImageView?
+        let line = ListLine(padding: 0)
+        line.translatesAutoresizingMaskIntoConstraints = false
+        line.heightAnchor.constraint(equalToConstant: BarTheme.lineHeight).isActive = true
+        line.label.stringValue = guideRow.label
+        line.label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         if reserveIcon {
             let view = NSImageView(image: guideRow.icon ?? NSImage())
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -60,33 +62,15 @@ enum GuideRows {
                 view.widthAnchor.constraint(equalToConstant: BarTheme.symbolSize),
                 view.heightAnchor.constraint(equalToConstant: BarTheme.symbolSize),
             ])
-            iconView = view
+            line.setLead(view)
         }
-
-        let text = NSTextField(labelWithString: guideRow.label)
-        text.setRole(.body)
-        text.textColor = BarTheme.ink
-        text.lineBreakMode = .byTruncatingTail
-        text.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-
-        // Absorbs the slack, so the key lands at the trailing edge where a
-        // menu keeps its shortcut.
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        spacer.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: Grid.section).isActive = true
-
         // One key per keystroke, through the one key; groups that are not one
         // sequence (alternatives) stand apart.
         let strokes = KeyStrokes(groups: guideRow.groups, double: guideRow.double, lit: guideRow.lit)
         let chip: NSView = guideRow.action.map { Keycaps.CapGroup(strokes: strokes, action: $0) } ?? strokes
-
-        if let iconView { row.addArrangedSubview(iconView) }
-        row.addArrangedSubview(text)
-        row.addArrangedSubview(spacer)
-        row.addArrangedSubview(chip)
-        return row
+        // The key lands at the trailing edge, where a menu keeps its shortcut.
+        line.setTrailing([chip])
+        return line
     }
 
 }

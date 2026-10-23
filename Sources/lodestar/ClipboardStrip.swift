@@ -172,7 +172,7 @@ final class ClipboardStrip {
     /// How many sheets each card of files stands, and which cards are
     /// drawn dimmed because every file of them is gone.
     private(set) var shownSheets: [String: Int] = [:]
-    private(set) var shownDimmed: Set<String> = []
+    private(set) var shownQuiet: Set<String> = []
     /// What each card is made of, in the order they were drawn.
     private(set) var shownFills: [CardFill] = []
     /// The free places as drawn, by slot: wells.
@@ -277,7 +277,7 @@ final class ClipboardStrip {
         shownFiles = [:]
         pathsOf = filePaths
         shownSheets = [:]
-        shownDimmed = []
+        shownQuiet = []
         shownFills = []
         shownFreePlaces = [:]
         shownCards = [:]
@@ -981,17 +981,18 @@ final class ClipboardStrip {
             shownSheets[clip.id] = 1
         }
 
-        // One view for what the card shows of its files, so that a card
-        // whose files are gone is dimmed as one picture: sheets dimmed one
-        // at a time show through each other.
         let content = NSView(frame: body)
         for view in drawn {
             view.frame = view.frame.offsetBy(dx: -body.minX, dy: -body.minY)
             content.addSubview(view)
         }
         if missing {
-            content.alphaValue = 0.45
-            shownDimmed.insert(clip.id)
+            // Quiet, never faded (design/13-row.md): a card whose files are
+            // gone keeps its look, opaque, and says so in the quiet ink, its
+            // words and its keys. Nothing on it is drawn translucent.
+            for case let words as NSTextField in drawn { words.textColor = BarTheme.secondaryColor }
+            for case let key as Key in card.subviews { key.state = .quiet }
+            shownQuiet.insert(clip.id)
         }
         card.addSubview(content)
     }
@@ -1323,7 +1324,7 @@ final class ClipboardStrip {
     static func placedCap(_ text: String, at origin: NSPoint) -> Key {
         let cap = Keycaps.cap(text)
         cap.translatesAutoresizingMaskIntoConstraints = true
-        cap.frame = NSRect(origin: origin, size: cap.intrinsicContentSize)
+        cap.frame = NSRect(origin: origin, size: cap.frameSize)
         return cap
     }
 
@@ -1424,23 +1425,26 @@ final class ClipboardStrip {
     /// cards: its own field, All apps above a rule, then the apps
     /// alphabetically with how many clips each holds.
     private func addSourceMenu(_ menu: SourceMenu, under bar: NSRect) {
-        let rowHeight = Self.menuRow, fieldHeight = BarTheme.fieldHeight, width = Self.menuWidth
+        let rowHeight = BarTheme.lineHeight, fieldHeight = BarTheme.fieldHeight, width = Self.menuWidth
+        // Everything stands 8 inside the menu, so the field and the lines
+        // share their edges; the lines touch.
+        let inset = BarTheme.lineInset
         let visible = 9
         let start = max(0, min(menu.selection - visible / 2, menu.rows.count - visible))
         let rows = Array(menu.rows.enumerated().dropFirst(start).prefix(visible))
         let ruled = rows.first?.offset == 0 && rows.count > 1
-        let height = BarTheme.paneInset * 2 + fieldHeight + Grid.close + CGFloat(rows.count) * rowHeight + (ruled ? Grid.close : 0)
+        let height = inset * 2 + fieldHeight + Grid.close + CGFloat(rows.count) * rowHeight + (ruled ? Self.ruleRoom : 0)
         let frame = NSRect(x: bar.maxX - width, y: bar.minY - Grid.close - height, width: width, height: height)
         let plate = surface(size: frame.size, fill: .pane, stands: false)
         plate.frame = frame
         plate.setAccessibilityRole(.list)
         plate.setAccessibilityLabel("Sources")
 
-        var top = height - BarTheme.paneInset
+        var top = height - inset
         // Its own field, a well like every field: a line of words 12 inside it.
         let fieldY = top - fieldHeight
-        let well = addFieldWell(to: plate, in: NSRect(x: BarTheme.paneInset, y: fieldY,
-                                                       width: width - BarTheme.paneInset * 2, height: fieldHeight))
+        let well = addFieldWell(to: plate, in: NSRect(x: inset, y: fieldY,
+                                                       width: width - inset * 2, height: fieldHeight))
         shownSourceField = well
         let typed = menu.typed.isEmpty
             ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search apps", role: .body))
@@ -1455,35 +1459,28 @@ final class ClipboardStrip {
 
         for (index, row) in rows {
             let y = top - rowHeight
-            let line = SlabLine(frame: NSRect(x: BarTheme.paneInset, y: y, width: width - BarTheme.paneInset * 2, height: rowHeight))
-            line.setupSlab()
+            // A line of the row contract: the app's name, cut at the tail, and
+            // how many clips it holds at the end, quiet.
+            let line = ListLine(frame: NSRect(x: inset, y: y, width: width - inset * 2, height: rowHeight))
             line.choose(index == menu.selection)
-            let name = NSTextField(labelWithString: row.name)
-            name.setRole(.body)
-            name.textColor = BarTheme.ink
-            name.lineBreakMode = .byTruncatingTail
-            name.sizeToFit()
+            line.label.stringValue = row.name
             let count = NSTextField(labelWithString: "\(row.count)")
             count.setRole(.meta, tabular: true)
             count.textColor = BarTheme.secondaryColor
-            count.sizeToFit()
-            count.frame.origin = NSPoint(x: line.frame.width - Grid.part - count.frame.width,
-                                         y: (rowHeight - count.frame.height) / 2)
-            name.frame = NSRect(x: Grid.part, y: (rowHeight - name.frame.height) / 2,
-                                width: min(name.frame.width, count.frame.minX - Grid.part - Grid.close), height: name.frame.height)
-            line.addSubview(name)
-            line.addSubview(count)
+            line.setTrailing([count])
             line.setAccessibilityElement(true)
             line.setAccessibilityLabel("\(row.name), \(row.count) clips")
             plate.addSubview(line)
             shownSourceRows.append(row.name)
             top = y
             if index == 0, ruled {
-                let rule = NSView(frame: NSRect(x: BarTheme.paneInset, y: top - Grid.tight, width: width - BarTheme.paneInset * 2, height: 1))
+                // A rule between the line groups, 8 above and 8 below.
+                let rule = NSView(frame: NSRect(x: inset, y: top - Self.ruleRoom / 2, width: width - inset * 2,
+                                                height: Ceramic.Edge.line * 2))
                 rule.wantsLayer = true
                 rule.layer?.backgroundColor = Ceramic.resolved(BarTheme.hairline)
                 plate.addSubview(rule)
-                top -= Grid.close
+                top -= Self.ruleRoom
             }
         }
         root.addSubview(plate)
@@ -1491,16 +1488,13 @@ final class ClipboardStrip {
 
     // MARK: - Actions
 
-    private static let actionRow: CGFloat = 32
-    /// The source list: its rows, its field, its width.
-    private static let menuRow: CGFloat = 32
+    /// The source list's width; its lines and its field are the row contract's
+    /// (32 tall, touching, 8 inside the menu).
     private static let menuWidth: CGFloat = 272
-    private static let actionPadY = Grid.part
-    private static let actionInset = Grid.group
-    private static let actionChipGap = Grid.close
+    /// The room a rule between two groups of lines takes: 8 above it and 8 below.
+    private static let ruleRoom = Grid.close * 2
+    /// What an action's label and its key keep between them at the least.
     private static let actionKeyGap = Grid.section
-    private static let actionIcon = BarTheme.symbolSize
-    private static let actionSeparator = Grid.part
     private static let actionRole = BarTheme.Role.body
 
     private func actionLabelWidth(_ text: String) -> CGFloat {
@@ -1521,10 +1515,12 @@ final class ClipboardStrip {
         let widest = actions.map { actionLabelWidth($0.label) }.max() ?? 0
         // The keys stand in one column, as wide as the widest of them.
         let widestKey = actions.map { Key.width(of: $0.key) }.max() ?? 0
-        let width = Self.actionInset * 2 + Self.actionIcon + Self.actionChipGap
-            + widest + Self.actionKeyGap + widestKey
-        var height = CGFloat(actions.count) * Self.actionRow + Self.actionPadY * 2
-        if separatorIndex(actions) != nil { height += Self.actionSeparator }
+        // A line: its symbol 12 inside it, its words 12 after the symbol, its
+        // key 12 inside the far edge; the lines 8 inside the menu.
+        let width = BarTheme.lineInset * 2 + Grid.part + BarTheme.symbolSize + Grid.part
+            + widest + Self.actionKeyGap + widestKey + Grid.part
+        var height = CGFloat(actions.count) * BarTheme.lineHeight + BarTheme.lineInset * 2
+        if separatorIndex(actions) != nil { height += Self.ruleRoom }
         return NSSize(width: min(width, BarTheme.measure), height: height)
     }
 
@@ -1553,46 +1549,31 @@ final class ClipboardStrip {
         shownActions = actions.map(\.label)
 
         let rule = separatorIndex(actions)
-        var top = frame.height - Self.actionPadY
+        let inset = BarTheme.lineInset
+        var top = frame.height - inset
         for (offset, action) in actions.enumerated() {
             if offset == rule {
+                // A rule between the groups of lines, 8 above and 8 below.
                 let line = NSView(frame: NSRect(
-                    x: Self.actionInset, y: top - Self.actionSeparator / 2,
-                    width: frame.width - Self.actionInset * 2, height: 1))
+                    x: inset, y: top - Self.ruleRoom / 2,
+                    width: frame.width - inset * 2, height: Ceramic.Edge.line * 2))
                 line.wantsLayer = true
                 line.layer?.backgroundColor = Ceramic.resolved(BarTheme.hairline)
                 plate.addSubview(line)
-                top -= Self.actionSeparator
+                top -= Self.ruleRoom
             }
-            let bottom = top - Self.actionRow
-            // What cannot be undone is told by its place, under the rule
-            // at the menu's foot, never painted: one light, no alarm colour.
-            let tint: NSColor = BarTheme.ink
-            let icon = NSImageView(image: NSImage(
-                systemSymbolName: action.symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(BarTheme.symbol) ?? NSImage())
-            icon.contentTintColor = tint
-            icon.frame = NSRect(x: Self.actionInset,
-                                y: bottom + (Self.actionRow - Self.actionIcon) / 2,
-                                width: Self.actionIcon, height: Self.actionIcon)
-            plate.addSubview(icon)
-
-            let label = NSTextField(labelWithString: action.label)
-            label.setRole(Self.actionRole)
-            label.textColor = tint
-            label.lineBreakMode = .byTruncatingTail
-            label.sizeToFit()
-            let labelX = Self.actionInset + Self.actionIcon + Self.actionChipGap
-            let chip = Self.placedCap(action.key, at: .zero)
-            let keyX = frame.width - Self.actionInset - chip.frame.width
-            label.frame = NSRect(x: labelX,
-                                 y: bottom + (Self.actionRow - label.frame.height) / 2,
-                                 width: max(0, keyX - Self.actionKeyGap - labelX),
-                                 height: label.frame.height)
-            plate.addSubview(label)
-
-            chip.frame.origin = NSPoint(x: keyX, y: bottom + (Self.actionRow - chip.frame.height) / 2)
-            plate.addSubview(chip)
+            let bottom = top - BarTheme.lineHeight
+            // A line of the row contract: a symbol, the action's name cut at
+            // the tail, and the key that fires it at the end. What cannot be
+            // undone is told by its place, under the rule at the menu's foot,
+            // never painted: one light, no alarm colour. Nothing here is
+            // chosen: the keys fire.
+            let line = ListLine(frame: NSRect(x: inset, y: bottom, width: frame.width - inset * 2,
+                                              height: BarTheme.lineHeight))
+            line.setLead(ListLine.symbol(action.symbol))
+            line.label.stringValue = action.label
+            line.setTrailing([Keycaps.cap(action.key)])
+            plate.addSubview(line)
             top = bottom
         }
         root.addSubview(plate)
@@ -1650,9 +1631,6 @@ final class ClipboardStrip {
         case pane, slab, well
     }
 }
-
-/// A row of the source list: the slab when it is the one chosen.
-private final class SlabLine: SlabRow {}
 
 /// A file's sheet on a card: content, drawn as it is, resting on the card
 /// with a short soft shadow cast from its own outline, as a picture does.

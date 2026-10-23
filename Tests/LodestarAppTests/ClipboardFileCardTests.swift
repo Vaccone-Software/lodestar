@@ -204,21 +204,27 @@ final class ClipboardFileCardLayoutTests: XCTestCase {
         XCTAssertTrue(labels(in: card).contains("4 files"))
     }
 
-    func testACardWhoseFilesAreAllMissingIsDimmedAndSaysSo() {
+    func testACardWhoseFilesAreAllMissingIsQuietAndSaysSo() {
         let made = clip([fact("gone.pdf"), fact("gone too.pdf")])
         let (strip, card) = build(made, size: wide, present: [false, false])
-        XCTAssertTrue(strip.shownDimmed.contains(made.id))
+        XCTAssertTrue(strip.shownQuiet.contains(made.id))
         XCTAssertEqual(strip.shownCaptions[made.id], "Missing", "in place of its size and age")
-        XCTAssertEqual(content(of: card)?.alphaValue, 0.45, "its files are dimmed as one picture, the sheets not one by one")
+        // Quiet, never faded: nothing on the card is translucent; its words and
+        // its key are the quiet ink.
+        XCTAssertEqual(content(of: card)?.alphaValue, 1)
         XCTAssertTrue(sheets(in: card).allSatisfy { $0.alphaValue == 1 })
+        let words = (content(of: card)?.subviews ?? []).compactMap { $0 as? NSTextField }
+        XCTAssertFalse(words.isEmpty)
+        XCTAssertTrue(words.allSatisfy { $0.textColor == BarTheme.secondaryColor }, "its words are quiet")
+        XCTAssertTrue(card.subviews.compactMap { $0 as? Key }.allSatisfy { $0.state == .quiet }, "and its key")
         // A group with one file still there is drawn as it is.
         let (partial, partialCard) = build(made, size: wide, present: [false, true])
-        XCTAssertFalse(partial.shownDimmed.contains(made.id))
+        XCTAssertFalse(partial.shownQuiet.contains(made.id))
         XCTAssertEqual(partial.shownCaptions[made.id], "6 MB · just now")
         XCTAssertEqual(content(of: partialCard)?.alphaValue, 1)
         // And one not yet asked about is not missing.
         let (unknown, _) = build(made, size: wide, present: nil)
-        XCTAssertFalse(unknown.shownDimmed.contains(made.id))
+        XCTAssertFalse(unknown.shownQuiet.contains(made.id))
     }
 
     func testAFileCardBeforeItsFilesAreReadHasItsNamesFromItsPaths() {

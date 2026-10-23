@@ -99,3 +99,5 @@ Planned.
 - A quiet key is a resting key left unfilled: the same face and side, its letter centred on its face. A single outline round face and side together was drawn first and read as a round chip (23 October 2026).
 - Words beside a key align to its face: review found the coach's record and the footers sitting below their keys' letters (23 October 2026).
 - The coach's record stays one line beside its keys; wrapping was refused (23 October 2026).
+- The coach's offer leads with its apps' icons, 24 each, the second overlapping the first by 6, as today; the overlap and the size are tokens (`titleIconSize`), not `Grid.section` (23 October 2026).
+- Approved 23 October 2026.

@@ -413,8 +413,10 @@ final class SlabTests: XCTestCase {
                           field.maximumNumberOfLines <= 1, !(field.cell?.wraps ?? false),
                           field.lineBreakMode == .byTruncatingTail, field.superview === slab || field.superview === slab.superview
                     else { return }
-                    let cell = NSTextFieldCell(textCell: field.stringValue)
-                    cell.font = style.font(in: field.effectiveAppearance)
+                    let cell = NSTextFieldCell(textCell: "")
+                    cell.attributedStringValue = NSAttributedString(
+                        string: field.stringValue,
+                        attributes: BarTheme.attributes(style.role, tabular: style.tabular, in: field.effectiveAppearance))
                     // A field may be shorter than its words only where the card has no more room.
                     if field.frame.width < ceil(cell.cellSize.width) - 0.5 {
                         XCTAssertGreaterThan(field.frame.maxX + Grid.group, slab.bounds.width - 40,

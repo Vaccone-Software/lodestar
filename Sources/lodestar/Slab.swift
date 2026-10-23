@@ -100,8 +100,10 @@ extension NSView {
         func natural(_ field: NSTextField) -> CGFloat? {
             guard let style = field.typeStyle else { return nil }
             // The field's own cell stands the text a few points in from its edges.
-            let cell = NSTextFieldCell(textCell: field.stringValue)
-            cell.font = style.font(in: field.effectiveAppearance)
+            let cell = NSTextFieldCell(textCell: "")
+            cell.attributedStringValue = NSAttributedString(
+                string: field.stringValue,
+                attributes: BarTheme.attributes(style.role, tabular: style.tabular, in: field.effectiveAppearance))
             return ceil(cell.cellSize.width)
         }
         var rightEdge: [NSTextField: CGFloat] = [:]

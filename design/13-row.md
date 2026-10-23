@@ -11,7 +11,7 @@ Lodestar is mostly lists, and today each list was laid out where it was drawn: t
 - **Geometry** set the row at 48 with a 4-point side when chosen, 12 inside its pane, rounded at 10, and two-line rows at 52 so their face stays 48.
 - **The key** said a Settings row's letter is a key, and a sequence is keys 4 apart.
 - **The slab** made the chosen row a slab, its address keys resting and only the acting key lit.
-- **The key** made a quiet key outline only its face; beside resting keys it read as a smaller key, so review made it the full key's size (the key contract is amended).
+- **The key** made a quiet key outline only its face; beside resting keys it read as a smaller key, so review made it a resting key drawn in hairlines, face and side (the key contract is amended).
 - **The well** left "a Settings row that is off dims whole" to this contract.
 - **The prototype** (`design/ceramic`) drew a dimmed row's title in quiet ink rather than fading it, and drew Settings' letters as keys in a 34-wide column, which stretched (geometry records the bug).
 
@@ -37,6 +37,7 @@ A row is the thing, then its keys: what it is leads, how to reach it trails. A l
 | detail     | meta (13) in quiet ink, 2 below the title; parts joined by " · ", a path by " › "              |
 | trailing   | 8 apart; centred on the title's first line; the acting key last                                 |
 | keys       | a sequence 4 apart (the key); 8 after a title they follow                                       |
+| words beside keys | on the key's face, never its whole frame: words at the legend's size (meta, 13) share the legend's baseline; larger words centre on the face (the face is the top 21 of the key's 24) |
 | the dot    | one dot, 7 across, drawn: ink where it marks the current choice or your own setting, quiet where it marks a running app; 8 after the words it follows, or centred in a line's dot column |
 
 ### Between rows
@@ -65,7 +66,7 @@ The record under the coach's offer stays one line beside `lode ⌫` and "Not now
 1. **Four rows.** Every list line is a row, a setting, a line or a legend, at its height; no list lays out its own.
 2. **One order.** A row leads with what it is and trails with its keys, the acting key last; a legend leads with its keys.
 3. **One rhythm.** Rows 2 apart, settings by a hairline, lines touching, legends 8 apart.
-4. **Trailing parts align to the first line.**
+4. **Trailing parts align to the first line, and words beside a key align to its face.** Today the coach's record, its "Not now" and every footer's words sit 1.5 to 2.5 points below their keys' letters, centred on the key's whole frame, side included.
 5. **Names are cut at the tail; sentences wrap.** The coach's one-line record is the exception.
 6. **Quiet, never faded.** Nothing in a row or a card is translucent.
 
@@ -75,6 +76,7 @@ The record under the coach's offer stays one line beside `lode ⌫` and "Not now
 - A gallery sweep finds every list line on every surface and checks it is one of the four, at its height, its words 12 in, its trailing parts centred on its first line (extending today's check beyond Settings and the bars).
 - A test sets every name field's truncation to tail and every sentence field to wrap.
 - `DesignDriftTests` fails an `alphaValue` below 1 or a layer opacity below 1 on a row, a card or a control (motion's fades excepted), and a dot drawn as a glyph.
+- A pixel test holds the words beside a key on its legend's baseline (the coach, a footer, a Settings title's keys).
 - A test holds every record the coach writes within its line at the card's widest, with the longest app names the gallery uses.
 
 ## Renders
@@ -94,5 +96,6 @@ Planned.
 
 ## Decided in review
 
-- A quiet key is the same size as a resting key: its hairline outlines face and side together (23 October 2026).
+- A quiet key is a resting key drawn in hairlines: the same shape, face and side, its letter centred on its face (23 October 2026).
+- Words beside a key align to its face: review found the coach's record and the footers sitting below their keys' letters (23 October 2026).
 - The coach's record stays one line beside its keys; wrapping was refused (23 October 2026).

@@ -17,12 +17,12 @@ Lodestar is driven from the keyboard, so the key is its vocabulary: a launcher r
 
 | Size     | Height | Face + side | Legend role               | Used for                                      |
 | -------- | ------ | ----------- | ------------------------- | --------------------------------------------- |
-| standard | 22     | 19 + 3      | key, 13 semibold          | every key in a row, a footer, a guide, a card |
+| standard | 24     | 21 + 3      | key, 13 semibold          | every key in a row, a footer, a guide, a card |
 | large    | 36     | 31 + 5      | large figure, 23 semibold | the peek, the meeting's countdown             |
 
 ### Width
 
-A key is as wide as its legend plus 6 at each side (the half-step), and never narrower than it is tall: a single letter stands on a square-ish key, 22 wide. There is no other minimum.
+A key is as wide as its legend plus 8 at each side (a grid step), and never narrower than it is tall: a single letter stands on a square key, 24 wide. There is no other minimum. Keys that are not one sequence stand 8 apart.
 
 ### The legend
 
@@ -36,7 +36,7 @@ A key is as wide as its legend plus 6 at each side (the half-step), and never na
 - **A bare keystroke is shown as typed:** lowercase. A capital appears only where Shift is actually pressed.
 - **A chord with modifiers** follows macOS: the modifiers' glyphs, then the letter as a capital, on one key (`⌘K`, `⌥J`, `⌥⇧⌘V`).
 - **Named keys** are words where macOS uses words (`esc`, `tab`, `space`, and Lodestar's own `lode`) and glyphs where it uses glyphs (`⏎`, `⌫`, `⇧`, `⌘`, `⌥`, `⌃`, `↑ ↓ ← →`).
-- **A sequence** (keys pressed one after another) is one key per keystroke, 4 apart: `e` `p`, never a chip reading "e p".
+- **A sequence** (keys pressed one after another) is one key per keystroke, 4 apart: `e` `p`, never a chip reading "e p". This holds for click hints too, on trial: a screen of hints is the dense case, and its render decides whether hints keep it (see Open).
 - **A double tap** is one key followed by `×2` in quiet ink at the meta size, 4 after it: `lode` ×2.
 - **A key named in a sentence** (a flash, a caption, the coach) is drawn as a key, inline, or written as typed; never capitalised to stand out.
 
@@ -74,7 +74,7 @@ On the slab (the chosen row) a key takes the slab's look; the slab contract sets
 
 ## Status
 
-Not yet built. Main draws keys at least 34 wide, a sequence as one chip ("e p"), bare keystrokes in capitals on Keep's cards, the guide, hint marks and flashes ("Breath JK saved"), a double tap as two identical keys, and the large key's figure left of centre.
+Not yet built. Main draws keys 22 tall and at least 34 wide, a sequence as one chip ("e p"), bare keystrokes in capitals on Keep's cards, the guide, hint marks and flashes ("Breath JK saved"), a double tap as two identical keys, and the large key's figure left of centre.
 
 ## Prototype lessons
 
@@ -84,4 +84,10 @@ Not yet built. Main draws keys at least 34 wide, a sequence as one chip ("e p"),
 
 ## Open
 
-- Whether the standard key should keep 22 or grow to 24 now that rows are 48 and fields 23.
+- **Click hints on trial.** A screen of hints shows dozens of two-letter sequences; drawn as two keys each, they may crowd the screen and hide what they point at. If the dense render says so, a hint alone may draw its sequence as one key with the letters set tight (`sd`), because a hint is a name to type rather than a key to find. Decided by the render, not in advance.
+- **Pressed in the dark look** is hard to see: the side is close to the ground, so losing two points of it barely shows. Acceptable for now; noted for the slab and sound, which also mark a press.
+
+## Decided in review
+
+- **More room** (23 October 2026): the first draft (22 tall, 6 each side) felt cramped; the key is 24 tall with 8 each side, and separate keys stand 8 apart.
+- The large key, centred, and the four states are approved as drafted.

@@ -1656,9 +1656,7 @@ final class SelectController {
                 guard AXUIElementCopyParameterizedAttributeValue(
                     element, kAXBoundsForRangeParameterizedAttribute as CFString,
                     parameter, &out) == .success,
-                    let raw = out, CFGetTypeID(raw) == AXValueGetTypeID() else { return false }
-                var rect = CGRect.zero
-                guard AXValueGetValue(raw as! AXValue, .cgRect, &rect) else { return false }
+                    let raw = out, let rect = AX.rect(raw) else { return false }
                 return rect.width > 0 && rect.height > 0
             }
 
@@ -1684,14 +1682,8 @@ final class SelectController {
                 let role = array[0] as? String
                 if let role, Self.skipRoles.contains(role) { return }
                 var frame: CGRect?
-                if CFGetTypeID(array[1]) == AXValueGetTypeID(),
-                   CFGetTypeID(array[2]) == AXValueGetTypeID() {
-                    var point = CGPoint.zero
-                    var size = CGSize.zero
-                    if AXValueGetValue(array[1] as! AXValue, .cgPoint, &point),
-                       AXValueGetValue(array[2] as! AXValue, .cgSize, &size) {
-                        frame = CGRect(origin: point, size: size)
-                    }
+                if let point = AX.point(array[1]), let size = AX.size(array[2]) {
+                    frame = CGRect(origin: point, size: size)
                 }
                 // The pruning that makes depth affordable.
                 if let frame, frame.width > 1, frame.height > 1,
@@ -1935,10 +1927,7 @@ final class SelectController {
             guard AXUIElementCopyParameterizedAttributeValue(
                 element, kAXBoundsForRangeParameterizedAttribute as CFString,
                 parameter, &out) == .success,
-                let raw = out, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
-            var rect = CGRect.zero
-            guard AXValueGetValue(raw as! AXValue, .cgRect, &rect),
-                  rect.width > 0 else { return nil }
+                let raw = out, let rect = AX.rect(raw), rect.width > 0 else { return nil }
             return rect
         }
     }

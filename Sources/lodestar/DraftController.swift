@@ -1887,13 +1887,10 @@ final class DraftController {
                 // The insertion point, in UTF-16 units the way AX counts,
                 // converted to characters the way the buffer counts.
                 if let value = field.value, let boxed = AX.copy(focused, kAXSelectedTextRangeAttribute),
-                   CFGetTypeID(boxed) == AXValueGetTypeID() {
-                    var range = CFRange()
-                    if AXValueGetValue(boxed as! AXValue, .cfRange, &range) {
-                        let utf16 = (value as NSString)
-                        let clamped = max(0, min(range.location, utf16.length))
-                        field.cursor = utf16.substring(to: clamped).count
-                    }
+                   let range = AX.range(boxed) {
+                    let utf16 = (value as NSString)
+                    let clamped = max(0, min(range.location, utf16.length))
+                    field.cursor = utf16.substring(to: clamped).count
                 }
             }
         }

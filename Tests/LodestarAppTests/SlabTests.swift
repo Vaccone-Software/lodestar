@@ -69,6 +69,18 @@ final class SlabTests: XCTestCase {
         return NSRect(x: rect.minX, y: root.bounds.height - rect.maxY, width: rect.width, height: rect.height)
     }
 
+    /// Where a view is drawn: its frame in `root`, moved up by what the rows
+    /// above it lift their content by (a row's layers rise by half its side).
+    private func rendered(_ view: NSView, in root: NSView) -> NSRect {
+        var rect = picture(view, in: root)
+        var above = view.superview
+        while let ancestor = above, ancestor !== root.superview {
+            rect.origin.y -= ancestor.layer?.sublayerTransform.m42 ?? 0
+            above = ancestor.superview
+        }
+        return rect
+    }
+
     private func steps(night: Bool) -> Palette.Steps { EyeComfortState.shared.steps(dark: night) }
 
     private func stepSet(_ look: Palette.Steps) -> [RGB] {
@@ -136,7 +148,7 @@ final class SlabTests: XCTestCase {
                 for slab in found {
                     slabCount += 1
                     checkedSurfaces.insert(shot.surface)
-                    let frame = picture(slab, in: root)
+                    let frame = rendered(slab, in: root)
                     let depth = slab as? CeramicDepth
                     let side = depth?.drawnSide ?? (slab as? ObjectSurface)?.pane?.side ?? 0
                     // The face is the slab step of the look around it; the side is 4 points, inside the frame.
@@ -179,7 +191,7 @@ final class SlabTests: XCTestCase {
                                 let floor: Double? = self.near(ink, inside.ink, 0.004) ? EyeComfort.inkFloor
                                     : (self.near(ink, inside.quietInk, 0.004) ? EyeComfort.quietInkFloor : nil)
                                 if let floor, !field.isEditable {
-                                    let area = self.picture(field, in: root)
+                                    let area = self.rendered(field, in: root)
                                     var best = 1.0
                                     var py = area.minY
                                     while py < area.maxY {
@@ -235,6 +247,105 @@ final class SlabTests: XCTestCase {
         XCTAssertGreaterThan(slabCount, 60)
         XCTAssertGreaterThan(words, 150, "words measured on slabs")
         XCTAssertGreaterThan(litKeys, 10)
+    }
+
+    // MARK: - Words on the face
+
+    /// The ink rows of a word as drawn: the top and bottom of what differs
+    /// from the slab inside the field's frame, found in the bitmap at its own
+    /// resolution (half a point) with the edge taken where the ink is half
+    /// as strong as at its strongest.
+    private func inkSpan(in rect: NSRect, of rep: NSBitmapImageRep, over slab: RGB) -> (top: CGFloat, bottom: CGFloat)? {
+        let scale = CGFloat(rep.pixelsWide) / rep.size.width
+        var rows: [(y: Int, strength: Double)] = []
+        for py in Int(rect.minY * scale)..<Int(rect.maxY * scale) {
+            var strongest = 0.0
+            for px in Int(rect.minX * scale)..<Int(rect.maxX * scale) {
+                guard let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { continue }
+                let d = max(abs(Double(c.redComponent) - slab.red), abs(Double(c.greenComponent) - slab.green),
+                            abs(Double(c.blueComponent) - slab.blue))
+                strongest = max(strongest, d)
+            }
+            rows.append((py, strongest))
+        }
+        guard let peak = rows.map(\.strength).max(), peak > 0.2 else { return nil }
+        let inked = rows.filter { $0.strength >= peak / 2 }
+        guard let first = inked.first, let last = inked.last else { return nil }
+        return (CGFloat(first.y) / scale, CGFloat(last.y + 1) / scale)
+    }
+
+    /// A single line of words stands on the middle of the slab's face: the
+    /// middle of its cap-height band, as a key's legend does, is the face's
+    /// middle within half a point, measured on the pixels.
+    func testASingleLineOfWordsIsCentredOnTheFaceOfItsSlab() throws {
+        var wrong: [String] = []
+        var measured = 0
+        var surfaces = Set<String>()
+        for look in GalleryLook.all {
+            look.apply()
+            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
+                guard let (root, keep) = try? shot.build(look) else { continue }
+                GalleryHost.settle(0.02)
+                root.window?.contentView?.layoutSubtreeIfNeeded()
+                root.layoutSubtreeIfNeeded()
+                let slabsHere = slabs(in: root).filter { $0 is SlabRow }
+                guard !slabsHere.isEmpty else { _ = keep; continue }
+                let rep = GalleryRender.bitmap(of: root)
+                let host = steps(night: look == .night)
+                for slab in slabsHere {
+                    let frame = rendered(slab, in: root)
+                    let side = (slab as? CeramicDepth)?.drawnSide ?? 0
+                    // The face: the frame less the side beneath it.
+                    // A pressed face lies lower by what its side gave up.
+                    let reserved = (slab as? SlabRow)?.reservedTop ?? 0
+                    let face = NSRect(x: frame.minX, y: frame.minY + reserved + (Slab.side - side), width: frame.width,
+                                      height: frame.height - Slab.side - reserved)
+                    var fields: [NSTextField] = []
+                    walk(content(of: slab)) { view in
+                        if let f = view as? NSTextField, !f.stringValue.isEmpty, self.shown(f, below: content(of: slab)),
+                           !f.isEditable, !self.isContent(f) {
+                            fields.append(f)
+                        }
+                    }
+                    // Words stacked in lines are centred as a block, not each on its own.
+                    let areas = fields.map { rendered($0, in: root) }.filter { face.intersects($0) }
+                    let stacked = areas.enumerated().contains { one in
+                        areas.enumerated().contains { other in
+                            other.offset != one.offset && abs(other.element.midY - one.element.midY) > 6
+                                && other.element.minX < one.element.maxX && other.element.maxX > one.element.minX
+                        }
+                    }
+                    guard !stacked else { continue }
+                    for (index, area) in areas.enumerated() {
+                        let field = fields[index]
+                        guard area.height < (field.font?.boundingRectForFont.height ?? 40) * 1.6,
+                              let font = field.font,
+                              let span = inkSpan(in: area, of: rep, over: host.slab) else { continue }
+                        // Where the ink's bottom stands below the baseline, from the glyphs themselves.
+                        let line = CTLineCreateWithAttributedString(NSAttributedString(string: field.stringValue,
+                                                                                       attributes: [.font: font]))
+                        let glyphs = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+                        let baseline = span.bottom + glyphs.minY
+                        let band = baseline - font.capHeight / 2
+                        let off = band - face.midY
+                        measured += 1
+                        surfaces.insert(shot.surface)
+                        // The largest words of a row are centred to the half point; a smaller word
+                        // beside them stands on the same middle of its box, a point at most off.
+                        let largest = fields.map { $0.font?.pointSize ?? 0 }.max() ?? 0
+                        if abs(off) > ((font.pointSize >= largest) ? 0.5 : 1.0) {
+                            wrong.append("\(shot.name(in: look)): \"\(field.stringValue.prefix(24))\" is \(String(format: "%.2f", off)) points off the face's middle")
+                        }
+                    }
+                }
+                _ = keep
+            }
+        }
+        XCTAssertEqual(wrong, [], "single lines of words are centred on the face")
+        XCTAssertGreaterThan(measured, 25, "words were measured")
+        for surface in ["launcher", "ask", "choice", "inputmenu", "coach", "settings", "keep"] {
+            XCTAssertTrue(surfaces.contains(surface), "\(surface)'s words were measured")
+        }
     }
 
     // MARK: - The floors, by the palette

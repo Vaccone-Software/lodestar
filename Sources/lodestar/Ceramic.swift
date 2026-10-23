@@ -976,7 +976,9 @@ final class ChoiceMenuItemView: NSView {
     private let icon = NSImageView()
     private let dot = ToneView(fill: BarTheme.ink, radius: BarTheme.dotRadius)
     private weak var popup: NSPopUpButton?
-    static let height: CGFloat = 26
+    /// 32 tall: the slab's face is 24 of it, a pointer target, so words stand
+    /// with room above and below them.
+    static let height: CGFloat = Grid.margin
     /// A test's say on whether the row is the chosen one; the menu's own
     /// highlight says it otherwise.
     var highlighted: Bool? { didSet { sync() } }
@@ -1000,6 +1002,7 @@ final class ChoiceMenuItemView: NSView {
         step.setupSlab()
         addSubview(step)
         [dot, icon, label].forEach(step.addSubview)
+        place()
         setAccessibilityElement(true)
         setAccessibilityRole(.menuItem)
         setAccessibilityLabel(item.title)
@@ -1017,19 +1020,33 @@ final class ChoiceMenuItemView: NSView {
     override func layout() {
         super.layout()
         step.frame = bounds.insetBy(dx: Grid.tight, dy: Grid.hair)
+    }
+
+    /// The dot, the icon and the words stand on the middle of the step by
+    /// constraints, so the slab's lift puts them on the middle of its face.
+    private func place() {
         let inset = Grid.part - Grid.tight
-        let room = step.bounds
-        dot.frame = NSRect(x: inset, y: ((room.height - BarTheme.dotDiameter) / 2).rounded(),
-                           width: BarTheme.dotDiameter, height: BarTheme.dotDiameter)
-        var x = inset + BarTheme.dotDiameter + Grid.close
+        for view in [dot, icon, label] { view.translatesAutoresizingMaskIntoConstraints = false }
+        var constraints = [
+            dot.leadingAnchor.constraint(equalTo: step.leadingAnchor, constant: inset),
+            dot.centerYAnchor.constraint(equalTo: step.centerYAnchor),
+            dot.widthAnchor.constraint(equalToConstant: BarTheme.dotDiameter),
+            dot.heightAnchor.constraint(equalToConstant: BarTheme.dotDiameter),
+            label.centerYAnchor.constraint(equalTo: step.centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: step.trailingAnchor, constant: -inset),
+        ]
         if icon.image != nil {
-            icon.frame = NSRect(x: x, y: ((room.height - Grid.part) / 2).rounded(), width: Grid.section - Grid.tight, height: Grid.part)
-            x += Grid.section
+            constraints += [
+                icon.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: Grid.close),
+                icon.centerYAnchor.constraint(equalTo: step.centerYAnchor),
+                icon.widthAnchor.constraint(equalToConstant: Grid.section - Grid.tight),
+                icon.heightAnchor.constraint(equalToConstant: Grid.part),
+                label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: Grid.close + Grid.section),
+            ]
+        } else {
+            constraints.append(label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: Grid.close))
         }
-        let natural = label.sizeThatFits(NSSize(width: CGFloat.greatestFiniteMagnitude,
-                                                height: CGFloat.greatestFiniteMagnitude)).height
-        label.frame = NSRect(x: x, y: ((room.height - natural) / 2).rounded(),
-                             width: max(0, room.width - x - inset), height: natural)
+        NSLayoutConstraint.activate(constraints)
     }
 
     /// Choose the row, or let it go, as the menu's highlight moves.

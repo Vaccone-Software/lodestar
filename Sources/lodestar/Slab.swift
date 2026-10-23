@@ -163,6 +163,11 @@ class SlabRow: NSView, CeramicDepth, SlabSurface {
     /// a row built by someone else (Settings') leaves it to the row.
     var flipsLook = true { didSet { flip.active = flipsLook && chosen } }
     var isSlab: Bool { chosen }
+    /// Whether the frame holds only the side beneath the face and none above
+    /// it: a step laid behind a row that did not reserve its side (Settings'
+    /// rows), where the face is the frame less a side above and a side below,
+    /// so the row's words, centred on the frame, are centred on the face.
+    var reservesTop = false { didSet { if reservesTop != oldValue { refit() } } }
     /// Where the row's corners are, before a row too short for it becomes
     /// a stadium. A row stands one pane-inset inside its pane, so it
     /// rounds at the pane's radius less that inset and its corners keep an
@@ -183,6 +188,8 @@ class SlabRow: NSView, CeramicDepth, SlabSurface {
     var drawnSide: CGFloat { chosen ? standing.visibleSide : 0 }
     /// The face as it stands now, in this row's coordinates, for the tests.
     var face: CGRect { standing.faceFrame.offsetBy(dx: 0, dy: standing.lift) }
+    /// The room above the face that the frame holds: nothing, or a side's worth.
+    var reservedTop: CGFloat { reservesTop ? Slab.side : 0 }
     var faceColor: CGColor? { standing.faceColor }
     var sideColor: CGColor? { standing.sideColor }
     var rimColor: CGColor? { standing.rimColor }
@@ -229,7 +236,9 @@ class SlabRow: NSView, CeramicDepth, SlabSurface {
         layer?.sublayerTransform = CATransform3DMakeTranslation(0, lift, 0)
         let corner = BarTheme.radius(radius, height: bounds.height)
         layer?.cornerRadius = corner
-        standing.fit(bounds.offsetBy(dx: 0, dy: -lift), radius: corner)
+        var shape = bounds
+        if reservesTop { shape.size.height = max(0, shape.height - Slab.side) }
+        standing.fit(shape.offsetBy(dx: 0, dy: -lift), radius: corner)
     }
 
     override func viewDidMoveToSuperview() {

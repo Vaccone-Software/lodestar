@@ -2426,6 +2426,7 @@ final class LandingStep: SlabRow {
     override init(frame: NSRect) {
         super.init(frame: frame)
         flipsLook = false
+        reservesTop = true
     }
 
     required init?(coder: NSCoder) { nil }

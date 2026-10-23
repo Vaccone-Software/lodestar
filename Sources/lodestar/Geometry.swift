@@ -66,6 +66,14 @@ extension BarTheme {
         static let steps: [CGFloat] = [hair, tight, close, part, group, section, margin, column]
     }
 
+    // MARK: - Controls that hold words
+
+    /// A control that holds words (a popup, a button, a field) pads 12 at its
+    /// sides, and a popup's chevron stands 8 from its words. Only a key or a
+    /// chip, which hold a letter, take the half-step.
+    static let wordPadding: CGFloat = Grid.part
+    static let chevronGap: CGFloat = Grid.close
+
     // MARK: - A bar's pane
 
     /// A bar's pane insets its field and its rows by one step, and the

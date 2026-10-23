@@ -1006,6 +1006,34 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// accent's dot on the current one, rather than the system's bezel and
     /// a highlight in the Mac's accent.
     private final class KeyPopUp: NSPopUpButton, NSMenuDelegate {
+        /// The popup's chevron is drawn here, so its words can stand 12 from
+        /// the border and the chevron 8 from the words.
+        private let chevron = NSImageView()
+        private static let chevronImage = NSImage(systemSymbolName: "chevron.up.chevron.down",
+                                                  accessibilityDescription: nil)?
+            .withSymbolConfiguration(BarTheme.symbol)
+
+        override class var cellClass: AnyClass? {
+            get { KeyPopUpCell.self }
+            set {}
+        }
+
+        override var intrinsicContentSize: NSSize {
+            let size = super.intrinsicContentSize
+            let widest = itemTitles.map { BarTheme.width(of: $0, in: .control) }.max() ?? 0
+            let chevronWidth = Self.chevronImage?.size.width ?? 0
+            return NSSize(width: ceil(widest) + BarTheme.wordPadding * 2 + BarTheme.chevronGap + chevronWidth,
+                          height: size.height)
+        }
+
+        override func layout() {
+            super.layout()
+            let image = Self.chevronImage?.size ?? .zero
+            chevron.frame = NSRect(x: bounds.width - BarTheme.wordPadding - image.width,
+                                   y: ((bounds.height - image.height) / 2).rounded(),
+                                   width: image.width, height: image.height)
+        }
+
         override var acceptsFirstResponder: Bool { true }
         override var canBecomeKeyView: Bool { true }
         override func resetCursorRects() {
@@ -1015,6 +1043,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             isBordered = false
+            (cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+            if chevron.superview == nil {
+                chevron.image = Self.chevronImage
+                chevron.contentTintColor = BarTheme.secondaryColor
+                addSubview(chevron)
+            }
             wantsLayer = true
             layer?.cornerRadius = BarTheme.controlRadius
             layer?.borderWidth = 1
@@ -1051,6 +1085,19 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             for item in menu.items where !item.isSeparatorItem {
                 item.view = ChoiceMenuItemView(item: item, chosen: item == selectedItem, width: width, popup: self)
             }
+        }
+    }
+
+    /// A popup's words stand `wordPadding` from its border, and end a chevron
+    /// and its gap before the other side.
+    private final class KeyPopUpCell: NSPopUpButtonCell {
+        override func titleRect(forBounds rect: NSRect) -> NSRect {
+            var title = super.titleRect(forBounds: rect)
+            let chevron = NSImage(systemSymbolName: "chevron.up.chevron.down", accessibilityDescription: nil)?
+                .withSymbolConfiguration(BarTheme.symbol)?.size.width ?? 0
+            title.origin.x = rect.minX + BarTheme.wordPadding
+            title.size.width = max(0, rect.width - BarTheme.wordPadding * 2 - BarTheme.chevronGap - chevron)
+            return title
         }
     }
 

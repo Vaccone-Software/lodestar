@@ -1106,8 +1106,8 @@ final class RoomField: NSView {
         field.setPlaceholder(placeholder)
         addSubview(field)
         NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Grid.close),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Grid.close),
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BarTheme.wordPadding),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -BarTheme.wordPadding),
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightAnchor.constraint(equalToConstant: BarTheme.fieldHeight),
         ])
@@ -1171,8 +1171,8 @@ final class RoomButton: NSButton {
     override var intrinsicContentSize: NSSize {
         let text = attributedTitle.size()
         return answer
-            ? NSSize(width: (text.width + Grid.section).rounded(.up), height: BarTheme.fieldHeight)
-            : NSSize(width: (text.width + Grid.section).rounded(.up), height: BarTheme.minTarget)
+            ? NSSize(width: (text.width + BarTheme.wordPadding * 2).rounded(.up), height: BarTheme.fieldHeight)
+            : NSSize(width: (text.width + BarTheme.wordPadding * 2).rounded(.up), height: BarTheme.minTarget)
     }
 
     override func updateTrackingAreas() {

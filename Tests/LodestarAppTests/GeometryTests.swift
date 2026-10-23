@@ -45,6 +45,17 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(BarTheme.radius(BarTheme.surfaceRadius, height: 96), 22)
     }
 
+    func testAControlThatHoldsWordsPadsTwelveAndAChevronStandsEightFromThem() {
+        XCTAssertEqual(BarTheme.wordPadding, 12)
+        XCTAssertEqual(BarTheme.wordPadding, Grid.part)
+        XCTAssertEqual(BarTheme.chevronGap, 8)
+        XCTAssertEqual(BarTheme.chevronGap, Grid.close)
+        let button = RoomButton(title: "Open", target: nil, action: nil)
+        let words = button.attributedTitle.size().width
+        XCTAssertEqual(button.intrinsicContentSize.width, (words + 24).rounded(.up), "12 at each side")
+        XCTAssertEqual(Grid.half, 6, "a key or a chip keeps the half-step")
+    }
+
     func testTheGridIsTheStepsOfTheContract() {
         XCTAssertEqual(Grid.steps, [2, 4, 8, 12, 16, 24, 32, 48])
         XCTAssertEqual(Grid.half, 6)
@@ -238,8 +249,8 @@ final class GeometryTests: XCTestCase {
     /// of design/03-geometry.md that a picture can show.
     func testEverySurfaceKeepsTheGeometryRules() throws {
         var outside: [String] = [], shadows: [String] = [], keys: [String] = [], empty: [String] = []
-        var rows: [String] = [], targets: [String] = [], checked = 0
-        var counts = ["shadows": 0, "key columns": 0, "empty": 0, "settings rows": 0, "raised rows": 0, "targets": 0]
+        var rows: [String] = [], targets: [String] = [], words: [String] = [], checked = 0
+        var counts = ["shadows": 0, "key columns": 0, "empty": 0, "settings rows": 0, "word controls": 0, "raised rows": 0, "targets": 0]
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) {
@@ -335,6 +346,35 @@ final class GeometryTests: XCTestCase {
                     }
                 }
 
+                // A control that holds words pads 12 at its sides, and a popup's
+                // chevron stands 8 from its words.
+                walk(root) { view in
+                    if let popup = view as? NSPopUpButton, !popup.isHidden, popup.bounds.width > 0,
+                       let cell = popup.cell as? NSPopUpButtonCell {
+                        counts["word controls", default: 0] += 1
+                        let title = cell.titleRect(forBounds: popup.bounds)
+                        if abs(title.minX - BarTheme.wordPadding) > 0.5 {
+                            words.append("\(name): a popup's words start \(title.minX) in")
+                        }
+                        let chevron = popup.subviews.compactMap { $0 as? NSImageView }.first
+                        if let chevron {
+                            if abs((popup.bounds.width - chevron.frame.maxX) - BarTheme.wordPadding) > 0.5 {
+                                words.append("\(name): a popup's chevron is \(popup.bounds.width - chevron.frame.maxX) from the border")
+                            }
+                            if chevron.frame.minX - title.maxX < BarTheme.chevronGap - 0.5 {
+                                words.append("\(name): a popup's chevron is \(chevron.frame.minX - title.maxX) from its words")
+                            }
+                        }
+                    }
+                    if let button = view as? RoomButton, !button.isHidden, button.bounds.width > 0 {
+                        counts["word controls", default: 0] += 1
+                        let room = button.bounds.width - button.attributedTitle.size().width
+                        if room < BarTheme.wordPadding * 2 - 0.5 {
+                            words.append("\(name): a button pads \(room / 2) at its sides")
+                        }
+                    }
+                }
+
                 // Anything clickable is at least 24 by 24.
                 walk(root) { view in
                     guard let control = view as? NSControl, !(control is NSTextField), !(control is NSImageView), !control.isHidden,
@@ -359,6 +399,8 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(Array(Set(keys)).sorted(), [], "a column of keys is as wide as its widest")
         XCTAssertEqual(Array(Set(empty)).sorted(), [], "a column with nothing in it takes no space")
         XCTAssertEqual(Array(Set(rows)).sorted(), [], "a row's parts share the title's first line")
+        XCTAssertGreaterThan(counts["word controls"] ?? 0, 10, "popups and buttons were looked at")
+        XCTAssertEqual(Array(Set(words)).sorted(), [], "a control that holds words pads 12")
         XCTAssertEqual(Array(Set(targets)).sorted(), [], "anything clickable is 24 by 24 at least")
     }
 

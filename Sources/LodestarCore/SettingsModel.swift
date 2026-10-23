@@ -265,7 +265,8 @@ public enum SettingsModel {
         public var editorEngines: [String] = []
         public var editorEngineLabels: [String] = []
         public var editorEngineCurrent = ""
-        /// The dictation model in use, or what it is fetching, for its row.
+        /// The dictation model in use, what it is fetching, or that a load
+        /// failed and Apple's recognizer is hearing instead.
         public var earStatus = ""
         /// Input Monitoring, for exact keyboard attribution: "Granted" or not.
         public var inputMonitoring = "unknown"

@@ -36,11 +36,13 @@ A screen is brightest when the room is darkest. Lodestar cannot dim the Mac, but
 
 **Bedtime** is four hours after sunset, held between 21:30 and 00:30, and lasts until sunrise.
 
-**Steps.** The level is worked out every five minutes and on waking, a clock change or a time-zone change. Each step is under 1% of luminance, so none is seen, bedtime's deeper dim included.
+**Steps.** The level is worked out every five minutes and on waking, a clock change or a time-zone change. Each step is under 1% of the current level, so none is seen: bedtime's deeper dim eases in over 90 minutes, and the morning's climb is geometric so its middle does not step.
+
+**Quiet ink at bedtime.** In the light look, quiet ink deepens a shade at 80% (`#61534A`) so it holds 4.5 : 1 on the well and the ground as well as the pane.
 
 ### Receding
 
-The pill and the meeting's chip stay on screen while the work is elsewhere. After 20 seconds without attention their ink moves toward their pane, to 5.5 : 1, and their quiet ink to 4.5 : 1, so the two keep their order. They come back at once on hover, a key, a change of state, or when the meeting is due. A lit key never recedes.
+The pill and the meeting's chip stay on screen while the work is elsewhere. After 20 seconds without attention their ink moves toward their pane, to 7 : 1, and their quiet ink to 4.5 : 1, so the two keep a visible order (at 5.5 and 4.5 they read as one grey: contrast bunches near the floor). Receding is off while Increase Contrast is on. They come back at once on hover, a key, a change of state, or when the meeting is due. A lit key never recedes.
 
 ### The setting
 
@@ -67,7 +69,7 @@ In Settings, General, under "Sound and display": a switch titled **Eye comfort**
 
 ## Status
 
-Not yet built. Main has no Eye comfort: it follows the Mac's look at full level, and nothing recedes.
+Built 22 October 2026. Measured: light look at 88%, pane `#E9E2DB`, ink 13.7, quiet ink 5.3, orange `#BC3406` at 4.51; at 80%, pane `#DFD9D2`, ink 12.5, quiet ink 5.2, orange `#B13106` at 4.51. Dark look at 80%: ink 12.0, quiet ink 5.5, orange `#E54E14` at 4.51. The level lives in one place; because AppKit offers no appearance pass while the look stays the same, a level step asks the surfaces with baked colours to repaint, only when the level changes. The app icon keeps the full brand orange.
 
 ## Prototype lessons
 

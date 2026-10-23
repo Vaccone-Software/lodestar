@@ -52,6 +52,9 @@ public final class ControlSocket {
     public var handle: (([String]) -> [String: Any])?
 
     private var listener: Int32 = -1
+    /// Set once `claim` has recorded this process against the socket.
+    /// Only that instance removes the record; one that declined must not.
+    private var ownsClaim = false
     private var source: DispatchSourceRead?
     /// Accepting and the blocking read both happen here, never on main: one
     /// slow client must not be able to hold the keyboard.
@@ -67,11 +70,18 @@ public final class ControlSocket {
         // makes a restart after one work rather than fail to bind forever.
         // But a file with something listening behind it is not a leftover:
         // a second instance used to unlink it anyway, and the first went on
-        // running with a socket nobody could reach. Ask before taking it.
-        if !Self.claim(path, waiting: claimWait) {
+        // running with a socket nobody could reach. On macOS a full listen
+        // backlog refuses connect the same way a dead socket does, so ask,
+        // and check the owner, before taking it.
+        guard Self.claim(path, waiting: claimWait) else {
             Log.error("control", ["socket": "another instance is listening on \(path) — left alone, no control socket here"])
             return
         }
+        // `claim` has recorded our pid. Any return before the listener is
+        // up has to take that back, or this process would look like the
+        // owner of a socket it never bound.
+        var releaseClaim = true
+        defer { if releaseClaim { Self.relinquish(path) } }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let capacity = MemoryLayout.size(ofValue: address.sun_path)
@@ -109,6 +119,8 @@ public final class ControlSocket {
             return
         }
         listener = fd
+        ownsClaim = true
+        releaseClaim = false
         let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         reader.setEventHandler { [weak self] in self?.serveOne() }
         reader.setCancelHandler { close(fd) }
@@ -122,8 +134,15 @@ public final class ControlSocket {
         source = nil
         // Only the instance that bound the socket removes it; one that
         // declined to take it over must not unlink the live owner's.
+        // The node goes first and the owner record second: a peer that
+        // probes in between still sees a live pid and waits, rather than
+        // binding the path we just gave up.
         if listener >= 0 { unlink(path.path) }
         listener = -1
+        if ownsClaim {
+            Self.relinquish(path.path)
+            ownsClaim = false
+        }
     }
 
     /// Clears the way to bind at `path`: true when nothing is there or
@@ -132,17 +151,43 @@ public final class ControlSocket {
     /// `waiting` seconds to go away before it is believed.
     static func claim(_ path: String, waiting: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(waiting)
-        while isListening(at: path) {
-            guard Date() < deadline else { return false }
-            Thread.sleep(forTimeInterval: 0.05)
+        while true {
+            if isListening(at: path) {
+                guard Date() < deadline else { return false }
+                Thread.sleep(forTimeInterval: 0.05)
+                continue
+            }
+            // Vacant, or refused. Record ourselves before unlinking so a
+            // second starter that loses the race sees a live owner and
+            // waits, instead of deleting the socket we are about to bind.
+            guard takeOwnership(path) else {
+                guard Date() < deadline else { return false }
+                Thread.sleep(forTimeInterval: 0.05)
+                continue
+            }
+            // The record now names us, so `isListening` would report the
+            // path as alive even when nothing has answered. Look at the
+            // socket itself before removing it.
+            if answers(at: path) {
+                relinquish(path)
+                guard Date() < deadline else { return false }
+                Thread.sleep(forTimeInterval: 0.05)
+                continue
+            }
+            unlink(path)
+            return true
         }
-        unlink(path)
-        return true
     }
 
-    /// Whether something answers at `path`. Refused or missing means a
-    /// leftover; anything else (a full backlog, a permission failure) is not
-    /// proof of one, and is treated as alive.
+    /// Whether a connect at `path` reached a listener.
+    ///
+    /// `ECONNREFUSED` means the connect did not get through. It does not
+    /// mean the socket is a leftover. macOS returns it when the listen
+    /// queue is full — `listen(2)` says a client may be refused, and
+    /// `unp_connect` returns it when `sonewconn` fails — and the queue
+    /// here is 8, with an accept loop that can sit in a read for
+    /// `readTimeout` seconds. A socket file whose process has died fails
+    /// the same way. `isListening` tells those apart with the owner record.
     ///
     /// A connection that only connects and hangs up is not a polite probe:
     /// the listener accepts it after the peer is gone, where setting
@@ -150,7 +195,7 @@ public final class ControlSocket {
     /// the process being probed. So the probe says something the listener
     /// answers harmlessly (a request with no verb, refused as such) and
     /// leaves only once the answer is in, or a second has passed.
-    private static func isListening(at path: String) -> Bool {
+    private static func answers(at path: String) -> Bool {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let capacity = MemoryLayout.size(ofValue: address.sun_path)
@@ -183,6 +228,86 @@ public final class ControlSocket {
         var buffer = [UInt8](repeating: 0, count: 256)
         _ = read(fd, &buffer, buffer.count)
         return true
+    }
+
+    /// Whether `path` must be left alone: something answered, or a live
+    /// process still owns it. A refused connect with a dead owner is a
+    /// leftover; the same refusal with a live owner is a full backlog.
+    private static func isListening(at path: String) -> Bool {
+        answers(at: path) || ownerIsAlive(path)
+    }
+
+    /// The pid of the process that last claimed the socket, beside it.
+    /// A clean stop removes it. A crash leaves a pid `kill` will not find,
+    /// which is how the next launch tells a leftover from a busy instance.
+    static func ownerRecordPath(for socketPath: String) -> String {
+        socketPath + ".pid"
+    }
+
+    private static func readOwner(_ socketPath: String) -> Int32? {
+        let fd = open(ownerRecordPath(for: socketPath), O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var buffer = [UInt8](repeating: 0, count: 64)
+        let count = Darwin.read(fd, &buffer, buffer.count)
+        guard count > 0,
+              let text = String(bytes: buffer.prefix(count), encoding: .utf8),
+              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid > 0 else { return nil }
+        return pid
+    }
+
+    /// `kill(pid, 0)` reports a process we may not signal as `EPERM`. It
+    /// is still there, so the socket it owns is not ours to take.
+    private static func processIsAlive(_ pid: Int32) -> Bool {
+        if kill(pid, 0) == 0 { return true }
+        return errno == EPERM
+    }
+
+    private static func ownerIsAlive(_ socketPath: String) -> Bool {
+        guard let pid = readOwner(socketPath) else { return false }
+        return processIsAlive(pid)
+    }
+
+    /// Records this process as the owner when no live one holds the record.
+    /// The lock only serializes two starters. The pid is what a later
+    /// launch checks: a crash leaves the file, and `kill` on that pid fails.
+    private static func takeOwnership(_ socketPath: String) -> Bool {
+        if ownerIsAlive(socketPath) { return false }
+        let file = ownerRecordPath(for: socketPath)
+        let fd = open(file, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { return false }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            return false
+        }
+        defer {
+            flock(fd, LOCK_UN)
+            close(fd)
+        }
+        // Under the lock: a peer that won it has already written a live
+        // pid. Same-process flock does not exclude us, which is why a
+        // live pid that is not ours still declines.
+        if let pid = readOwner(socketPath), pid != getpid(), processIsAlive(pid) {
+            return false
+        }
+        guard fchmod(fd, 0o600) == 0, ftruncate(fd, 0) == 0, lseek(fd, 0, SEEK_SET) == 0 else {
+            return false
+        }
+        let record = Array("\(getpid())\n".utf8)
+        let written = record.withUnsafeBytes { Darwin.write(fd, $0.baseAddress!, $0.count) }
+        guard written == record.count else {
+            _ = ftruncate(fd, 0)
+            return false
+        }
+        return true
+    }
+
+    /// Drops the record when it still names this process. A successor that
+    /// has already written its own pid is left in place.
+    private static func relinquish(_ socketPath: String) {
+        guard readOwner(socketPath) == getpid() else { return }
+        unlink(ownerRecordPath(for: socketPath))
     }
 
     /// How long a probe waits for the listener's answer, in milliseconds.

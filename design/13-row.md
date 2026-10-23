@@ -11,7 +11,7 @@ Lodestar is mostly lists, and today each list was laid out where it was drawn: t
 - **Geometry** set the row at 48 with a 4-point side when chosen, 12 inside its pane, rounded at 10, and two-line rows at 52 so their face stays 48.
 - **The key** said a Settings row's letter is a key, and a sequence is keys 4 apart.
 - **The slab** made the chosen row a slab, its address keys resting and only the acting key lit.
-- **The key** made a quiet key outline only its face; beside resting keys it read as a smaller key, so review made it a resting key drawn in hairlines, face and side (the key contract is amended).
+- **The key** made a quiet key outline only its face; beside resting keys it read as a smaller key, so review made it a resting key left unfilled: the same face and side, the face outlined, the side in the hairline's tone (the key contract is amended).
 - **The well** left "a Settings row that is off dims whole" to this contract.
 - **The prototype** (`design/ceramic`) drew a dimmed row's title in quiet ink rather than fading it, and drew Settings' letters as keys in a 34-wide column, which stretched (geometry records the bug).
 
@@ -96,6 +96,6 @@ Planned.
 
 ## Decided in review
 
-- A quiet key is a resting key drawn in hairlines: the same shape, face and side, its letter centred on its face (23 October 2026).
+- A quiet key is a resting key left unfilled: the same face and side, its letter centred on its face. A single outline round face and side together was drawn first and read as a round chip (23 October 2026).
 - Words beside a key align to its face: review found the coach's record and the footers sitting below their keys' letters (23 October 2026).
 - The coach's record stays one line beside its keys; wrapping was refused (23 October 2026).

@@ -47,7 +47,7 @@ A key is as wide as its legend plus 8 at each side (a grid step), and never narr
 | resting | the look's key step | the look's side, 3 (5)   | ink           | a key you can press                      |
 | lit     | the orange          | the orange, darkened     | ink on orange | the one key to press next                |
 | pressed | as before           | 1, face down by the rest | as before     | while it is down, at once                |
-| quiet   | none, a hairline    | a hairline, no fill      | quiet ink     | shown but not pressable now, or disabled |
+| quiet   | none, a hairline    | the hairline's tone      | quiet ink     | shown but not pressable now, or disabled |
 
 On the slab (the chosen row) a key takes the slab's look, face, side and hairline (a key on the day slab is a night key, on the night slab a clay key), and the lit key is that look's orange with its letter. Only the key that acts is lit on a slab, and the address keys rest (design/11-slab.md).
 
@@ -86,7 +86,7 @@ Measured by rendering every legend in every state and both looks and reading the
 
 What the build found and decided:
 
-- **A quiet key is a resting key drawn in hairlines.** It has the resting key's shape, face and side: a hairline round the whole key (24 at the standard size, 36 at the large) and a hairline where the face meets the side, with no fill. Its letter, in quiet ink, is centred on the face as every key's is, so it is the same size and shape as its neighbours and shares their baseline. (Until the row contract, 23 October 2026, it outlined only the 21-point face and read as a smaller key; a single 24-point outline with the letter left on the face's band then read as off-centre.)
+- **A quiet key is a resting key left unfilled.** It keeps the resting key's shape exactly: a 21-point face, outlined by a hairline and filled with nothing (the surface shows through), standing on a 3-point side in the hairline's tone. Its letter, in quiet ink, is centred on the face as every key's is, so it is the same size and shape as its neighbours and shares their baseline. (Until the row contract, 23 October 2026, it outlined only the face with no side and read as a smaller key.)
 - **Keep's cards** lost two points of body to the taller key; the gap under the key went from 4 to 2 (the key's own side is part of it) so the file's sheet still fits, and every title on a card now stands on the middle of its key's face.
 - **Guides and the cheat sheet** write a key as groups: `zo zc` is two sequences, `h j k l` four keys 8 apart, `esc`, `⌘K`, `⇧F` and `a…z` one key each.
 - **`uppercased()`** on a bare keystroke is gone from flashes, the coach, the advisor, the config history, the launcher's verdicts, Keep's cards and the guides; the ones that remain are chords (⌥J, ⇧⌘V), VoiceOver's speech, or not keystrokes, and a source test lists each with its reason.

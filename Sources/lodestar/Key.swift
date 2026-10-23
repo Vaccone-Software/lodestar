@@ -470,7 +470,9 @@ final class KeyTimes: NSView {
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: Self.text, attributes: [.font: font]))
         context.saveGState()
         context.textMatrix = .identity
-        context.setFillColor(BarTheme.secondaryColor.cgColor)
+        // In a draw pass the colour resolves in this view's own look.
+        let ink = BarTheme.secondaryColor
+        context.setFillColor(ink.cgColor)
         context.textPosition = CGPoint(x: 0, y: baseline)
         CTLineDraw(line, context)
         context.restoreGState()

@@ -400,12 +400,8 @@ final class KeyStrokes: NSStackView {
             if let last = arrangedSubviews.last { setCustomSpacing(Grid.close, after: last) }
         }
         if let last = arrangedSubviews.last { setCustomSpacing(Grid.tight, after: last) }
-        if double {
-            let times = NSTextField(labelWithString: "×2")
-            times.setRole(.meta)
-            times.textColor = BarTheme.secondaryColor
-            times.setContentHuggingPriority(.required, for: .horizontal)
-            addArrangedSubview(times)
+        if double, let last = groups.last?.last {
+            addArrangedSubview(KeyTimes(after: last, size: size))
         }
         setAccessibilityLabel(groups.map { $0.map(KeyLegend.spoken).joined(separator: " ") }
             .joined(separator: " or ") + (double ? " twice" : ""))
@@ -421,6 +417,63 @@ final class KeyStrokes: NSStackView {
     var quiet: Bool {
         get { caps.allSatisfy { $0.state == .quiet } }
         set { for cap in caps { cap.quiet = newValue } }
+    }
+}
+
+/// `×2` after a double-tapped key: quiet ink at the meta size, standing on
+/// the baseline the key's own legend stands on, so the two read as one line.
+final class KeyTimes: NSView {
+    static let text = "×2"
+    private let legend: String
+    private let size: KeySize
+
+    init(after legend: String, size: KeySize = .standard) {
+        self.legend = legend
+        self.size = size
+        super.init(frame: .zero)
+        wantsLayer = true
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    private var night: Bool { BarTheme.isNight(effectiveAppearance) }
+
+    /// The meta role's font in the look it is drawn in.
+    var font: NSFont { BarTheme.Role.meta.font(night: night) }
+
+    var width: CGFloat {
+        ceil(CTLineGetImageBounds(CTLineCreateWithAttributedString(
+            NSAttributedString(string: Self.text, attributes: [.font: font])), nil).maxX)
+    }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: width, height: size.height) }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        invalidateIntrinsicContentSize()
+        needsDisplay = true
+    }
+
+    /// Where the text's baseline stands: the key legend's, on a face of the key's size.
+    var baseline: CGFloat {
+        let face = CGRect(x: 0, y: size.side, width: 0, height: size.faceHeight)
+        return KeyLegend.place(legend, size: size, night: night, in: face, scale: window?.backingScaleFactor ?? 2).origin.y
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: Self.text, attributes: [.font: font]))
+        context.saveGState()
+        context.textMatrix = .identity
+        context.setFillColor(BarTheme.secondaryColor.cgColor)
+        context.textPosition = CGPoint(x: 0, y: baseline)
+        CTLineDraw(line, context)
+        context.restoreGState()
     }
 }
 

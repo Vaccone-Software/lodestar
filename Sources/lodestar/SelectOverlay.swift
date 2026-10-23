@@ -123,19 +123,31 @@ final class SelectOverlay {
         present(over: windowFrame)
         guard let primary = NSScreen.screens.first else { return }
         let primaryHeight = primary.frame.maxY
+        let made = Self.compose(
+            chips: chips, anchor: anchor, typed: typed, bounds: NSRect(origin: .zero, size: panel.frame.size),
+            look: root,
+            local: { quartz in
+                NSRect(x: quartz.minX - panel.frame.minX, y: primaryHeight - quartz.maxY - panel.frame.minY,
+                       width: quartz.width, height: quartz.height)
+            })
+        for view in made.underlays { highlightHost.addSubview(view) }
+        for view in made.marks { chipHost.addSubview(view) }
+        decorations += made.underlays + made.marks
+    }
 
-        func appKitRect(_ quartz: CGRect) -> NSRect {
-            NSRect(x: quartz.minX - panel.frame.minX,
-                   y: primaryHeight - quartz.maxY - panel.frame.minY,
-                   width: quartz.width, height: quartz.height)
-        }
+    /// What a set of chips is made of: the underlines beneath (the anchor's,
+    /// each match's, a tag's connector) and the marks over (a hint's keys, a
+    /// lens's tags), placed in `bounds`. `local` turns a rect of the screen
+    /// the chips came in into the glass's own. Drawn by `show`, and by the
+    /// gallery's dense screen of hints.
+    static func compose(chips: [Chip], anchor: [CGRect], typed: String, bounds: NSRect, look: NSView,
+                        local appKitRect: (CGRect) -> NSRect) -> (underlays: [NSView], marks: [NSView]) {
+        var underlays: [NSView] = [], marks: [NSView] = []
 
         // The anchor first: the start of the span, its line heavier for as
         // long as the far end is being chosen.
         for rect in anchor {
-            let line = KeyMark.underline(under: appKitRect(rect), weight: KeyMark.heavyUnderline)
-            highlightHost.addSubview(line)
-            decorations.append(line)
+            underlays.append(KeyMark.underline(under: appKitRect(rect), weight: KeyMark.heavyUnderline))
         }
 
         var placedTags: [NSRect] = []
@@ -145,44 +157,39 @@ final class SelectOverlay {
             switch chip.style {
             case .tag(let word):
                 let tag = KeyMark.tag(letter: chip.label, word: word, typed: typed)
-                let placed = Self.place(tag.frame.size, above: target, avoiding: placedTags,
-                                        within: NSRect(origin: .zero, size: panel.frame.size))
+                let placed = Self.place(tag.frame.size, above: target, avoiding: placedTags, within: bounds)
                 tag.frame.origin = placed.frame.origin
                 if let x = placed.connectorX {
                     let line = NSView(frame: NSRect(x: x, y: target.maxY, width: 1,
                                                     height: max(0, placed.frame.minY - target.maxY)))
                     line.wantsLayer = true
-                    line.layer?.backgroundColor = Ceramic.resolved(KeyMark.connector, in: root)
-                    highlightHost.addSubview(line)
-                    decorations.append(line)
+                    line.layer?.backgroundColor = Ceramic.resolved(KeyMark.connector, in: look)
+                    underlays.append(line)
                 }
                 placedTags.append(placed.frame)
-                chipHost.addSubview(tag)
-                decorations.append(tag)
+                marks.append(tag)
                 continue
             case .match:
                 // The match itself, underlined in the accent: the key
                 // names it, the line is it.
                 for rect in chip.frames {
-                    let line = KeyMark.underline(under: appKitRect(rect), weight: KeyMark.underline)
-                    highlightHost.addSubview(line)
-                    decorations.append(line)
+                    underlays.append(KeyMark.underline(under: appKitRect(rect), weight: KeyMark.underline))
                 }
             case .target:
                 break
             }
             let key = KeyMark.key(chip.label, typed: typed)
             let width = key.frame.width, height = key.frame.height
-            let x = min(max(target.minX - Grid.hair, 0), panel.frame.width - width)
+            let x = min(max(target.minX - Grid.hair, 0), bounds.width - width)
             // A match's key floats just above the word; a target's pins to
             // the frame's top-left corner, overlapping it — attached to the
             // box it fires, however large the box.
             let raw = chip.style == .match ? target.maxY + Grid.hair : target.maxY - height + Grid.tight
-            let y = min(max(raw, 0), panel.frame.height - height)
+            let y = min(max(raw, 0), bounds.height - height)
             key.frame.origin = NSPoint(x: x, y: y)
-            chipHost.addSubview(key)
-            decorations.append(key)
+            marks.append(key)
         }
+        return (underlays, marks)
     }
 
     /// Where a lens tag stands: just above its word, aligned to it. A tag

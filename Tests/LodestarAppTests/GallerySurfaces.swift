@@ -86,10 +86,11 @@ enum GalleryHost {
 
 enum GalleryKeys {
     /// Every kind of legend a key carries: a letter, a descender, a capital,
-    /// a glyph, a digit, a word, an address, a chord, a mark of punctuation.
-    static let legends = ["a", "e", "g", "s", "y", "A", "⏎", "⇧", "1", "9", "esc", "⌘K", "tab", "⌫", "↑", "space", "'", "`", ";", "/"]
+    /// a glyph, a digit, a word, a chord, a mark of punctuation.
+    static let legends = ["a", "e", "g", "s", "y", "A", "⏎", "⇧", "1", "9", "esc", "⌘K", "tab", "⌫", "↑", "space", "lode",
+                          "'", "`", ";", "/", ".", ",", "-", "="]
 
-    /// A row of keys in a stack, centred on the face of whatever carries it.
+    /// A row of separate keys, 8 apart, centred on the face of whatever carries it.
     static func row(_ legends: [String], configure: (Key) -> Void = { _ in }) -> (NSStackView, [Key]) {
         let keys = legends.map { legend -> Key in
             let key = Key(legend)
@@ -99,7 +100,7 @@ enum GalleryKeys {
         let stack = NSStackView(views: keys)
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 10
+        stack.spacing = Grid.close
         stack.translatesAutoresizingMaskIntoConstraints = false
         return (stack, keys)
     }
@@ -111,21 +112,22 @@ enum GalleryKeys {
         return label
     }
 
-    /// Keys of every legend, resting, lit, quiet and pressed, on the pane
-    /// and on a chosen row, and the walk's keyboard row.
+    /// Every legend kind in all four states and both sizes, a sequence, a
+    /// double tap, a chord, alternatives and punctuation, on the pane and on
+    /// a chosen row, and a key named in a sentence.
     static func sheet(look: GalleryLook) -> (NSWindow, [AnyObject]) {
-        let size = NSSize(width: 1000, height: 480)
+        let size = NSSize(width: 1120, height: 900)
         var keys: [Key] = []
         let window = GalleryHost.pane(size: size, look: look) { root in
             let column = NSStackView()
             column.orientation = .vertical
             column.alignment = .leading
-            column.spacing = 12
+            column.spacing = Grid.part
             column.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(column)
             NSLayoutConstraint.activate([
-                column.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
-                column.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
+                column.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Grid.section),
+                column.topAnchor.constraint(equalTo: root.topAnchor, constant: Grid.section),
             ])
             func line(_ title: String, _ legends: [String], _ configure: @escaping (Key) -> Void = { _ in }) {
                 column.addArrangedSubview(caption(title))
@@ -133,10 +135,46 @@ enum GalleryKeys {
                 keys += made
                 column.addArrangedSubview(stack)
             }
-            line("resting, on the pane", legends)
-            line("lit", legends) { $0.lit = true }
-            line("quiet", legends) { $0.quiet = true }
-            line("pressed", legends) { $0.fill(.pressed) }
+            func group(_ title: String, _ views: [NSView], spacing: CGFloat = Grid.section) {
+                column.addArrangedSubview(caption(title))
+                let stack = NSStackView(views: views)
+                stack.orientation = .horizontal
+                stack.alignment = .centerY
+                stack.spacing = spacing
+                stack.translatesAutoresizingMaskIntoConstraints = false
+                column.addArrangedSubview(stack)
+            }
+            line("standard, 24 tall: resting", legends)
+            line("lit", legends) { $0.state = .lit }
+            line("pressed: the side gives up two points and the face goes down by them", legends) { $0.state = .pressed }
+            line("quiet: no face, a hairline, quiet ink", legends) { $0.state = .quiet }
+
+            // Large, in every state.
+            let figures = ["7", "3", "10"]
+            let large = [KeyState.resting, .lit, .pressed, .quiet].flatMap { state in
+                figures.map { figure -> Key in
+                    let key = Key(figure, size: .large, state: state)
+                    keys.append(key)
+                    return key
+                }
+            }
+            group("large, 36 tall: resting, lit, pressed, quiet", large, spacing: Grid.close)
+
+            // Sequences, double taps, chords, alternatives.
+            let sequence = Keycaps.strokes(["e", "p"])
+            let launcher = Keycaps.strokes(["lode", "e", "p"])
+            let double = Keycaps.strokes(["lode"], double: true)
+            let litDouble = Keycaps.strokes(["lode"], double: true, lit: true)
+            let chords = ["⌘K", "⌥J", "⌥⇧⌘V", "⇧A"].map { Key($0) }
+            keys += chords
+            let alternatives = KeyStrokes(groups: [["h"], ["j"], ["k"], ["l"]])
+            let ways = KeyStrokes(groups: [["z", "o"], ["z", "c"]])
+            keys += [sequence, launcher, double, litDouble, alternatives, ways].flatMap(\.caps)
+            group("a sequence: a key a keystroke, 4 apart · a double tap: one key and ×2",
+                  [sequence, launcher, double, litDouble] as [NSView], spacing: Grid.section)
+            group("a chord is one key, as macOS writes it · alternatives and ways stand 8 apart",
+                  chords + [alternatives, ways] as [NSView], spacing: Grid.section)
+
             // The same keys on a chosen row, the raised step.
             column.addArrangedSubview(caption("on the chosen row"))
             let chosen = RaisedRow(frame: .zero)
@@ -150,29 +188,30 @@ enum GalleryKeys {
             let both = NSStackView(views: [onRow, litOnRow])
             both.orientation = .vertical
             both.alignment = .leading
-            both.spacing = 8
+            both.spacing = Grid.close
             both.translatesAutoresizingMaskIntoConstraints = false
             chosen.addSubview(both)
             NSLayoutConstraint.activate([
-                chosen.widthAnchor.constraint(equalToConstant: 950),
-                chosen.heightAnchor.constraint(equalToConstant: 80),
-                both.leadingAnchor.constraint(equalTo: chosen.leadingAnchor, constant: 14),
+                chosen.widthAnchor.constraint(equalToConstant: 1070),
+                chosen.heightAnchor.constraint(equalToConstant: 88),
+                both.leadingAnchor.constraint(equalTo: chosen.leadingAnchor, constant: Grid.part),
                 both.centerYAnchor.constraint(equalTo: chosen.centerYAnchor),
             ])
-            // The walk's keyboard: the space bar is a key of the same size as
-            // those beside it, only wider.
-            column.addArrangedSubview(caption("the walk's keyboard row: the space bar is the chip's size, wider"))
-            let board = ["fn", "⌃", "⌥", "⌘", "space", "⌘", "⌥"].map { legend -> Key in
-                Key(legend)
-            }
+
+            // The walk's keyboard: separate keys, 8 apart, each as wide as its legend.
+            column.addArrangedSubview(caption("a keyboard row, as the walk draws it: each key as wide as what it says"))
+            let board = ["fn", "⌃", "⌥", "⌘", "space", "⌘", "⌥"].map { Key($0) }
             board[4].lit = true
             board[5].lit = true
             keys += board
             let boardRow = NSStackView(views: board)
             boardRow.orientation = .horizontal
             boardRow.alignment = .centerY
-            boardRow.spacing = 4
+            boardRow.spacing = Grid.close
             column.addArrangedSubview(boardRow)
+
+            // A key named in a sentence is written as typed.
+            column.addArrangedSubview(caption("a key named in a sentence: ◎ Breath jk saved · ✕ lode e q is not on the graph · Press a, and the newest pastes"))
         }
         return (window, [window] + keys)
     }

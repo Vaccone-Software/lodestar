@@ -433,15 +433,84 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(keys, 2, "a footer's keys are drawn as keys")
     }
 
-    /// The key's face is drawn in one place. Its font appears only in the
-    /// theme and on the two chips that are read rather than pressed (Ask's
-    /// profile, the commands bar's source); a harness may use it.
-    func testOnlyTheThemeDrawsAKey() throws {
-        let allowed: Set<String> = ["Ceramic.swift", "WebBar.swift", "CommandsBar.swift", "SplitPreview.swift"]
-        let offenders = try sources()
-            .filter { $0.text.contains("BarTheme.chipFont") && !allowed.contains($0.name) }
-            .map(\.name)
-        XCTAssertEqual(offenders, [], "draw a key with Key (Keycaps.cap), not a chip of your own")
+    /// The key is drawn in one place (design/10-key.md, rule 1): a face on a
+    /// side whose legend is set by `KeyLegend`. No other file stands a face
+    /// on a control's side, places a legend by CoreText, or sets the key
+    /// role. The three that read a word rather than ask for a press (a
+    /// popup's drawn bezel, Ask's profile chip and the commands bar's source
+    /// chip, the meeting's unit) are named, and the list only shrinks.
+    func testNoSurfaceDrawsAKeyOfItsOwn() throws {
+        let homes: Set<String> = ["Key.swift", "Ceramic.swift", "Material.swift"]
+        let popup: Set<String> = ["SettingsController.swift"]
+        let readsAWord: Set<String> = ["WebBar.swift", "CommandsBar.swift", "MeetingController.swift"]
+        var offenders: [String] = []
+        for (name, text) in try sources() where !homes.contains(name) {
+            func has(_ pattern: String) -> Bool { text.range(of: pattern, options: .regularExpression) != nil }
+            if has(#"Standing\(rest:\s*Ceramic\.Side\.(control|large)"#), !popup.contains(name) {
+                offenders.append("\(name): stands a face on a key's side")
+            }
+            if has(#"CTLineDraw|CTLineCreate|KeyLegend\."#) { offenders.append("\(name): places a legend itself") }
+            if has(#"setRole\(\s*\.key\b|attributes\(\s*\.key\b|in:\s*\.key\b|role:\s*\.key\b"#), !readsAWord.contains(name) {
+                offenders.append("\(name): sets the key role")
+            }
+        }
+        XCTAssertEqual(offenders, [], "draw a key with Key (Keycaps.cap, Keycaps.strokes), not a view of your own")
+    }
+
+    /// A double tap is one key and ×2, never two identical keys in a row.
+    func testNoSourceWritesADoubleTapAsTwoKeys() throws {
+        let hits = try offenders(#""lode",\s*"lode""#, in: Self.swiftFiles(under: Self.appSources))
+        XCTAssertEqual(hits, [], "one key and ×2: double: true")
+    }
+
+    /// A bare keystroke is shown as typed (design/10-key.md, rule 3): lowercase.
+    /// Capitals appear on a key only where Shift is part of it, and a letter
+    /// after a modifier in a chord, as macOS writes it. So `uppercased()` in
+    /// the sources is for sentence-casing a word, or one of the listed uses
+    /// below, each of which is data, a chord, or what VoiceOver says. A new
+    /// `uppercased()` that shows a keystroke fails here.
+    func testNoBareKeystrokeIsUppercasedForDisplay() throws {
+        let allowed: [(file: String, snippet: String, why: String)] = [
+            ("MeetingController.swift", "unit.uppercased()", "a countdown's unit (MIN), not a key"),
+            ("ClipboardStrip.swift", "\"⌥\") + label.uppercased()", "a chord: ⌥ then the letter as a capital"),
+            ("ClipboardStrip.swift", "chord = label.uppercased()", "a chord: the letter after a modifier is a capital"),
+            ("ClipboardStrip.swift", "\\(label.uppercased()), match", "what VoiceOver says"),
+            ("ClipboardStrip.swift", "\\(label.uppercased()), clip", "what VoiceOver says"),
+            ("ClipColor.swift", "s == s.uppercased()", "reading a colour, not drawing a key"),
+            ("Vim.swift", "ch.uppercased()", "vim's case toggle on the text"),
+            ("Vim.swift", "text.uppercased()", "vim's gU on the text"),
+            ("Vim.swift", "Character($0.uppercased())", "vim's case toggle on the text"),
+            ("Keys.swift", "key.uppercased()", "what a key types with shift: data the engine matches on"),
+            ("CodeNames.swift", "$0.uppercased()", "UPPER_SNAKE for a name in code"),
+            ("ClipTime.swift", "s.uppercased()", "reading a time"),
+            ("ClipTime.swift", "typed.uppercased()", "reading a time zone"),
+            ("MenuItems.swift", "char.uppercased()", "a menu shortcut's chord: modifiers, then a capital"),
+            ("IntentChecker.swift", "w.uppercased()", "reading words"),
+            ("EditorSession.swift", "word.uppercased()", "reading words"),
+            ("EditorRegion.swift", "$0.uppercased()", "reading a region code"),
+            ("EditorDiff.swift", "words[0].uppercased()", "reading words"),
+        ]
+        var unexplained: [String] = [], used = Set<Int>()
+        let directories = [Self.appSources, Self.appSources.deletingLastPathComponent().appendingPathComponent("LodestarCore")]
+        for directory in directories {
+            for file in Self.swiftFiles(under: directory) {
+                let text = Self.code(try String(contentsOf: file, encoding: .utf8))
+                for line in text.components(separatedBy: "\n") where line.contains("uppercased()") {
+                    // Capitalising the first letter of a word is sentence case.
+                    let stripped = line.replacingOccurrences(of: #"(prefix\(1\)|first)\.uppercased\(\)"#, with: "",
+                                                             options: .regularExpression)
+                    guard stripped.contains("uppercased()") else { continue }
+                    if let index = allowed.firstIndex(where: { $0.file == file.lastPathComponent && line.contains($0.snippet) }) {
+                        used.insert(index)
+                    } else {
+                        unexplained.append("\(file.lastPathComponent): \(line.trimmingCharacters(in: .whitespaces))")
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(unexplained, [], "show a bare keystroke as typed, lowercase; or say why this is not one, above")
+        let stale = allowed.indices.filter { !used.contains($0) }.map { allowed[$0].file + ": " + allowed[$0].snippet }
+        XCTAssertEqual(stale, [], "an allowed use that no longer exists comes off the list")
     }
 
     /// Keys are drawn, never typed into a sentence: "esc back" as letters

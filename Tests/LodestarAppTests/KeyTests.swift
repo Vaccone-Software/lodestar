@@ -289,11 +289,12 @@ final class KeyTests: XCTestCase {
         let strokes = Keycaps.strokes(["lode"], double: true)
         strokes.layoutSubtreeIfNeeded()
         XCTAssertEqual(strokes.caps.map(\.legend), ["lode"], "one key, not two identical ones")
-        let times = allViews(strokes).compactMap { $0 as? NSTextField }
-        XCTAssertEqual(times.map(\.stringValue), ["×2"])
-        XCTAssertEqual(times.first?.textColor, BarTheme.secondaryColor)
-        XCTAssertEqual(times.first?.typeStyle?.role, .meta)
-        XCTAssertEqual(times[0].alignmentRect(forFrame: times[0].frame).minX - strokes.caps[0].frame.maxX, Grid.tight, "4 after the key")
+        let times = allViews(strokes).compactMap { $0 as? KeyTimes }
+        XCTAssertEqual(times.count, 1)
+        XCTAssertEqual(KeyTimes.text, "×2")
+        XCTAssertEqual(times[0].font, BarTheme.Role.meta.font(night: false), "at the meta size")
+        XCTAssertEqual(times[0].frame.minX - strokes.caps[0].frame.maxX, Grid.tight, "4 after the key")
+        XCTAssertEqual(times[0].baseline, strokes.caps[0].placement.origin.y, accuracy: 0.01, "on the key legend's baseline")
     }
 
     func testAGestureLineDrawsADoubleTapAndASequenceTheSameWay() {
@@ -302,8 +303,7 @@ final class KeyTests: XCTestCase {
         line.layoutSubtreeIfNeeded()
         let keys = allViews(line).compactMap { $0 as? Key }
         XCTAssertEqual(keys.map(\.legend), ["lode", "e", "p"])
-        let words = allViews(line).compactMap { ($0 as? NSTextField)?.stringValue }
-        XCTAssertTrue(words.contains("×2"))
+        XCTAssertEqual(allViews(line).compactMap { $0 as? KeyTimes }.count, 1)
     }
 
     func testAKeysLegendIsSpokenByName() {
@@ -326,5 +326,49 @@ final class KeyTests: XCTestCase {
         let row = GuideRow(key: "zo zc", label: "x")
         XCTAssertEqual(row.groups, [["z", "o"], ["z", "c"]])
         XCTAssertEqual(GuideRow(key: "h j k l", label: "x").groups, [["h"], ["j"], ["k"], ["l"]])
+    }
+
+    // MARK: - Every surface
+
+    /// Every key on every gallery surface, in both looks: none spaces
+    /// letters inside one key ("e p"), none stands next to an identical
+    /// "lode" where a double tap is meant, none is wider than its legend
+    /// needs or narrower than it is tall, and no other view is shaped like
+    /// a key.
+    func testEveryKeyOnEverySurfaceFollowsTheContract() throws {
+        var wrong: [String] = []
+        var seen = 0
+        func walk(_ view: NSView, _ visit: (NSView) -> Void) { visit(view); view.subviews.forEach { walk($0, visit) } }
+        for look in GalleryLook.all {
+            look.apply()
+            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 {
+                guard let (root, keep) = try? shot.build(look) else { continue }
+                root.window?.contentView?.layoutSubtreeIfNeeded()
+                let name = shot.name(in: look)
+                walk(root) { view in
+                    if let key = view as? Key, !key.isHidden {
+                        seen += 1
+                        let legend = key.legend
+                        if legend.range(of: #"\p{L} \p{L}"#, options: .regularExpression) != nil, legend.count < 4 {
+                            wrong.append("\(name): the key \"\(legend)\" spaces its letters")
+                        }
+                        if key.frame.width < key.size.height - 0.01 { wrong.append("\(name): \"\(legend)\" is narrower than tall") }
+                        if key.frame.width > key.width + 0.5 { wrong.append("\(name): \"\(legend)\" is wider than its legend") }
+                        if ["lode"].contains(legend), let parent = key.superview {
+                            let twins = parent.subviews.compactMap { $0 as? Key }.filter { $0.legend == legend }
+                            if twins.count > 1 { wrong.append("\(name): two \"\(legend)\" keys side by side, a double tap is ×2") }
+                        }
+                    } else if view.layer?.cornerRadius == BarTheme.controlRadius, !view.isHidden,
+                              view.frame.height == KeySize.standard.height || view.frame.height == KeySize.large.height,
+                              !(view is RoomButton), !(view is FlatChip), !(view is NSPopUpButton),
+                              !(view is WellView), !(view is WellField), !(view.superview is Key) {
+                        wrong.append("\(name): a key-shaped \(type(of: view)) that is not a Key")
+                    }
+                }
+                _ = keep
+            }
+        }
+        XCTAssertGreaterThan(seen, 300, "the surfaces were looked at")
+        XCTAssertEqual(Array(Set(wrong)).sorted(), [])
     }
 }

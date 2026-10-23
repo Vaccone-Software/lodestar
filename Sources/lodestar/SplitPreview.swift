@@ -359,7 +359,7 @@ enum SplitPreview {
         name.textColor = BarTheme.ink
         name.translatesAutoresizingMaskIntoConstraints = false
         let mode = NSTextField(labelWithString: "INSERT")
-        mode.setRole(.key)
+        mode.setRole(.heading)
         mode.textColor = BarTheme.secondaryColor
         mode.translatesAutoresizingMaskIntoConstraints = false
         let words = NSTextField(labelWithString:

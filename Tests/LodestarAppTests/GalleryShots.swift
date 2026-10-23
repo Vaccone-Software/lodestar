@@ -4,7 +4,7 @@ import AppKit
 /// Every picture the gallery takes.
 enum GalleryShots {
     static var all: [GalleryShot] {
-        let base = GalleryFoundations.shots + GalleryMaterial.shots + GalleryLauncher.shots + GalleryBars.shots + GallerySettings.shots + GalleryKeep.shots + GalleryChrome.shots + GalleryKeys.shots + GalleryControls.shots
+        let base = GalleryFoundations.shots + GalleryMaterial.shots + GalleryLauncher.shots + GalleryBars.shots + GallerySettings.shots + GalleryKeep.shots + GalleryChrome.shots + GalleryKeys.shots + GalleryHints.shots + GalleryControls.shots
         return base + eyeComfort(of: base)
     }
 

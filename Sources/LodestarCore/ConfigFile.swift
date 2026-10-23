@@ -37,6 +37,7 @@ public struct ConfigFile: Sendable, Equatable {
     public var coach = Coach()
     public var keys: [String: String] = [:]
     public var graph: JSONValue = .object(JSONObject())
+    public var appearance = Appearance()
     public var draft = Draft()
     public var health = Health()
 
@@ -122,6 +123,10 @@ public struct ConfigFile: Sendable, Equatable {
         public var standAfter = 30
     }
 
+    public struct Appearance: Sendable, Equatable {
+        public var eyeComfort = true
+    }
+
     public struct Draft: Sendable, Equatable {
         public var input = ""
         public var model = ""
@@ -202,6 +207,8 @@ extension ConfigFile {
               doc: "Keycode → key-name overrides for non-ANSI layouts.")
         Field("graph", \.graph, .json(jsonSchema: graphShape),
               doc: "lode + letter chains → apps. Values: app name or <browser>:<profile name>.")
+        Field("appearance", \.appearance, appearanceSection,
+              doc: "How Lodestar looks. Never what it asks of you.")
         Field("draft", \.draft, draftSection, doc: "The draft: lode . speaks, lode ⇧. revises.")
         Field("health", \.health, healthSection,
               doc: "About you, for the health record. Local, optional, never sent.")
@@ -244,11 +251,12 @@ extension ConfigFile {
             // the attention timeline (0.17), the cheat sheet (0.22) and the
             // tabs door (0.41)
             "gestures.back-forward", "gestures.cheat-sheet", "gestures.tabs",
-            // The appearance section: Background (after 0.43) because there is
-            // one night, and Accent (Ceramic) because there is one colour,
-            // International Orange. A file that still names either loads
-            // clean and the next write does not carry the section.
-            "appearance",
+            // The appearance section's two retired choices: Background (after
+            // 0.43) because there is one night, and Accent (Ceramic) because
+            // there is one colour, International Orange. A file that still
+            // names either loads clean and the next write does not carry it;
+            // the section itself lives on for Eye comfort.
+            "appearance.background", "appearance.accent",
             // the name nothing read, the double-tap grammar, hand-set hint
             // letters and the rescan delay (the layout is detected now), and
             // the auto-reload toggle (watching is simply how the config works)
@@ -399,6 +407,12 @@ extension ConfigFile {
         Field("stand-after", \.standAfter, .int(.range(15...120)).clampingToRange(),
               doc: "Minutes of unbroken work before the walk is due. The research supports thirty: two minutes of walking every twenty to thirty minutes.",
               unit: "min")
+    }
+    .readingNullAsEmpty()
+
+    private static let appearanceSection = section(Appearance.self, default: Appearance()) {
+        Field("eye-comfort", \.eyeComfort, .bool,
+              doc: "Lodestar adjusts its own surfaces through the day to be easier on your eyes: dimmer and softer after sunset, dimmer still late at night, and quieter when you're not using them. What you copy and view is never changed.")
     }
     .readingNullAsEmpty()
 

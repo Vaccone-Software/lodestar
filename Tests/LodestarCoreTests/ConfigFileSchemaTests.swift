@@ -33,6 +33,7 @@ final class ConfigFileSchemaTests: XCTestCase {
             ]),
             "scroll": .table(["smooth": .bool(true), "speed": .int(1800), "step": .int(60)]),
             "select": .table(["copy-on-complete": .bool(false)]),
+            "appearance": .table(["eye-comfort": .bool(true)]),
             "draft": .table(["input": .string(""), "model": .string(""), "words": .table([:])]),
             "clipboard": .table([
                 "enabled": .bool(true), "max-size-mb": .int(500), "save-to": .string("~/Downloads"),
@@ -76,7 +77,7 @@ final class ConfigFileSchemaTests: XCTestCase {
     /// emitter never listed come last, alphabetically.
     func testTheSectionsAreDeclaredInTheOrderOfTheFile() {
         let root = ConfigSchemaWalk.objects().first { $0.path.isEmpty }!.object
-        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["draft", "health"])
+        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["appearance", "draft", "health"])
     }
 
 
@@ -85,7 +86,7 @@ final class ConfigFileSchemaTests: XCTestCase {
     /// for byte.
     func testEverySectionDeclaresItsFieldsAlphabetically() {
         let sections = ConfigSchemaWalk.objects().filter { !$0.path.isEmpty }
-        XCTAssertGreaterThan(sections.count, 14)
+        XCTAssertGreaterThan(sections.count, 15)
         for (path, object) in sections {
             let keys = object.fields.map(\.key)
             XCTAssertEqual(keys, keys.sorted(), "\(path.joined(separator: ".")) is not alphabetical")
@@ -144,18 +145,21 @@ final class ConfigFileSchemaTests: XCTestCase {
         XCTAssertEqual(records.value(at: jsonPath("observations", "logbook"))?.bool, true)
     }
 
-    /// The accent retired: Lodestar is International Orange. A file that
-    /// still sets it is read, and what is written back no longer has the
-    /// key, nor the empty section it leaves, nor the schema a field for it.
-    func testTheRetiredAccentIsDroppedAndNeverWrittenBack() throws {
+    /// The accent and the background retired: Lodestar is International
+    /// Orange on one night. A file that still sets either is read, and what is
+    /// written back no longer has the key, nor the schema a field for it,
+    /// while the section's one live setting stays where the file put it.
+    func testTheRetiredAppearanceKeysAreDroppedAndNeverWrittenBack() throws {
         let file = try ConfigFile.schema.normalized(
-            JSONDocument(parsing: #"{"appearance": {"accent": "orange"}, "scroll": {"speed": 2500}}"#,
+            JSONDocument(parsing: #"{"appearance": {"accent": "orange", "background": "lodestone", "eye-comfort": false}, "scroll": {"speed": 2500}}"#,
                          options: .strict).value)
-        XCTAssertNil(file.value(at: jsonPath("appearance")), "the section goes with its last key")
+        XCTAssertNil(file.value(at: jsonPath("appearance", "accent")), "the accent is dropped")
+        XCTAssertNil(file.value(at: jsonPath("appearance", "background")), "and so is the background")
+        XCTAssertEqual(file.value(at: jsonPath("appearance", "eye-comfort"))?.bool, false, "the live key stays")
         XCTAssertNotNil(file.value(at: jsonPath("scroll", "speed")), "the rest is kept")
         XCTAssertFalse(ConfigFile.jsonSchemaText().contains("accent"), "the schema offers no accent")
+        XCTAssertFalse(ConfigFile.jsonSchemaText().contains("background"), "and no background")
     }
-
 
     /// A reference the registry never held is already a name, and a
     /// reference to another browser's profile is not translated through this

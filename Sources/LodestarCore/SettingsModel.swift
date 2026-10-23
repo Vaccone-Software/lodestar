@@ -435,6 +435,10 @@ public enum SettingsModel {
                                  current: config.activeDisplayMode == .focus ? "focus" : "pointer"),
                 detail: "Which display summoned windows land on",
                 isDefault: config.activeDisplayMode == .pointer, group: "Sound and display"),
+            Row(title: "Eye comfort", path: "appearance.eye-comfort",
+                control: .toggle(config.eyeComfort),
+                detail: "Lodestar adjusts its own surfaces through the day to be easier on your eyes: dimmer and softer after sunset, dimmer still late at night, and quieter when you're not using them. What you copy and view is never changed",
+                isDefault: config.eyeComfort, group: "Sound and display"),
             permission("Accessibility", state: machine.accessibility,
                        detail: "Seeing windows, moving them and reading menus. Lodestar cannot work without it",
                        pane: "accessibility", group: "Permission"),
@@ -1020,7 +1024,7 @@ public enum SettingsModel {
 
     /// The words people type for a place that is named by what it does.
     static let aliases: [String: String] = [
-        "General": "login startup updates stable preview channel release accent colour color dark night sound menu bar display accessibility permission",
+        "General": "login startup updates stable preview channel release eye comfort sunset bedtime dim dark night sound menu bar display accessibility permission",
         "Write": "editor grammar spelling typos proofread",
         "Switch": "windows launcher apps graph letters breaths layout maximize",
         "Keep": "clipboard copy paste history clips",

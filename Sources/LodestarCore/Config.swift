@@ -38,6 +38,10 @@ public struct Config {
     public var channel = Updater.Channel.stable
     /// Lodestar's own sounds, together. The alert sound is the Mac's.
     public var sounds = true
+    /// Eye comfort: Lodestar's own surfaces ease through the day (dimmer and
+    /// softer after sunset, dimmer still late at night) and the ones that stay
+    /// on screen quiet down when unused. Never content. One switch.
+    public var eyeComfort = true
     /// Keep the login LaunchAgent installed (installed app only).
     public var startAtLogin = true
     /// Show the status item permanently; false hides it (picking lodestar
@@ -419,6 +423,7 @@ public struct Config {
     public static func build(from file: ConfigFile, problems: inout [String]) -> Config {
         var config = Config()
         config.sounds = file.app.sounds
+        config.eyeComfort = file.appearance.eyeComfort
         config.autoUpdate = file.app.autoUpdate
         config.channel = file.app.channel
         config.startAtLogin = file.app.startAtLogin

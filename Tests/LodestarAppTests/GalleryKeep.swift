@@ -92,7 +92,7 @@ enum GalleryKeep {
                 $0.show(recents: Array(recents.prefix(4)), pins: pins, thumbnail: thumbnail, band: .search("re"),
                         selection: 2, matches: 4)
             },
-            keep("missing-file-dimmed") {
+            keep("missing-file-quiet") {
                 $0.show(recents: recents, pins: pins, thumbnail: thumbnail,
                         filesPresent: { $0 == "r4" ? [false] : ($0 == "r1" ? [true, false, true] : nil) },
                         band: .none, selection: 1)

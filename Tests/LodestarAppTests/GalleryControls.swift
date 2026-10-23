@@ -80,12 +80,17 @@ enum GalleryControls {
     }
 
     /// A choice menu open: the rows are the Settings popup's own, the
-    /// current one carrying a dot and the one the pointer is on the slab.
+    /// current one carrying a dot and the one the pointer is on the slab. The
+    /// pane is sized from its rows (a margin, the lines, a margin), never a
+    /// height of its own: a fixed one ended a row early or stood one over.
     static func openMenu(look: GalleryLook) -> (NSWindow, [AnyObject]) {
         var made: [AnyObject] = []
-        let window = GalleryHost.pane(size: NSSize(width: 300, height: 190), look: look) { root in
+        let titles = ["Apple speech", "Parakeet", "Qwen3 ASR", "Off"]
+        let margin: CGFloat = 22
+        let height = margin + ChoiceMenuItemView.height * CGFloat(titles.count) + margin
+        let window = GalleryHost.pane(size: NSSize(width: 300, height: height), look: look) { root in
             let popup = NSPopUpButton()
-            popup.addItems(withTitles: ["Apple speech", "Parakeet", "Qwen3 ASR", "Off"])
+            popup.addItems(withTitles: titles)
             popup.selectItem(at: 1)
             made.append(popup)
             let menu = NSStackView()
@@ -107,7 +112,7 @@ enum GalleryControls {
             }
             NSLayoutConstraint.activate([
                 menu.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 28),
-                menu.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
+                menu.topAnchor.constraint(equalTo: root.topAnchor, constant: margin),
             ])
         }
         return (window, [window] + made)

@@ -793,7 +793,7 @@ final class EditorHoverTests: XCTestCase {
         let panel = try XCTUnwrap(hover.panel)
         let height = try XCTUnwrap(NSScreen.screens.first).frame.maxY
         // The glass's bottom edge, in the marks' top-left coordinates.
-        let glassBottom = height - panel.glassFrame.minY
+        let glassBottom = height - panel.paneFrame.minY
         XCTAssertLessThanOrEqual(glassBottom, m.rect.minY, "above the word, never over it")
         XCTAssertGreaterThan(glassBottom, m.rect.minY - 12, "close enough that the pointer barely moves")
     }

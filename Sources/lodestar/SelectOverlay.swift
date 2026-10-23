@@ -44,7 +44,7 @@ final class SelectOverlay {
     /// Clear water between the band and the bottom of the usable screen.
 
     init() {
-        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
+        panel = Ceramic.makePanel(level: .statusBar, takesKeys: false)
         panel.ignoresMouseEvents = true
         // Each mark draws its own soft shadow. The window server's would trace
         // a hard ring round every one.
@@ -152,7 +152,7 @@ final class SelectOverlay {
                     let line = NSView(frame: NSRect(x: x, y: target.maxY, width: 1,
                                                     height: max(0, placed.frame.minY - target.maxY)))
                     line.wantsLayer = true
-                    line.layer?.backgroundColor = Glass.resolved(KeyMark.connector, in: root)
+                    line.layer?.backgroundColor = Ceramic.resolved(KeyMark.connector, in: root)
                     highlightHost.addSubview(line)
                     decorations.append(line)
                 }

@@ -1018,7 +1018,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func watchAppIcon() {
-        Glass.followSystemAppearance()
+        Ceramic.followSystemAppearance()
         refreshAppIcon()
         // Light and dark: the system says so a beat before every window
         // has taken the new look.
@@ -1026,7 +1026,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
         ) { [weak self] _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                Glass.followSystemAppearance()
+                Ceramic.followSystemAppearance()
                 self?.refreshAppIcon()
             }
         })

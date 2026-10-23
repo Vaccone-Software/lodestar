@@ -139,7 +139,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             self?.handleMenuKey(event) ?? false
         }
 
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         magnifier.image = NSImage(
             systemSymbolName: "macwindow.on.rectangle",
@@ -1011,7 +1011,7 @@ private final class SearcherRowView: RaisedRow {
 /// glass. The hidden title bar hands the window server a real rounded
 /// shape instead; .fullSizeContentView keeps the content geometry
 /// identical to borderless.
-final class KeyablePanel: GlassPanel {
+final class KeyablePanel: CeramicPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
@@ -1051,9 +1051,9 @@ final class KeyablePanel: GlassPanel {
 /// shared chip lives.
 enum SearcherRowPreview {
     static func show() -> NSPanel {
-        let panel = Glass.makePanel(level: .statusBar)
+        let panel = Ceramic.makePanel(level: .statusBar)
         let root = NSView(frame: NSRect(x: 0, y: 0, width: BarTheme.panelWidth, height: 230))
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         let stack = NSStackView()
         stack.orientation = .vertical

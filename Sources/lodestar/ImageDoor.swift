@@ -126,7 +126,7 @@ final class ImageDoor {
         // The door floats on its drawn shadow, and takes the pointer only
         // over its glass.
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
-        backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        backdrop = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         scroll.contentView = clip
         scroll.documentView = imageView
@@ -354,7 +354,7 @@ final class ImageDoor {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
-        panel.setGlassFrame(frame, display: false)
+        panel.setPaneFrame(frame, display: false)
         backdrop?.frame = root.bounds
         scroll.isHidden = true
         body(room)
@@ -456,7 +456,7 @@ extension ImageDoor {
     private func gesture(_ event: NSEvent) -> Bool {
         guard isVisible else { return false }
         let pointer = NSEvent.mouseLocation
-        guard panel.glassFrame.contains(pointer) else { return false }
+        guard panel.paneFrame.contains(pointer) else { return false }
         switch event.type {
         case .magnify:
             pinch(by: event.magnification, at: pointer)

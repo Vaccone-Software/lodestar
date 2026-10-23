@@ -97,10 +97,10 @@ final class HUD {
 
     init(clock: Clock = .live) {
         self.clock = clock
-        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
+        panel = Ceramic.makePanel(level: .statusBar, takesKeys: false)
         // Shut until it offers something: the coach's chip.
         gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius, takesPointer: false)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     // MARK: - Public surface
@@ -365,10 +365,10 @@ final class HUD {
         // once would hand its position to the next chain guide, which has
         // no business being anywhere but centred.
         if owner == .coach, cameFromCoach, panel.isVisible {
-            Movable.place(panel, size: size) { panel.glassFrame.origin }
+            Movable.place(panel, size: size) { panel.paneFrame.origin }
         } else {
             let visible = ActivePolicy.presentationFrame
-            panel.setGlassFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2,
+            panel.setPaneFrame(NSRect(origin: NSPoint(x: visible.midX - size.width / 2,
                                                   y: visible.minY + ModePill.rise),
                                   size: size), display: true)
         }

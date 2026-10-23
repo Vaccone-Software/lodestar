@@ -207,7 +207,7 @@ enum SplitPreview {
     /// content, and the neck between two merging views is glass that no
     /// view inside it could cover. `tintColor` tints "the background and
     /// glass effect", which is the thing that merges.
-    static var veil: NSColor { NSColor.black.withAlphaComponent(Glass.Weight.normal.alpha) }
+    static var veil: NSColor { NSColor.black.withAlphaComponent(Ceramic.Weight.normal.alpha) }
 
     /// The draft's own keys, and the editor's whole grammar.
     ///

@@ -32,14 +32,14 @@ final class LinkChip {
     /// at the door is more urgent and sits in the same corner.
     var suppressed: () -> Bool = { false }
 
-    private let panel = Glass.makePanel(level: .floating, takesKeys: false)
+    private let panel = Ceramic.makePanel(level: .floating, takesKeys: false)
     private let root = NSView()
     private var expiry: Timer?
 
     init() {
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(panel)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     var isUp: Bool { panel.isVisible }

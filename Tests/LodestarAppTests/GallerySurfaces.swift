@@ -38,10 +38,10 @@ enum GalleryHost {
 
     /// A pane (a surface of its own, the glass recipe every panel has) with
     /// `content` laid out in it by the caller's constraints, at `size`.
-    static func pane(size: NSSize, weight: Glass.Weight = .normal, look: GalleryLook,
+    static func pane(size: NSSize, weight: Ceramic.Weight = .normal, look: GalleryLook,
                      _ fill: (NSView) -> Void) -> NSWindow {
         let root = NSView(frame: NSRect(origin: .zero, size: size))
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius, weight: weight)
+        Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius, weight: weight)
         fill(root)
         return window(root, size: size, look: look)
     }
@@ -72,7 +72,7 @@ enum GalleryHost {
                                   "the surface made a window")
         // A surface that is staged without being opened is sized as opening
         // would size it.
-        if let frame { panel.setGlassFrame(frame, display: false) }
+        if let frame { panel.setPaneFrame(frame, display: false) }
         return (try XCTUnwrap(panel.contentView), kept + [panel])
     }
 }

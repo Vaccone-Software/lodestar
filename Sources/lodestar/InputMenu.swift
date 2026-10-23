@@ -16,7 +16,7 @@ final class InputMenu {
         let device: String?
     }
 
-    private let panel = Glass.makePanel(level: .popUpMenu)
+    private let panel = Ceramic.makePanel(level: .popUpMenu)
     private let root = NSView()
     private let gate: PointerGate
     private var rows: [InputMenuRow] = []
@@ -35,7 +35,7 @@ final class InputMenu {
         // Choosing a microphone must not take the keyboard from the app the
         // draft lands in.
         panel.becomesKeyOnlyIfNeeded = true
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     var isVisible: Bool { panel.isVisible }

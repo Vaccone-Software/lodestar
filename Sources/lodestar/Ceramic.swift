@@ -14,7 +14,7 @@ enum Tone {
     }
 }
 
-extension Glass {
+extension Ceramic {
     /// A colour as a layer needs it, resolved in the appearance of the view
     /// it is drawn in. `NSColor.cgColor` resolves a dynamic colour in the
     /// appearance current at the call, which off a draw pass is not the
@@ -33,7 +33,7 @@ extension Glass {
     }
 }
 
-extension Glass {
+extension Ceramic {
     /// The appearance a colour resolves in when it is turned into a layer's
     /// colour outside a draw pass, kept with the system's. Left alone it is
     /// whatever was current when the app started, so a Lodestar launched at
@@ -173,8 +173,8 @@ final class ToneView: NSView {
     }
 
     private func paint() {
-        layer?.backgroundColor = fill.map { make in Glass.resolved(make(), in: self) }
-        layer?.borderColor = edge.map { make in Glass.resolved(make(), in: self) }
+        layer?.backgroundColor = fill.map { make in Ceramic.resolved(make(), in: self) }
+        layer?.borderColor = edge.map { make in Ceramic.resolved(make(), in: self) }
         guard lifted, let layer else { return }
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         layer.masksToBounds = false
@@ -229,7 +229,7 @@ enum Accessibility {
 /// standing surface.
 @available(macOS 26.0, *)
 final class TonedGlass: NSGlassEffectView {
-    var weight: Glass.Weight = .normal { didSet { retint() } }
+    var weight: Ceramic.Weight = .normal { didSet { retint() } }
     /// A veil in the ground's own colour inside the glass, at the weight's
     /// strength, opaque under Reduce Transparency. The tint sets the shade
     /// and cannot set the backdrop's share: every tint colour and alpha
@@ -299,7 +299,7 @@ final class TonedGlass: NSGlassEffectView {
         tintColor = BarTheme.glassTint.withAlphaComponent(weight.alpha)
         // On paper the text-dense panels stand nearly opaque: tinted glass
         // casts the desktop's colour over the page and reads muddy.
-        let strength = Accessibility.reduceTransparency() ? Glass.opaque : weight.veil
+        let strength = Accessibility.reduceTransparency() ? Ceramic.opaque : weight.veil
         veil.layer?.cornerRadius = cornerRadius
         veil.layer?.backgroundColor = BarTheme.ground.withAlphaComponent(strength).cgColor
     }
@@ -313,7 +313,7 @@ final class TonedGlass: NSGlassEffectView {
 /// the hint chips once wore a second one — clear glass under a heavier
 /// veil — and clear glass has no frost, so a card's opacity was entirely
 /// the veil's. Regular glass, tinted, carries its own.
-enum Glass {
+enum Ceramic {
     /// How far toward its ground the glass is tinted. The material is the
     /// same; this is state — a lit card, an empty slot — never a second
     /// style. Normal is the measured number; the others keep their order
@@ -352,7 +352,7 @@ enum Glass {
     }
 
     @discardableResult
-    static func installBackdrop(in root: NSView, cornerRadius: CGFloat,
+    static func installPane(in root: NSView, cornerRadius: CGFloat,
                                 weight: Weight = .normal) -> NSView {
         let backdrop: NSView
         if #available(macOS 26.0, *) {
@@ -415,8 +415,8 @@ enum Glass {
         // dark holds.
         let frame = BarTheme.unplaced
         let style: NSWindow.StyleMask = [.titled, .fullSizeContentView, .nonactivatingPanel]
-        let panel: GlassPanel = takesKeys
-            ? GlassPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
+        let panel: CeramicPanel = takesKeys
+            ? CeramicPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
             : ShowingPanel(contentRect: frame, styleMask: style, backing: .buffered, defer: true)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
@@ -454,12 +454,12 @@ enum Glass {
 /// wallpaper and its rim reads as a drawn rectangle instead of an edge.
 /// Re-deriving after every reframe and every ordering keeps it lifted.
 /// A glass panel that only shows, and so is never the key window.
-final class ShowingPanel: GlassPanel {
+final class ShowingPanel: CeramicPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
-class GlassPanel: NSPanel {
+class CeramicPanel: NSPanel {
     /// A titled window is screen-constrained: AppKit slides it down until
     /// its title bar clears the menu bar, and never gives the height back.
     /// Select and hints hand their panel a whole display on purpose — the
@@ -804,13 +804,13 @@ enum Movable {
     /// person aimed when they dropped it.
     static func place(_ panel: NSPanel, size: NSSize, corner: () -> NSPoint) {
         guard panel.isVisible else {
-            panel.setGlassFrame(NSRect(origin: corner(), size: size), display: true)
+            panel.setPaneFrame(NSRect(origin: corner(), size: size), display: true)
             return
         }
-        var frame = panel.glassFrame
+        var frame = panel.paneFrame
         frame.origin.y += frame.height - size.height
         frame.size = size
-        panel.setGlassFrame(frame, display: true)
+        panel.setPaneFrame(frame, display: true)
     }
 }
 
@@ -1123,8 +1123,8 @@ final class RoomField: NSView {
 
     private func tint() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
-            layer?.borderColor = Glass.resolved(BarTheme.hairline, in: self)
+            layer?.backgroundColor = Ceramic.resolved(BarTheme.well, in: self)
+            layer?.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)
         }
     }
 }
@@ -1207,8 +1207,8 @@ final class RoomButton: NSButton {
                 layer?.borderColor = BarTheme.litKeyLip.cgColor
                 light.color = BarTheme.litKeyTop
             } else {
-                layer?.backgroundColor = Glass.resolved(hovering ? BarTheme.hairline : BarTheme.well, in: self)
-                layer?.borderColor = Glass.resolved(BarTheme.hairline, in: self)
+                layer?.backgroundColor = Ceramic.resolved(hovering ? BarTheme.hairline : BarTheme.well, in: self)
+                layer?.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)
                 light.color = nil
             }
         }
@@ -1346,7 +1346,7 @@ final class AccentSwitch: NSControl {
     /// into place must not slide into it.
     private func paint(animated: Bool = false) {
         let on = state == .on
-        let tint = Glass.resolved(on ? BarTheme.accent : BarTheme.inkAt(0.22), in: self)
+        let tint = Ceramic.resolved(on ? BarTheme.accent : BarTheme.inkAt(0.22), in: self)
         let knobSize = Self.trackHeight - Grid.tight
         let trackFrame = NSRect(x: 0, y: ((bounds.height - Self.trackHeight) / 2).rounded(),
                                 width: bounds.width, height: Self.trackHeight)
@@ -1538,7 +1538,7 @@ final class KeyFace: NSView {
         let face = pointer == .resting ? resting
             : resting.blended(withFraction: pointer == .pressed ? 0.06 : (Tone.systemDark || lit ? 0.12 : 0.05), of: toward) ?? resting
         if quiet, !lit {
-            layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
+            layer?.backgroundColor = Ceramic.resolved(BarTheme.well, in: self)
             layer?.borderWidth = 0
             layer?.borderColor = nil
             layer?.shadowOpacity = 0
@@ -1548,12 +1548,12 @@ final class KeyFace: NSView {
             return
         }
         layer?.shadowOpacity = 1
-        layer?.backgroundColor = Glass.resolved(face, in: self)
+        layer?.backgroundColor = Ceramic.resolved(face, in: self)
         let edge = lit ? nil : BarTheme.keyEdge
         layer?.borderWidth = edge == nil ? 0 : 0.5
-        layer?.borderColor = edge.map { Glass.resolved($0, in: self) }
+        layer?.borderColor = edge.map { Ceramic.resolved($0, in: self) }
         layer?.shadowOffset = CGSize(width: 0, height: pointer == .pressed ? -0.5 : -1.5)
-        layer?.shadowColor = Glass.resolved(lit ? BarTheme.litKeyLip : BarTheme.keyLip, in: self)
+        layer?.shadowColor = Ceramic.resolved(lit ? BarTheme.litKeyLip : BarTheme.keyLip, in: self)
         top.color = lit ? BarTheme.litKeyTop : BarTheme.keyTop
         label.textColor = lit ? BarTheme.onAccent : BarTheme.keyLetter
         CATransaction.commit()
@@ -1777,7 +1777,7 @@ final class ObjectSurface: NSView {
         contact.shadowColor = soft.shadowColor
         contact.shadowOpacity = dark ? 0.35 : 0.14
         contact.shadowRadius = 1
-        edge.borderColor = Glass.resolved(BarTheme.hairline, in: self)
+        edge.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)
         CATransaction.commit()
     }
 }
@@ -1786,11 +1786,11 @@ extension NSWindow {
     /// The glass's frame: the window's, less the drawn shadow's margin
     /// when the window hosts one. Surfaces place and read their glass by
     /// this, so moving onto the drawn shadow changes no arithmetic.
-    var glassFrame: NSRect {
+    var paneFrame: NSRect {
         contentView is ShadowHostView ? SoftShadow.inset(frame) : frame
     }
 
-    func setGlassFrame(_ glass: NSRect, display: Bool) {
+    func setPaneFrame(_ glass: NSRect, display: Bool) {
         setFrame(contentView is ShadowHostView ? SoftShadow.outset(glass) : glass, display: display)
     }
 }
@@ -1942,7 +1942,7 @@ final class ShadowHostView: NSView {
         contact.shadowColor = soft.shadowColor
         contact.shadowOpacity = dark ? 0.35 : 0.14
         contact.shadowRadius = 1
-        edge.borderColor = Glass.resolved(BarTheme.hairline, in: self)
+        edge.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)
     }
 
     /// Only the surface takes the pointer; the shadow is not a target.

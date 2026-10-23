@@ -61,7 +61,7 @@ final class WalkController: NSObject {
     private let doorRoot = NSView()
 
     /// The companion: a floating glass card that can never become key.
-    private let card = Glass.makePanel(level: .floating)
+    private let card = Ceramic.makePanel(level: .floating)
     private let cardRoot = NSView()
 
     private static let welcomeWidth: CGFloat = 660
@@ -124,13 +124,13 @@ final class WalkController: NSObject {
         door.isReleasedWhenClosed = false
         door.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         SoftShadow.host(doorRoot, in: door, cornerRadius: BarTheme.surfaceRadius)
-        _ = Glass.installBackdrop(in: doorRoot, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installPane(in: doorRoot, cornerRadius: BarTheme.surfaceRadius)
         door.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)) else { return false }
             return self.doorKey(key)
         }
         SoftShadow.host(cardRoot, in: card, cornerRadius: BarTheme.surfaceRadius)
-        _ = Glass.installBackdrop(in: cardRoot, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installPane(in: cardRoot, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(door)
         Movable.enable(card)
     }
@@ -638,7 +638,7 @@ final class WalkController: NSObject {
         let origin = page == .waiting
             ? NSPoint(x: visible.maxX - size.width - Grid.section, y: visible.midY - size.height / 2)
             : NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2 + Grid.margin)
-        door.setGlassFrame(NSRect(origin: origin, size: size), display: true)
+        door.setPaneFrame(NSRect(origin: origin, size: size), display: true)
         door.orderFrontRegardless()
     }
 
@@ -677,8 +677,8 @@ final class WalkController: NSObject {
             column.layer?.cornerRadius = BarTheme.nested(outer: BarTheme.surfaceRadius, inset: Self.inset,
                                                          rung: BarTheme.controlRadius)
             column.layer?.borderWidth = selected ? 1.5 : 1
-            column.layer?.borderColor = Glass.resolved(selected ? BarTheme.accent : BarTheme.hairline)
-            column.layer?.backgroundColor = Glass.resolved(selected ? BarTheme.accent.withAlphaComponent(0.08)
+            column.layer?.borderColor = Ceramic.resolved(selected ? BarTheme.accent : BarTheme.hairline)
+            column.layer?.backgroundColor = Ceramic.resolved(selected ? BarTheme.accent.withAlphaComponent(0.08)
                                                                     : BarTheme.well)
             column.translatesAutoresizingMaskIntoConstraints = false
             column.widthAnchor.constraint(equalToConstant: tileWidth).isActive = true

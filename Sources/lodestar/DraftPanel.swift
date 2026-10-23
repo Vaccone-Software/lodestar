@@ -152,7 +152,7 @@ final class VoiceLight: NSView {
         painted = color
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        stroke.strokeColor = Glass.resolved(color, in: self)
+        stroke.strokeColor = Ceramic.resolved(color, in: self)
         CATransaction.commit()
     }
 
@@ -289,7 +289,7 @@ final class DraftPanel {
     var isVisible: Bool { panel.isVisible }
 
     init() {
-        panel = Glass.makePanel(level: .statusBar)
+        panel = Ceramic.makePanel(level: .statusBar)
         // A click on the foot must not make the draft key: ⏎'s paste goes
         // to the app that has the keyboard, which has to stay that app.
         panel.becomesKeyOnlyIfNeeded = true
@@ -299,7 +299,7 @@ final class DraftPanel {
         // glass. The panel never becomes key, so the app underneath
         // keeps its cursor.
         gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
-        backdrop = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        backdrop = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         registerName.setRole(.body)
         registerName.textColor = BarTheme.ink
@@ -851,7 +851,7 @@ final class DraftPanel {
             // into a layer's colour takes whatever appearance is current at
             // the call, and off the draw pass that was the dark one, so the
             // light look drew a white plate on a light pane.
-            caret.layer?.backgroundColor = Glass.resolved(block ? BarTheme.ink : BarTheme.readableAccent,
+            caret.layer?.backgroundColor = Ceramic.resolved(block ? BarTheme.ink : BarTheme.readableAccent,
                                                           in: root)
         }
 

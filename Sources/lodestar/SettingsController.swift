@@ -177,7 +177,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         // A room floats like every other object, on its own drawn shadow.
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
         panel.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)) else { return false }
             return self.handle(key: key, event: event)
@@ -232,7 +232,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         editing = [:]
         render()
         let visible = ActivePolicy.presentationFrame
-        panel.setGlassFrame(NSRect(x: visible.midX - Self.width / 2,
+        panel.setPaneFrame(NSRect(x: visible.midX - Self.width / 2,
                               y: visible.midY - Self.height / 2 + Grid.section,
                               width: Self.width, height: Self.height), display: true)
         SystemEvents.activateLodestar()
@@ -1074,8 +1074,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
         private func tint() {
             effectiveAppearance.performAsCurrentDrawingAppearance {
-                layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
-                layer?.borderColor = Glass.resolved(BarTheme.hairline, in: self)
+                layer?.backgroundColor = Ceramic.resolved(BarTheme.well, in: self)
+                layer?.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)
             }
         }
 

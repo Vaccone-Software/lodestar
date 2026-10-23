@@ -5,7 +5,7 @@ import XCTest
 
 /// One glass. Every panel, card, and chip is the launcher's backdrop,
 /// tinted toward the system's ground and re-read live.
-final class GlassTests: XCTestCase {
+final class PaneTests: XCTestCase {
     /// The veil these tests read is the frost's, not the opaque one a
     /// runner with Reduce Transparency on would draw.
     override func setUp() { Accessibility.reset() }
@@ -40,22 +40,22 @@ final class GlassTests: XCTestCase {
         XCTAssertEqual(glass.tintColor?.alphaComponent ?? 0, 0.96, accuracy: 0.01, "a lit card is heavier")
         Accessibility.reduceTransparency = { true }
         glass.viewDidChangeEffectiveAppearance()
-        XCTAssertEqual(glass.veilAlpha, Glass.opaque, accuracy: 0.01, "a flipped setting is a new reading, not the next opening's")
+        XCTAssertEqual(glass.veilAlpha, Ceramic.opaque, accuracy: 0.01, "a flipped setting is a new reading, not the next opening's")
         _ = window
     }
 
     func testOneBackdropWithAWeight() {
         let root = NSView()
-        let normal = Glass.installBackdrop(in: root, cornerRadius: 18)
-        let raised = Glass.installBackdrop(in: NSView(), cornerRadius: 18, weight: .raised)
-        let faint = Glass.installBackdrop(in: NSView(), cornerRadius: 18, weight: .faint)
-        XCTAssertEqual(Glass.weight(in: normal), .normal)
-        XCTAssertEqual(Glass.weight(in: raised), .raised)
-        XCTAssertEqual(Glass.weight(in: faint), .faint)
-        XCTAssertLessThan(Glass.Weight.faint.alpha, Glass.Weight.normal.alpha)
-        XCTAssertLessThan(Glass.Weight.normal.alpha, Glass.Weight.raised.alpha)
-        XCTAssertLessThan(Glass.Weight.faint.veil, Glass.Weight.normal.veil)
-        XCTAssertLessThan(Glass.Weight.normal.veil, Glass.Weight.raised.veil)
+        let normal = Ceramic.installPane(in: root, cornerRadius: 18)
+        let raised = Ceramic.installPane(in: NSView(), cornerRadius: 18, weight: .raised)
+        let faint = Ceramic.installPane(in: NSView(), cornerRadius: 18, weight: .faint)
+        XCTAssertEqual(Ceramic.weight(in: normal), .normal)
+        XCTAssertEqual(Ceramic.weight(in: raised), .raised)
+        XCTAssertEqual(Ceramic.weight(in: faint), .faint)
+        XCTAssertLessThan(Ceramic.Weight.faint.alpha, Ceramic.Weight.normal.alpha)
+        XCTAssertLessThan(Ceramic.Weight.normal.alpha, Ceramic.Weight.raised.alpha)
+        XCTAssertLessThan(Ceramic.Weight.faint.veil, Ceramic.Weight.normal.veil)
+        XCTAssertLessThan(Ceramic.Weight.normal.veil, Ceramic.Weight.raised.veil)
         XCTAssertEqual(root.subviews.first, normal, "installed under everything else")
     }
 
@@ -77,7 +77,7 @@ final class GlassTests: XCTestCase {
         let cards = stage.engine.strip.shownWeights.filter { $0 != .faint }
         XCTAssertEqual(Set(cards), [.normal], "no card is lit; the empty slot is faint")
         for card in stage.engine.strip.shownCards.values {
-            let backdrop = card.subviews.first { Glass.weight(in: $0) != nil }
+            let backdrop = card.subviews.first { Ceramic.weight(in: $0) != nil }
             XCTAssertNotNil(backdrop)
             if #available(macOS 26.0, *) {
                 XCTAssertEqual((backdrop as? NSGlassEffectView)?.style, .regular)
@@ -123,8 +123,8 @@ final class AccessibilitySettingsTests: XCTestCase {
     }
 
     func testReduceTransparencyMakesTheVeilOpaque() throws {
-        XCTAssertEqual(try veilAlpha(reduce: true), Glass.opaque, accuracy: 0.01)
-        XCTAssertLessThan(try veilAlpha(reduce: false), Glass.opaque, "and the frost is back when it is off")
+        XCTAssertEqual(try veilAlpha(reduce: true), Ceramic.opaque, accuracy: 0.01)
+        XCTAssertLessThan(try veilAlpha(reduce: false), Ceramic.opaque, "and the frost is back when it is off")
     }
 
     func testIncreaseContrastSetsCaptionsInTheInk() {
@@ -243,7 +243,7 @@ final class AccentDriftTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/lodestar")
         let files = try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "Glass.swift" }
+            .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "Ceramic.swift" }
         XCTAssertGreaterThan(files.count, 20, "the sources were found")
         for file in files {
             let text = try String(contentsOf: file, encoding: .utf8)
@@ -439,7 +439,7 @@ final class KeyFaceTests: XCTestCase {
     /// Every surface with the drawn shadow is gated by construction: the
     /// shadow's margin passes the pointer through, the glass takes it.
     func testAHostedSurfaceTakesThePointerOnlyOverItsGlass() {
-        let panel = Glass.makePanel(level: .floating)
+        let panel = Ceramic.makePanel(level: .floating)
         let gate = SoftShadow.host(NSView(), in: panel, cornerRadius: BarTheme.surfaceRadius)
         let glass = NSRect(x: 300, y: 300, width: 400, height: 120)
         panel.setFrame(SoftShadow.outset(glass), display: false)
@@ -545,7 +545,7 @@ final class ToneFollowsAppearanceTests: XCTestCase {
         let view = NSView()
         view.appearance = NSAppearance(named: .aqua)
         NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
-            let ink = Glass.resolved(.labelColor, in: view).components ?? []
+            let ink = Ceramic.resolved(.labelColor, in: view).components ?? []
             XCTAssertLessThan(ink.first ?? 1, 0.5, "the view is light, whatever is current")
         }
     }

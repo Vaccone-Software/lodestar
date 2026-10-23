@@ -80,7 +80,7 @@ final class OptionsCard {
         case card(NSRect, panel: NSRect)
     }
 
-    private let panel = Glass.makePanel(level: .modalPanel)
+    private let panel = Ceramic.makePanel(level: .modalPanel)
     private let root = NSView()
     private var content: NSView?
 
@@ -88,11 +88,11 @@ final class OptionsCard {
         // Fed by the bar's keys, never the mouse: the drawn shadow, gated
         // shut.
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius, takesPointer: false)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     /// The card's frame on screen, so a second card can unfurl beside it.
-    var frame: NSRect { panel.glassFrame }
+    var frame: NSRect { panel.paneFrame }
 
     var isVisible: Bool { panel.isVisible }
 
@@ -101,7 +101,7 @@ final class OptionsCard {
         build(content)
         root.layoutSubtreeIfNeeded()
         var size = root.fittingSize
-        panel.setGlassFrame(Self.place(size, anchor: anchor), display: true)
+        panel.setPaneFrame(Self.place(size, anchor: anchor), display: true)
         panel.orderFrontRegardless()
     }
 

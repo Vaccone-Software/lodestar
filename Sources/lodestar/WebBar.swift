@@ -94,7 +94,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             self?.handleMenuKey(event) ?? false
         }
 
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         globe.image = NSImage(systemSymbolName: "network", accessibilityDescription: "links and the web")
         globe.symbolConfiguration = BarTheme.inputSymbol
@@ -537,7 +537,7 @@ private final class ChipGround: NSView {
 
     private func tint() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Glass.resolved(BarTheme.well, in: self)
+            layer?.backgroundColor = Ceramic.resolved(BarTheme.well, in: self)
         }
     }
 }

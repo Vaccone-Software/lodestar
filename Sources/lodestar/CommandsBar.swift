@@ -37,7 +37,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         panel.delegate = self
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
 
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         symbol.image = NSImage(systemSymbolName: "menubar.rectangle", accessibilityDescription: "menus")
         symbol.symbolConfiguration = BarTheme.inputSymbol
@@ -392,7 +392,7 @@ private final class CommandsRowView: RaisedRow {
         title.textColor = BarTheme.ink
         crumb.textColor = BarTheme.secondaryColor
         sourceLabel.textColor = BarTheme.secondaryColor
-        sourceChip.layer?.backgroundColor = Glass.resolved(BarTheme.well, in: sourceChip)
+        sourceChip.layer?.backgroundColor = Ceramic.resolved(BarTheme.well, in: sourceChip)
         chip.lit = selectedState
         enter.isHidden = !selectedState
     }

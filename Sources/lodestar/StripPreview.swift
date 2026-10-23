@@ -86,7 +86,7 @@ enum StripPreview {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     app.appearance = NSAppearance(named: to)
                     StageView.light = to == .aqua
-                    Glass.followSystemAppearance()
+                    Ceramic.followSystemAppearance()
                     for window in app.windows { window.contentView?.needsDisplay = true }
                     if ProcessInfo.processInfo.environment["LODESTAR_FLIP"] == "trace" {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {

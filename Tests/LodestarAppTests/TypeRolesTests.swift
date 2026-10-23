@@ -79,7 +79,7 @@ final class TypeRolesTests: XCTestCase {
     func testTheThemeDefinesNoFontOutsideTheRoles() throws {
         let regex = try NSRegularExpression(pattern: #"static\s+(?:let|var|func)\s+(\w+)[^\n]*NSFont"#)
         var names: [String] = []
-        for file in ["Glass.swift", "ModePill.swift"] {
+        for file in ["Ceramic.swift", "ModePill.swift"] {
             let text = DesignDriftTests.code(try String(
                 contentsOf: DesignDriftTests.appSources.appendingPathComponent(file), encoding: .utf8))
             for match in regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {

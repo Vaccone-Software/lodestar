@@ -19,14 +19,14 @@ struct GalleryLook: Equatable {
     /// gallery has chosen, so a picture is the same on every machine.
     func apply() {
         NSApplication.shared.appearance = NSAppearance(named: appearance)
-        Glass.followSystemAppearance()
+        Ceramic.followSystemAppearance()
         BarTheme.accentColor = { BarTheme.internationalOrange }
     }
 
     static func reset() {
         NSApplication.shared.appearance = nil
         BarTheme.accentColor = { BarTheme.internationalOrange }
-        Glass.followSystemAppearance()
+        Ceramic.followSystemAppearance()
     }
 }
 

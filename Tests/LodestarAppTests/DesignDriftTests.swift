@@ -9,7 +9,7 @@ import LodestarCore
 /// file named, so the φ table and the type scale stay the only source.
 final class DesignDriftTests: XCTestCase {
     /// The theme's homes: the values live here and nowhere else.
-    private static let homes: Set<String> = ["Glass.swift", "ModePill.swift", "Type.swift"]
+    private static let homes: Set<String> = ["Ceramic.swift", "ModePill.swift", "Type.swift"]
 
     /// Every Swift file under a folder, subfolders included: a guard that
     /// read only the top level would exempt any folder added later.
@@ -65,13 +65,13 @@ final class DesignDriftTests: XCTestCase {
     /// `.cgColor` on a dynamic colour resolves it in whatever appearance is
     /// current at the call, which off a draw pass is not the surface's: a
     /// Lodestar started at night went on painting night's colours on
-    /// clay. `Glass.resolved(_:in:)` and `ToneView` are the two ways.
+    /// clay. `Ceramic.resolved(_:in:)` and `ToneView` are the two ways.
     func testNoDynamicColourIsFixedOutsideItsAppearance() throws {
         let files = Self.swiftFiles(under: Self.appSources).filter { !$0.lastPathComponent.contains("Preview") }
         let hits = try offenders(
             #"(BarTheme\.ink\b|secondaryColor|readableAccent|accentColor|textColor)[^\n]*\.cgColor"#,
             in: files)
-        XCTAssertEqual(hits, [], "resolve it with Glass.resolved(_:in:) or draw it in a ToneView")
+        XCTAssertEqual(hits, [], "resolve it with Ceramic.resolved(_:in:) or draw it in a ToneView")
     }
 
     func testNoSurfaceSetsATypeSizeOfItsOwn() throws {
@@ -212,7 +212,7 @@ final class DesignDriftTests: XCTestCase {
 
     /// Every colour a surface draws comes from the theme: none names a
     /// system colour, a literal, a pure white or black, or a material. Only
-    /// Glass.swift may build a colour, from the palette's steps, and may
+    /// Ceramic.swift may build a colour, from the palette's steps, and may
     /// name the glass material until the material contract replaces it.
     func testNoSurfaceNamesAColourOrAMaterialOutsideTheTheme() throws {
         var offenders: [String] = []
@@ -222,7 +222,7 @@ final class DesignDriftTests: XCTestCase {
             if Self.colourExempt.contains(name) || isDebugOnly(raw) { continue }
             let text = Self.code(raw)
             for (what, pattern) in Self.colourPatterns {
-                if what == "a material", name == "Glass.swift" { continue }
+                if what == "a material", name == "Ceramic.swift" { continue }
                 let regex = try NSRegularExpression(pattern: pattern)
                 for match in regex.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {
                     offenders.append("\(name): \(what): \((text as NSString).substring(with: match.range))")
@@ -250,7 +250,7 @@ final class DesignDriftTests: XCTestCase {
         let allowed = [
             "field.textColor = BarTheme.ink", "layer.shadowColor = BarTheme.shadow.cgColor",
             "NSColor(srgbRed: red, green: green, blue: blue, alpha: 1)", "panel.backgroundColor = .clear",
-            "layer.borderColor = Glass.resolved(BarTheme.hairline, in: self)",
+            "layer.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)",
         ]
         for sample in allowed {
             let hit = try Self.colourPatterns.contains { _, pattern in
@@ -279,11 +279,11 @@ final class DesignDriftTests: XCTestCase {
     ]
 
     /// Objects float, and cast their own shadow: a surface made with
-    /// `Glass.makePanel` stands on the drawn soft shadow and its fine
+    /// `Ceramic.makePanel` stands on the drawn soft shadow and its fine
     /// edge, the bars' and the draft's, never the system's.
     func testEverySurfaceStandsOnTheDrawnShadow() throws {
         var missing: [String] = [], stale: [String] = []
-        for (name, text) in try sources() where name != "Glass.swift" && text.contains("makePanel(") {
+        for (name, text) in try sources() where name != "Ceramic.swift" && text.contains("makePanel(") {
             // One surface per window is hosted; Keep's cards share one
             // window and each casts the same shadow as an object.
             let hosted = text.contains("SoftShadow.host(") || text.contains("SoftShadow.object(")
@@ -299,25 +299,25 @@ final class DesignDriftTests: XCTestCase {
 
     /// No window wears the window server's shadow: it cannot be shaped to
     /// the glass, and a room in it reads as a system window in costume.
-    /// `Glass.makePanel` sets it only for `SoftShadow.host` to take away.
+    /// `Ceramic.makePanel` sets it only for `SoftShadow.host` to take away.
     func testNoWindowWearsTheSystemShadow() throws {
         let offenders = try sources()
-            .filter { $0.name != "Glass.swift" && $0.text.contains("hasShadow = true") }
+            .filter { $0.name != "Ceramic.swift" && $0.text.contains("hasShadow = true") }
             .map(\.name)
         XCTAssertEqual(offenders, [], "host the surface on SoftShadow instead")
     }
 
     /// Every window Lodestar makes floats on the drawn shadow, not only
-    /// the ones `Glass.makePanel` builds: a panel made by hand keeps the
+    /// the ones `Ceramic.makePanel` builds: a panel made by hand keeps the
     /// window server's shadow unless it says otherwise, which is how four
     /// rooms kept it. A file that makes a window hosts its surface on
     /// `SoftShadow`, or turns the shadow off and draws its own.
     func testEveryWindowMadeByHandCastsTheDrawnShadow() throws {
-        let makesWindow = ["KeyablePanel(", "NSPanel(", "NSWindow(", "GlassPanel(", "ShowingPanel("]
+        let makesWindow = ["KeyablePanel(", "NSPanel(", "NSWindow(", "CeramicPanel(", "ShowingPanel("]
         var missing: [String] = []
         // The render tool's flat ground and stand-in app window are the
         // scene a surface is photographed over, not surfaces.
-        let notSurfaces: Set<String> = ["Glass.swift", "StripPreview.swift"]
+        let notSurfaces: Set<String> = ["Ceramic.swift", "StripPreview.swift"]
         for (name, text) in try sources() where !notSurfaces.contains(name) {
             guard makesWindow.contains(where: text.contains) else { continue }
             let drawn = text.contains("SoftShadow.host(") || text.contains("SoftShadow.object(")
@@ -332,7 +332,7 @@ final class DesignDriftTests: XCTestCase {
     /// materials.
     func testEverythingMovesOnOneCurve() throws {
         let offenders = try sources()
-            .filter { $0.text.contains("CAMediaTimingFunction(") && !($0.name == "Glass.swift"
+            .filter { $0.text.contains("CAMediaTimingFunction(") && !($0.name == "Ceramic.swift"
                 && $0.text.components(separatedBy: "CAMediaTimingFunction(").count == 2) }
             .map(\.name)
         XCTAssertEqual(offenders, [], "use BarTheme.motion")
@@ -350,7 +350,7 @@ final class DesignDriftTests: XCTestCase {
             "SettingsController.swift": 1, // the overview's ring
         ]
         var offenders: [String] = []
-        for (name, text) in try sources() where name != "Glass.swift" {
+        for (name, text) in try sources() where name != "Ceramic.swift" {
             let count = text.components(separatedBy: "BarTheme.inkAt(").count - 1
             if count > notMatter[name, default: 0] { offenders.append(name) }
         }
@@ -373,7 +373,7 @@ final class DesignDriftTests: XCTestCase {
     /// popup's behaviour but draws its face and every menu row
     /// (`KeyPopUp`, `ChoiceMenuItemView`), the one file allowed to.
     func testNoSurfaceUsesASystemPopup() throws {
-        let notYet: Set<String> = ["SettingsController.swift", "Glass.swift"]
+        let notYet: Set<String> = ["SettingsController.swift", "Ceramic.swift"]
         var offenders: [String] = [], stale: [String] = []
         for (name, text) in try sources() {
             let uses = text.contains("NSPopUpButton")
@@ -387,7 +387,7 @@ final class DesignDriftTests: XCTestCase {
     /// the edge light's, in the theme, where a lit rim turns down into a
     /// corner; a room may fade its own scroll edge. Chrome never does.
     func testChromeIsNeverShadedByAGradient() throws {
-        let homes: Set<String> = ["Glass.swift", "SettingsController.swift"]
+        let homes: Set<String> = ["Ceramic.swift", "SettingsController.swift"]
         let offenders = try sources()
             .filter { !homes.contains($0.name) }
             .filter { $0.text.contains("CAGradientLayer") || $0.text.contains("NSGradient(") }
@@ -445,7 +445,7 @@ final class DesignDriftTests: XCTestCase {
     /// theme and on the two chips that are read rather than pressed (Ask's
     /// profile, the commands bar's source); a harness may use it.
     func testOnlyTheThemeDrawsAKey() throws {
-        let allowed: Set<String> = ["Glass.swift", "WebBar.swift", "CommandsBar.swift", "SplitPreview.swift"]
+        let allowed: Set<String> = ["Ceramic.swift", "WebBar.swift", "CommandsBar.swift", "SplitPreview.swift"]
         let offenders = try sources()
             .filter { $0.text.contains("BarTheme.chipFont") && !allowed.contains($0.name) }
             .map(\.name)

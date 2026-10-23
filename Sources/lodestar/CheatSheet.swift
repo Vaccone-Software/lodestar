@@ -15,10 +15,10 @@ final class CheatSheet {
     private var content: NSStackView?
 
     init() {
-        panel = Glass.makePanel(level: .statusBar, takesKeys: false)
+        panel = Ceramic.makePanel(level: .statusBar, takesKeys: false)
         // Shown, never touched: the drawn shadow, and no mouse anywhere.
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius, takesPointer: false)
-        Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -60,7 +60,7 @@ final class CheatSheet {
         size.width = min(size.width, 1500)
         let visible = ActivePolicy.presentationFrame
         let origin = NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2)
-        panel.setGlassFrame(NSRect(origin: origin, size: size), display: true)
+        panel.setPaneFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
     }
 

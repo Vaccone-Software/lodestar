@@ -75,7 +75,7 @@ final class MeetingController: NSObject {
     // MARK: - Surfaces
 
     /// The chip: floating glass, never key.
-    private let panel = Glass.makePanel(level: .floating)
+    private let panel = Ceramic.makePanel(level: .floating)
     private let root = NSView()
     /// The prime card: mouse-first and keyable, in the door's family.
     private let prime = KeyablePanel(
@@ -89,7 +89,7 @@ final class MeetingController: NSObject {
         super.init()
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(panel)
-        _ = Glass.installBackdrop(in: root, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
         prime.level = .modalPanel
         prime.isOpaque = false
         prime.backgroundColor = .clear
@@ -97,7 +97,7 @@ final class MeetingController: NSObject {
         prime.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         SoftShadow.host(primeRoot, in: prime, cornerRadius: BarTheme.surfaceRadius)
         Movable.enable(prime)
-        _ = Glass.installBackdrop(in: primeRoot, cornerRadius: BarTheme.surfaceRadius)
+        _ = Ceramic.installPane(in: primeRoot, cornerRadius: BarTheme.surfaceRadius)
         prime.onKeyDown = { [weak self] event in
             guard let self, let key = Keys.name(for: Int64(event.keyCode)),
                   self.prime.isVisible, self.prime.isKeyWindow else { return false }

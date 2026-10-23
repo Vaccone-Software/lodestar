@@ -152,15 +152,20 @@ enum GalleryFoundations {
     static func colour(look: GalleryLook) -> (NSWindow, [AnyObject]) {
         sheet(look: look, width: 1040) { page, appearance in
             let steps = BarTheme.steps(for: appearance)
-            let night = steps == Palette.night
-            let other = night ? Palette.clay : Palette.night
+            let night = steps.isDark
+            // The other look as it stands at the same level: what a chosen
+            // thing's marks are drawn in.
+            let other = BarTheme.steps(for: NSAppearance(named: night ? .aqua : .darkAqua)!)
             let id = night ? "night" : "clay"
+            let level = EyeComfortState.shared.level
             let pane = steps.pane
             func themed(_ color: NSColor, over background: Readability.RGB = pane) -> Readability.RGB {
                 resolved(color, over: background, in: appearance)
             }
-            page.heading("Colour · \(look.name)",
-                         "\(night ? "Espresso" : "Clay") of design/01-colour.md, drawn from Palette.swift and BarTheme in the \(look.name) look. The look's pane is the sheet's own ground.")
+            page.heading("Colour · \(look.name)" + (level < 1 ? " · eye comfort at \(Int((level * 100).rounded()))%" : ""),
+                         "\(night ? "Espresso" : "Clay") of design/01-colour.md, drawn from Palette.swift and BarTheme in the \(look.name) look"
+                         + (level < 1 ? ", dimmed to \(Int((level * 100).rounded()))% of its luminance by design/06-eye-comfort.md." : ".")
+                         + " The look's pane is the sheet's own ground.")
 
             page.heading("Steps", "Palette.\(id): ground, pane, key, side, ink, quiet ink, slab, slab side, and the hairline's share of the ink.")
             page.swatches([
@@ -216,6 +221,11 @@ enum GalleryFoundations {
             page.pair("theme: quiet ink on pane", foreground: themed(BarTheme.secondaryColor), background: pane, floor: 4.5)
             page.pair("theme: letter on the accent", foreground: themed(BarTheme.onAccent, over: accent), background: accent, floor: 4.5)
             page.pair("theme: key letter on key face", foreground: themed(BarTheme.keyLetter, over: keyFace), background: keyFace, floor: 7)
+            page.pair("quiet ink on well", foreground: steps.quietInk, background: steps.well, floor: 4.5)
+            page.pair("orange as a lit fill on key", foreground: steps.orange, background: steps.key, floor: 3)
+            let receded = Receding.inks(of: steps)
+            page.pair("receded ink on pane (the pill, the chip)", foreground: receded.ink, background: steps.pane, floor: 5.5)
+            page.pair("receded quiet ink on pane", foreground: receded.quietInk, background: steps.pane, floor: 4.5)
         }
     }
 

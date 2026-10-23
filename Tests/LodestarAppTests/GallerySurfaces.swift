@@ -8,13 +8,18 @@ import XCTest
 /// weight are the ones the look asks for.
 struct GalleryShot {
     let surface: String
-    let state: String
+    var state: String
     let looks: [GalleryLook]
     /// Cut away the transparent window around the surface (a panel handed a
     /// whole display), keeping its drawn shadow.
     var trim = false
     /// Draw the surface's children one at a time (see `bitmapBySiblings`).
     var bySiblings = false
+    /// The Eye comfort level the surface is drawn at: 1 is full, 0.88 is
+    /// the evening and 0.80 bedtime (design/06-eye-comfort.md).
+    var level = 1.0
+    /// The pill or the chip drawn after twenty seconds alone.
+    var receded = false
     /// The view to capture, standing in a window the closure keeps alive
     /// through `keep`.
     let build: (GalleryLook) throws -> (view: NSView, keep: [AnyObject])

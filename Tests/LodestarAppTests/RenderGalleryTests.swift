@@ -12,6 +12,29 @@ final class RenderGalleryTests: XCTestCase {
     override func tearDown() {
         GalleryLook.reset()
         ActivePolicy.frameOverride = nil
+        EyeComfortState.shared.set(enabled: false, level: 1)
+    }
+
+    /// The pill or the chip in `keep`, left alone for twenty seconds.
+    private static func recede(_ keep: [AnyObject]) throws {
+        var done = false
+        for object in keep {
+            if let pill = object as? ModePill {
+                pill.recess.idle = 0
+                pill.recess.idled()
+                done = pill.recess.receded
+            } else if let chip = object as? MeetingController {
+                // The staged chip's calendar is not there by the time it is
+                // drawn, so the clock is started the way the chip's showing
+                // starts it, and left alone.
+                chip.recess.touch()
+                chip.recess.idle = 0
+                chip.recess.idled()
+                done = chip.recess.receded
+            }
+        }
+        struct NotReceded: Error {}
+        if !done { throw NotReceded() }
     }
 
     func testRenderEverySurface() throws {
@@ -24,8 +47,13 @@ final class RenderGalleryTests: XCTestCase {
             for shot in GalleryShots.all where shot.looks.contains(look) {
                 let name = shot.name(in: look)
                 if let only, !name.contains(only) { continue }
+                // The level is the one place the theme reads; a variant is the
+                // same surface built and drawn with it set.
+                EyeComfortState.shared.set(enabled: shot.level < 1 || shot.receded, level: shot.level)
+                defer { EyeComfortState.shared.set(enabled: false, level: 1) }
                 do {
                     let (view, keep) = try shot.build(look)
+                    if shot.receded { try Self.recede(keep) }
                     var rep = shot.bySiblings ? GalleryRender.bitmapBySiblings(of: view) : GalleryRender.bitmap(of: view)
                     if shot.trim { rep = GalleryRender.trimmed(rep) }
                     try GalleryRender.write(GalleryRender.onDesktop(rep, margin: shot.trim ? 0 : 8), name: name)

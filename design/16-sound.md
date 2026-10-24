@@ -64,6 +64,10 @@ The review page plays every voice live (Web Audio, from the same parameters the 
 
 ## Status
 
-Drafted 24 October 2026. Main plays Glazed.
+Drafted 24 October 2026. Main plays the strike (Star); Glazed was only ever on the prototype branch.
 
 ## Decided in review
+
+**The strike stays (24 October 2026).** Bisque and Glazed were the two the owner kept from the first round. Bisque was cohesive with the look but not identifiable as Lodestar. Glazed was unique. A second round blended them, Glazed's tuning with Bisque's touch. The owner could not hear the version with the tail apart from Glazed, and named the real fault: it mixed two sources that are not related, which the appearance search had already ruled out. The strike's source is Lodestar's own proportion, 1 : φ : φ², the ratio the shapes are built on. It is the one source that is both cohesive and recognisable. Glazed's tick goes too: it was the same blend in miniature, and nobody could hear it. Main already plays the strike, so nothing is rendered again.
+
+**Under review for the long term:** Interval (the fifth itself, pure 3 : 2), Line (a figure rising by fifths, D, A, E), and the strike an octave down. Each comes from a single source.

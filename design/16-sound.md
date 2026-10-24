@@ -37,7 +37,7 @@ Each is synthesized from how its material rings: the ratios between its overtone
 
 ## Values (once a voice is chosen)
 
-- **Register:** the alert on A5 (880 Hz). Listening is A5 then E6, 90 ms apart; Landed is E6 then A5. Listening and Landed play 4.4 dB under the alert, as today.
+- **Register:** the alert on A5 (880 Hz). Listening is A5 then E6, 90 ms apart; Landed is E6 then A5. Listening and Landed play 4.4 dB under the alert.
 - **Level:** peaks at −9 dBFS, matched to the Mac's alerts.
 - **Length:** the body is 20 dB down by 200 ms. Nothing rings past 600 ms.
 - **No reverb.** The room is the listener's.

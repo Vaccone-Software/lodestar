@@ -16,7 +16,7 @@ The chip has one job: to say how long until the next meeting, and then to say "n
 
 ### The chip is a row
 
-The chip is a row with a detail line (contract 13), standing alone as its own surface: **52 tall**, rounded at the surface's 22, in the top-right of the screen as today, inset 20, movable as today, never the key window. Its width is set once for its whole life, as today.
+The chip is a row with a detail line (contract 13), standing alone as its own surface: **52 tall**, rounded at the surface's 22, in the top-right of the screen as today, inset 20, movable as today, never the key window. Its width is set once for its whole life, as today: wide enough for the key, the chord and the longest detail line it will show (the "Started 88 min ago · Zoom · 6 people" form), so the start never cuts a line that fit before. The title is cut at its tail within that width.
 
 | Part             | Where                                                             | What                                                          |
 | ---------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |

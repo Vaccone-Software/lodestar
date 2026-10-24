@@ -393,7 +393,8 @@ final class EyeComfortTests: XCTestCase {
     func testTheChipRecedesAndTheDueMeetingBringsItBackAndALitOneNeverRecedes() throws {
         on(0.88)
         let controller = MeetingController.preview(0, startingIn: 4 * 60)
-        for _ in 0..<20 where controller.current == nil { spin(0.02) }
+        // Until it stands, not for a beat: the run loop may be turned over to other work.
+        for _ in 0..<1_500 where controller.current == nil { spin(0.02) }
         defer { controller.recess.stop() }
         let root = controller.chipRoot
         XCTAssertEqual(controller.chipWords.first(where: { $0 == "Product sync" }), "Product sync")

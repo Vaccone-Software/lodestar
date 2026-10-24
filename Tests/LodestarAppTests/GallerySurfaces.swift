@@ -61,7 +61,19 @@ enum GalleryHost {
 
     /// Let the run loop turn for a beat: what a surface defers to the next
     /// turn (a staged preview, a settled layout) lands.
+    ///
+    /// Everything already queued on the main queue runs first, however long
+    /// that takes, and then the beat is turned in full. A beat alone is a
+    /// time the run loop is given, not work it is made to do: a turn that goes
+    /// to other work (a look changing across every window the process still
+    /// holds, which is more of them with each test that ran before) can use it
+    /// up and leave a staged surface for after the beat, so that the picture
+    /// is taken of a window that is not made yet, in a full run and never alone.
     static func settle(_ seconds: TimeInterval = 0.12) {
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        let deadline = Date().addingTimeInterval(30)
+        while !drained, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
         RunLoop.main.run(until: Date().addingTimeInterval(seconds))
     }
 

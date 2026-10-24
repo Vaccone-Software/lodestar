@@ -691,10 +691,6 @@ enum Keycaps {
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("not from a nib") }
 
-        /// As aligned as what it holds: by the keys' faces, with their sides
-        /// inside the group's own frame, where the click lands.
-        override var alignmentRectInsets: NSEdgeInsets { content.alignmentRectInsets }
-
         /// As wide as its keys, said, so a row that holds it hugs it: a view
         /// with no width of its own is the one a stack hands the slack to.
         override var intrinsicContentSize: NSSize {

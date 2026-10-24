@@ -392,7 +392,7 @@ extension RowTests {
             }
             window.close()
 
-            // A Settings title and its own keys: the title's capital height is centred on the keys' face.
+            // A Settings title and its own keys: the title's capital height is centred on the keys' whole frame.
             let settings = GallerySettings.controller()
             var row = SettingsModel.Row(title: "Settings", path: "gestures.settings", control: .toggle(true),
                                         detail: "Opens this window", keycaps: ["lode", ","])
@@ -414,9 +414,9 @@ extension RowTests {
                 measured += 1
                 // "S" is a round capital: it overshoots the baseline and the cap line a little.
                 let middle = (found.low + found.high) / 2
-                let face = pane.convert(key.face, from: key)
-                if abs(middle - face.midY) > 0.5 {
-                    wrong.append("\(look.name) settings title: its capital is centred on \(middle), the keys' face on \(face.midY)")
+                let whole = pane.convert(key.bounds, from: key)
+                if abs(middle - whole.midY) > 0.5 {
+                    wrong.append("\(look.name) settings title: its capital is centred on \(middle), the keys' whole frame on \(whole.midY)")
                 }
             } else {
                 wrong.append("\(look.name) settings title: not found")

@@ -20,12 +20,6 @@ enum KeySize: Equatable {
     var faceHeight: CGFloat { self == .standard ? 21 : 31 }
     /// The legend's role: a key's letter, or a figure read across the screen.
     var role: BarTheme.Role { self == .standard ? .key : .largeFigure }
-    /// What layout aligns: the face. The side hangs beneath it, so a key
-    /// beside words stands its face on their line and its side below, never
-    /// the whole frame (design/13-row.md, rule 4). Anything a row centres on
-    /// the line of its first words and that is a key's height (a key, a
-    /// sequence, the words beside them) says the same.
-    var hang: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: side, right: 0) }
 }
 
 /// What a key is for the hand right now. Instant: nothing animates.
@@ -253,10 +247,9 @@ final class Key: NSView, CeramicDepth {
         KeyLegend.width(of: legend, size: size, night: BarTheme.isNight(effectiveAppearance))
     }
 
-    /// Layout sees the face: the side hangs beneath it (`KeySize.hang`), so the
-    /// frame is `size.height` tall and the intrinsic size is the face's.
-    override var alignmentRectInsets: NSEdgeInsets { size.hang }
-    override var intrinsicContentSize: NSSize { NSSize(width: width, height: size.faceHeight) }
+    /// Layout sees the whole key, face and side: the frame is `size.height`
+    /// tall, there are no alignment insets, and the object is centred.
+    override var intrinsicContentSize: NSSize { NSSize(width: width, height: size.height) }
     /// The frame a key is placed in by hand: the face and the side beneath it.
     var frameSize: NSSize { NSSize(width: width, height: size.height) }
 
@@ -451,9 +444,6 @@ final class KeyStrokes: NSStackView {
 
     required init?(coder: NSCoder) { nil }
 
-    /// Aligned by its face, as every key in it is.
-    override var alignmentRectInsets: NSEdgeInsets { size.hang }
-
     /// As wide as its keys, said: a stack with no width of its own is the view
     /// a row hands its slack to, and a sequence stretched across a row is not
     /// a sequence. Keys and gaps, as the stack lays them.
@@ -516,9 +506,8 @@ final class KeyTimes: NSView {
             NSAttributedString(string: Self.text, attributes: [.font: font])), nil).maxX)
     }
 
-    /// As tall as the key it follows, aligned by its face as the key is.
-    override var alignmentRectInsets: NSEdgeInsets { size.hang }
-    override var intrinsicContentSize: NSSize { NSSize(width: width, height: size.faceHeight) }
+    /// As tall as the key it follows, the whole frame.
+    override var intrinsicContentSize: NSSize { NSSize(width: width, height: size.height) }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidChangeEffectiveAppearance() {

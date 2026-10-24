@@ -264,12 +264,10 @@ final class GeometryTests: XCTestCase {
     /// The frame of `view` in `root`'s coordinates.
     private func frame(of view: NSView, in root: NSView) -> NSRect { view.convert(view.bounds, to: root) }
 
-    /// Where a part stands on a line: the centre of its frame, and of a key's
-    /// face, since words beside a key align to the face and not to its side.
+    /// Where a part stands on a line: the centre of its frame. A key is laid out
+    /// by its whole frame, face and side, so there is no inset to correct for.
     private func lineCentre(of view: NSView, in root: NSView) -> CGFloat {
-        let frame = frame(of: view, in: root)
-        let hang = view.alignmentRectInsets.bottom
-        return root.isFlipped ? frame.midY - hang / 2 : frame.midY + hang / 2
+        frame(of: view, in: root).midY
     }
 
     private func walk(_ view: NSView, _ visit: (NSView) -> Void) {

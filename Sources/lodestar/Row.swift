@@ -102,7 +102,7 @@ final class DotColumn: NSView {
 
 /// Words standing on a key's line (design/13-row.md, rule 4). A key is 24
 /// tall: 21 of face and 3 of side, and its letter is centred on the face. A
-/// text field centred on the key's whole frame stands 1.5 points too low, and
+/// text field centred on the key's face stands 1.5 points too high, and
 /// one that is centred only by its line box shares no baseline with a lowercase
 /// legend (an x-height centred on the face is a point above a cap height
 /// centred on it). So words beside a key are set on the key's line by their
@@ -113,8 +113,8 @@ final class DotColumn: NSView {
 ///   every word of a line, and the `esc` and `lode` beside it, stand on one;
 /// - larger words stand with their capital height centred on the face, as a
 ///   legend of capitals does.
-/// The view is a key's height, aligned by its face as a key is, so a row that
-/// centres it centres the face.
+/// The view is a key's height, laid out by its whole frame as a key is, so a
+/// row that centres it centres the key, and the words go with the letters.
 final class KeyWords: NSView {
     let label: NSTextField
     let role: BarTheme.Role
@@ -153,10 +153,11 @@ final class KeyWords: NSView {
         set { label.textColor = newValue }
     }
 
-    override var alignmentRectInsets: NSEdgeInsets { size.hang }
+    /// As tall as the keys it stands beside, the whole frame: the words stand
+    /// on the keys' legend baseline, face and side laid out together.
     override var intrinsicContentSize: NSSize {
         guard let limit = wrapWidth else {
-            return NSSize(width: label.intrinsicContentSize.width, height: size.faceHeight)
+            return NSSize(width: label.intrinsicContentSize.width, height: size.height)
         }
         // A sentence: on one line when it fits the column, else wrapped within
         // it, never cut. The first line stands where a single line does, and
@@ -164,11 +165,11 @@ final class KeyWords: NSView {
         let natural = naturalWidth
         guard natural > limit else {
             setWrapping(false)
-            return NSSize(width: natural, height: size.faceHeight)
+            return NSSize(width: natural, height: size.height)
         }
         setWrapping(true, within: limit)
         let height = label.intrinsicContentSize.height
-        return NSSize(width: limit, height: max(size.faceHeight, firstLineFromTop + height - label.firstBaselineOffsetFromTop))
+        return NSSize(width: limit, height: max(size.faceHeight, firstLineFromTop + height - label.firstBaselineOffsetFromTop) + size.side)
     }
 
     /// The column a sentence of words wraps within, asked when the words are

@@ -299,6 +299,23 @@ final class HotkeyEngine {
     private var naming: Naming?
     /// The modifier held over Keep, which changes what the cards show.
     private var heldOverStrip: ClipboardStrip.Held = .none
+    /// The ⇧ ⌥ ⌃ still down from the gesture that opened Keep. Keep opens
+    /// on ⇧⌘V with the hand still on its keys, and a modifier carried in
+    /// that way is not a choice made over the cards: it neither shows nor
+    /// acts until it has been let go and pressed again.
+    private var carriedIntoKeep: CGEventFlags = []
+
+    /// The flags Keep reads. A modifier carried in from the opening is
+    /// dropped from them while it is still down, and forgotten the moment
+    /// an event shows it up. Outside Keep, and in the draft Keep's door
+    /// opens (where shift is typing), the flags are the event's own.
+    private func keepReads(_ flags: CGEventFlags) -> CGEventFlags {
+        guard !carriedIntoKeep.isEmpty else { return flags }
+        if core.isIdle { carriedIntoKeep = []; return flags }
+        if case .pasteDoor = core.state { return flags }
+        carriedIntoKeep.formIntersection(flags)
+        return flags.subtracting(carriedIntoKeep)
+    }
     /// Bring: the reader of every other window, the words typed, the app
     /// the answers are filtered to, its list while open, and the app the
     /// text is typed into, taken at the moment Bring opened.
@@ -800,7 +817,11 @@ final class HotkeyEngine {
             _ = select.ghostHandleKey(key: "", held: false, flags: event.flags)
             return Unmanaged.passUnretained(event)
         }
-        let (physicallyHeld, shift) = classify(event.flags)
+        // Lode is classified off the event as it came; what Keep reads of
+        // ⇧ ⌥ ⌃ is the same flags less any still carried from its opening.
+        let keepFlags = keepReads(event.flags)
+        let (physicallyHeld, _) = classify(event.flags)
+        let shift = keepFlags.contains(.maskShift)
         // Under a tapped lode the key is a gesture, exactly as if the
         // thumb were still down — the same routing, the same effects,
         // and the release stamped right after (below), so a sticky chain
@@ -898,16 +919,16 @@ final class HotkeyEngine {
         }
         // Mid-chain and mid-scroll, lode may or may not still be down —
         // shift keeps its meaning either way.
-        let effectiveShift = core.isIdle ? shift : chainShift(event.flags)
+        let effectiveShift = core.isIdle ? shift : chainShift(keepFlags)
         // Ordinary typing is not engine activity; lode gestures and
         // anything mid-chain are.
         if held || !core.isIdle { lastActivityAt = clock.now() }
 
         let wasIdle = core.isIdle
         let effects = core.keyDown(key: key, held: held, shift: effectiveShift,
-                                   command: event.flags.contains(.maskCommand),
-                                   option: event.flags.contains(.maskAlternate),
-                                   control: event.flags.contains(.maskControl), world: self)
+                                   command: keepFlags.contains(.maskCommand),
+                                   option: keepFlags.contains(.maskAlternate),
+                                   control: keepFlags.contains(.maskControl), world: self)
         let arrived = clock.now()
         let verdict = dispatch(effects, event: event)
         // The thumb was never down: the phrase a hold would have kept open
@@ -1089,6 +1110,9 @@ final class HotkeyEngine {
                     renderStrip()
                     break
                 }
+                // Whatever the opening gesture left down does not count.
+                carriedIntoKeep = (event?.flags ?? CGEventSource.flagsState(.combinedSessionState))
+                    .intersection([.maskShift, .maskAlternate, .maskControl])
                 let began = Date()
                 renderStrip()
                 recordCaretCover()
@@ -1122,6 +1146,7 @@ final class HotkeyEngine {
                 imageDoor.hide()
                 // Keep handing its words to Bring leaves the panel to Bring.
                 if case .bring = core.state {} else {
+                    carriedIntoKeep = []
                     stopWatchingClicks()
                     strip.hide()
                 }
@@ -1194,6 +1219,7 @@ final class HotkeyEngine {
                 heldOverStrip = .none
                 // esc steps back to Keep, on the same panel.
                 if case .paste = core.state { returningToKeep = true } else {
+                    carriedIntoKeep = []
                     stopWatchingClicks()
                     strip.hide()
                 }
@@ -1545,15 +1571,16 @@ final class HotkeyEngine {
         // Over Keep, a held modifier shows on every card what it would
         // paste: `⌥` the chords, `⌃` the readings, `⇧` as copied. Lode is
         // a gesture, not a form, and changes nothing here.
+        let keepFlags = keepReads(event.flags)
         if case .bring = core.state, !held {
-            let next: ClipboardStrip.Held = event.flags.contains(.maskShift) ? .shift : .none
+            let next: ClipboardStrip.Held = keepFlags.contains(.maskShift) ? .shift : .none
             if next != heldOverStrip {
                 heldOverStrip = next
                 renderBring()
             }
         }
         if !held, Self.isKeepState(core.state) {
-            let flags = event.flags
+            let flags = keepFlags
             let next: ClipboardStrip.Held = flags.contains(.maskControl) ? .control
                 : flags.contains(.maskAlternate) ? .option
                 : flags.contains(.maskShift) && !flags.contains(.maskCommand) ? .shift : .none

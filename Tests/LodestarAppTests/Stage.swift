@@ -730,6 +730,12 @@ final class Stage {
 
     private static let leftShiftKeycode: CGKeyCode = 56
 
+    /// The modifiers the hand holds change to exactly these (flags only,
+    /// no lode): a release is the set without it.
+    func modifiers(_ flags: CGEventFlags) {
+        send(event(type: .flagsChanged, keycode: Self.leftShiftKeycode, flags: flags, posted: false))
+    }
+
     /// Shift alone goes down or up, lode untouched.
     func shift(_ down: Bool) {
         var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []

@@ -153,6 +153,8 @@ final class ClipboardStrip {
     var castsWindowShadow: Bool { panel.hasShadow }
     /// Which clip each label answers to, in rank order.
     private(set) var shownRecents: [Clipboard.Clip] = []
+    /// The modifier the cards were last drawn under.
+    private(set) var shownHeld: Held = .none
     private(set) var shownPins: [Int: Clipboard.Clip] = [:]
     /// The keepsakes stepped aside for the clip door.
     private(set) var pinsHidden = false
@@ -290,6 +292,7 @@ final class ClipboardStrip {
         shownSourceRows = []
         bandFrame = nil
 
+        shownHeld = held
         shownRecents = Array(recents.prefix(Self.labels.count))
         // The one card that is chosen is the slab: the card being named or
         // acted on, else what ⏎ would paste, the newest until a search moves
@@ -431,6 +434,7 @@ final class ClipboardStrip {
         let layout = Self.layout(in: screen)
         let opening = !panel.isVisible
         lastLayout = layout
+        shownHeld = held
         shownRecents = []
         shownPins = [:]
         shownCards = [:]

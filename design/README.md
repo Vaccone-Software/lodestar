@@ -33,7 +33,7 @@ Primitives are made of foundations, so the foundations are settled first.
 | 11  | Slab          | Built   |
 | 12  | Well          | Built   |
 | 13  | Row           | Built   |
-| 14  | Stops         | Drafted |
+| 14  | Stops         | Declined |
 | 15  | Countdown key | Planned |
 
 Then the primitives, each made only of the foundations above: the key, the slab, the well, the row, stops, and the countdown key. Then sound.

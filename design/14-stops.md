@@ -97,3 +97,5 @@ When the stops' row is itself the slab (a search landing, contract 11), its stop
 Drafted 23 October 2026. Main shows both Model settings as popups.
 
 ## Decided in review
+
+**Declined, 24 October 2026.** The owner kept the popup for both Model settings. A popup reads cleaner in a pane where every other control sits at the row's trailing edge, and showing only "Automatic" tells the reader the setting is handled. Five keys in a line invite choosing a value that most people should leave alone. These are settings you set once, not ones you move along, and without them no setting needs stops. The contract stays here as the record. If a setting that people really do move along ever shows up, start from this draft.

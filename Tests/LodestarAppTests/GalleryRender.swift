@@ -70,6 +70,13 @@ enum GalleryRender {
         window.setFrameOrigin(away)
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        // A panel that never activates the app takes the keys at once on a
+        // desk and some turns later on a runner half as fast; one that does
+        // activate it (Settings) never will here, so only the first is waited for.
+        if window.styleMask.contains(.nonactivatingPanel) {
+            let deadline = Date().addingTimeInterval(3)
+            while !window.isKeyWindow, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        }
         // A window that activates the app (Settings) cannot take the keys
         // while the app is not active: it stays away, and is drawn as a
         // window nobody can see is (`WellText.holds`).

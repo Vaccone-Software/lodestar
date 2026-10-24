@@ -165,7 +165,7 @@ final class WellTests: XCTestCase {
                     }
                 }
                 XCTAssertEqual(CGFloat(accentColumns) / scale, BarTheme.caretWidth, accuracy: 0.01,
-                               "\(look.name): \(cell.caption): the caret is 1.5 points of the accent")
+                               "\(look.name): \(cell.caption): the caret is 1.5 points of the accent (caret \(mark.frame) in \(cell.root.bounds.size), row \(row) of \(rep.pixelsHigh), holds \(text.holdsCaret))")
                 XCTAssertEqual(otherSaturated, 0, "\(look.name): \(cell.caption): no caret but ours")
             }
         }

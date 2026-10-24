@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import XCTest
 @testable import lodestar
 @testable import LodestarCore
@@ -73,22 +74,35 @@ extension GalleryShot {
     }
 }
 
-/// A window of the gallery: it reports the scale the pictures are drawn at
+/// The scale every window reports in the suite: the gallery's own
 /// (`GalleryRender.scale`), not that of whichever display the suite runs on.
 ///
 /// A window nobody can see still answers `backingScaleFactor` from the main
-/// display, and a legend or a rim snaps itself to that scale's pixels: on a
-/// runner's 1x display a capital stood a quarter point off the keys beside it
-/// that it stands on at the desk's 2x, with the same code.
-final class GalleryWindow: NSWindow {
-    override var backingScaleFactor: CGFloat { GalleryRender.scale }
+/// display, and a legend, a rim or a line of words snaps itself to that
+/// scale's pixels. On a runner's 1x display a capital stood a quarter point
+/// off the keys beside it, and a word half a point off the middle of its slab,
+/// where at the desk's 2x, with the same code, they stand true. The getter is
+/// replaced once per process, for every window, the production panels the
+/// harness stages among them.
+enum DisplayScale {
+    private nonisolated(unsafe) static var pinned = false
+
+    static func pin() {
+        guard !pinned, let method = class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.backingScaleFactor))
+        else { return }
+        pinned = true
+        let scale = GalleryRender.scale
+        let block: @convention(block) (NSWindow) -> CGFloat = { _ in scale }
+        method_setImplementation(method, imp_implementationWithBlock(block))
+    }
 }
 
 /// What the harness builds around a surface that is not a panel of its own.
 enum GalleryHost {
     /// A borderless window of the look, `size` points, holding `content`.
     static func window(_ content: NSView, size: NSSize, look: GalleryLook) -> NSWindow {
-        let window = GalleryWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
+        DisplayScale.pin()
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: look.appearance)
         window.isReleasedWhenClosed = false
@@ -145,6 +159,7 @@ enum GalleryHost {
     static func surface(made body: () -> [AnyObject], settle beat: TimeInterval = 0.12,
                         where match: (NSWindow) -> Bool = { _ in true },
                         frame: NSRect? = nil) throws -> (NSView, [AnyObject]) {
+        DisplayScale.pin()
         let before = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
         func made() -> [NSWindow] { NSApplication.shared.windows.filter { !before.contains(ObjectIdentifier($0)) } }
         func drawn(_ window: NSWindow) -> Bool {

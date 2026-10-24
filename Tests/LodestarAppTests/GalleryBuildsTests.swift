@@ -33,6 +33,11 @@ final class GalleryBuildsTests: XCTestCase {
                 let again = try shot.built(in: look)
                 XCTAssertTrue(again.view === first.view, "\(shot.name(in: look)) is served, not built again")
                 let fresh = try shot.build(look)
+                let another = try shot.build(look)
+                // A picture with something alive in it (a caret, an icon read
+                // on a later turn) is not the same twice even when built twice
+                // fresh; only a shot that is, is held to the kept one.
+                guard pixels(fresh.view) == pixels(another.view) else { continue }
                 XCTAssertNotNil(before)
                 XCTAssertEqual(pixels(again.view), pixels(fresh.view), "\(shot.name(in: look)) draws as a fresh build does")
                 seen += 1

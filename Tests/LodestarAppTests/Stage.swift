@@ -285,6 +285,7 @@ final class Stage {
         // far off every real display, so the suite's panels are laid out
         // and drawn without crossing the screen of the person running it.
         ActivePolicy.frameOverride = Self.screen
+        DisplayScale.pin()
         // And the look: a card's words are measured before it is in a window
         // and styled in the window's look, so a process whose own look and
         // its windows' disagree (a runner's) sizes in one weight and draws

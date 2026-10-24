@@ -35,7 +35,7 @@ Nothing else in Settings has a closed order: the number fields are free quantiti
 | cannot be chosen | a quiet key: the resting key left unfilled (contract 10), legend in quiet ink            |
 | count    | 2 to 8                                                                                        |
 
-**The current stop does not move anything.** Its face is the key's face, so choosing another stop changes which face is the slab and nothing else: no stop shifts, no width changes. Stops are centred as whole keys, face and side, like every key (contracts 10 and 13, amended 24 October 2026; this said "by their faces").
+**The current stop does not move anything.** Its face is the key's face, so choosing another stop changes which face is the slab and nothing else: no stop shifts, no width changes. Stops align by their faces (contract 13), so the slab's extra point of side hangs below the line, as a pressed key's does not.
 
 ### Where they stand
 

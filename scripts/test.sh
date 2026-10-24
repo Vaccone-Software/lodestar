@@ -6,6 +6,10 @@
 #
 #   scripts/test.sh              six app shards plus the core bundle
 #   TEST_SHARDS=8 scripts/test.sh
+#   TEST_LIGHT=1 scripts/test.sh the suite as a Mac in Light runs it, without
+#                                touching the Mac's setting: the processes are
+#                                started with NSRequiresAquaSystemAppearance, so
+#                                only they are Aqua (a runner is not a desk in Dark)
 #   TEST_SHARD_PLAN=.build/test-shards-failed scripts/test.sh
 #                                the same classes in the same processes as
 #                                the run that failed: which tests share a
@@ -105,13 +109,18 @@ open(f"{out}/core.list", "w").write(",".join(core))
 PY
 fi
 
+# Light, for these processes alone (an argument-domain default; the Mac's own
+# setting is not read or written).
+xctest_args=()
+[ -n "${TEST_LIGHT:-}" ] && xctest_args=(-NSRequiresAquaSystemAppearance YES)
+
 pids=()
 logs=()
 for list in "$OUT"/app*.list "$OUT/core.list"; do
     name=$(basename "$list" .list)
     bundle="$APP_BUNDLE"
     [ "$name" = core ] && bundle="$CORE_BUNDLE"
-    xcrun xctest -XCTest "$(cat "$list")" "$bundle" > "$OUT/$name.log" 2>&1 &
+    xcrun xctest ${xctest_args[@]+"${xctest_args[@]}"} -XCTest "$(cat "$list")" "$bundle" > "$OUT/$name.log" 2>&1 &
     pids+=($!)
     logs+=("$OUT/$name.log")
 done

@@ -14,6 +14,9 @@ final class StageLifecycleTests: XCTestCase {
         return Date().timeIntervalSince(start)
     }
 
+    /// Windows macOS makes for the text system, in no stage's name.
+    private static let systemWindows: Set<String> = ["TUINSWindow", "NSCampoLightweightUIHostWindow"]
+
     func testADeadStageLeavesNothingAlive() {
         let baseline = pumpCost()
         // Only this test's stages are on trial: a window an earlier test in
@@ -47,8 +50,10 @@ final class StageLifecycleTests: XCTestCase {
         // whole process the first time any text view in it takes focus, and
         // no close removes it: it is macOS's, not a stage's, and whether an
         // earlier test in this process typed decides whether it is here.
+        // The same goes for the host of its lightweight UI (macOS 27's
+        // NSCampoLightweightUIHostWindow, zero by zero and never shown).
         let ours = NSApplication.shared.windows.filter {
-            String(describing: type(of: $0)) != "TUINSWindow" && !before.contains(ObjectIdentifier($0))
+            !Self.systemWindows.contains(String(describing: type(of: $0))) && !before.contains(ObjectIdentifier($0))
         }
         XCTAssertEqual(ours.count, 0, "no panel outlives its stage")
         let after = pumpCost()
@@ -63,7 +68,7 @@ final class StageLifecycleTests: XCTestCase {
         func look() {
             Stage.pump()
             shown += NSApplication.shared.windows.filter {
-                $0.isVisible && String(describing: type(of: $0)) != "TUINSWindow" && !shown.contains($0)
+                $0.isVisible && !Self.systemWindows.contains(String(describing: type(of: $0))) && !shown.contains($0)
             }
         }
         stage.lode("space")        // the launcher

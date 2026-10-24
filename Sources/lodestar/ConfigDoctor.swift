@@ -642,7 +642,8 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
         print("moves" + (o.transitionPulls == nil ? "" : " · pulled = brought into view, what a breath saves"))
         for pair in pairs {
             var line = "  " + pad("\(pair.from) → \(pair.to)", 34)
-                + String(format: "%.0f× · lift %.1f", pair.count, pair.lift)
+                + String(format: "%.0f×", pair.count)
+                + (pair.moreThanChance.map { " · " + $0 } ?? "")
             if let pulls = o.transitionPulls {
                 line += String(format: " · %.0f pulled", pulls[pair.from]?[pair.to] ?? 0)
             }

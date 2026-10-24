@@ -128,8 +128,8 @@ enum CoachCard {
     /// The record's first clause: the count, without the rest of the sums. A
     /// figure is never parted from its label when the record wraps: each number
     /// is joined to the word before it and the one after it (a count to its
-    /// unit, "at lift" to its figure) with no-break spaces, and a figure that
-    /// ends in "×" to the word before it only.
+    /// unit, "12" to "times") with no-break spaces, a figure that ends in "×"
+    /// to the word before it only, and a comma is a place the line may break.
     static func record(from evidence: String) -> String {
         let first = evidence.components(separatedBy: " · ").first ?? evidence
         return unbroken(first.trimmingCharacters(in: .whitespaces))
@@ -144,7 +144,8 @@ enum CoachCard {
         for (index, word) in words.enumerated() {
             if index > 0 {
                 let before = words[index - 1]
-                let joined = figure(word) || (figure(before) && !before.hasSuffix("×")) || (word == "lift" && before == "at")
+                let joined = !before.hasSuffix(",")
+                    && (figure(word) || (figure(before) && !before.hasSuffix("×")))
                 out += joined ? noBreak : " "
             }
             out += word

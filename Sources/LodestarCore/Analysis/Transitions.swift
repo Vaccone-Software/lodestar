@@ -12,6 +12,14 @@ public enum Transitions {
         /// Observed ÷ expected under independence. 1 is chance; 3 is a
         /// habit of moving between exactly these two.
         public let lift: Double
+
+        /// The lift in plain English: "12 times more than chance" once the
+        /// pair travels at least twice as often as two independent apps
+        /// would, and nothing below that, where the count stands alone.
+        public var moreThanChance: String? {
+            guard lift >= 2 else { return nil }
+            return "\(Int(lift.rounded())) times more than chance"
+        }
     }
 
     public struct Cluster: Equatable {

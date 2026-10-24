@@ -458,9 +458,9 @@ extension RowTests {
                                      probability: 0.9, evidence: [], display: first, edit: .closeRoad(app: first, chain: ["a", "b"]))),
             ("meetings", Recommendation(kind: .meetings, target: "meetings", detail: "about 99 meetings a week joined by hand",
                                         secondsPerWeek: 4000, probability: 0.9, evidence: [], edit: .enableMeetings)),
-            // Advisor writes a breath's detail as "A and B travel together N× at lift L · …".
+            // Advisor writes a breath's detail as "A and B travel together N×, M times more than chance · …".
             ("breath", Recommendation(kind: .breath, target: "\(first) + \(second)",
-                                      detail: "\(first) and \(second) travel together 9999× at lift 99.9 · composed side by side 99× · a breath would bring them back with one key",
+                                      detail: "\(first) and \(second) travel together 9999×, 100 times more than chance · composed side by side 99× · a breath would bring them back with one key",
                                       secondsPerWeek: 4000, probability: 0.9, evidence: [], display: "\(first) + \(second)",
                                       edit: .composeBreath(apps: [first, second], path: "b"))),
         ]
@@ -503,12 +503,17 @@ extension RowTests {
                     wrong.append("\(name): \"\(record)\" is cut on one line")
                 }
                 if label.frame.height > 20 { wrapped += 1 }
-                // A figure is never parted from its label: no line after the first starts on a number.
+                // A figure is never parted from its label: a line after the first may start on a number
+                // only with its unit held to it ("12 times"), and the record may break before a figure
+                // only where the clause before it has ended with a comma.
                 for line in Self.lines(of: label).dropFirst() where line.first?.isNumber == true {
-                    wrong.append("\(name): a line starts with a bare number: \"\(line)\"")
+                    let head = line.split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+                    if !head.contains(CoachCard.noBreak) { wrong.append("\(name): a line starts with a bare number: \"\(line)\"") }
                 }
-                for piece in record.split(separator: " ").dropFirst() where piece.first?.isNumber == true {
-                    wrong.append("\(name): \"\(record)\" may break before \"\(piece)\"")
+                let pieces = record.split(separator: " ").map(String.init)
+                for (index, piece) in pieces.enumerated().dropFirst() where piece.first?.isNumber == true {
+                    if !pieces[index - 1].hasSuffix(",") { wrong.append("\(name): \"\(record)\" may break before \"\(piece)\"") }
+                    if !piece.contains(CoachCard.noBreak) { wrong.append("\(name): \"\(piece)\" is parted from its unit") }
                 }
                 // The card is as wide as the rule says, and everything on it is inside it.
                 if card.frame.width > BarTheme.offerMaxWidth + 0.5 || card.frame.width < BarTheme.offerWidth - 0.5 {
@@ -573,8 +578,9 @@ extension RowTests {
             XCTAssertGreaterThan(label.frame.height, 28, "\(look.name): two lines")
             let lines = Self.lines(of: label)
             XCTAssertEqual(lines.count, 2, "\(look.name): \(lines)")
-            XCTAssertTrue(lines.last?.hasPrefix("lift") == true || lines.last?.hasPrefix("at\u{00A0}lift") == true, "\(look.name): the lift stays with its figure: \(lines)")
-            XCTAssertTrue(lines.last?.hasSuffix("lift\u{00A0}12.3") == true, "\(look.name): \(lines)")
+            XCTAssertTrue(lines.first?.trimmingCharacters(in: .whitespaces).hasSuffix("124×,") == true, "\(look.name): the count ends the first line, with its comma: \(lines)")
+            XCTAssertTrue(lines.last?.hasPrefix("12\u{00A0}times") == true, "\(look.name): the multiplier stays with its word: \(lines)")
+            XCTAssertTrue(lines.last?.hasSuffix("more than chance") == true, "\(look.name): \(lines)")
             let needed = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width, height: 10_000)).height ?? 0
             XCTAssertLessThanOrEqual(needed, label.frame.height + 0.5, "\(look.name): every line fits its frame")
             let card = try XCTUnwrap(GalleryLauncher.find(NSView.self, in: root, where: { $0.accessibilityRole() == .group && $0.accessibilityLabel()?.contains(GalleryChrome.wrappedRecord.replacingOccurrences(of: CoachCard.noBreak, with: " ")) == true }))

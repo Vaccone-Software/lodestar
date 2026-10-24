@@ -88,14 +88,15 @@ final class CoachCardTests: XCTestCase {
 
     func testAFigureIsNeverPartedFromItsLabel() {
         let nb = CoachCard.noBreak
-        XCTAssertEqual(CoachCard.record(from: "A and B travel together 124× at lift 12.3 · composed 4×"),
-                       "A and B travel together\(nb)124× at\(nb)lift\(nb)12.3")
+        XCTAssertEqual(CoachCard.record(from: "A and B travel together 124×, 12 times more than chance · composed 4×"),
+                       "A and B travel together\(nb)124×, 12\(nb)times more than chance",
+                       "the count and the multiplier each stay with their words, and the line may break after the comma")
         XCTAssertEqual(CoachCard.record(from: "Searched 31 times across 6 weeks"),
                        "Searched\(nb)31\(nb)times across\(nb)6\(nb)weeks")
         XCTAssertEqual(CoachCard.record(from: "99 meetings a week"), "99\(nb)meetings a week")
         let card = CoachCard.build(.init(sentence: "S", icons: [], name: "N", address: ["lode"],
-                                         record: "at\(nb)lift\(nb)1.0", accept: {}, decline: {}))
-        XCTAssertEqual(card.accessibilityLabel(), "S. at lift 1.0", "spoken with plain spaces")
+                                         record: "12\(nb)times more than chance", accept: {}, decline: {}))
+        XCTAssertEqual(card.accessibilityLabel(), "S. 12 times more than chance", "spoken with plain spaces")
     }
 
     func testTheCardIsAReadableGroup() {

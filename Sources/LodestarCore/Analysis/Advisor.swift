@@ -1043,7 +1043,8 @@ public enum Advisor {
             out.append(Candidate(rec: Recommendation(
                 kind: .breath, target: name,
                 detail: "\(pair.from) and \(pair.to) travel together "
-                    + String(format: "%.0f× at lift %.1f", pair.count, pair.lift)
+                    + String(format: "%.0f×", pair.count)
+                    + (pair.moreThanChance.map { ", " + $0 } ?? "")
                     + String(format: " · composed side by side %.0f×", composed)
                     + (held ? " · a saved breath already holds them"
                             : " · a breath would bring them back with one key"),
@@ -1052,8 +1053,8 @@ public enum Advisor {
                 // summons against one recall), the count.
                 secondsPerWeek: composed,
                 probability: probability,
-                evidence: [String(format: "lift %.1f over independent use", pair.lift),
-                           String(format: "composed by hand %.0f× in two weeks", composed)],
+                evidence: (pair.moreThanChance.map { [$0] } ?? [])
+                    + [String(format: "composed by hand %.0f× in two weeks", composed)],
                 display: name,
                 edit: edit),
                 p: p, offerable: offerable))

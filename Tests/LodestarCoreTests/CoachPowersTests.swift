@@ -220,14 +220,57 @@ final class CoachPowersTests: XCTestCase {
         XCTAssertTrue(chip.footer.contains("saves them side by side"), chip.footer)
     }
 
+    /// Two apps that switch between each other far more than the rest of the
+    /// day's switching would give them: a lift well past 2.
+    private func strongBreathContext() -> Advisor.Context {
+        var o = Observations()
+        o.transitions = ["ghostty": ["brave browser": 30], "brave browser": ["ghostty": 25],
+                         "slack": ["mail": 200], "mail": ["slack": 200]]
+        o.compositions = ["brave browser": ["ghostty": 10]]
+        return Advisor.Context(observations: o, events: [], leaves: [], meetingsEnabled: false, now: start)
+    }
+
     /// The card's record is the first clause of the chip's evidence, and for a
-    /// breath that clause is the whole record: the count and the lift.
-    func testBreathRecordCarriesTheLift() throws {
-        let rec = try XCTUnwrap(Advisor.breathCandidates(breathContext(paths: [])).first?.rec)
+    /// breath that clause is the whole record: the count, and how many times
+    /// more than chance, in words rather than as a statistic.
+    func testBreathRecordSaysHowManyTimesMoreThanChance() throws {
+        let rec = try XCTUnwrap(Advisor.breathCandidates(strongBreathContext())
+            .first { $0.rec.target == "brave browser + ghostty" }?.rec)
         let chip = Coach.chip(for: rec, observations: Observations())
         let first = try XCTUnwrap(chip.evidence.components(separatedBy: " · ").first)
         XCTAssertTrue(first.contains(" travel together "), first)
-        XCTAssertTrue(first.contains("× at lift "), "the lift is in the record: \(first)")
+        XCTAssertNotNil(first.range(of: #"together \d+×, \d+ times more than chance$"#, options: .regularExpression),
+                        "the count, then the multiplier in plain English: \(first)")
+        XCTAssertFalse(first.localizedCaseInsensitiveContains("lift"), first)
+    }
+
+    /// A pair that moves together less than twice as often as chance has no
+    /// multiplier worth saying: the count stands alone.
+    func testBreathRecordWithALiftUnderTwoIsTheCountAlone() throws {
+        // Three apps switching evenly among themselves: each pair at a lift of 1.5.
+        var o = Observations()
+        o.transitions = ["a": ["b": 30, "c": 30], "b": ["a": 30, "c": 30], "c": ["a": 30, "b": 30]]
+        o.compositions = ["a": ["b": 10]]
+        let context = Advisor.Context(observations: o, events: [], leaves: [], meetingsEnabled: false, now: start)
+        let rec = try XCTUnwrap(Advisor.breathCandidates(context).first?.rec)
+        let pair = try XCTUnwrap(Transitions.strongPairs(o.transitions).first)
+        XCTAssertLessThan(pair.lift, 2, "the fixture is a lift under 2")
+        let chip = Coach.chip(for: rec, observations: Observations())
+        let first = try XCTUnwrap(chip.evidence.components(separatedBy: " · ").first)
+        XCTAssertNotNil(first.range(of: #"^.* travel together \d+×$"#, options: .regularExpression), first)
+        XCTAssertFalse(rec.evidence.contains { $0.contains("lift") || $0.contains("chance") }, "\(rec.evidence)")
+    }
+
+    func testTheMultiplierIsTheLiftRoundedToAWholeNumber() {
+        func said(_ lift: Double) -> String? {
+            Transitions.Pair(from: "a", to: "b", count: 10, lift: lift).moreThanChance
+        }
+        XCTAssertEqual(said(12.3), "12 times more than chance")
+        XCTAssertEqual(said(2.6), "3 times more than chance", "rounded, not cut")
+        XCTAssertEqual(said(2.4), "2 times more than chance")
+        XCTAssertEqual(said(2.0), "2 times more than chance", "2 is the first to be said")
+        XCTAssertNil(said(1.99))
+        XCTAssertNil(said(1.0))
     }
 
     // MARK: - Chip and cue for the rebind edit

@@ -383,7 +383,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         // ⌃J/⌃K walk the list beside the arrows, and ⌃N/⌃P arrive here as
         // the arrows themselves — one policy, three panels.
         if let delta = ListKeys.delta(for: commandSelector,
-                                      letter: NSApp.currentEvent?.charactersIgnoringModifiers,
+                                      letter: ListKeys.letter(of: NSApp.currentEvent),
                                       control: NSApp.currentEvent?.modifierFlags
                                           .contains(.control) ?? false) {
             moveSelection(delta)

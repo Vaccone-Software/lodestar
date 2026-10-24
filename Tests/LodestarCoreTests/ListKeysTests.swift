@@ -50,4 +50,26 @@ final class ListKeysTests: XCTestCase {
                          "\(NSStringFromSelector(selector)) is not the list's key")
         }
     }
+
+    /// A command can be delivered while the current event is not a key event
+    /// (a system-defined or process-notification one); asking such an event
+    /// for its characters raises, so the letter is read only from a key.
+    func testTheLetterIsReadFromAKeyEventAndNothingElse() throws {
+        let key = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\n", charactersIgnoringModifiers: "j",
+            isARepeat: false, keyCode: 38))
+        XCTAssertEqual(ListKeys.letter(of: key), "j")
+        XCTAssertNil(ListKeys.letter(of: nil))
+        for type in [NSEvent.EventType.systemDefined, .appKitDefined, .applicationDefined] {
+            let other = try XCTUnwrap(NSEvent.otherEvent(
+                with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                context: nil, subtype: 0, data1: 0, data2: 0), "\(type)")
+            XCTAssertNil(ListKeys.letter(of: other), "\(type) is not a key event")
+        }
+        let click = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        XCTAssertNil(ListKeys.letter(of: click))
+    }
 }

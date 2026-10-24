@@ -35,6 +35,16 @@ public enum ListKeys {
         }
     }
 
+    /// The letter a key event carries, or nil for an event that is not a key
+    /// event. `charactersIgnoringModifiers` raises NSInternalInconsistency
+    /// ("Invalid message sent to event") on any other type, and
+    /// `NSApp.currentEvent` is one while a command is delivered from a
+    /// system-defined or process-notification event (seen on CI's runner).
+    public static func letter(of event: NSEvent?) -> String? {
+        guard let event, event.type == .keyDown || event.type == .keyUp else { return nil }
+        return event.charactersIgnoringModifiers
+    }
+
     /// `noop:` is declared on NSResponder but not surfaced to Swift, so the
     /// selector is named rather than referenced.
     static let noop = NSSelectorFromString("noop:")

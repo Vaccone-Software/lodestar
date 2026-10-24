@@ -736,10 +736,12 @@ final class MeetingController: NSObject {
     /// `lodestar __strip-preview 60` stages the chip, 61 the prime card.
     static func preview(_ index: Int, startingIn offset: TimeInterval = 4 * 60,
                         title: String = "Product sync") -> MeetingController {
+        // The default config, never switched on: switching it on reconciles
+        // with the machine's calendar access, which shows the prime card
+        // where it has not been asked, reads the calendar over the staged
+        // chip where it was granted, and reads this person's own lead time.
+        // A photograph is of the chip, whatever machine takes it.
         let controller = MeetingController()
-        var (config, _) = Config.load()
-        config.meetingsEnabled = true
-        controller.config = config
         DispatchQueue.main.async {
             if index == 0 {
                 controller.stage(title: title, startingIn: offset)
@@ -788,14 +790,11 @@ final class MeetingController: NSObject {
     }
 
     /// The same chip, standing before this returns and with no panel
-    /// swapped in, for the tests that drive its phases themselves. The
-    /// calendar read the config starts empties it a turn of the run loop
-    /// later, so a test using this never turns the loop over.
+    /// swapped in, for the tests that drive its phases themselves. Nothing
+    /// reads the calendar for it (the config is the default, not switched
+    /// on), so it stands through any number of turns of the run loop.
     static func staged(title: String = "Product sync", startingIn offset: TimeInterval) -> MeetingController {
         let controller = MeetingController()
-        var (config, _) = Config.load()
-        config.meetingsEnabled = true
-        controller.config = config
         controller.stage(title: title, startingIn: offset)
         return controller
     }

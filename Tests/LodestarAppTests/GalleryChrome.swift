@@ -28,7 +28,10 @@ enum GalleryChrome {
     /// before the meeting starts (negative once it has).
     static func meeting(startingIn offset: TimeInterval,
                         title: String = "Product sync") throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        // On the stand-in display, as every stage's: off every real one, so
+        // the chip stands where the harness put it and not where a smaller
+        // display would have moved it.
+        ActivePolicy.frameOverride = NSRect(x: Stage.screen.minX, y: Stage.screen.minY, width: 1200, height: 800)
         return try GalleryHost.surface(made: { [MeetingController.preview(0, startingIn: offset, title: title)] },
                                        where: { $0 is KeyablePanel })
     }

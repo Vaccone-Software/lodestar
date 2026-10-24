@@ -135,14 +135,28 @@ enum GalleryHost {
     }
 
     /// The window `body` made that stands for the surface: the biggest, put
-    /// away at once so nothing of it reaches the screen.
+    /// away at once so nothing reaches the screen.
+    ///
+    /// A surface stages itself on a later turn (a preview's `async`), so the
+    /// window is waited for, not assumed: the beat is turned, and then more
+    /// of them until a window that matches has been made and has a size, up
+    /// to ten seconds. On a runner half as fast as a desk the beat alone was
+    /// over before the surface was made.
     static func surface(made body: () -> [AnyObject], settle beat: TimeInterval = 0.12,
                         where match: (NSWindow) -> Bool = { _ in true },
                         frame: NSRect? = nil) throws -> (NSView, [AnyObject]) {
-        var kept: [AnyObject] = []
-        let made = windows { kept = body(); settle(beat) }
-        made.forEach { $0.orderOut(nil) }
-        let panel = try XCTUnwrap(made.filter(match).max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height },
+        let before = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
+        func made() -> [NSWindow] { NSApplication.shared.windows.filter { !before.contains(ObjectIdentifier($0)) } }
+        func drawn(_ window: NSWindow) -> Bool {
+            match(window) && window.frame.width > 0 && window.frame.height > 0 && window.contentView != nil
+        }
+        let kept = body()
+        settle(beat)
+        let deadline = Date().addingTimeInterval(10)
+        while !made().contains(where: drawn), Date() < deadline { settle(0.05) }
+        let windows = made()
+        windows.forEach { $0.orderOut(nil) }
+        let panel = try XCTUnwrap(windows.filter(match).max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height },
                                   "the surface made a window")
         // A surface that is staged without being opened is sized as opening
         // would size it.

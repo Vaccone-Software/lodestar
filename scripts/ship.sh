@@ -12,6 +12,23 @@
 # through its real taps (scripts/smoke.sh auto), before anything is
 # pushed. --no-smoke skips the gate and says so.
 #   ./scripts/ship.sh notes/v0.9.1.md [--no-smoke]
+#   ./scripts/ship.sh notes/v0.9.1.md --check
+#
+# The preflight runs first, on every ship, and alone with --check (the
+# flags in any order). It is everything that would stop the ship, asked in
+# seconds and not found after an hour of building: on main with no
+# modified tracked file; the notes named for Version.swift's version,
+# committed, and no tag or published release of it; local main not behind
+# origin; CI green on HEAD once HEAD is on origin, and on main whatever
+# HEAD is (0.53.0 got through the notes and the suite gate and then
+# waited on a CI that had been red on main for two days); Stoic pinned to
+# a version tag; the signing certificate and the notary profile; gh
+# allowed to push; and a machine quiet enough for the smoke. Each check is
+# one line, ✓ or ✕ with the command that fixes it. All of them run, then
+# any ✕ stops the ship. A loaded machine is only a warning, though the
+# smoke's 250 ms p99 does fail on one. The preflight builds, pushes and
+# changes nothing. scripts/ci-status.sh, which it asks about CI, can be
+# run on its own.
 #
 # It can be run again. Every network step is retried, and a ship that
 # stopped — a timeout mid-upload, a laptop that slept — is resumed by the
@@ -24,51 +41,223 @@ cd "$(dirname "$0")/.."
 # shellcheck source=scripts/retry.sh
 . scripts/retry.sh
 
-NOTES="${1:-}"
-if [ -z "$NOTES" ] || [ ! -f "$NOTES" ]; then
-    echo "usage: ./scripts/ship.sh <release-notes-file>"
+REPO="${REPO:-Vaccone-Software/lodestar}"
+USAGE="usage: ./scripts/ship.sh <release-notes-file> [--no-smoke] [--check]"
+NOTES=""
+CHECK_ONLY=0
+SMOKE=1
+for arg in "$@"; do
+    case "$arg" in
+        --check) CHECK_ONLY=1;;
+        --no-smoke) SMOKE=0;;
+        -*) echo "$USAGE"; exit 64;;
+        *) NOTES="$arg";;
+    esac
+done
+if [ -z "$NOTES" ]; then
+    echo "$USAGE"
     exit 64
-fi
-if ! git diff --quiet || ! git diff --cached --quiet; then
-    echo "✕ uncommitted changes — commit first"
-    exit 1
 fi
 
 VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | cut -d'"' -f2)
 
-# What is built is the checkout; what is pushed and tagged is main. They
-# must be the same commit, or the release names source it was not built
-# from.
-COMMIT=$(git rev-parse HEAD)
-if ! MAIN=$(git rev-parse --verify -q refs/heads/main); then
-    echo "✕ there is no local main to ship from"
-    exit 1
-fi
-if [ "$COMMIT" != "$MAIN" ]; then
-    echo "✕ HEAD is $(git rev-parse --abbrev-ref HEAD), not main: merge into main and ship from there"
-    exit 1
-fi
+# The preflight. Every check runs and says one line; a ✕ is a blocker and
+# carries the command that clears it, a ! is a warning the ship goes past.
+# Nothing here writes: the remote is read with ls-remote (a fetch would
+# move origin/main), GitHub only through calls that read.
+BLOCKERS=0
+ok() { echo "✓ $*"; }
+note() { echo "→ $*"; }
+warn() { echo "! $*"; }
+blocker() {
+    echo "✕ $1"
+    shift
+    local line
+    for line in "$@"; do echo "    $line"; done
+    BLOCKERS=$((BLOCKERS + 1))
+}
 
-# What CI and the release need of the notes, found out now and not after a
-# notarized build: named for this version, and committed — `git diff` does
-# not see an untracked file, so an uncommitted notes file passes here and
-# then the verify job on the clean runner cannot find it.
-if [ "$(basename "$NOTES")" != "v$VERSION.md" ]; then
-    echo "✕ $NOTES is not notes/v$VERSION.md, and Version.swift says $VERSION"
+preflight() {
+    local branch notes_version remote_sha behind=0 head_pushed=0 rc out tag_line pin profile cores load
+
+    echo "→ preflight for v$VERSION"
+
+    # What is built is the checkout; what is pushed and tagged is main.
+    # They must be the same commit, or the release names source it was not
+    # built from.
+    branch=$(git rev-parse --abbrev-ref HEAD)
+    if [ "$branch" = main ]; then
+        ok "on main"
+    else
+        blocker "on $branch, not main" "git switch main   (merge $branch into it first if it is not there yet)"
+    fi
+
+    if git diff --quiet && git diff --cached --quiet; then
+        ok "no modified tracked files"
+    else
+        blocker "modified tracked files: what would be built is not what is committed" \
+            "git status --short   then commit them, or git restore them"
+    fi
+
+    # What CI and the release need of the notes: named for this version,
+    # not empty, and committed — `git diff` does not see an untracked
+    # file, so an uncommitted notes file passes and then the verify job on
+    # the clean runner cannot find it.
+    notes_version=$(basename "$NOTES" .md)
+    notes_version="${notes_version#v}"
+    if [ ! -f "$NOTES" ]; then
+        blocker "$NOTES does not exist: a release without notes is not a release" \
+            "write notes/v$VERSION.md, then git add and commit it"
+    elif [ ! -s "$NOTES" ]; then
+        blocker "$NOTES is empty: a release without notes is not a release" "write the notes in $NOTES"
+    elif ! [[ "$(basename "$NOTES")" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.md$ ]]; then
+        blocker "$NOTES is not named v<version>.md, and Version.swift says $VERSION" "git mv $NOTES notes/v$VERSION.md"
+    elif [ "$notes_version" != "$VERSION" ]; then
+        blocker "$NOTES is for $notes_version, and Version.swift says $VERSION" \
+            "sed -i '' 's/public static let version = \"$VERSION\"/public static let version = \"$notes_version\"/' Sources/LodestarCore/Version.swift" \
+            "git commit -am 'Version $notes_version with its notes'   (the notes file in the same commit: git add $NOTES first)"
+    elif ! git ls-files --error-unmatch "$NOTES" >/dev/null 2>&1; then
+        blocker "$NOTES is not committed — CI will not find it" "git add $NOTES && git commit -m 'Version $VERSION with its notes'"
+    else
+        ok "$NOTES matches Version.swift ($VERSION) and is committed"
+    fi
+
+    # Is this version already out? Published releases are immutable. A
+    # draft is not a blocker: a stopped ship's draft is finished.
+    tag_line=""
+    if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+        tag_line="the tag v$VERSION already exists here"
+    fi
+    rc=0
+    out=$(RELEASE_TRIES=1 ./scripts/github-release.sh check "$VERSION" 2>&1) || rc=$?
+    case "$rc" in
+        0)
+            if [ -n "$tag_line" ]; then
+                blocker "$tag_line" "git tag -d v$VERSION   if it is a stale local tag; otherwise bump the version"
+            elif git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+                blocker "the tag v$VERSION is already on origin" \
+                    "bump the version: sed -i '' 's/public static let version = \"$VERSION\"/public static let version = \"<new>\"/' Sources/LodestarCore/Version.swift" \
+                    "write notes/v<new>.md, commit 'Version <new> with its notes'"
+            else
+                ok "v$VERSION is not tagged or published"
+            fi
+            grep -F "draft of" <<<"$out" | sed 's/^/  /' || true;;
+        1)
+            blocker "v$VERSION is already published, and published releases are immutable" \
+                "bump the version: sed -i '' 's/public static let version = \"$VERSION\"/public static let version = \"<new>\"/' Sources/LodestarCore/Version.swift" \
+                "write notes/v<new>.md, commit 'Version <new> with its notes'";;
+        *)
+            blocker "cannot reach GitHub to look for v$VERSION" "check the network, then gh auth status";;
+    esac
+
+    # Local main against origin's, read without fetching.
+    if remote_sha=$(git ls-remote origin refs/heads/main 2>/dev/null | cut -f1) && [ -n "$remote_sha" ]; then
+        if [ "$remote_sha" = "$(git rev-parse HEAD)" ]; then
+            ok "main is origin/main"
+            head_pushed=1
+        elif git merge-base --is-ancestor "$remote_sha" HEAD 2>/dev/null; then
+            note "main is ahead of origin/main: ship will push it, and CI will run on the new commit"
+        elif git cat-file -e "$remote_sha^{commit}" 2>/dev/null && git merge-base --is-ancestor HEAD "$remote_sha"; then
+            behind=1
+            blocker "main is behind origin/main" "git pull --ff-only"
+        else
+            behind=1
+            blocker "main and origin/main have diverged, or origin has commits not fetched here" \
+                "git fetch origin && git pull --ff-only   (rebase if they diverged)"
+        fi
+    else
+        behind=1
+        blocker "cannot read origin/main" "check the network and the origin remote"
+    fi
+
+    # CI. The commit's own run when it is on origin; and, whatever HEAD
+    # is, how main stands: a red main is what the ship would otherwise
+    # find out after the whole build.
+    if [ "$head_pushed" = 1 ]; then
+        rc=0
+        out=$(./scripts/ci-status.sh HEAD 2>&1) || rc=$?
+        case "$rc" in
+            0) ok "${out#* }";;
+            1) blocker "${out#* }" "fix it, commit, and ship again";;
+            *) warn "${out#* }"; echo "    ship will wait for it";;
+        esac
+    elif [ "$behind" = 0 ]; then
+        note "HEAD is not on origin yet: CI has not run on it"
+    fi
+    rc=0
+    out=$(./scripts/ci-status.sh --main 2>&1) || rc=$?
+    case "$rc" in
+        0) ok "${out#* }";;
+        1) blocker "${out#* }" "fix main and let CI go green first: ./scripts/ci-status.sh --main";;
+        *) warn "${out#* }";;
+    esac
+
+    # What the build links, from the lockfile: Stoic by a version tag. A
+    # branch or a bare revision moves under a rebuild, and Stoic's own
+    # releases are the ones that were tested together.
+    pin=$(awk '/"identity" *: *"stoic"/ {f = 1} f && /"state"/ {s = 1} f && s {print} f && s && /}/ {exit}' Package.resolved)
+    if [ -z "$pin" ]; then
+        blocker "Stoic is not in Package.resolved" "swift package resolve, and commit Package.resolved"
+    elif grep -q '"version"' <<<"$pin" && ! grep -q '"branch"' <<<"$pin"; then
+        ok "Stoic is pinned to $(sed -n 's/.*"version" *: *"\(.*\)".*/\1/p' <<<"$pin")"
+    else
+        blocker "Stoic is pinned to a branch or a revision, not a version tag" \
+            "in Package.swift: .package(url: \".../stoic\", .upToNextMinor(from: \"<tag>\"), ...), then swift package update stoic, and commit Package.resolved"
+    fi
+
+    # What the signing and the notarization need, as release.sh reads
+    # them: the Developer ID certificate, and the notary profile, asked
+    # with the call release.sh makes (it reads the submission history and
+    # prints no credential). A missing profile, an agreement not accepted
+    # or a revoked password would otherwise stop the ship after the build.
+    profile=$(sed -n 's/^PROFILE=//p' scripts/release.sh | head -1)
+    profile="${profile:-lodestar-notary}"
+    if security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
+        ok "a Developer ID Application certificate is in the keychain"
+    else
+        blocker "no 'Developer ID Application' certificate in the keychain" \
+            "Xcode → Settings → Accounts → Manage Certificates → + → Developer ID Application"
+    fi
+    if out=$(xcrun notarytool history --keychain-profile "$profile" 2>&1); then
+        ok "the notary profile '$profile' answers"
+    else
+        blocker "the notary profile '$profile' does not work: $(head -1 <<<"$out")" \
+            "xcrun notarytool store-credentials $profile --apple-id <you> --team-id <TEAMID> --password <app-specific-pw>" \
+            "(or an agreement to accept at https://developer.apple.com/account)"
+    fi
+
+    # The push and the release are made as whoever gh is.
+    if [ "$(gh api "repos/$REPO" -q .permissions.push 2>/dev/null)" = true ]; then
+        ok "gh can push to $REPO"
+    else
+        blocker "gh is not signed in to an account that can push to $REPO" "gh auth status   then gh auth login, or gh auth switch"
+    fi
+
+    # The smoke holds the app to a 250 ms p99, which a Mac busy with
+    # something else cannot give.
+    cores=$(sysctl -n hw.ncpu)
+    load=$(sysctl -n vm.loadavg | awk '{print $2}')
+    if awk -v l="$load" -v c="$cores" 'BEGIN { exit !(l > c) }'; then
+        warn "the machine is loaded (1-minute load $load on $cores cores): the smoke gate's 250 ms p99 fails on a loaded Mac; quit what is running, or wait"
+    else
+        ok "the machine is quiet enough for the smoke (1-minute load $load on $cores cores)"
+    fi
+}
+
+preflight
+if [ "$BLOCKERS" -gt 0 ]; then
+    echo "✕ $BLOCKERS blocker$([ "$BLOCKERS" -eq 1 ] || echo s): nothing was built, pushed or published"
     exit 1
 fi
-if ! git ls-files --error-unmatch "$NOTES" >/dev/null 2>&1; then
-    echo "✕ $NOTES is not committed — CI will not find it. git add and commit it first"
-    exit 1
-fi
+echo "✓ preflight passed"
+[ "$CHECK_ONLY" = 1 ] && exit 0
+
+# What is built is the checkout; what is pushed and tagged is main. The
+# preflight made sure they are the same commit.
+COMMIT=$(git rev-parse HEAD)
 
 STEP="starting"
 trap 'rc=$?; [ "$rc" -eq 0 ] || echo "✕ ship stopped at: $STEP. Once that is sorted, run the same command again: it picks up from there." >&2' EXIT
-
-# Before minutes of building: is this version already out (published
-# releases are immutable), and can GitHub be reached at all?
-STEP="looking for v$VERSION on GitHub"
-./scripts/github-release.sh check "$VERSION"
 
 # The smoke gate. A marker that names this version and is newer than
 # the signed binary it vouches for means that binary was run and put
@@ -91,7 +280,7 @@ if smoked; then
     echo "→ v$VERSION already smoked; shipping the smoked build"
 else
     ./scripts/release.sh build
-    if [ "${2:-}" = "--no-smoke" ]; then
+    if [ "$SMOKE" = 0 ]; then
         echo "→ smoke skipped by request (--no-smoke)"
     else
         echo "→ smoking v$VERSION through its real taps"

@@ -109,6 +109,24 @@ Each run writes the `.icns` and its iconset, a 1024 preview, the favicon
 pins it so that is a decision, not an accident. DESIGN.md, "The mark", has
 the reasoning.
 
+### Shipping
+
+```sh
+./scripts/ship.sh notes/v0.9.1.md --check   # the preflight alone, in seconds
+./scripts/ship.sh notes/v0.9.1.md           # preflight, then the whole ship
+./scripts/ci-status.sh [sha]                # CI on a commit; red: since when main is
+```
+
+A ship is an hour of building, notarizing and waiting, so everything that
+would stop it is asked first, and every ✕ comes with the command that
+fixes it: main with a clean tracked tree, notes named for `Version.swift`'s
+version and committed, no tag or release of that version yet, local main
+not behind origin, CI green on HEAD and on main (a red main blocks, whoever
+broke it), Stoic pinned to a version tag, the notary profile and signing
+certificate, gh allowed to push. A loaded Mac only warns, because the
+smoke's 250 ms p99 fails on one. The header of `scripts/ship.sh` has the
+rest.
+
 ## License
 
 [FSL 1.1 with an MIT future grant](LICENSE.md). Fair Source: read it, audit

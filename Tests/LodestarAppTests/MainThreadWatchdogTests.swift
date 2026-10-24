@@ -64,25 +64,43 @@ final class MainThreadWatchdogTests: XCTestCase {
     /// An answer late enough to cost the key tap, short of the ceiling, is
     /// written down with how late it was, and the launch's is told apart.
     func testALateAnswerIsReportedWithItsLength() {
-        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 2, launchCeiling: 2, lateThreshold: 0.2)
+        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 3, launchCeiling: 3, lateThreshold: 0.2)
         let lock = NSLock()
         var late: [(seconds: TimeInterval, launch: Bool)] = []
         var stalls = 0
         watchdog.onLate = { seconds, launch in lock.withLock { late.append((seconds, launch)) } }
         watchdog.onStall = { _ in lock.withLock { stalls += 1 } }
+        // Each report is waited for, not slept for: the watchdog's utility
+        // thread is scheduled late when the suite's shards all run, and a
+        // fixed wait stopped it before it had judged the hitch (the report
+        // was missing, read as 0 s). A loaded run can also add a short late
+        // answer of its own, so the hitch is looked for, not counted to.
+        func hitch(_ seen: [(seconds: TimeInterval, launch: Bool)]) -> (seconds: TimeInterval, launch: Bool)? {
+            seen.first { !$0.launch && $0.seconds >= 0.3 }
+        }
+        func runUntil(within seconds: TimeInterval, _ done: () -> Bool) {
+            let deadline = Date(timeIntervalSinceNow: seconds)
+            while !done(), Date() < deadline {
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            }
+        }
         watchdog.start()
-        Thread.sleep(forTimeInterval: 0.4)                        // a slow launch
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
-        // A hitch while running, long against the 0.3 s asserted below: a
-        // late-scheduled watchdog can send its ask partway into the hitch.
+        // A slow launch, long against the 0.2 s threshold and short of the
+        // 3 s allowance, so a late first ask still lands inside it.
         Thread.sleep(forTimeInterval: 1.0)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
+        runUntil(within: 5) { !lock.withLock { late }.isEmpty }
+        // A hitch while running, long against the 0.3 s asserted below and
+        // short of the 3 s ceiling: with the suite's seven processes running,
+        // the watchdog's ask has been seen arriving more than 0.7 s into a
+        // 1 s hitch, so the hitch leaves it 1.7 s.
+        Thread.sleep(forTimeInterval: 2.0)
+        runUntil(within: 5) { hitch(lock.withLock { late }) != nil }
         watchdog.stop()
         let seen = lock.withLock { late }
         XCTAssertEqual(lock.withLock { stalls }, 0, "late is not frozen")
         XCTAssertEqual(seen.first?.launch, true, "the launch's own")
-        XCTAssertEqual(seen.dropFirst().first?.launch, false, "then one while running")
-        XCTAssertGreaterThanOrEqual(seen.dropFirst().first?.seconds ?? 0, 0.3, "with how long it held")
+        XCTAssertEqual(seen.filter(\.launch).count, 1, "and only the launch's")
+        XCTAssertNotNil(hitch(seen), "then one while running, with how long it held: \(seen)")
     }
 
     func testAnOnTimeAnswerSaysNothing() {

@@ -65,10 +65,15 @@ The review page plays every voice live (Web Audio, from the same parameters the 
 
 ## Status
 
-Drafted 24 October 2026. Main plays the strike (Star); Glazed was only ever on the prototype branch.
+Decided 24 October 2026: the strike, as main plays it. Glazed was only ever on the prototype branch. The enforcement tests above are not yet written; the existing install test holds the alert.
 
 ## Decided in review
 
 **The strike stays (24 October 2026).** Bisque and Glazed were the two the owner kept from the first round. Bisque was cohesive with the look but not identifiable as Lodestar. Glazed was unique. A second round blended them, Glazed's tuning with Bisque's touch. The owner could not hear the version with the tail apart from Glazed, and named the real fault: it mixed two sources that are not related, which the appearance search had already ruled out. The strike's source is Lodestar's own proportion, 1 : φ : φ², the ratio the shapes are built on. It is the one source that is both cohesive and recognisable. Glazed's tick goes too: it was the same blend in miniature, and nobody could hear it. Main already plays the strike, so nothing is rendered again.
 
-**Under review for the long term:** Interval (the fifth itself, pure 3 : 2), Line (a figure rising by fifths, D, A, E), and the strike an octave down. Each comes from a single source.
+**Long-term directions, heard and declined (24 October 2026).**
+- **Interval** (the fifth itself, pure 3 : 2) came closest, but it was not unique and not better than the strike.
+- **Line** (a figure rising by fifths) was the first alert of several notes: interesting, but a melody asks to be noticed, and Lodestar's sounds are facts that pass. It is the idea to return to if an alert ever needs to be recognised across a room.
+- **The strike an octave down** sounded as good, but no better. A5 stays: it was chosen by ear, it is already learned, and it carries over laptop speakers and a room.
+
+Sound is decided: the strike, at A5, as main plays it.

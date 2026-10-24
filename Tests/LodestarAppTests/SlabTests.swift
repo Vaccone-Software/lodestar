@@ -134,7 +134,7 @@ final class SlabTests: XCTestCase {
             for shot in GalleryShots.all where shot.looks.contains(look) {
                 EyeComfortState.shared.set(enabled: shot.level < 1 || shot.receded, level: shot.level)
                 defer { EyeComfortState.shared.set(enabled: false, level: 1) }
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 GalleryHost.settle(0.02)
                 root.window?.contentView?.layoutSubtreeIfNeeded()
                 root.layoutSubtreeIfNeeded()
@@ -288,7 +288,7 @@ final class SlabTests: XCTestCase {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 GalleryHost.settle(0.02)
                 root.window?.contentView?.layoutSubtreeIfNeeded()
                 root.layoutSubtreeIfNeeded()

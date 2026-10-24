@@ -487,7 +487,7 @@ final class KeyTests: XCTestCase {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 {
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 root.window?.contentView?.layoutSubtreeIfNeeded()
                 let name = shot.name(in: look)
                 walk(root) { view in

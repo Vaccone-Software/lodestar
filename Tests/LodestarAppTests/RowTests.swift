@@ -43,7 +43,7 @@ final class RowTests: XCTestCase {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
                 // The sheets paint by drawing, and the row sheet is held on its own.
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 root.window?.contentView?.layoutSubtreeIfNeeded()
                 root.layoutSubtreeIfNeeded()
                 let name = shot.name(in: look)
@@ -209,7 +209,7 @@ extension RowTests {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 root.window?.contentView?.layoutSubtreeIfNeeded()
                 let name = shot.name(in: look)
                 walk(root) { view in

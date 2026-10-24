@@ -99,7 +99,7 @@ final class MaterialTests: XCTestCase {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) && shot.surface != "foundation" {
-                guard let (view, keep) = try? shot.build(look), let host = view as? ShadowHostView else { continue }
+                guard let (view, keep) = try? shot.built(in: look), let host = view as? ShadowHostView else { continue }
                 _ = keep
                 let rep = GalleryRender.bitmap(of: host)
                 let scale = CGFloat(rep.pixelsWide) / rep.size.width
@@ -181,7 +181,7 @@ final class MaterialTests: XCTestCase {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) {
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 _ = keep
                 root.window?.contentView?.layoutSubtreeIfNeeded()
                 root.layoutSubtreeIfNeeded()
@@ -260,7 +260,7 @@ final class MaterialTests: XCTestCase {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) {
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 _ = keep
                 walk(root) { view in
                     // A borderless link or a hit-target button over a tile is not a drawn thing.

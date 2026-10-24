@@ -242,7 +242,7 @@ final class TypeRolesTests: XCTestCase {
         GalleryLook.day.apply()
         var seen: Set<BarTheme.Role> = []
         for shot in GalleryShots.all where shot.surface == "settings" && shot.looks.contains(.day) {
-            let (view, keep) = try shot.build(.day)
+            let (view, keep) = try shot.built(in: .day)
             GalleryHost.settle(0.02)
             for word in words(in: view) {
                 for style in word.styles.compactMap({ $0 }) {
@@ -270,7 +270,7 @@ final class TypeRolesTests: XCTestCase {
         var bars = 0, rooms = 0
         for shot in GalleryShots.all where shot.looks.contains(.day)
             && ["launcher", "ask", "commands", "settings", "feedback"].contains(shot.surface) {
-            let (view, keep) = try shot.build(.day)
+            let (view, keep) = try shot.built(in: .day)
             GalleryHost.settle(0.02)
             for field in allViews(view).compactMap({ $0 as? NSTextField }) where field.isEditable {
                 guard let role = field.typeStyle?.role else { continue }
@@ -292,7 +292,7 @@ final class TypeRolesTests: XCTestCase {
     func testNoTextOnAnySurfaceIsTracked() throws {
         GalleryLook.day.apply()
         for shot in GalleryShots.all where shot.looks.contains(.day) {
-            let (view, keep) = try shot.build(.day)
+            let (view, keep) = try shot.built(in: .day)
             GalleryHost.settle(0.02)
             for field in allViews(view).compactMap({ $0 as? NSTextField }) where field.attributedStringValue.length > 0 {
                 var tracked = false
@@ -391,7 +391,7 @@ final class TypeRolesTests: XCTestCase {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) {
-                let (view, keep) = try shot.build(look)
+                let (view, keep) = try shot.built(in: look)
                 GalleryHost.settle(0.02)
                 body(shot, look, words(in: view), view.effectiveAppearance)
                 _ = keep

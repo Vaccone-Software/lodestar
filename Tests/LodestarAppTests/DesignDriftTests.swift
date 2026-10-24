@@ -800,7 +800,7 @@ final class DesignDriftTests: XCTestCase {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 root.window?.contentView?.layoutSubtreeIfNeeded()
                 let name = shot.name(in: look)
                 func visit(_ view: NSView) {
@@ -866,7 +866,7 @@ final class DesignDriftTests: XCTestCase {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 func visit(_ view: NSView) {
                     if let field = view as? NSTextField, field.stringValue.range(of: "[●⬤⏺◉⚫]", options: .regularExpression) != nil {
                         found.append("\(shot.name(in: look)): a field says \"\(field.stringValue)\"")

@@ -27,6 +27,52 @@ struct GalleryShot {
     func name(in look: GalleryLook) -> String { "\(surface)-\(state)-\(look.name)" }
 }
 
+/// The pictures a sweep reads, each built once for the process.
+///
+/// A sweep walks every shot in both looks, and a dozen of them do: building
+/// a shot stages a real panel and lets the run loop settle (a tenth of a
+/// second and more), so the same hundred and fifty shots were built twenty
+/// times over, and a CI runner half as fast as a desk ran those test classes
+/// past any shard's time. A sweep that only reads (measures, walks, draws)
+/// takes its shot from here; one that changes the surface it is given builds
+/// it itself with `shot.build`, which is always fresh.
+///
+/// A built shot stands in a window that follows the application's look (a
+/// panel has none of its own), so one is kept and served only while its own
+/// look is the one in force, and Eye comfort is part of what it was built
+/// at: a sweep that does not set it builds a dimmed shot at full level.
+enum GalleryBuilds {
+    private nonisolated(unsafe) static var kept: [String: (view: NSView, keep: [AnyObject])] = [:]
+
+    static func key(_ shot: GalleryShot, _ look: GalleryLook) -> String {
+        let eye = EyeComfortState.shared
+        return "\(shot.name(in: look))|\(eye.enabled)|\(eye.level)"
+    }
+
+    /// The shot built for `look`, which is in force: this process's one build
+    /// of it at the Eye comfort now set, made now if there is none.
+    static func built(_ shot: GalleryShot, in look: GalleryLook) throws -> (view: NSView, keep: [AnyObject]) {
+        // A look that is not in force would be built on a ground it is not
+        // drawn on, and kept for one that is.
+        guard NSApplication.shared.appearance?.name == look.appearance else { return try shot.build(look) }
+        let key = key(shot, look)
+        if let made = kept[key], made.view.window != nil { return made }
+        let made = try shot.build(look)
+        kept[key] = made
+        return made
+    }
+
+    /// Let go of every one, as a test that changed what they stand on must.
+    static func discard() { kept = [:] }
+}
+
+extension GalleryShot {
+    /// This shot as a read-only sweep takes it: built once per process.
+    func built(in look: GalleryLook) throws -> (view: NSView, keep: [AnyObject]) {
+        try GalleryBuilds.built(self, in: look)
+    }
+}
+
 /// What the harness builds around a surface that is not a panel of its own.
 enum GalleryHost {
     /// A borderless window of the look, `size` points, holding `content`.

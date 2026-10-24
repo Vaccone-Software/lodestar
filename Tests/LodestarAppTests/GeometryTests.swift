@@ -302,7 +302,7 @@ final class GeometryTests: XCTestCase {
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) {
-                guard let (root, keep) = try? shot.build(look) else { continue }
+                guard let (root, keep) = try? shot.built(in: look) else { continue }
                 // The sheets paint by drawing; the rules are for what is laid out.
                 if shot.surface == "foundation" { continue }
                 checked += 1

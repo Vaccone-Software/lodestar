@@ -49,7 +49,7 @@ final class TextInkTests: XCTestCase {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) {
                 // The colour sheets and the type sheet paint by drawing, not by fields.
-                guard let (view, keep) = try? shot.build(look) else { continue }
+                guard let (view, keep) = try? shot.built(in: look) else { continue }
                 checked += 1
                 let words = greyWords(in: view)
                 if !words.isEmpty { offenders.append("\(shot.name(in: look)): \(Set(words).sorted().prefix(4))") }

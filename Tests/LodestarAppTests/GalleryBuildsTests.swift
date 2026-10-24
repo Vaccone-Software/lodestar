@@ -15,8 +15,27 @@ final class GalleryBuildsTests: XCTestCase {
         GalleryRender.bitmap(of: view).tiffRepresentation
     }
 
+    private func difference(_ a: NSView, _ b: NSView) -> String {
+        let x = GalleryRender.bitmap(of: a), y = GalleryRender.bitmap(of: b)
+        guard let p = x.bitmapData, let q = y.bitmapData, x.pixelsWide == y.pixelsWide, x.pixelsHigh == y.pixelsHigh else {
+            return "sizes \(x.pixelsWide)x\(x.pixelsHigh) and \(y.pixelsWide)x\(y.pixelsHigh)"
+        }
+        var count = 0, minX = Int.max, maxX = 0, minY = Int.max, maxY = 0
+        for row in 0..<x.pixelsHigh {
+            for column in 0..<x.pixelsWide {
+                let at = row * x.bytesPerRow + column * 4
+                if (0..<4).contains(where: { p[at + $0] != q[at + $0] }) {
+                    count += 1
+                    minX = min(minX, column); maxX = max(maxX, column); minY = min(minY, row); maxY = max(maxY, row)
+                }
+            }
+        }
+        return count == 0 ? "no pixel differs (the files do)" : "\(count) pixels differ, in x \(minX)...\(maxX), y \(minY)...\(maxY) of \(x.pixelsWide)x\(x.pixelsHigh)"
+    }
+
     /// A shot kept through the other look's turn, and served again, draws as a
-    /// shot built just now does, in both looks, for panels and for sheets.
+    /// shot built just now does, in both looks, for panels and for sheets; one
+    /// with a caret in it is not kept, and is built again.
     func testAKeptBuildDrawsAsAFreshOneDoes() throws {
         let surfaces = ["launcher", "keep", "settings", "foundation", "pill", "meeting"]
         var seen = 0
@@ -31,19 +50,24 @@ final class GalleryBuildsTests: XCTestCase {
                 for other in GalleryLook.all where other != look { other.apply() }
                 look.apply()
                 let again = try shot.built(in: look)
+                if !GalleryBuilds.isQuiet(first) {
+                    XCTAssertFalse(again.view === first.view, "\(shot.name(in: look)) has a caret in it: built again, not served")
+                    continue
+                }
                 XCTAssertTrue(again.view === first.view, "\(shot.name(in: look)) is served, not built again")
                 let fresh = try shot.build(look)
                 let another = try shot.build(look)
-                // A picture with something alive in it (a caret, an icon read
-                // on a later turn) is not the same twice even when built twice
-                // fresh; only a shot that is, is held to the kept one.
+                // A picture with something alive in it (an icon read on a later
+                // turn) is not the same twice even when built twice fresh; only
+                // a shot that is, is held to the kept one.
                 guard pixels(fresh.view) == pixels(another.view) else { continue }
                 XCTAssertNotNil(before)
-                XCTAssertEqual(pixels(again.view), pixels(fresh.view), "\(shot.name(in: look)) draws as a fresh build does")
+                XCTAssertEqual(pixels(again.view), pixels(fresh.view),
+                               "\(shot.name(in: look)) draws as a fresh build does: \(difference(again.view, fresh.view))")
                 seen += 1
             }
         }
-        XCTAssertGreaterThanOrEqual(seen, 8, "enough of the shots were compared")
+        XCTAssertGreaterThanOrEqual(seen, 6, "enough of the shots were compared")
     }
 
     /// A shot is kept for the look in force and the Eye comfort it was built at, and no other.

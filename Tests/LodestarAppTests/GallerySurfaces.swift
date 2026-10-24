@@ -59,8 +59,18 @@ enum GalleryBuilds {
         let key = key(shot, look)
         if let made = kept[key], made.view.window != nil { return made }
         let made = try shot.build(look)
-        kept[key] = made
+        if isQuiet(made) { kept[key] = made }
         return made
+    }
+
+    /// Whether a built shot is a picture that stays as it was built. One with
+    /// a caret in it is not: a sweep that draws it brings its window in to hold
+    /// the keys and puts it away, which ends the editing the shot was built in,
+    /// so the next draw is not the one a fresh build gives. Those are built
+    /// afresh each time.
+    static func isQuiet(_ made: (view: NSView, keep: [AnyObject])) -> Bool {
+        let windows = [made.view.window] + made.keep.map { $0 as? NSWindow }
+        return !windows.contains { $0?.firstResponder is NSText }
     }
 
     /// Let go of every one, as a test that changed what they stand on must.
@@ -86,13 +96,27 @@ extension GalleryShot {
 /// harness stages among them.
 enum DisplayScale {
     private nonisolated(unsafe) static var pinned = false
+    private nonisolated(unsafe) static var nativeKey = 0
+
+    /// A window that keeps the display's own scale. The well's cells are
+    /// drawn with a caret one and a half points wide, and on a 1x display
+    /// that caret is not found in the picture of the 2x one the window says
+    /// it has, while it is in a 1x picture of itself.
+    static func keepNative(_ window: NSWindow) {
+        objc_setAssociatedObject(window, &nativeKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
 
     static func pin() {
         guard !pinned, let method = class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.backingScaleFactor))
         else { return }
         pinned = true
         let scale = GalleryRender.scale
-        let block: @convention(block) (NSWindow) -> CGFloat = { _ in scale }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> CGFloat
+        let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
+        let block: @convention(block) (NSWindow) -> CGFloat = { window in
+            objc_getAssociatedObject(window, &nativeKey) != nil
+                ? original(window, #selector(getter: NSWindow.backingScaleFactor)) : scale
+        }
         method_setImplementation(method, imp_implementationWithBlock(block))
     }
 }

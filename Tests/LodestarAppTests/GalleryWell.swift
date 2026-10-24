@@ -24,6 +24,8 @@ enum GalleryWell {
                              _ build: (NSView) -> NSView?) -> Cell {
         let panel = KeyablePanel(contentRect: NSRect(origin: GalleryRender.away, size: size),
                                  styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        DisplayScale.pin()
+        DisplayScale.keepNative(panel)
         panel.appearance = NSAppearance(named: look.appearance)
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false

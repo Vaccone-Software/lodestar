@@ -84,10 +84,51 @@ jobs:
 
       - name: Build
         run: swift build
+
+      # The tests draw real windows, so what they draw on matters: the
+      # display's size and scale and the Mac's appearance. A runner is not
+      # our desk (a Retina Mac in Dark), and a failure that only the runner
+      # shows has to be read against what the runner was.
+      - name: The display and the look
+        run: |
+          system_profiler SPDisplaysDataType || true
+          echo "appearance: $(defaults read -g AppleInterfaceStyle 2>/dev/null || echo Light)"
+          swift - <<'SWIFT' || true
+          import AppKit
+          let screens = NSScreen.screens
+          print("screens: \(screens.count)")
+          for screen in screens {
+              print("frame \(screen.frame) backingScaleFactor \(screen.backingScaleFactor)")
+          }
+          print("main backingScaleFactor: \(NSScreen.main?.backingScaleFactor ?? 0)")
+          SWIFT
+
       - name: Test
         # Sharded across a few xctest processes: the same suite, about a
         # quarter of the wall time.
+        #
+        # TEST_SHARD_SECONDS is a stopgap: a shard is stopped after 300 s on
+        # a desk, and this runner is about twice as slow as one. The gallery
+        # sweeps now share their builds, but until a run here shows the
+        # slowest shard well under 300 s, 600 keeps a slow shard from being
+        # read as a hang. Lower it once a green run has the margin.
+        env:
+          TEST_SHARD_SECONDS: 600
         run: LODESTAR_DATASETS="$HOME/.cache/lodestar-datasets" ./scripts/test.sh
+
+      # A shard that hangs is sampled to <shard>.hang.txt, and each shard's
+      # log says which test it was in: both are what a red run is read from.
+      - name: The shards' logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-shards
+          path: |
+            .build/test-shards/*.hang.txt
+            .build/test-shards/*.log
+            .build/test-shards/*.list
+            .build/test-timings.txt
+          if-no-files-found: warn
 
       # Saved from main only: pull requests restore main's build and add
       # nothing, so the repository's cache holds a few recent builds, not

@@ -5,11 +5,12 @@ What Lodestar sounds like: three sounds, one voice, drawn from a time and a mate
 ## What it is for
 
 **The ideal.**
-- **A thing, touched.** Lodestar looks like matte ceramic keys in one light, so it sounds like an object struck by a hand: close and physical, not a tone switched on.
+- **Its qualities, not its clay.** What the look takes from ceramic is honest, opaque, quiet matter, and the sound takes those qualities: struck, close and physical, not a tone switched on. It does not have to be a pot.
+- **Tuned to Lodestar's own proportion.** 1 : φ : φ² is the ratio the shapes are built on. No real object rings that way, which is what makes it recognisable.
 - **Matte, so dry.** It is short and close, with no hall, no shimmer and no glassy ring. The Mac's own alerts are glass and metal (Glass, Tink, Ping), and Lodestar is told from them in its first few milliseconds.
 - **Pitched enough to carry a fifth.** Listening and Landed say "up" and "down", which a pure knock cannot do.
 - **Quiet and rare.** There are three sounds, each one fact the eye cannot see, and the ideal does not add a fourth.
-- **From a lineage, not a costume.** The voice takes a material and an era whose values match Lodestar's (made, precise, for daily work), and imitates nothing so closely that it names a product.
+- **One source.** A voice comes from one idea and never blends two.
 
 What the sounds mean does not change: DESIGN.md, "Two notes, and the silence between them".
 - **The alert** is Lodestar's identity in the Mac's Sounds.

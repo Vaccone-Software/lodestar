@@ -27,7 +27,7 @@ The evidence says the shape works (DESIGN.md: 49 of 54 offered meetings joined, 
 | the stub    | the leading segment: the count (figure, 18 semibold, tabular) over its unit (key, 13 semibold, capitals), centred |
 | perforation | a dashed hairline between the stub and the body                                       |
 | the body    | the title (quiet voice, 16) over the meta line (meta, 13, quiet), cut at the tail      |
-| the action  | `lode` ×2, lit, trailing                                                               |
+| the action  | `lode` ×2, trailing; lit until the quiet phase, resting in it                                                            |
 
 - **The stub's width** is set once for the chip's life, to the widest of its legends ("88" over "MIN", "88" over "SEC", "Now", "88" over "MIN AGO"), plus 8 each side, as today. Nothing runs out of its frame, and a tick moves nothing.
 - **The chip's width** is set once, as today. The chip does not grow.
@@ -46,7 +46,7 @@ The evidence says the shape works (DESIGN.md: 49 of 54 offered meetings joined, 
 
 ### The action
 
-- **`lode` ×2 is the call to action, so it is lit** in every phase. The orange stub and the lit key do different jobs: the stub says it is time, the key says what to press. The stub is not a key, so the key contract's one lit key holds.
+- **`lode` ×2 is the call to action, so it is lit** in the normal phase and the alert, and **rests in the quiet phase.** The orange stub and the lit key do different jobs: the stub says it is time, the key says what to press. Orange says act now; once the meeting is under way the chip should not ask, so the chord rests with the rest of the chip and recedes with it. Clicking the chord or typing it still joins. The stub is not a key, so the key contract's one lit key holds.
 - **Clicking the chord joins,** as typing it does. `lode` `⌫` dismisses, undrawn, as today. Clicking the stub does nothing: it is a timer.
 - **The chord is centred as a whole key** (contract 10, amended 24 October 2026).
 
@@ -56,12 +56,12 @@ The evidence says the shape works (DESIGN.md: 49 of 54 offered meetings joined, 
 2. **The stub is as wide as its widest legend,** so "MIN AGO" fits.
 3. **The chord is centred as a whole key**, as every key now is.
 
-Everything else is kept: the stub, the perforation, the body, the lit chord and the size.
+Everything else is kept: the stub, the perforation, the body and the size.
 
 ## Rules
 
 1. **The ideal first.** The stub is a timer and a ticket. A part from another contract is used only where it means the same thing here.
-2. **The call to action is lit.** No rule dims it.
+2. **The call to action is lit while the chip asks.** In the normal phase and the alert it is lit and nothing dims it; in the quiet phase the chip no longer asks, and the chord rests.
 3. **One loud moment.** Orange on the stub only from 60 s before to 90 s after.
 4. **A tick moves nothing.** Widths are set once.
 5. **It does not grow.** Its size changes only with a reason written here.
@@ -77,8 +77,8 @@ Everything else is kept: the stub, the perforation, the body, the lit chord and 
 - **Render test.**
   - Normal and quiet: the stub has no orange.
   - Alert: the stub is orange.
-  - The chord is lit in all three phases.
-  - Quiet: the chip draws receded.
+  - The chord is lit in normal and alert, and resting in quiet.
+  - Quiet: the chip draws receded, the chord's letter and its ×2 with it, and a hover brings it all back.
 - **Motion drift test (contract 5).** Covers `MeetingController`.
 - **Accessibility.** As today, and the quiet phase reads "started 4 minutes ago".
 
@@ -88,6 +88,8 @@ Everything else is kept: the stub, the perforation, the body, the lit chord and 
 
 ## Status
 
-Built 24 October 2026, replacing the countdown-key draft. Measured: the stub is 74 wide (the widest legend, "MIN AGO" at 13 semibold, 58, plus 8 each side, as on main) and the chip 273.5, the same in every phase and as on main. The stub is orange only from 60 s before to 90 s after the start; from 90 s after it is the chip's own surface and the chip draws receded at once (a hover brings it back, then the count of contract 6 begins again; a key does not). The chord is lit in every phase; `MeetingController.quietChordLit` exists only so a review can draw it resting.
+Built 24 October 2026, replacing the countdown-key draft. Measured: the stub is 74 wide (the widest legend, "MIN AGO" at 13 semibold, 58, plus 8 each side, as on main) and the chip 273.5, the same in every phase and as on main. The stub is orange only from 60 s before to 90 s after the start; from 90 s after it is the chip's own surface and the chip draws receded at once (a hover brings it back, then the count of contract 6 begins again; a key does not). The chord is lit in the normal phase and the alert and rests in the quiet phase, receding with the chip.
 
 ## Decided in review
+
+- **Approved 24 October 2026.** The chord rests in the quiet phase (the owner's call after seeing both). The stub keeps today's 74 and the chip 273.5. Typing does not wake the quiet chip; a hover does.

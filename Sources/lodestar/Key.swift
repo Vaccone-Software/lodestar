@@ -230,6 +230,11 @@ final class Key: NSView, CeramicDepth {
         set { if newValue { state = .lit } else if state == .lit { state = .resting } }
     }
 
+    /// The ink of a resting key's letter, where a surface that recedes
+    /// (design/06-eye-comfort.md) hands it the ink it is drawn in; the
+    /// theme's ink when none. A lit key never takes it.
+    var restingInk: NSColor? { didSet { refresh() } }
+
     var quiet: Bool {
         get { state == .quiet }
         set { if newValue { if state != .lit { state = .quiet } } else if state == .quiet { state = .resting } }
@@ -333,7 +338,7 @@ final class Key: NSView, CeramicDepth {
                            side: lit ? BarTheme.litSideFill : BarTheme.sideFill,
                            rim: lit ? BarTheme.litRimFill : BarTheme.rimFill,
                            edge: lit ? nil : (overContent ? BarTheme.hairline : BarTheme.faceEdge))
-            legendView.color = lit ? BarTheme.onAccent : BarTheme.ink
+            legendView.color = lit ? BarTheme.onAccent : (restingInk ?? BarTheme.ink)
         }
         // The legend stays on the face, wherever the face stands.
         legendView.frame = standing.faceFrame
@@ -445,6 +450,12 @@ final class KeyStrokes: NSStackView {
 
     required init?(coder: NSCoder) { nil }
 
+    /// The inks a receding surface draws the resting keys and the `×2` in.
+    func recede(ink: NSColor, quietInk: NSColor) {
+        for cap in caps { cap.restingInk = ink }
+        for case let times as KeyTimes in arrangedSubviews { times.ink = quietInk }
+    }
+
     /// As wide as its keys, said: a stack with no width of its own is the view
     /// a row hands its slack to, and a sequence stretched across a row is not
     /// a sequence. Keys and gaps, as the stack lays them.
@@ -483,6 +494,8 @@ final class KeyTimes: NSView {
     static let text = "×2"
     private let legend: String
     private let size: KeySize
+    /// The ink of the `×2`, where a receding surface draws it; the quiet ink when none.
+    var ink: NSColor? { didSet { needsDisplay = true } }
 
     init(after legend: String, size: KeySize = .standard) {
         self.legend = legend
@@ -530,7 +543,7 @@ final class KeyTimes: NSView {
         ]))
         context.saveGState()
         context.textMatrix = .identity
-        context.setFillColor(Ceramic.resolved(BarTheme.secondaryColor, in: self))
+        context.setFillColor(Ceramic.resolved(ink ?? BarTheme.secondaryColor, in: self))
         context.textPosition = CGPoint(x: 0, y: baseline)
         CTLineDraw(line, context)
         context.restoreGState()

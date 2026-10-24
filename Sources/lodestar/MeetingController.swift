@@ -443,12 +443,6 @@ final class MeetingController: NSObject {
     private var chipContent: NSView?
 
     static let chipHeight = BarTheme.rowHeight
-    /// Whether the chord keeps its lit face in the quiet phase. It does: the
-    /// chord is the call to action in every phase (design/15-meeting-stub.md).
-    /// A constant, not a setting, so a review can draw the chip with it
-    /// resting and compare.
-    static let quietChordLit = true
-
     /// The stub is one width for the meeting's whole life: the widest of
     /// its legends, each measured in its own font in both looks (night is a
     /// weight heavier), and 8 each side, so nothing runs out of its frame
@@ -476,7 +470,8 @@ final class MeetingController: NSObject {
     /// "Now", from 60 s before until 90 s after the start, because that is
     /// when joining is the thing to do. Quiet: how long ago it began, on the
     /// chip's own surface and receded at once, until the meeting ends. The
-    /// stub is lit only in the alert; the chord is lit in all three.
+    /// stub is lit only in the alert; the chord is lit in the normal
+    /// phase and the alert, and rests in the quiet one.
     static func stub(for phase: Meetings.Phase) -> (number: String, unit: String?, lit: Bool, quiet: Bool) {
         switch phase {
         case .upcoming(let minutes): return ("\(minutes)", "min", false, false)
@@ -566,11 +561,13 @@ final class MeetingController: NSObject {
         body.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(body)
 
-        // Join, drawn as the chord that does it, lit: the one thing the
-        // chip is for. Dismiss stays on lode ⌫, pressed three times in
+        // Join, drawn as the chord that does it, lit while the meeting is
+        // ahead or at the door: the one thing the chip is for. Dismiss stays on lode ⌫, pressed three times in
         // fifty-four meetings, and is not drawn.
-        let join = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode"], double: true,
-                                                             lit: stub.quiet ? Self.quietChordLit : true),
+        let strokes = Keycaps.strokes(["lode"], double: true, lit: !stub.quiet)
+        // In the quiet phase the chord rests, and recedes with the rest of the chip.
+        if stub.quiet { strokes.recede(ink: recess.ink, quietInk: recess.quietInk) }
+        let join = Keycaps.CapGroup(strokes: strokes,
                                     action: { [weak self] in _ = self?.join() })
         join.translatesAutoresizingMaskIntoConstraints = false
         join.setAccessibilityLabel("Join")

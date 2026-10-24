@@ -179,7 +179,7 @@ final class MeetingStubTests: XCTestCase {
         color.alphaComponent > 0.5 && color.redComponent > 0.6 && color.greenComponent < 0.5 && color.blueComponent < 0.3
     }
 
-    func testTheStubIsOrangeOnlyInTheAlertAndTheChordIsLitInEveryPhase() throws {
+    func testTheStubIsOrangeOnlyInTheAlertAndTheChordIsLitUntilItIsQuiet() throws {
         let controller = try standing(startingIn: 4 * 60)
         defer { controller.unstage() }
         let start = try XCTUnwrap(controller.current).occurrence.start
@@ -206,7 +206,9 @@ final class MeetingStubTests: XCTestCase {
             }
             let chords = all(KeyStrokes.self, in: controller.chipRoot)
             XCTAssertEqual(chords.count, 1, name)
-            XCTAssertTrue(chords.first?.lit ?? false, "\(name): the chord is lit")
+            XCTAssertEqual(chords.first?.lit, orange || name == "normal",
+                           "\(name): the chord is lit in the normal phase and the alert, and rests in quiet")
+            XCTAssertEqual(chords.first?.caps.allSatisfy { $0.state == .resting }, name == "quiet", name)
         }
         try check("normal", -4 * 60, orange: false)
         XCTAssertFalse(controller.recess.receded, "normal is full ink")
@@ -235,12 +237,28 @@ final class MeetingStubTests: XCTestCase {
         XCTAssertEqual(Readability.contrast(unit.luminance, full.pane.luminance), 4.5, accuracy: 0.01,
                        "and so is the unit")
 
+        // The chord rests, and it recedes with the rest of the chip: its
+        // letter at the receded ink and its ×2 at the receded quiet ink.
+        let chord = try XCTUnwrap(all(KeyStrokes.self, in: controller.chipRoot).first)
+        XCTAssertFalse(chord.lit)
+        let legend = rgb(try XCTUnwrap(chord.caps.first).legendColor)
+        XCTAssertEqual(Readability.contrast(legend.luminance, full.pane.luminance), 7, accuracy: 0.01,
+                       "the resting chord's letter is in the receded ink")
+        let times = try XCTUnwrap(all(KeyTimes.self, in: chord).first)
+        XCTAssertEqual(Readability.contrast(rgb(try XCTUnwrap(times.ink)).luminance, full.pane.luminance), 4.5,
+                       accuracy: 0.01, "and its ×2 in the receded quiet ink")
+
         // A later minute ticking over is not attention, so it stays receded.
         controller.advanceCountdown(now: start.addingTimeInterval(3 * 60 + 1))
         XCTAssertTrue(controller.recess.receded)
         // The pointer brings it back at once.
         controller.recess.touch()
         XCTAssertFalse(controller.recess.receded)
+        let woken = try XCTUnwrap(all(KeyStrokes.self, in: controller.chipRoot).first)
+        let wokenLegend = rgb(try XCTUnwrap(woken.caps.first).legendColor)
+        XCTAssertEqual(Readability.contrast(wokenLegend.luminance, full.pane.luminance),
+                       Readability.contrast(full.ink.luminance, full.pane.luminance), accuracy: 0.01,
+                       "back at full ink, the chord's letter with it")
     }
 
     func testATypedKeyDoesNotWakeTheQuietChipButAHoverDoes() throws {
@@ -274,9 +292,5 @@ final class MeetingStubTests: XCTestCase {
         controller.advanceCountdown(now: start.addingTimeInterval(4 * 60 + 5))
         let said = controller.chipRoot.accessibilityLabel() ?? ""
         XCTAssertTrue(said.contains("started four minutes ago"), said)
-    }
-
-    func testTheChordStaysLitInTheQuietPhaseByDefault() {
-        XCTAssertTrue(MeetingController.quietChordLit, "the review default: the call to action is lit")
     }
 }

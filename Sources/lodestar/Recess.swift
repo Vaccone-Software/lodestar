@@ -89,6 +89,19 @@ final class Recess {
         if wasReceded || timer == nil { arm(after: idle) }
     }
 
+    /// The surface is up and meant to be quiet from the first frame (the
+    /// meeting's chip once the meeting has begun): receded now, with no
+    /// twenty seconds first. A hover, a key or a change of state still brings
+    /// it back, and the count then begins as for any surface.
+    func recedeAtOnce() {
+        standing = true
+        timer?.invalidate()
+        timer = nil
+        guard allowed, mayRecede(), !receded else { return }
+        receded = true
+        onChange?()
+    }
+
     private func touchIfStanding() {
         guard standing else { return }
         touch()

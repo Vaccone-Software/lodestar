@@ -80,12 +80,13 @@ final class MeetingController: NSObject {
     /// The chip recedes when left alone (design/06-eye-comfort.md): its ink
     /// to 7 to 1 and its quiet ink to 4.5 to 1 on its pane after twenty
     /// seconds without attention, back at once on the pointer, a key, or the
-    /// meeting becoming due. The lit stub never recedes.
+    /// meeting becoming due. The lit stub never recedes, and the quiet phase
+    /// (from 90 s after the start) draws it receded at once.
     let recess = Recess()
     private var hover: RecessHover?
-    /// Which meeting the chip last showed, and whether it was lit, so a
-    /// change of either is attention and a minute ticking over is not.
-    private var shown: (key: String, lit: Bool)?
+    /// Which meeting the chip last showed, and in which phase, so a change
+    /// of any is attention and a minute ticking over is not.
+    private var shown: (key: String, lit: Bool, quiet: Bool)?
     /// The prime card: mouse-first and keyable, in the door's family.
     private let prime = KeyablePanel(
         contentRect: BarTheme.unplaced,
@@ -436,24 +437,46 @@ final class MeetingController: NSObject {
     private var chipContent: NSView?
 
     static let chipHeight = BarTheme.rowHeight
-    /// The stub is one width for the meeting's whole life, the width of the
-    /// longest thing it ever says, so it never jumps beside the work.
-    static var stubWidth: CGFloat {
-        ceil(BarTheme.width(of: "MIN AGO", in: .key)) + Grid.close * 2
-    }
+    /// Whether the chord keeps its lit face in the quiet phase. It does: the
+    /// chord is the call to action in every phase (design/15-meeting-stub.md).
+    /// A constant, not a setting, so a review can draw the chip with it
+    /// resting and compare.
+    static let quietChordLit = true
+
+    /// The stub is one width for the meeting's whole life: the widest of
+    /// its legends, each measured in its own font in both looks (night is a
+    /// weight heavier), and 12 each side, so nothing runs out of its frame
+    /// and a tick moves nothing.
+    static let stubWidth: CGFloat = {
+        var widest: CGFloat = 0
+        for night in [false, true] {
+            func figure(_ text: String) -> CGFloat { BarTheme.width(of: text, in: .figure, tabular: true, night: night) }
+            func unit(_ text: String) -> CGFloat { BarTheme.width(of: text, in: .key, night: night) }
+            let legends: [CGFloat] = [
+                max(figure("88"), unit("MIN")),
+                max(figure("88"), unit("SEC")),
+                BarTheme.width(of: "Now", in: .emphasis, night: night),
+                max(figure("88"), unit("MIN AGO")),
+            ]
+            widest = max(widest, legends.max() ?? 0)
+        }
+        return widest + Grid.part * 2
+    }()
     /// The most the meeting's title and its place may take beside the stub.
     private static let bodyWidth: CGFloat = 184
 
-    /// What the stub says and whether it is lit: minutes while the
-    /// meeting is minutes away (quiet), seconds at the door, then how long
-    /// ago it began, lit from the last minute on because from then joining
-    /// is the thing to do.
-    static func stub(for phase: Meetings.Phase) -> (number: String, unit: String?, lit: Bool) {
+    /// What the stub says, and the phase it is in. Normal: the minutes away,
+    /// on the chip's own surface. Alert (lit, orange): the seconds, then
+    /// "Now", from 60 s before until 90 s after the start, because that is
+    /// when joining is the thing to do. Quiet: how long ago it began, on the
+    /// chip's own surface and receded at once, until the meeting ends. The
+    /// stub is lit only in the alert; the chord is lit in all three.
+    static func stub(for phase: Meetings.Phase) -> (number: String, unit: String?, lit: Bool, quiet: Bool) {
         switch phase {
-        case .upcoming(let minutes): return ("\(minutes)", "min", false)
-        case .soon(let seconds): return ("\(seconds)", "sec", true)
-        case .now: return ("Now", nil, true)
-        case .inProgress(let minutes): return ("\(minutes)", "min ago", true)
+        case .upcoming(let minutes): return ("\(minutes)", "min", false, false)
+        case .soon(let seconds): return ("\(seconds)", "sec", true, false)
+        case .now: return ("Now", nil, true, false)
+        case .inProgress(let minutes): return ("\(minutes)", "min ago", false, true)
         }
     }
 
@@ -465,6 +488,8 @@ final class MeetingController: NSObject {
 
     private func render(_ candidate: Meetings.Candidate) {
         chipContent?.removeFromSuperview()
+        // The last stub's lit rim goes with it; a lit one tells the edge again.
+        (root.subviews.first { $0 is PaneEdge } as? PaneEdge)?.litShape = nil
         let occurrence = candidate.occurrence
         let resolved = resolve(occurrence)
         let native = Meetings.nativeJoin(for: occurrence.link) != nil ? Self.providerName(occurrence.link.provider) : nil
@@ -491,7 +516,7 @@ final class MeetingController: NSObject {
                                          y: edge.convert(NSPoint.zero, from: stub).y)
             edge.litShape = stub.lit ? path.copy(using: &move) : nil
         }
-        let ink: NSColor = stub.lit ? BarTheme.onAccent : recess.ink
+        let ink: NSColor = stub.lit ? BarTheme.onAccent : (stub.quiet ? recess.quietInk : recess.ink)
         let number = NSTextField(labelWithString: stub.number)
         // The countdown ticks in place, so its digits hold their width.
         number.setRole(stub.unit == nil ? .emphasis : .figure)
@@ -538,7 +563,8 @@ final class MeetingController: NSObject {
         // Join, drawn as the chord that does it, lit: the one thing the
         // chip is for. Dismiss stays on lode ⌫, pressed three times in
         // fifty-four meetings, and is not drawn.
-        let join = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode"], double: true, lit: true),
+        let join = Keycaps.CapGroup(strokes: Keycaps.strokes(["lode"], double: true,
+                                                             lit: stub.quiet ? Self.quietChordLit : true),
                                     action: { [weak self] in _ = self?.join() })
         join.translatesAutoresizingMaskIntoConstraints = false
         join.setAccessibilityLabel("Join")
@@ -585,9 +611,16 @@ final class MeetingController: NSObject {
         // is already standing, and that is not a fresh claim.
         if !wasVisible { onChipShown() }
         // A new chip, another meeting, or the door opening is attention; a
-        // minute ticking over on the same one is not.
-        if !wasVisible || shown?.key != occurrence.key || shown?.lit != stub.lit { recess.touch() }
-        shown = (occurrence.key, stub.lit)
+        // minute ticking over on the same one is not. The quiet phase is the
+        // opposite of attention: the chip steps back at once, once, and a
+        // hover or a key still brings it forward.
+        let fresh = !wasVisible || shown?.key != occurrence.key
+        if stub.quiet {
+            if fresh || shown?.quiet != true { recess.recedeAtOnce() }
+        } else if fresh || shown?.lit != stub.lit || shown?.quiet == true {
+            recess.touch()
+        }
+        shown = (occurrence.key, stub.lit, stub.quiet)
     }
 
     #if DEBUG
@@ -602,6 +635,8 @@ final class MeetingController: NSObject {
         return chipContent.map(words) ?? []
     }
     var stubLit: Bool { chipLit }
+    /// The chip's size as placed, for the tests that hold it still.
+    var chipSize: NSSize { panel.frame.size }
     /// What the chip is drawn in, for the tests that hold its receding.
     var chipRoot: NSView { root }
     #endif
@@ -696,22 +731,15 @@ final class MeetingController: NSObject {
 
     #if DEBUG
     /// `lodestar __strip-preview 60` stages the chip, 61 the prime card.
-    static func preview(_ index: Int, startingIn offset: TimeInterval = 4 * 60) -> MeetingController {
+    static func preview(_ index: Int, startingIn offset: TimeInterval = 4 * 60,
+                        title: String = "Product sync") -> MeetingController {
         let controller = MeetingController()
         var (config, _) = Config.load()
         config.meetingsEnabled = true
         controller.config = config
         DispatchQueue.main.async {
             if index == 0 {
-                let start = Date().addingTimeInterval(offset)
-                let occurrence = Meetings.Occurrence(
-                    eventID: "preview", title: "Product sync",
-                    start: start, end: start.addingTimeInterval(30 * 60),
-                    link: Meetings.Link(provider: .zoom,
-                                        url: "https://zoom.us/j/123456789"),
-                    calendar: "Work", account: "Google", people: 6)
-                controller.occurrences = [occurrence]
-                controller.evaluate()
+                controller.stage(title: title, startingIn: offset)
                 // The chip's own titled, deferred, never-key panel refuses
                 // to reach the window server in this headless process, so
                 // the photograph borrows the searcher's panel shell and
@@ -742,6 +770,39 @@ final class MeetingController: NSObject {
         return controller
     }
 
+    /// The preview's meeting, on the controller's own occurrences and
+    /// evaluated at once.
+    private func stage(title: String, startingIn offset: TimeInterval) {
+        let start = Date().addingTimeInterval(offset)
+        let occurrence = Meetings.Occurrence(
+            eventID: "preview", title: title,
+            start: start, end: start.addingTimeInterval(30 * 60),
+            link: Meetings.Link(provider: .zoom,
+                                url: "https://zoom.us/j/123456789"),
+            calendar: "Work", account: "Google", people: 6)
+        occurrences = [occurrence]
+        evaluate()
+    }
+
+    /// The same chip, standing before this returns and with no panel
+    /// swapped in, for the tests that drive its phases themselves. The
+    /// calendar read the config starts empties it a turn of the run loop
+    /// later, so a test using this never turns the loop over.
+    static func staged(title: String = "Product sync", startingIn offset: TimeInterval) -> MeetingController {
+        let controller = MeetingController()
+        var (config, _) = Config.load()
+        config.meetingsEnabled = true
+        controller.config = config
+        controller.stage(title: title, startingIn: offset)
+        return controller
+    }
+
+    /// Takes a staged chip down.
+    func unstage() {
+        hideChip()
+        current = nil
+    }
+
     private static var previewHost: NSPanel?
     #endif
 }
@@ -760,7 +821,7 @@ extension MeetingController {
         case .now:
             return "\(title) is beginning"
         case .inProgress(let minutes):
-            return "\(title) began \(spelled(minutes)) minute\(minutes == 1 ? "" : "s") ago"
+            return "\(title) started \(spelled(minutes)) minute\(minutes == 1 ? "" : "s") ago"
         }
     }
 

@@ -88,6 +88,6 @@ Everything else is kept: the stub, the perforation, the body, the lit chord and 
 
 ## Status
 
-Drafted 24 October 2026, replacing the countdown-key draft. Main draws the stub orange from 60 s before until the meeting ends.
+Built 24 October 2026, replacing the countdown-key draft. Measured: the stub is 82 wide (the widest legend, "MIN AGO" at 13 semibold, 58, plus 12 each side; it was 74 with 8 each side) and the chip 281.5 (it was 273.5), the same in every phase. The stub is orange only from 60 s before to 90 s after the start; from 90 s after it is the chip's own surface and the chip draws receded at once (a hover or a key brings it back, then the count of contract 6 begins again). The chord is lit in every phase; `MeetingController.quietChordLit` exists only so a review can draw it resting.
 
 ## Decided in review

@@ -392,10 +392,10 @@ final class EyeComfortTests: XCTestCase {
     /// the meeting is due, and a lit stub never recedes.
     func testTheChipRecedesAndTheDueMeetingBringsItBackAndALitOneNeverRecedes() throws {
         on(0.88)
-        let controller = MeetingController.preview(0, startingIn: 4 * 60)
-        // Until it stands, not for a beat: the run loop may be turned over to other work.
-        for _ in 0..<1_500 where controller.current == nil { spin(0.02) }
-        defer { controller.recess.stop() }
+        // Standing before it returns: the staged calendar read empties a
+        // chip that has to wait for the run loop.
+        let controller = MeetingController.staged(startingIn: 4 * 60)
+        defer { controller.unstage() }
         let root = controller.chipRoot
         XCTAssertEqual(controller.chipWords.first(where: { $0 == "Product sync" }), "Product sync")
         let full = BarTheme.palette

@@ -26,9 +26,10 @@ enum GalleryChrome {
 
     /// The chip as the meeting's own preview stages it, `offset` seconds
     /// before the meeting starts (negative once it has).
-    static func meeting(startingIn offset: TimeInterval) throws -> (NSView, [AnyObject]) {
+    static func meeting(startingIn offset: TimeInterval,
+                        title: String = "Product sync") throws -> (NSView, [AnyObject]) {
         ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        return try GalleryHost.surface(made: { [MeetingController.preview(0, startingIn: offset)] },
+        return try GalleryHost.surface(made: { [MeetingController.preview(0, startingIn: offset, title: title)] },
                                        where: { $0 is KeyablePanel })
     }
 
@@ -149,6 +150,14 @@ enum GalleryChrome {
             shot.trim = true
             return shot
         }
+        // The quiet phase draws receded at once, so its picture is made with
+        // Eye comfort on, as the app has it by default, and checked receded.
+        func quietChip(_ surface: String, _ state: String,
+                       _ make: @escaping () throws -> (NSView, [AnyObject])) -> GalleryShot {
+            var shot = chrome(surface, state, make)
+            shot.receded = true
+            return shot
+        }
         let slack = icon("/Applications/Safari.app") ?? icon("/System/Applications/Notes.app")
         func state(_ mode: ModePill.Mode, listening: Bool = false, text: String? = nil, anchored: String? = nil,
                    offer: ModePill.Offer? = nil) -> ModePill.State {
@@ -168,7 +177,11 @@ enum GalleryChrome {
             chrome("meeting", "countdown-quiet") { try meeting(startingIn: 4 * 60) },
             chrome("meeting", "lit-now") { try meeting(startingIn: 0) },
             chrome("meeting", "door-seconds") { try meeting(startingIn: 45) },
-            chrome("meeting", "past") { try meeting(startingIn: -3 * 60) },
+            quietChip("meeting", "past") { try meeting(startingIn: -3 * 60) },
+            chrome("meeting", "long-title") {
+                try meeting(startingIn: 4 * 60,
+                            title: "Quarterly planning review with the platform, design and finance leads")
+            },
             chrome("draft", "speaking-ghost") { try draft(0) },
             chrome("draft", "editing-normal") { try draft(1) },
             chrome("draft", "editor-lens-marked") { try lens() },

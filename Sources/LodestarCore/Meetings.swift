@@ -209,7 +209,10 @@ public enum Meetings {
         case upcoming(minutes: Int)
         /// Under a minute out: the seconds, counted down.
         case soon(seconds: Int)
+        /// From the last minute's end to 90 s after the start: the alert.
         case now
+        /// From 90 s after the start until the meeting ends: the quiet
+        /// phase, how long ago it began.
         case inProgress(minutes: Int)
     }
 

@@ -239,12 +239,15 @@ final class MeetingsTests: XCTestCase {
         XCTAssertEqual(Meetings.phase(untilStart: 60), .soon(seconds: 60))
         XCTAssertEqual(Meetings.phase(untilStart: 45.2), .soon(seconds: 46), "rounded up, so it never says 0")
         XCTAssertEqual(Meetings.phase(untilStart: 0.4), .soon(seconds: 1))
+        XCTAssertEqual(Meetings.phase(untilStart: 1), .soon(seconds: 1))
     }
 
     func testAtTheDoorItSaysNowAndThenCountsIn() {
         XCTAssertEqual(Meetings.phase(untilStart: 0), .now)
         XCTAssertEqual(Meetings.phase(untilStart: -89), .now)
         XCTAssertEqual(Meetings.phase(untilStart: -90), .inProgress(minutes: 1))
+        XCTAssertEqual(Meetings.phase(untilStart: -91), .inProgress(minutes: 1))
+        XCTAssertEqual(Meetings.phase(untilStart: -40 * 60), .inProgress(minutes: 40))
         XCTAssertEqual(Meetings.phase(untilStart: -10 * 60 - 30), .inProgress(minutes: 10))
     }
 

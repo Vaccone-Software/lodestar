@@ -124,7 +124,7 @@ enum GalleryKeys {
         return label
     }
 
-    /// Every legend kind in all four states and both sizes, a sequence, a
+    /// Every legend kind in all three states and both sizes, a sequence, a
     /// double tap, a chord, alternatives and punctuation, on the pane and on
     /// a chosen row, and a key named in a sentence.
     static func sheet(look: GalleryLook) -> (NSWindow, [AnyObject]) {
@@ -158,19 +158,18 @@ enum GalleryKeys {
             }
             line("standard, 24 tall: resting", legends)
             line("lit", legends) { $0.state = .lit }
-            line("pressed: the side gives up two points and the face goes down by them", legends) { $0.state = .pressed }
             line("quiet: no face, a hairline, quiet ink", legends) { $0.state = .quiet }
 
             // Large, in every state.
             let figures = ["7", "3", "10"]
-            let large = [KeyState.resting, .lit, .pressed, .quiet].flatMap { state in
+            let large = [KeyState.resting, .lit, .quiet].flatMap { state in
                 figures.map { figure -> Key in
                     let key = Key(figure, size: .large, state: state)
                     keys.append(key)
                     return key
                 }
             }
-            group("large, 36 tall: resting, lit, pressed, quiet", large, spacing: Grid.close)
+            group("large, 36 tall: resting, lit, quiet", large, spacing: Grid.close)
 
             // Sequences, double taps, chords, alternatives.
             let sequence = Keycaps.strokes(["e", "p"])

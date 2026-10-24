@@ -33,7 +33,7 @@ The rim is the shape less itself moved down by 1.5: a crescent along the top tha
 | sinks     | a place you put something: a field, an empty keepsake, a drop target                                   | a well: one step below the pane it sits in, a 0.5 pt edge, no side, no inner shadow |
 | flat      | everything else: panes, cards that are not pressed, groups, chips that only say something | the surface's own fill, at most a hairline                                          |
 
-**The side.** A band of the side colour beneath the face, as tall as its size calls for: 3 points at a control's size, 4 at a row's, 5 at a large key's. Pressing collapses it to 1 point at once, the face moving down by what the side gave up. The side sits inside the thing's frame (geometry, rule 6).
+**The side.** A band of the side colour beneath the face, as tall as its size calls for: 3 points at a control's size, 4 at a row's, 5 at a large key's. While the pointer holds the mouse down on a key or button that can be clicked, the side collapses to 1 point at once, the face moving down by what the side gave up. That is the pointer's response, not a state a surface draws. The side sits inside the thing's frame (geometry, rule 6).
 
 **The well** by day is the pane darkened by 0.05 in lightness (`#E6DED6` in a clay pane), with its edge at ink 14%; by night it is the pane darkened by 0.04 (`#14100D` in an espresso pane), never below the ground, with its edge at ink 12%. A placeholder in quiet ink still clears 4.5 : 1 in it at every level.
 
@@ -57,11 +57,11 @@ A **quiet key** is not in the table: it cannot be pressed, so it does not stand 
 
 - A drift test fails on any glass, visual-effect or vibrancy type, or a window that is not opaque, outside debug previews.
 - A test holds the pane's fill, rim, edge and shadow per look, and the well's step.
-- A gallery test checks every pressable thing has a side, every well has none, and every flat thing has neither; and that pressing collapses a side to 1 point.
+- A gallery test checks every pressable thing has a side, every well has none, and every flat thing has neither; and that the pointer's press collapses a side to 1 point.
 
 ## Renders
 
-`foundation-material-{day,night}`: a pane with its rim, edge and shadow over a light and a dark desktop; the three roles side by side; a key resting and pressed. Then every surface: with glass gone, the gallery shows exactly what is on screen.
+`foundation-material-{day,night}`: a pane with its rim, edge and shadow over a light and a dark desktop; the three roles side by side; a key at rest. Then every surface: with glass gone, the gallery shows exactly what is on screen.
 
 ## Status
 
@@ -81,3 +81,4 @@ Built 22 October 2026. Before it, main's panels were glass (`TonedGlass`, an `NS
 
 - Night panes cast a faint shadow (espresso ground at 40%), so a pane separates from a dark desktop as well as by its edge (22 October 2026).
 - Wells sink twice as far as first built, with a firmer edge: a step of 0.025 read almost flat (Feedback's note was the example).
+- Pressed is the pointer's response, not a state a surface draws (24 October 2026): while the mouse is down on a key or button that can be clicked, its side drops to 1 point and the face follows; no gallery sheet draws a pressed key (design/10-key.md).

@@ -22,14 +22,15 @@ enum KeySize: Equatable {
     var role: BarTheme.Role { self == .standard ? .key : .largeFigure }
 }
 
-/// What a key is for the hand right now. Instant: nothing animates.
+/// What a key is for the hand right now. Instant: nothing animates. Pressed
+/// is not one of them: the face dropping to a 1-point side is the pointer's
+/// response while the mouse is down on a key that can be clicked (`fill`),
+/// not a state a surface draws.
 enum KeyState: Equatable {
     /// A key you can press.
     case resting
     /// The one key to press next: the orange.
     case lit
-    /// While it is down: the side gives up the rest and the face follows.
-    case pressed
     /// Shown but not pressable now, or disabled: a resting key left unfilled,
     /// its face and side outlined in hairlines.
     case quiet
@@ -316,7 +317,7 @@ final class Key: NSView, CeramicDepth {
     func refresh() {
         let outlined = state == .quiet
         standing.outlined = outlined
-        standing.pressed = state == .pressed || pointer == .pressed
+        standing.pressed = pointer == .pressed
         if outlined {
             // Shown, not pressable: the resting key left unfilled. The face is
             // a hairline and the side a band in the hairline's tone, so it is

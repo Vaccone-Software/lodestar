@@ -5,7 +5,7 @@ import XCTest
 
 /// design/04-material.md as a picture, made of the real views: a pane with
 /// its rim, edge and shadow over a light and a dark desktop; the three roles
-/// side by side (stands up, sinks, flat); and a key resting and pressed.
+/// side by side (stands up, sinks, flat); and a key at rest.
 enum GalleryMaterial {
     static let size = NSSize(width: 1040, height: 896)
     /// The two desktops a pane is seen over.
@@ -148,7 +148,7 @@ enum GalleryMaterial {
         ])
         ground.addSubview(hosted(roles, in: NSRect(origin: .zero, size: rolesFrame.size)))
 
-        // Three: a key resting and pressed.
+        // Three: a key, resting and lit.
         let keysFrame = NSRect(x: 0, y: 0, width: size.width, height: size.height - 330 - 328)
         let keysGround = NSView(frame: keysFrame)
         keysGround.wantsLayer = true
@@ -156,15 +156,13 @@ enum GalleryMaterial {
         root.addSubview(keysGround)
         let keys = NSView(frame: .zero)
         func pair(_ legend: String, lit: Bool = false) -> NSView {
-            let resting = Key(legend), pressed = Key(legend)
+            let resting = Key(legend)
             resting.lit = lit
-            pressed.lit = lit
-            pressed.fill(.pressed)
-            return column([row([resting, pressed], spacing: Grid.part)], spacing: Grid.tight)
+            return column([row([resting], spacing: Grid.part)], spacing: Grid.tight)
         }
         let largeRow = row([Key("7", size: .large)], spacing: Grid.part)
         let legend = row([
-            caption("a key resting, then pressed: the side gives up two points and the face goes down by them"),
+            caption("a key at rest: a 3-point side, a 5-point side when large"),
         ])
         let keyColumns = row([pair("a"), pair("⏎", lit: true), pair("space"), largeRow], spacing: Grid.margin)
         let all = column([legend, keyColumns], spacing: Grid.part)

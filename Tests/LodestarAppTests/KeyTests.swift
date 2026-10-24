@@ -11,7 +11,7 @@ final class KeyTests: XCTestCase {
     override func tearDown() { GalleryLook.reset() }
 
     static let legends = ["a", "g", "y", "e", "s", "A", "⏎", "⇧", "1", "esc", "⌘K", "'", ";"]
-    static let states: [KeyState] = [.resting, .lit, .pressed, .quiet]
+    static let states: [KeyState] = [.resting, .lit, .quiet]
 
     /// What a key's legend drew: its ink in the key's own coordinates
     /// (points, y up), the face it sits on, and the key itself.
@@ -25,9 +25,11 @@ final class KeyTests: XCTestCase {
 
     /// The legend's ink, read by drawing the key with and without it and
     /// keeping the pixels that differ.
-    static func draw(_ legend: String, state: KeyState, size: KeySize = .standard, look: GalleryLook) -> Drawn {
+    static func draw(_ legend: String, state: KeyState, size: KeySize = .standard, look: GalleryLook,
+                     pointer: Keycaps.CapState = .resting) -> Drawn {
         look.apply()
         let key = Key(legend, size: size, state: state)
+        key.fill(pointer)
         let width = key.width
         let margin: CGFloat = 8
         let host = NSView(frame: NSRect(x: 0, y: 0, width: width + margin * 2, height: key.size.height + margin * 2))
@@ -240,16 +242,18 @@ final class KeyTests: XCTestCase {
 
     // MARK: - States
 
-    func testTheFourStatesAreWhatTheContractSays() {
+    func testTheThreeStatesAreWhatTheContractSays() {
         GalleryLook.day.apply()
-        let resting = Key("a"), lit = Key("a", state: .lit), pressed = Key("a", state: .pressed), quiet = Key("a", state: .quiet)
+        let resting = Key("a"), lit = Key("a", state: .lit), quiet = Key("a", state: .quiet)
+        let pressed = Key("a")
+        pressed.fill(.pressed)
         for key in [resting, lit, pressed, quiet] {
             key.frame = NSRect(x: 0, y: 0, width: 24, height: 24)
             key.layout()
         }
         XCTAssertEqual(resting.drawnSide, 3)
         XCTAssertEqual(lit.drawnSide, 3)
-        XCTAssertEqual(pressed.drawnSide, 1, "the side gives up the rest")
+        XCTAssertEqual(pressed.drawnSide, 1, "the pointer holds it down: the side gives up the rest")
         XCTAssertEqual(resting.face.minY - pressed.face.minY, 2, "and the face goes down by it")
         XCTAssertEqual(resting.face.height, pressed.face.height)
         XCTAssertEqual(quiet.drawnSide, 3, "a quiet key keeps the resting key's side")
@@ -267,7 +271,7 @@ final class KeyTests: XCTestCase {
         XCTAssertNotEqual(quiet.standing.sideColor, resting.standing.sideColor)
         XCTAssertNil(pressed.layer?.animationKeys(), "nothing animates")
         XCTAssertEqual(resting.state, .resting)
-        XCTAssertEqual(pressed.state, .pressed)
+        XCTAssertEqual(pressed.state, .resting, "pressing is the pointer's response, not a state")
     }
 
     // MARK: - The quiet key: a resting key left unfilled
@@ -347,11 +351,17 @@ final class KeyTests: XCTestCase {
         }
     }
 
-    func testAPressedKeysLegendGoesDownWithItsFace() {
+    func testAKeyHeldDownByThePointerHasItsLegendGoDownWithItsFace() {
         for look in GalleryLook.all {
-            let resting = Self.draw("e", state: .resting, look: look), pressed = Self.draw("e", state: .pressed, look: look)
+            let resting = Self.draw("e", state: .resting, look: look)
+            let pressed = Self.draw("e", state: .resting, look: look, pointer: .pressed)
             XCTAssertEqual(resting.ink.midY - pressed.ink.midY, 2, accuracy: 0.5, look.name)
             XCTAssertEqual(pressed.ink.midY, pressed.face.midY, accuracy: 0.5, "still centred on the face")
+            XCTAssertEqual(resting.key.frame, pressed.key.frame, "the frame does not move")
+            let large = Self.draw("7", state: .resting, size: .large, look: look)
+            let held = Self.draw("7", state: .resting, size: .large, look: look, pointer: .pressed)
+            XCTAssertEqual(large.ink.midY - held.ink.midY, 4, accuracy: 0.5, "\(look.name): a large key drops four points")
+            XCTAssertEqual(held.ink.midY, held.face.midY, accuracy: 0.5, "\(look.name): still centred on the face")
         }
     }
 

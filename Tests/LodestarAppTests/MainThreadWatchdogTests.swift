@@ -64,7 +64,7 @@ final class MainThreadWatchdogTests: XCTestCase {
     /// An answer late enough to cost the key tap, short of the ceiling, is
     /// written down with how late it was, and the launch's is told apart.
     func testALateAnswerIsReportedWithItsLength() {
-        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 3, launchCeiling: 3, lateThreshold: 0.2)
+        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 10, launchCeiling: 10, lateThreshold: 0.2)
         let lock = NSLock()
         var late: [(seconds: TimeInterval, launch: Bool)] = []
         var stalls = 0
@@ -86,13 +86,16 @@ final class MainThreadWatchdogTests: XCTestCase {
         }
         watchdog.start()
         // A slow launch, long against the 0.2 s threshold and short of the
-        // 3 s allowance, so a late first ask still lands inside it.
+        // allowance, so a late first ask still lands inside it.
         Thread.sleep(forTimeInterval: 1.0)
         runUntil(within: 5) { !lock.withLock { late }.isEmpty }
-        // A hitch while running, long against the 0.3 s asserted below and
-        // short of the 3 s ceiling: with the suite's seven processes running,
-        // the watchdog's ask has been seen arriving more than 0.7 s into a
-        // 1 s hitch, so the hitch leaves it 1.7 s.
+        // The ceilings are far above every hold: under ship's load main has
+        // answered more than 3 s after an ask, and this test is about late
+        // reports arriving, not where frozen begins (the verdict test below
+        // holds that against a clock).
+        // A hitch while running, long against the 0.3 s asserted below: with
+        // the suite's seven processes running, the watchdog's ask has been
+        // seen arriving more than 0.7 s into a 1 s hitch, so this one is 2 s.
         Thread.sleep(forTimeInterval: 2.0)
         runUntil(within: 5) { hitch(lock.withLock { late }) != nil }
         watchdog.stop()

@@ -24,6 +24,13 @@ enum GallerySettings {
             state.defaultInput = "MacBook Pro Microphone"
             state.keyboards = [.init(id: "1452:834:0", name: "Apple Internal Keyboard", builtIn: true, attached: true),
                                .init(id: "1:2:3", name: "Moonlander", builtIn: false, attached: true)]
+            state.editorEngines = ["spelling", "minimal", "standard", "full"]
+            state.editorEngineLabels = ["Spelling · no download", "Minimal · built into macOS",
+                                        "Standard · 2.6 GB download · holds 4 GB", "Full · 11.0 GB download · holds 20 GB"]
+            state.draftModelLabels = ["Apple only", "Standard · Parakeet and Gemma 4 E2B",
+                                      "Full · Qwen3-ASR and Gemma 4 E2B", "Max · needs 64 GB"]
+            state.draftModelsUnavailable = ["max"]
+            state.editorModelStatus = "Standard is ready"
             state.isDark = Tone.systemDark
             return state
         }

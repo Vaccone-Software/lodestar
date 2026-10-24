@@ -396,10 +396,28 @@ final class EditorSettingsTests: XCTestCase {
         guard case .choice(let options, let labels, let current) = model.control else {
             return XCTFail("the model is a choice")
         }
-        XCTAssertEqual(options, ["spelling", "minimal", "standard", "full"])
+        XCTAssertEqual(options, ["", "spelling", "minimal", "standard", "full"])
+        XCTAssertEqual(labels.first, "Automatic", "Automatic names no model")
         XCTAssertEqual(labels.last, "Full · needs 64 GB")
         XCTAssertEqual(current, "standard")
         XCTAssertEqual(model.disabledChoices, ["full"])
+    }
+
+    /// Both Model menus lead with a bare Automatic, the one thing to trust.
+    func testBothModelMenusLeadWithABareAutomatic() throws {
+        var machine = SettingsModel.MachineState()
+        machine.editorEngines = ["spelling", "minimal", "standard", "full"]
+        machine.editorEngineLabels = ["Spelling", "Minimal", "Standard", "Full"]
+        let rows = SettingsModel.catalog(config: Config(), machine: machine).flatMap(\.rows)
+        for path in ["editor.model", "draft.model"] {
+            let model = try XCTUnwrap(rows.first { $0.path == path })
+            guard case .choice(let options, let labels, _) = model.control else {
+                return XCTFail("\(path) is a choice")
+            }
+            XCTAssertEqual(options.first, "", path)
+            XCTAssertEqual(labels.first, "Automatic", path)
+            XCTAssertEqual(labels.count, options.count, path)
+        }
     }
 
     func testNothingIsLearnedFromGrammar() {

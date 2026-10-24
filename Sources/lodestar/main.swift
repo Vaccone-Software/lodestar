@@ -1332,18 +1332,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // what it needs, and greyed.
             let engines = EditorEngine.allCases
             let reasons = engines.map { EditorEngine.unavailable($0) }
-            // Automatic first, and the default: the best model this Mac runs,
-            // named so the choice is never a mystery.
-            let automatic = EditorEngine.resolved("")
-            state.editorEngines = [""] + engines.map(\.rawValue)
-            state.editorEngineLabels = ["Automatic · \(automatic.name)"]
-                + zip(engines, reasons).map { engine, why in engine.menuLabel(unavailable: why) }
+            // Automatic leads the menu and is the default; the catalog adds
+            // it, bare, because it is trusted to pick what this Mac runs.
+            state.editorEngines = engines.map(\.rawValue)
+            state.editorEngineLabels = zip(engines, reasons).map { engine, why in engine.menuLabel(unavailable: why) }
             state.editorEnginesUnavailable = Set(zip(engines, reasons).filter { $0.1 != nil }.map(\.0.rawValue))
             let engine = self?.editorController?.engine ?? EditorEngine.resolved(self?.config.editorModel ?? "")
             state.editorEngineCurrent = self?.config.editorModel ?? ""
             state.earStatus = self?.earHost.status ?? ""
             state.inputMonitoring = Permissions.canListenToKeyboards ? "Granted" : "Not granted"
-            state.draftModelAutomatic = EarTier.resolved("", memoryGB: EditorEngine.physicalGB, hasModel: { _ in true }).name
             state.draftModelLabels = EarTier.allCases.map { $0.label(memoryGB: EditorEngine.physicalGB) }
             state.draftModelsUnavailable = Set(EarTier.allCases
                 .filter { EditorEngine.physicalGB < $0.memoryNeeded - 1 }.map(\.rawValue))

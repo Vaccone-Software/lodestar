@@ -260,8 +260,8 @@ public enum SettingsModel {
         /// attached, by the roster, and the ones the config has declared
         /// keys for, attached or not.
         public var keyboards: [Keyboard] = []
-        /// The editor's engines this Mac may run, their names, and where
-        /// the one in use stands.
+        /// The editor's engines this Mac may run, their names (Automatic
+        /// is added in front by the catalog), and where the one in use stands.
         public var editorEngines: [String] = []
         public var editorEngineLabels: [String] = []
         public var editorEngineCurrent = ""
@@ -277,8 +277,6 @@ public enum SettingsModel {
         /// The health key is gone and sealed files need it: the row that
         /// starts a new record is shown.
         public var healthKeyLost = false
-        /// What Automatic picks for dictation on this Mac, named in its label.
-        public var draftModelAutomatic = "Full"
         /// Each dictation tier as its row lists it, Apple only first: the
         /// models it runs, or what this Mac lacks for it.
         public var draftModelLabels = ["Apple only", "Standard", "Full", "Max"]
@@ -454,7 +452,7 @@ public enum SettingsModel {
         var model: Row
         if !machine.editorEngines.isEmpty {
             model = Row(title: "Model", path: "editor.model",
-                control: .choice(options: machine.editorEngines, labels: machine.editorEngineLabels,
+                control: .choice(options: [""] + machine.editorEngines, labels: [Self.automaticModelLabel] + machine.editorEngineLabels,
                                  current: machine.editorEngineCurrent),
                 detail: machine.editorModelStatus + ". Spelling reads typos without a model, the others read grammar too",
                 isDefault: config.editorModel.isEmpty, group: "Editor")
@@ -560,7 +558,7 @@ public enum SettingsModel {
         let inputLabels = ["System · " + (machine.defaultInput ?? "Default")] + machine.inputDevices
         var speakModel = Row(title: "Model", path: "draft.model",
             control: .choice(options: ["", "apple", "standard", "full", "max"],
-                             labels: ["Automatic · \(machine.draftModelAutomatic)"] + machine.draftModelLabels,
+                             labels: [Self.automaticModelLabel] + machine.draftModelLabels,
                              current: config.draftModel),
             detail: (machine.earStatus.isEmpty ? "" : machine.earStatus + ". ")
                 + "Hears what you said again while you keep talking, writes it better, and takes out the words you take back",
@@ -814,6 +812,11 @@ public enum SettingsModel {
     }
 
     // MARK: - Pages
+
+    /// The first item of both Model menus. It names no model: Automatic is
+    /// trusted to pick the best one this Mac runs, and the menu's other
+    /// items, smallest to largest, say what each costs.
+    public static let automaticModelLabel = "Automatic"
 
     /// The ten places, in their digits' order.
     public static let placeNames = ["General", "Write", "Switch", "Keep", "Speak",

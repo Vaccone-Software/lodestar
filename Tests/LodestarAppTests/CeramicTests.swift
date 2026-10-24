@@ -676,8 +676,10 @@ final class SettingsSwitchSurvivalTests: XCTestCase {
 final class KeyColourTests: XCTestCase {
     func testALitKeyIsTheAccentWithItsReadableInk() {
         let saved = BarTheme.accentColor
+        // The night's look, put in force: the accent resolves against it.
+        GalleryLook.night.apply()
         BarTheme.accentColor = { BarTheme.internationalOrange }
-        defer { BarTheme.accentColor = saved }
+        defer { BarTheme.accentColor = saved; GalleryLook.reset() }
         let key = Key("e")
         key.frame = NSRect(x: 0, y: 0, width: 40, height: BarTheme.keyHeight)
         key.layout()

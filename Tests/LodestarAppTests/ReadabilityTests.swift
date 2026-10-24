@@ -49,8 +49,10 @@ final class ReadabilityTests: XCTestCase {
     /// on a night, where the bar rightly falls back to the text's colour.
     func testTheInsertBarIsTheAccentAndThreePointsWide() {
         let saved = BarTheme.accentColor
+        // The night, which the assertion is about: put in force, not read off the Mac.
+        GalleryLook.night.apply()
         BarTheme.accentColor = { BarTheme.internationalOrange }
-        defer { BarTheme.accentColor = saved }
+        defer { BarTheme.accentColor = saved; GalleryLook.reset() }
         let panel = DraftPanel()
         defer { panel.hide() }
         panel.show(view("hello", cursor: 1, editor: .insert))

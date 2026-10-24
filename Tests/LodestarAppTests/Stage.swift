@@ -285,6 +285,13 @@ final class Stage {
         // far off every real display, so the suite's panels are laid out
         // and drawn without crossing the screen of the person running it.
         ActivePolicy.frameOverride = Self.screen
+        // And the look: a card's words are measured before it is in a window
+        // and styled in the window's look, so a process whose own look and
+        // its windows' disagree (a runner's) sizes in one weight and draws
+        // in the other, and a label that fit is cut off. The suite's look is
+        // night's, as at the desk it was written at; the gallery tests set
+        // each look they mean themselves.
+        NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-stage-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

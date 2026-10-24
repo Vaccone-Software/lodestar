@@ -73,11 +73,22 @@ extension GalleryShot {
     }
 }
 
+/// A window of the gallery: it reports the scale the pictures are drawn at
+/// (`GalleryRender.scale`), not that of whichever display the suite runs on.
+///
+/// A window nobody can see still answers `backingScaleFactor` from the main
+/// display, and a legend or a rim snaps itself to that scale's pixels: on a
+/// runner's 1x display a capital stood a quarter point off the keys beside it
+/// that it stands on at the desk's 2x, with the same code.
+final class GalleryWindow: NSWindow {
+    override var backingScaleFactor: CGFloat { GalleryRender.scale }
+}
+
 /// What the harness builds around a surface that is not a panel of its own.
 enum GalleryHost {
     /// A borderless window of the look, `size` points, holding `content`.
     static func window(_ content: NSView, size: NSSize, look: GalleryLook) -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
+        let window = GalleryWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: look.appearance)
         window.isReleasedWhenClosed = false

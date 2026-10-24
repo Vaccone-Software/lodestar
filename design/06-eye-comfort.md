@@ -81,6 +81,7 @@ Built 22 October 2026. Measured: light look at 88%, pane `#E9E2DB`, ink 13.7, qu
 
 - No night look at bedtime; a deeper dim (80%) instead, and the Mac's appearance always chooses light or dark (22 October 2026).
 - In the dark look the ink dims too, to 80% of its luminance at bedtime (about 12 : 1, quiet ink 5.5 : 1). The orange dims with it only as far as 4.5 : 1 as text allows.
+- The meeting's quiet chip is the one surface a key does not wake (24 October 2026): the hand may be typing in the meeting, and a flash to full ink at every keystroke would be the chip asking again. A hover still brings it back, and it recedes after 20 seconds (design/15-meeting-stub.md).
 
 ## Later
 

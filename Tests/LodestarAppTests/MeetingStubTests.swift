@@ -123,12 +123,12 @@ final class MeetingStubTests: XCTestCase {
                 BarTheme.width(of: "MIN AGO", in: .key, night: night),
             ]
             for width in ink {
-                XCTAssertLessThanOrEqual(width + Grid.part * 2, MeetingController.stubWidth,
-                                         "12 each side of the widest legend, in the \(night ? "night" : "day") look")
+                XCTAssertLessThanOrEqual(width + Grid.close * 2, MeetingController.stubWidth,
+                                         "8 each side of the widest legend, in the \(night ? "night" : "day") look")
             }
         }
         XCTAssertEqual(MeetingController.stubWidth,
-                       ceil(BarTheme.width(of: "MIN AGO", in: .key, night: true)) + Grid.part * 2,
+                       ceil(BarTheme.width(of: "MIN AGO", in: .key, night: true)) + Grid.close * 2,
                        "the widest legend is MIN AGO")
 
         let controller = try standing(startingIn: 4 * 60)
@@ -145,8 +145,8 @@ final class MeetingStubTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(frame.minX, 0, "\(name): \(field.stringValue) starts inside the stub")
                 XCTAssertLessThanOrEqual(frame.maxX, face.bounds.maxX, "\(name): \(field.stringValue) ends inside the stub")
                 let ink = field.attributedStringValue.size().width
-                XCTAssertLessThanOrEqual(ink + Grid.part * 2, face.bounds.width + 0.5,
-                                         "\(name): \(field.stringValue) has 12 each side")
+                XCTAssertLessThanOrEqual(ink + Grid.close * 2, face.bounds.width + 0.5,
+                                         "\(name): \(field.stringValue) has 8 each side")
             }
             frames.append(face.frame)
             chips.append(controller.chipSize)
@@ -156,6 +156,7 @@ final class MeetingStubTests: XCTestCase {
         XCTAssertEqual(Set(chips.map { "\($0)" }).count, 1, "the chip's size is the same in every legend")
         XCTAssertEqual(Set(fitting).count, 1, "and so is the width the chip asks for")
         XCTAssertEqual(frames[0].width, MeetingController.stubWidth)
+        XCTAssertEqual(frames[0].width, 74, "the stub is as wide as it was on main, so the chip does not grow")
     }
 
     private func pixel(of face: StubFace, atX x: CGFloat, y: CGFloat) throws -> NSColor {
@@ -240,6 +241,30 @@ final class MeetingStubTests: XCTestCase {
         // The pointer brings it back at once.
         controller.recess.touch()
         XCTAssertFalse(controller.recess.receded)
+    }
+
+    func testATypedKeyDoesNotWakeTheQuietChipButAHoverDoes() throws {
+        let controller = try standing(startingIn: 0)
+        defer { controller.unstage() }
+        let start = try XCTUnwrap(controller.current).occurrence.start
+        controller.advanceCountdown(now: start.addingTimeInterval(4 * 60))
+        XCTAssertTrue(controller.chipQuiet)
+        XCTAssertTrue(controller.recess.receded)
+        controller.recess.handKeyed()
+        XCTAssertTrue(controller.recess.receded, "typing in the meeting does not wake the quiet chip")
+        // A hover brings it back, and twenty seconds alone recede it again.
+        controller.recess.touch()
+        XCTAssertFalse(controller.recess.receded, "a hover wakes it")
+        controller.recess.idle = 0
+        controller.recess.idled()
+        XCTAssertTrue(controller.recess.receded, "left alone it recedes again")
+        // Outside the quiet phase a key still wakes a receded chip (contract 6).
+        controller.advanceCountdown(now: start.addingTimeInterval(-4 * 60))
+        XCTAssertFalse(controller.chipQuiet)
+        controller.recess.idled()
+        XCTAssertTrue(controller.recess.receded)
+        controller.recess.handKeyed()
+        XCTAssertFalse(controller.recess.receded, "in the normal phase a key wakes it")
     }
 
     func testTheQuietChipReadsAsStartedMinutesAgo() throws {

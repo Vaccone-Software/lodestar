@@ -101,6 +101,9 @@ final class MeetingController: NSObject {
         Movable.enable(panel)
         _ = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
         recess.mayRecede = { [weak self] in !(self?.chipLit ?? false) }
+        // Typing does not wake the quiet chip (you may be typing in the
+        // meeting); a hover does, and it recedes again after twenty seconds.
+        recess.wakesOnKey = { [weak self] in !(self?.chipQuiet ?? false) }
         recess.onChange = { [weak self] in self?.root.redrawAll() }
         hover = RecessHover(root, recess: recess)
         prime.level = .modalPanel
@@ -126,6 +129,9 @@ final class MeetingController: NSObject {
 
     /// The chip is lit: the door is open and joining is the thing to do.
     var chipLit: Bool { current.map { Self.stub(for: $0.phase).lit } ?? false }
+
+    /// The chip is in its quiet phase: the meeting began over ninety seconds ago.
+    var chipQuiet: Bool { current.map { Self.stub(for: $0.phase).quiet } ?? false }
 
     /// The chip goes away, and takes its receding with it: the next one
     /// stands at full ink.
@@ -445,7 +451,7 @@ final class MeetingController: NSObject {
 
     /// The stub is one width for the meeting's whole life: the widest of
     /// its legends, each measured in its own font in both looks (night is a
-    /// weight heavier), and 12 each side, so nothing runs out of its frame
+    /// weight heavier), and 8 each side, so nothing runs out of its frame
     /// and a tick moves nothing.
     static let stubWidth: CGFloat = {
         var widest: CGFloat = 0
@@ -460,7 +466,7 @@ final class MeetingController: NSObject {
             ]
             widest = max(widest, legends.max() ?? 0)
         }
-        return widest + Grid.part * 2
+        return widest + Grid.close * 2
     }()
     /// The most the meeting's title and its place may take beside the stub.
     private static let bodyWidth: CGFloat = 184

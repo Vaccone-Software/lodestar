@@ -47,6 +47,9 @@ final class Recess {
     var onChange: (() -> Void)?
     /// A surface asking for the hand (a lit countdown) never recedes.
     var mayRecede: () -> Bool = { true }
+    /// Whether a key wakes the surface. The meeting's quiet chip says no: the
+    /// hand may be typing in the meeting, and only a hover brings it back.
+    var wakesOnKey: () -> Bool = { true }
     /// How long it is left alone before it recedes.
     var idle: TimeInterval = Receding.idleSeconds
 
@@ -63,7 +66,7 @@ final class Recess {
         ) { [weak self] _ in self?.settingsChanged() })
         observers.append(NotificationCenter.default.addObserver(
             forName: .handKey, object: nil, queue: .main
-        ) { [weak self] _ in self?.touchIfStanding() })
+        ) { [weak self] _ in self?.handKeyed() })
     }
 
     deinit {
@@ -102,8 +105,11 @@ final class Recess {
         onChange?()
     }
 
-    private func touchIfStanding() {
-        guard standing else { return }
+    /// A key brings the surface back, unless it is one that must not be woken
+    /// by typing (`wakesOnKey`). Internal so a test can press the key without
+    /// turning the run loop over.
+    func handKeyed() {
+        guard standing, wakesOnKey() else { return }
         touch()
     }
 

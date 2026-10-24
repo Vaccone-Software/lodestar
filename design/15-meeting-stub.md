@@ -29,7 +29,7 @@ The evidence says the shape works (DESIGN.md: 49 of 54 offered meetings joined, 
 | the body    | the title (quiet voice, 16) over the meta line (meta, 13, quiet), cut at the tail      |
 | the action  | `lode` ×2, lit, trailing                                                               |
 
-- **The stub's width** is set once for the chip's life, to the widest of its legends ("88" over "MIN", "88" over "SEC", "Now", "88" over "MIN AGO"), plus 12 each side. Nothing runs out of its frame, and a tick moves nothing.
+- **The stub's width** is set once for the chip's life, to the widest of its legends ("88" over "MIN", "88" over "SEC", "Now", "88" over "MIN AGO"), plus 8 each side, as today. Nothing runs out of its frame, and a tick moves nothing.
 - **The chip's width** is set once, as today. The chip does not grow.
 
 ### Three phases
@@ -41,7 +41,7 @@ The evidence says the shape works (DESIGN.md: 49 of 54 offered meetings joined, 
 | quiet  | from 90 s after the start until the meeting ends | the chip's own surface, count and unit in quiet ink | `4` `MIN AGO` | receded at once              |
 
 - **Alert is the one loud moment.** It begins with the last minute and ends 90 s into the meeting, the time it takes to join a meeting you meant to join.
-- **Quiet is not gone.** The chip stays until the meeting ends, you join, or you dismiss, and joining still works. It just stops asking.
+- **Quiet is not gone.** The chip stays until the meeting ends, you join, or you dismiss, and joining still works. It just stops asking. Typing does not wake it: you may be typing in the meeting. A hover does.
 - **The phases change at once** (contract 5): no fade from orange and no pulse.
 
 ### The action
@@ -88,6 +88,6 @@ Everything else is kept: the stub, the perforation, the body, the lit chord and 
 
 ## Status
 
-Built 24 October 2026, replacing the countdown-key draft. Measured: the stub is 82 wide (the widest legend, "MIN AGO" at 13 semibold, 58, plus 12 each side; it was 74 with 8 each side) and the chip 281.5 (it was 273.5), the same in every phase. The stub is orange only from 60 s before to 90 s after the start; from 90 s after it is the chip's own surface and the chip draws receded at once (a hover or a key brings it back, then the count of contract 6 begins again). The chord is lit in every phase; `MeetingController.quietChordLit` exists only so a review can draw it resting.
+Built 24 October 2026, replacing the countdown-key draft. Measured: the stub is 74 wide (the widest legend, "MIN AGO" at 13 semibold, 58, plus 8 each side, as on main) and the chip 273.5, the same in every phase and as on main. The stub is orange only from 60 s before to 90 s after the start; from 90 s after it is the chip's own surface and the chip draws receded at once (a hover brings it back, then the count of contract 6 begins again; a key does not). The chord is lit in every phase; `MeetingController.quietChordLit` exists only so a review can draw it resting.
 
 ## Decided in review

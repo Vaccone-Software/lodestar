@@ -362,13 +362,19 @@ final class EyeComfortTests: XCTestCase {
     func testALeftAlonePillRecedesByItselfUnlessAKeyWasPressed() {
         on(0.88)
         let pill = ModePill()
-        pill.recess.idle = 0.12
+        // The count is driven, not waited for: `idled()` is what its timer
+        // calls, and what it decides is read off the clock against `idle`,
+        // so a window is as long as `idle` says (a wall clock with 30 ms to
+        // spare failed on a runner twice as slow as a desk).
+        pill.recess.idle = 60
         pill.show(scroll)
-        spin(0.06)
-        Attention.key()
-        spin(0.09)
-        XCTAssertFalse(pill.recess.receded, "a key at 0.06 s puts the count back")
-        spin(0.2)
+        // A key at some moment inside the window puts the count back...
+        Attention.key(at: Date())
+        pill.recess.idled()
+        XCTAssertFalse(pill.recess.receded, "a key inside the window puts the count back")
+        // ...and with nothing since for the whole window, it recedes.
+        pill.recess.idle = 0
+        pill.recess.idled()
         XCTAssertTrue(pill.recess.receded, "left alone for the whole window")
         EyeComfortState.shared.set(enabled: false, level: 1)
         NotificationCenter.default.post(name: .eyeComfortDidChange, object: nil)

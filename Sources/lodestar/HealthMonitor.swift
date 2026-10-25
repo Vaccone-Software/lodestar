@@ -205,6 +205,18 @@ final class HealthMonitor {
         let index: Int
         /// The list `index` points into, as it stood when it was chosen.
         let roster: [String]
+        /// Each event's deltas in points: the hand's own, and the momentum
+        /// the system carried on after the fingers left.
+        var hand = ReachMotion()
+        var coasting = ReachMotion()
+
+        mutating func add(_ r: MouseReport) {
+            if r.momentum {
+                coasting.add(dx: r.wheelX, dy: r.wheelY, at: r.at)
+            } else {
+                hand.add(dx: r.wheelX, dy: r.wheelY, at: r.at)
+            }
+        }
     }
 
     /// What a tap callback copies off the event before it returns.
@@ -219,6 +231,9 @@ final class HealthMonitor {
         var dy: Double
         var precise: Bool
         var momentum: Bool
+        /// A wheel event's deltas in points, horizontal and vertical.
+        var wheelX: Double
+        var wheelY: Double
         /// The device's kind, read off the event: a touch surface marks
         /// its pointer events subtype 3 and gives its scrolls phases; a
         /// mouse does neither (measured 2026-09-28, trackpad then ProtoArc:
@@ -239,6 +254,13 @@ final class HealthMonitor {
             dy = Double(event.getIntegerValueField(.mouseEventDeltaY))
             precise = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
             momentum = event.getIntegerValueField(.scrollWheelEventMomentumPhase) != 0
+            if type == .scrollWheel {
+                wheelX = Double(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2))
+                wheelY = Double(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1))
+            } else {
+                wheelX = 0
+                wheelY = 0
+            }
             if type == .scrollWheel {
                 touch = momentum || event.getIntegerValueField(.scrollWheelEventScrollPhase) != 0
             } else {
@@ -674,10 +696,14 @@ final class HealthMonitor {
         }
         switch r.type {
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            // The device's own counts, before the acceleration curve.
+            // The event's own movement fields. Whether the system's
+            // acceleration is already in them has not been measured.
             tracker.moved(to: r.location, dx: r.dx, dy: r.dy, at: r.at)
+            writeEndedRunsLocked()
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
-            if let release = tracker.up(at: r.location, at: r.at), let down = lastDownAt {
+            let release = tracker.up(at: r.location, at: r.at)
+            writeEndedRunsLocked()
+            if let release, let down = lastDownAt {
                 pendingReleases.append(PendingRelease(downAt: down, release: release))
                 pointerStore.append(.release(at: r.at, button: lastDownButton, press: release.press),
                                     roster: pointers.ids)
@@ -692,11 +718,14 @@ final class HealthMonitor {
                 pendingScrolls[index].last = r.at
                 pendingScrolls[index].precise = pendingScrolls[index].precise || r.precise
                 pendingScrolls[index].momentum = pendingScrolls[index].momentum || r.momentum
+                pendingScrolls[index].add(r)
             } else {
                 let on = deviceLocked(touch: r.touch, pressureAt: nil, now: r.at)
-                pendingScrolls.append(PendingScroll(start: r.at, last: r.at, pid: nil,
-                                                    precise: r.precise, momentum: r.momentum,
-                                                    device: on.kind, index: on.index, roster: on.roster))
+                var burst = PendingScroll(start: r.at, last: r.at, pid: nil,
+                                          precise: r.precise, momentum: r.momentum,
+                                          device: on.kind, index: on.index, roster: on.roster)
+                burst.add(r)
+                pendingScrolls.append(burst)
                 let start = r.at
                 let location = r.location
                 lookup.async { [weak self] in
@@ -716,6 +745,8 @@ final class HealthMonitor {
             lastDownAt = r.at
             lastDownButton = r.button
             let act = tracker.down(at: r.location, at: r.at)
+            // Stale motion the press could not claim lands before it.
+            writeEndedRunsLocked()
             roads?.clicked(at: r.at)
             // The raw record: the reach that ended here, then the press.
             if let motion = act.motion, let start = motion.origin, motion.count > 0 {
@@ -838,8 +869,30 @@ final class HealthMonitor {
                                         precise: burst.precise, momentum: burst.momentum,
                                         device: burst.device, index: burst.index),
                                 roster: burst.roster)
+            for (run, momentum) in [(burst.hand, false), (burst.coasting, true)] {
+                guard let start = run.origin, run.count > 0 else { continue }
+                pointerStore.append(.wheel(start: start, samples: run.samples,
+                                           end: start.addingTimeInterval(run.t.last ?? 0),
+                                           precise: burst.precise, momentum: momentum,
+                                           device: burst.device, index: burst.index),
+                                    roster: burst.roster)
+            }
         }
+        tracker.closeRested(now: now, all: all)
+        writeEndedRunsLocked()
         return out
+    }
+
+    /// Queue. The motion the tracker closed without a press (it rested,
+    /// or a button was held through it), into the raw record.
+    private func writeEndedRunsLocked() {
+        for run in tracker.takeEnded() {
+            guard let start = run.motion.origin else { continue }
+            pointerStore.append(.motion(start: start, screen: Environment.screenIndex(of: run.last),
+                                        samples: run.motion.samples,
+                                        end: start.addingTimeInterval(run.motion.t.last ?? 0), held: run.held),
+                                roster: pointers.ids)
+        }
     }
 
     // MARK: - Leaving the queue

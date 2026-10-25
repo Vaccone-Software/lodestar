@@ -37,6 +37,52 @@ final class PointerTrackerTests: XCTestCase {
         XCTAssertNil(tracker.down(at: CGPoint(x: 10, y: 0), at: at(5.3)).homing)
     }
 
+    /// Every report the device made lands in one record: a reach when a
+    /// press claimed it, a run when it rested or a button was held.
+    func testMotionThatPressesNothingIsKeptAsARun() {
+        var tracker = PointerTracker()
+        tracker.moved(to: CGPoint(x: 0, y: 0), dx: 1, dy: 0, at: at(0))
+        tracker.moved(to: CGPoint(x: 5, y: 0), dx: 5, dy: 0, at: at(0.1))
+        XCTAssertTrue(tracker.takeEnded().isEmpty, "still open")
+        // A rest, then new motion: the first run pressed nothing.
+        tracker.moved(to: CGPoint(x: 9, y: 0), dx: 4, dy: 0, at: at(2))
+        let rested = tracker.takeEnded()
+        XCTAssertEqual(rested.count, 1)
+        XCTAssertEqual(rested[0].motion.dx, [1, 5])
+        XCTAssertFalse(rested[0].held)
+        // The motion a press claims is the reach's, never a run's too.
+        let click = tracker.down(at: CGPoint(x: 9, y: 0), at: at(2.2))
+        XCTAssertEqual(click.motion?.dx, [4])
+        XCTAssertTrue(tracker.takeEnded().isEmpty)
+        // A drag is a run with the button held.
+        tracker.moved(to: CGPoint(x: 20, y: 0), dx: 11, dy: 0, at: at(2.3))
+        tracker.moved(to: CGPoint(x: 30, y: 0), dx: 10, dy: 0, at: at(2.4))
+        XCTAssertNotNil(tracker.up(at: CGPoint(x: 30, y: 0), at: at(2.5))?.drag)
+        let drag = tracker.takeEnded()
+        XCTAssertEqual(drag.map(\.held), [true])
+        XCTAssertEqual(drag.first?.motion.dx, [11, 10])
+    }
+
+    func testRestedMotionClosesOnceNoPressCanClaimIt() {
+        var tracker = PointerTracker()
+        tracker.moved(to: CGPoint(x: 0, y: 0), dx: 2, dy: 2, at: at(0))
+        tracker.closeRested(now: at(PointerTracker.settleCeiling - 1))
+        XCTAssertTrue(tracker.takeEnded().isEmpty, "a press may still claim it")
+        tracker.closeRested(now: at(PointerTracker.settleCeiling + 1))
+        XCTAssertEqual(tracker.takeEnded().count, 1)
+        XCTAssertTrue(tracker.down(at: .zero, at: at(7)).stationary, "the motion went to the run, not the press")
+        XCTAssertTrue(tracker.takeEnded().isEmpty, "and only once")
+        _ = tracker.up(at: .zero, at: at(7.1))
+        // Motion too old for the press that follows is a run as well.
+        tracker.moved(to: .zero, dx: 1, dy: 0, at: at(10))
+        XCTAssertTrue(tracker.down(at: .zero, at: at(10 + PointerTracker.settleCeiling + 1)).stationary)
+        XCTAssertEqual(tracker.takeEnded().count, 1)
+        // Shutdown closes what is open.
+        tracker.moved(to: .zero, dx: 1, dy: 0, at: at(30))
+        tracker.closeRested(now: at(30.1), all: true)
+        XCTAssertEqual(tracker.takeEnded().count, 1)
+    }
+
     func testARestSplitsReaches() {
         var tracker = PointerTracker()
         tracker.moved(to: CGPoint(x: 0, y: 0), at: at(0))

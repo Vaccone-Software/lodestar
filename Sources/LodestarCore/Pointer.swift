@@ -89,6 +89,25 @@ public struct PointerTracker: Equatable {
         }
     }
 
+    /// Motion that closed no reach: the pointer moved and came to rest
+    /// without a press (`held` false), or moved with a button down, a drag
+    /// (`held` true). With the reaches, every report the device made lands
+    /// in exactly one record. `last` is where the run ended, only so the
+    /// caller can name the screen; it is never kept.
+    public struct Run: Equatable {
+        public var motion: ReachMotion
+        public var held: Bool
+        public var last: CGPoint
+    }
+
+    /// The runs closed since the caller last took them (`takeEnded`).
+    public private(set) var ended: [Run] = []
+
+    public mutating func takeEnded() -> [Run] {
+        defer { ended = [] }
+        return ended
+    }
+
     private struct Reach: Equatable {
         var start: Date
         var last: Date
@@ -104,6 +123,8 @@ public struct PointerTracker: Equatable {
     private var pressed: (at: Date, origin: CGPoint, path: Double, last: CGPoint)?
     private var keyedSincePress = true
     private var movedSincePress = false
+    /// The reports a held button carried, for the drag's run.
+    private var dragMotion = ReachMotion()
 
     public init() {}
 
@@ -130,6 +151,11 @@ public struct PointerTracker: Equatable {
             open.last = now
             reach = open
         } else {
+            // The motion before the rest pressed nothing: it is kept as
+            // what it was, not thrown away for having no target.
+            if let open = reach, open.motion.count > 0 {
+                ended.append(Run(motion: open.motion, held: false, last: open.current))
+            }
             reach = Reach(start: now, last: now, origin: point, current: point)
         }
     }
@@ -138,8 +164,22 @@ public struct PointerTracker: Equatable {
     /// reach bookkeeping, plus the motion kept for the profile.
     public mutating func moved(to point: CGPoint, dx: Double, dy: Double, at now: Date) {
         moved(to: point, at: now)
-        guard pressed == nil else { return }
+        guard pressed == nil else { return dragMotion.add(dx: dx, dy: dy, at: now) }
         reach?.motion.add(dx: dx, dy: dy, at: now)
+    }
+
+    /// Motion that has rested past the settle ceiling can no longer be a
+    /// press's aim: it closes as a run now, rather than waiting for the
+    /// next motion to replace it. `all` closes whatever is open (shutdown).
+    public mutating func closeRested(now: Date, all: Bool = false) {
+        if let open = reach, all || now.timeIntervalSince(open.last) > Self.settleCeiling {
+            if open.motion.count > 0 { ended.append(Run(motion: open.motion, held: false, last: open.current)) }
+            reach = nil
+        }
+        if all, let held = pressed, dragMotion.count > 0 {
+            ended.append(Run(motion: dragMotion, held: true, last: held.last))
+            dragMotion.reset()
+        }
     }
 
     /// A keystroke. Returns the return-trip seconds when this is the
@@ -161,9 +201,13 @@ public struct PointerTracker: Equatable {
             keyedSincePress = false
             movedSincePress = false
             pressed = (at: now, origin: point, path: 0, last: point)
+            dragMotion.reset()
         }
         guard let open = reach, movedSincePress,
               now.timeIntervalSince(open.last) <= Self.settleCeiling else {
+            if let open = reach, open.motion.count > 0 {
+                ended.append(Run(motion: open.motion, held: false, last: open.current))
+            }
             return Click(stationary: true)
         }
         let travel = min(open.last.timeIntervalSince(open.start), Self.travelCeiling)
@@ -184,6 +228,10 @@ public struct PointerTracker: Equatable {
     public mutating func up(at point: CGPoint, at now: Date) -> Release? {
         guard let held = pressed else { return nil }
         pressed = nil
+        if dragMotion.count > 0 {
+            ended.append(Run(motion: dragMotion, held: true, last: point))
+            dragMotion.reset()
+        }
         let press = min(max(0, now.timeIntervalSince(held.at)), Self.pressCeiling)
         let path = held.path + Self.distance(held.last, point)
         let drag = path >= Self.dragThreshold ? Drag(seconds: press, path: path) : nil

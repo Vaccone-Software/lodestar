@@ -13,10 +13,24 @@ import StoicStore
 /// `DayStore`), the header of each segment naming the pointing devices
 /// attached. Records are sixteen bytes, the first byte the kind; a reach
 /// record is followed inline by its samples, six bytes each — tenths of
-/// a millisecond since the previous sample, then the device's own dx and
-/// dy — and then its end. A torn tail loses at most the reach it fell in.
+/// a millisecond since the previous sample, then the dx and dy the event
+/// carried — and then its end. A torn tail loses at most the reach it
+/// fell in.
+///
+/// Version 2 keeps every movement the tap hears, not only the ones that
+/// end in a press: a reach (kind 1) is motion that ended in a click, a
+/// **motion** run (kind 2) is motion that came to rest without one, or
+/// moved with a button held (a drag), and a **wheel** run (kind 7) is a
+/// burst's own wheel deltas in points, the hand's part and the momentum
+/// the system added after it written as two runs. All three share the
+/// reach's layout. Runs close when they rest, so records of a day are in
+/// write order, not strictly in time order: a reader sorts by stamp.
+///
+/// What the deltas are has not been measured against the device: they
+/// are the integer movement fields of each event, which may already carry
+/// the system's acceleration (DESIGN, the pointer).
 public final class PointerStore {
-    public static let version: UInt16 = 1
+    public static let version: UInt16 = 2
     public static let recordSize = 16
     public static let sampleSize = 6
     public static let magic: [UInt8] = Array("LDP1".utf8)
@@ -57,6 +71,13 @@ public final class PointerStore {
 
     public enum Record: Equatable {
         case reach(start: Date, screen: Int, samples: [Sample], end: Date)
+        /// Motion that pressed nothing: it rested, or a button was held
+        /// (`held`, a drag).
+        case motion(start: Date, screen: Int, samples: [Sample], end: Date, held: Bool)
+        /// One wheel burst's deltas in points, the hand's own or the
+        /// momentum after it.
+        case wheel(start: Date, samples: [Sample], end: Date, precise: Bool, momentum: Bool,
+                   device: DeviceKind, index: Int)
         case click(at: Date, button: Int, source: Source, device: DeviceKind, index: Int,
                    stage: Int, pressure: Double)
         case release(at: Date, button: Int, press: Double)
@@ -66,6 +87,8 @@ public final class PointerStore {
         var moment: Date {
             switch self {
             case .reach(let start, _, _, _): return start
+            case .motion(let start, _, _, _, _): return start
+            case .wheel(let start, _, _, _, _, _, _): return start
             case .click(let at, _, _, _, _, _, _): return at
             case .release(let at, _, _): return at
             case .scroll(let start, _, _, _, _, _): return start
@@ -262,10 +285,10 @@ public final class PointerStore {
     static func encode(_ record: Record) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: recordSize)
         func stamp(_ date: Date) { out.replaceSubrange(8..<16, with: DayFile.leBytes(micros(date))) }
-        switch record {
-        case .reach(let start, let screen, let samples, let end):
-            out[0] = 1
-            out[1] = UInt8(min(255, max(0, screen)))
+        // A reach, a motion run and a wheel run: the head, the samples,
+        // and the trailer with the end.
+        func sampled(_ kind: UInt8, start: Date, samples: [Sample], end: Date) {
+            out[0] = kind
             let count = min(samples.count, 65_535)
             out.replaceSubrange(2..<4, with: DayFile.leBytes(UInt16(count)))
             stamp(start)
@@ -279,6 +302,20 @@ public final class PointerStore {
             trailer[0] = 3
             trailer.replaceSubrange(8..<16, with: DayFile.leBytes(micros(end)))
             out.append(contentsOf: trailer)
+        }
+        switch record {
+        case .reach(let start, let screen, let samples, let end):
+            out[1] = UInt8(min(255, max(0, screen)))
+            sampled(1, start: start, samples: samples, end: end)
+        case .motion(let start, let screen, let samples, let end, let held):
+            out[1] = UInt8(min(255, max(0, screen)))
+            out[4] = held ? 1 : 0
+            sampled(2, start: start, samples: samples, end: end)
+        case .wheel(let start, let samples, let end, let precise, let momentum, let device, let index):
+            out[1] = (precise ? 1 : 0) | (momentum ? 2 : 0)
+            out[4] = device.rawValue
+            out[5] = UInt8(min(255, max(0, index)))
+            sampled(7, start: start, samples: samples, end: end)
         case .click(let at, let button, let source, let device, let index, let stage, let pressure):
             out[0] = 4
             out[1] = UInt8(min(255, max(0, button)))
@@ -304,15 +341,18 @@ public final class PointerStore {
         return out
     }
 
+    /// The kinds whose head is followed by samples and a trailer.
+    static let sampledKinds: Set<UInt8> = [1, 2, 7]
+
     /// How many bytes of a body are whole records: where `decode` would
-    /// stop, walked by the heads alone. A reach is its head, its samples,
-    /// and a trailer when one follows, so a healthy body is rarely a
-    /// multiple of the record size; a reach cut inside its samples or its
+    /// stop, walked by the heads alone. A reach (or a run) is its head, its
+    /// samples, and a trailer when one follows, so a healthy body is rarely
+    /// a multiple of the record size; one cut inside its samples or its
     /// trailer is where the whole part ends.
     static func wholeLength(_ bytes: [UInt8]) -> Int {
         var offset = 0
         while offset + recordSize <= bytes.count {
-            guard bytes[offset] == 1 else {
+            guard sampledKinds.contains(bytes[offset]) else {
                 offset += recordSize
                 continue
             }
@@ -339,7 +379,7 @@ public final class PointerStore {
         while let head = slice(offset, recordSize) {
             let stamp = date(DayFile.readLE(head, 8, UInt64.self))
             switch head[0] {
-            case 1:
+            case 1, 2, 7:
                 let count = Int(DayFile.readLE(head, 2, UInt16.self))
                 let body = offset + recordSize
                 guard let raw = slice(body, count * sampleSize) else { return out }
@@ -358,7 +398,16 @@ public final class PointerStore {
                     end = date(DayFile.readLE(trailer, 8, UInt64.self))
                     next += recordSize
                 }
-                out.append(.reach(start: stamp, screen: Int(head[1]), samples: samples, end: end))
+                switch head[0] {
+                case 2:
+                    out.append(.motion(start: stamp, screen: Int(head[1]), samples: samples, end: end, held: head[4] & 1 != 0))
+                case 7:
+                    out.append(.wheel(start: stamp, samples: samples, end: end,
+                                      precise: head[1] & 1 != 0, momentum: head[1] & 2 != 0,
+                                      device: DeviceKind(rawValue: head[4]) ?? .unknown, index: Int(head[5])))
+                default:
+                    out.append(.reach(start: stamp, screen: Int(head[1]), samples: samples, end: end))
+                }
                 offset = next
             case 4:
                 out.append(.click(at: stamp, button: Int(head[1]),

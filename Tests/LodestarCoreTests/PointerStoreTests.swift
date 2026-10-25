@@ -53,6 +53,39 @@ final class PointerStoreTests: XCTestCase {
                 end: base.addingTimeInterval(1.4))]
     }
 
+    func testMotionAndWheelRunsRoundTripBesideTheReaches() throws {
+        let store = store()
+        let samples = [PointerStore.Sample(dt: 0, dx: 3, dy: -2), PointerStore.Sample(dt: 0.0083, dx: -1, dy: 0)]
+        let records: [PointerStore.Record] = [
+            .motion(start: base, screen: 2, samples: samples, end: base.addingTimeInterval(0.0083), held: false),
+            .motion(start: base.addingTimeInterval(1), screen: 0, samples: samples,
+                    end: base.addingTimeInterval(1.0083), held: true),
+            .wheel(start: base.addingTimeInterval(2), samples: samples, end: base.addingTimeInterval(2.0083),
+                   precise: true, momentum: false, device: .trackpad, index: 1),
+            .wheel(start: base.addingTimeInterval(3), samples: [PointerStore.Sample(dt: 0, dx: 0, dy: -40)],
+                   end: base.addingTimeInterval(3), precise: true, momentum: true, device: .trackpad, index: 1),
+            .reach(start: base.addingTimeInterval(4), screen: 0, samples: samples, end: base.addingTimeInterval(4.1)),
+        ]
+        for record in records { store.append(record, roster: ["pad"]) }
+        store.flushSync()
+        let back = PointerStore.records(day: day, in: directory, ring: ring)
+        XCTAssertEqual(back.count, records.count)
+        guard case .motion(_, let screen, let got, _, let held) = back[0] else { return XCTFail("motion") }
+        XCTAssertEqual(screen, 2)
+        XCTAssertEqual(got.map(\.dx), [3, -1])
+        XCTAssertFalse(held)
+        guard case .motion(_, _, _, _, true) = back[1] else { return XCTFail("a drag's run is held") }
+        guard case .wheel(_, let wheel, _, true, false, .trackpad, 1) = back[2] else { return XCTFail("wheel") }
+        XCTAssertEqual(wheel.map(\.dy), [-2, 0])
+        guard case .wheel(_, _, _, _, true, _, _) = back[3] else { return XCTFail("momentum is its own run") }
+        guard case .reach = back[4] else { return XCTFail("the reach after the runs still reads") }
+        // Every sampled kind walks whole, so a day takes more rows after it.
+        var bytes: [UInt8] = []
+        for record in records { bytes.append(contentsOf: PointerStore.encode(record)) }
+        XCTAssertEqual(PointerStore.wholeLength(bytes), bytes.count)
+        XCTAssertLessThan(PointerStore.wholeLength(Array(bytes.dropLast(3))), bytes.count - 3, "a torn tail is not whole")
+    }
+
     func testEveryRecordKindRoundTrips() throws {
         let store = store()
         let samples = [PointerStore.Sample(dt: 0.008, dx: 3, dy: -2),

@@ -733,8 +733,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             writeEntries(remove: [path])
             return
         }
-        // A fact only the person can give (Born, Dominant hand) has no
-        // default: resetting it is the line's absence.
+        // A fact about you is sealed with the health record, not a config
+        // line: resetting it is the field left empty.
+        if Person.paths.contains(dotted) {
+            write(dotted, .string(""))
+            return
+        }
+        // A key with no default: resetting it is the line's absence.
         guard let value = ConfigFile.defaultTree.value(at: path) else {
             writeEntries(remove: [path])
             return
@@ -773,8 +778,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             return
         }
         // Not set, for a key with no default, removes the line rather
-        // than writing an empty string the schema refuses.
-        if chosen.isEmpty, ConfigFile.defaultTree.value(at: row.path.split(separator: ".").map(String.init)) == nil {
+        // than writing an empty string the schema refuses. A fact about
+        // you is not a line at all, and empty is how it is cleared.
+        if chosen.isEmpty, !Person.paths.contains(row.path), ConfigFile.defaultTree.value(at: row.path.split(separator: ".").map(String.init)) == nil {
             writeEntries(remove: [row.path.split(separator: ".").map(String.init)])
             return
         }

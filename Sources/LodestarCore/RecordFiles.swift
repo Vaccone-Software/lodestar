@@ -55,7 +55,7 @@ public enum RecordFiles {
     }
 
     private static let healthDirectories = [KeyStore.subdirectory, PointerStore.subdirectory]
-    private static let healthWholeFiles = ["era.json", "blind.json"]
+    private static let healthWholeFiles = ["era.json", "blind.json", Person.file]
     private static let logbookWholeFiles = ["observations.json", "rollups.json"]
 
     /// The state file's two forms.

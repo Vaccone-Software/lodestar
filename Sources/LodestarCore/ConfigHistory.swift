@@ -57,8 +57,72 @@ public enum ConfigHistory {
             guard !path.isEmpty, !(path.count == 1 && (path[0] == "$schema" || path[0] == "version")) else {
                 return nil
             }
-            return (path, change.old.flatMap(Json.value), change.new.flatMap(Json.value))
+            // The person's own facts are sealed with the health record, and
+            // a history of them would be a plaintext copy beside it.
+            guard !isPersonal(path) else { return nil }
+            let old = change.old.flatMap(Json.value).flatMap { withoutPersonal($0, at: path) }
+            let new = change.new.flatMap(Json.value).flatMap { withoutPersonal($0, at: path) }
+            guard old != nil || new != nil, old != new else { return nil }
+            return (path, old, new)
         }
+    }
+
+    /// A path at or under one of the config keys the person's facts were
+    /// once written under (`Person.configPaths`).
+    static func isPersonal(_ path: [String]) -> Bool {
+        Person.configPaths.contains { path.starts(with: $0) }
+    }
+
+    /// `value`, kept at `path`, without the person's facts inside it: a
+    /// table that holds one (the whole `health` section added at once)
+    /// loses it, and nil when nothing else was in it.
+    static func withoutPersonal(_ value: ConfigValue, at path: [String]) -> ConfigValue? {
+        guard case .table(var table) = value else { return value }
+        for personal in Person.configPaths where personal.count > path.count && personal.starts(with: path) {
+            let rest = Array(personal.dropFirst(path.count))
+            if rest.count == 1 {
+                table[rest[0]] = nil
+            } else if let inner = table[rest[0]] {
+                table[rest[0]] = withoutPersonal(inner, at: path + [rest[0]])
+            }
+        }
+        return table.isEmpty ? nil : .table(table)
+    }
+
+    /// Removes every entry an earlier build wrote about the person's facts.
+    /// Returns how many went. Whatever else the file holds is kept as it is,
+    /// line for line.
+    @discardableResult
+    public static func scrubPersonal(in file: URL = defaultFile) -> Int {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return 0 }
+        var kept: [Substring] = []
+        var removed = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            if let data = line.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let path = object["p"] as? [String], isPersonal(path) || touchesPersonal(object, at: path) {
+                removed += 1
+            } else {
+                kept.append(line)
+            }
+        }
+        guard removed > 0 else { return 0 }
+        let rewritten = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
+        DurableFile.save(Data(rewritten.utf8), to: file, as: "config history", newFileMode: 0o600)
+        Paths.restrict(file)
+        return removed
+    }
+
+    /// An entry at a table above a personal key whose old or new value
+    /// carried one.
+    private static func touchesPersonal(_ object: [String: Any], at path: [String]) -> Bool {
+        guard Person.configPaths.contains(where: { $0.count > path.count && $0.starts(with: path) }) else { return false }
+        for side in ["o", "n"] {
+            guard let fragment = object[side] as? String else { continue }
+            let value = Json.parseFragment(fragment)
+            if withoutPersonal(value, at: path) != value { return true }
+        }
+        return false
     }
 
     /// The tree with one path set to a value, or removed for nil — tables

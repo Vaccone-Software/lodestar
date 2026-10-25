@@ -153,12 +153,10 @@ public struct Config {
     /// `logbookEnabled`: it watches all typing and clicking, and
     /// turning either record off leaves the other standing.
     public var observationsHealth = true
-    /// `health.born`: the year, or nil when not given. Age is the first
-    /// thing any reading of the hands is adjusted for.
+    /// `health.born` and `health.hand`, as an older build wrote them: read
+    /// only so the app can move them into the sealed `Person` and take them
+    /// out of the file. Nothing else reads them.
     public var healthBorn: Int?
-    /// `health.hand`: left, right, either, or empty when not given. Fine
-    /// motor signs are often one-sided, and the record keeps the hands
-    /// apart.
     public var healthHand = ""
     /// `health.keyboards`: per keyboard, the keys that sit somewhere other
     /// than the standard convention puts them — a split board's thumb
@@ -515,12 +513,7 @@ public struct Config {
         config.coachEnabled = file.coach.enabled
         config.standEnabled = file.coach.stand
         config.standAfterMinutes = file.coach.standAfter
-        if let born = file.health.born {
-            let digits = born.trimmingCharacters(in: .whitespaces)
-            if digits.count == 4, let year = Int(digits), (1900...2100).contains(year) {
-                config.healthBorn = year
-            }
-        }
+        if let born = file.health.born { config.healthBorn = Person.year(born) }
         config.healthHand = file.health.hand ?? ""
         for (id, keys) in file.health.keyboards {
             for (name, placed) in keys {

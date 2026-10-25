@@ -94,18 +94,37 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(kind, .draftWords)
     }
 
-    /// About you: two optional facts, under health.
-    func testAboutYouHoldsTwoOptionalFacts() {
-        let rows = place("Observations").rows.filter { $0.group == "About you" }
-        XCTAssertEqual(rows.map(\.path), ["health.born", "health.hand"])
+    /// About you: four optional facts, read from the sealed record and
+    /// never from the config.
+    func testAboutYouHoldsFourOptionalFacts() {
+        var machine = SettingsModel.MachineState()
+        machine.person = Person()
+        let rows = place("Observations", Config(), machine).rows.filter { $0.group == "About you" }
+        XCTAssertEqual(rows.map(\.path), ["health.born", "health.sex", "health.hand", "health.typing"])
+        XCTAssertEqual(rows.map(\.path), Person.paths)
         XCTAssertTrue(rows.allSatisfy(\.isDefault), "unset by default")
+        XCTAssertFalse(rows.contains { $0.dimmed })
         guard case .text(let year, let placeholder) = rows[0].control else { return XCTFail("born is typed") }
         XCTAssertEqual(year, "")
         XCTAssertEqual(placeholder, "Year")
+        machine.person = Person(born: 1990, sex: "female", typing: "touch")
         var config = Config()
-        config.healthBorn = 1990
-        let filled = place("Observations", config).rows.first { $0.path == "health.born" }!
-        XCTAssertFalse(filled.isDefault)
+        config.healthHand = "left"
+        let filled = place("Observations", config, machine).rows.filter { $0.group == "About you" }
+        XCTAssertEqual(filled.map(\.isDefault), [false, false, true, false], "an old config line is not a fact")
+        guard case .choice(_, _, let sex) = filled[1].control else { return XCTFail("sex is chosen") }
+        XCTAssertEqual(sex, "female")
+    }
+
+    func testAboutYouWaitsForTheHealthRecord() {
+        let rows = place("Observations").rows.filter { $0.group == "About you" }
+        XCTAssertTrue(rows.allSatisfy(\.dimmed), "nothing to show until the sealed facts are read")
+        XCTAssertTrue(rows.allSatisfy { $0.detail == "Opens with the health record" })
+    }
+
+    func testTheHealthRowSaysTheFingersAssumeTouchTyping() {
+        let row = place("Observations").rows.first { $0.path == "observations.health" }!
+        XCTAssertTrue(row.detail?.contains("touch typist") == true)
     }
 
     /// One night: there is no Background row, in either mode.
@@ -198,7 +217,7 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(rows.map(\.path).prefix(5), ["observations.logbook", "observations.logbook-mb",
                                                     "coach.enabled", "observations.health",
                                                     "observations.health-mb"])
-        for path in ["observations.health-mb", "health.born", "health.hand"] {
+        for path in ["observations.health-mb"] + Person.paths {
             XCTAssertTrue(rows.first { $0.path == path }!.dimmed, "\(path) needs health")
         }
         XCTAssertFalse(rows.first { $0.path == "coach.enabled" }!.dimmed, "the coach reads the logbook, not health")

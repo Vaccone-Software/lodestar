@@ -229,9 +229,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let loadsView = !clears.logbook
         DispatchQueue.global(qos: .utility).async { [weak self, vault, observationStore, health] in
             vault.settle()
+            let person = PersonFile(ring: vault.ring(.health)).read()
+            let scrubbed = ConfigHistory.scrubPersonal()
             DispatchQueue.main.async {
                 if loadsView { observationStore?.load() }
                 self?.reportSealedRecord()
+                self?.personRead(person, scrubbed: scrubbed)
             }
             observationStore?.moveHealthOutOfTheRing()
             let migrated = (observationStore?.migrateLegacy() ?? RecordMigration()) + health.migrateLegacy()
@@ -1264,10 +1267,112 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // MARK: - The facts about you
+
+    /// The person's facts as `person.json` holds them (`Person`), sealed with
+    /// the health record. Nil until that record has opened, or while it
+    /// cannot be read: the rows read as nothing then, and take no writes.
+    private var person: Person?
+    /// Where `person.json` is written: the first write may make the health
+    /// key, which may ask the keychain, and the main thread never waits on it.
+    private let personQueue = DispatchQueue(label: "lodestar.person", qos: .utility)
+    /// A move out of the config is under way; the reload it causes must
+    /// not start another.
+    private var movingPerson = false
+
+    /// Main. The facts as the launch read them, once the keys settled.
+    private func personRead(_ read: PersonFile.Read, scrubbed: Int) {
+        if scrubbed > 0 {
+            Log.info("health: the config history no longer holds the facts about you", ["entries": scrubbed])
+        }
+        switch read {
+        case .person(let read):
+            person = read
+            movePersonOutOfConfig()
+        case .unavailable(let why):
+            person = nil
+            Log.error("health: person.json could not be read (\(why)); the facts about you wait for the next launch")
+        }
+        settings.config = config
+    }
+
+    /// Main. One Settings row's value, sealed.
+    private func setPerson(_ path: String, to value: ConfigValue) -> String? {
+        guard config.observationsHealth else { return "Needs health" }
+        guard let current = person else { return "the health record has not opened yet" }
+        let text: String
+        switch value {
+        case .string(let string): text = string
+        case .int(let number): text = String(number)
+        default: return "\(path) takes a word or a year"
+        }
+        let next: Person
+        do { next = try current.setting(path, to: text) } catch { return "\(error)" }
+        guard next != current else { return nil }
+        person = next
+        settings.config = config
+        savePerson(next, over: current) { _ in }
+        return nil
+    }
+
+    /// Main. Seals `next` off the main thread. On failure the row goes back
+    /// to what is on disk and says so; `done` hears which.
+    private func savePerson(_ next: Person, over previous: Person, done: @escaping (Bool) -> Void) {
+        let file = PersonFile(ring: vault.ring(.health))
+        personQueue.async { [weak self] in
+            let written = file.write(next)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard written != .written else { return done(true) }
+                Log.error("health: person.json was not written", ["why": "\(written)"])
+                if self.person == next { self.person = previous }
+                self.hud.flash("✕ Not saved. The health record could not be written")
+                self.settings.config = self.config
+                done(false)
+            }
+        }
+    }
+
+    /// Main. `health.born` and `health.hand` in the config move into the
+    /// sealed facts (filling only what is not set there) and out of the
+    /// file. The config history never kept them (`ConfigHistory.changes`),
+    /// so the removal leaves no plaintext copy behind.
+    private func movePersonOutOfConfig() {
+        guard !movingPerson, let current = person,
+              config.healthBorn != nil || !config.healthHand.isEmpty else { return }
+        let merged = current.movingIn(born: config.healthBorn, hand: config.healthHand)
+        movingPerson = true
+        let strip = { [weak self] in
+            guard let self else { return }
+            self.person = merged
+            if let problem = self.rewriteConfig(flash: "", logged: "health: the facts about you moved to the sealed record",
+                                                edit: { tree in
+                                                    Person.configPaths.reduce(tree) { ConfigHistory.applying(nil, at: $1, to: $0) }
+                                                }) {
+                Log.error("health: the facts about you are sealed but the config still holds them", ["problem": problem])
+            }
+            self.movingPerson = false
+        }
+        guard merged != current else { return strip() }
+        savePerson(merged, over: current) { [weak self] saved in
+            if saved { strip() } else { self?.movingPerson = false }
+        }
+    }
+
+    /// Main. The health record was deleted or set aside, and the facts went
+    /// with it.
+    private func forgetPerson() {
+        person = Person()
+        settings.config = config
+    }
+
     private func installSettings() {
         settings.config = config
         settings.apply = { [weak self] dottedPath, value in
             guard let self else { return "lodestar is shutting down" }
+            // A fact about you is sealed with the health record, never a
+            // config line.
+            if Person.paths.contains(dottedPath) { return self.setPerson(dottedPath, to: value) }
             // The clicks toggle is a state machine wearing a switch:
             // turning it on has to *take* the browser role, and off has
             // to give it back — the same doors the menu item opens. A raw
@@ -1316,6 +1421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.machineState = { [weak self] in
             var state = SettingsModel.MachineState()
             state.breaths = self?.store.state.breaths.count ?? 0
+            state.person = self?.person
             state.history = SettingsModel.historyItems(Array(ConfigHistory.read().suffix(26)))
             state.healthWarning = Retention.healthWarning(in: Paths.data,
                                                           bound: self?.config.healthBytes ?? Retention.healthBytes)
@@ -1592,6 +1698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // dated folder, and the next press makes a new key.
             health.forgetBuffered()
             if let folder = vault.ring(.health).startNewRecord() {
+                forgetPerson()
                 hud.flash("✓ New health record · the old files are in \(folder)")
             } else {
                 hud.flash("✕ Could not start a new health record — nothing changed")
@@ -1600,6 +1707,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "delete-health":
             health.forgetBuffered()
             observationStore?.clearHealth()
+            forgetPerson()
             hud.flash("✓ Health record deleted")
         default:
             Log.error("settings", ["unknown action": action])
@@ -2427,6 +2535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if clears.health {
                 health.forgetBuffered()
                 observationStore?.clearHealth()
+                forgetPerson()
             }
             hud.flash(clears.logbook && clears.health ? "⌂ logbook and health cleared"
                       : clears.logbook ? "⌂ logbook cleared" : "⌂ health cleared")
@@ -2434,6 +2543,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         coach?.enabled = loaded.coachEnabled && loaded.logbookEnabled
         meetings.config = loaded
         settings.config = loaded
+        // A year or a hand written into the file, by hand or by a build
+        // before the facts were sealed, moves out of it.
+        movePersonOutOfConfig()
         // A config edit changes the world the advisor reasons about —
         // including edits the coach itself just wrote.
         coach?.scheduleRefresh(after: 2)

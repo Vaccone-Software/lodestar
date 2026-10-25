@@ -618,11 +618,11 @@ public final class ObservationStore {
             let aside = name.hasPrefix("health-unreadable-")
             if archive || aside { try? fileSystem.removeTree(root + "/" + name) }
         }
-        for name in [KeyStore.subdirectory, PointerStore.subdirectory, "era.json", "blind.json", Install.file,
+        for name in [KeyStore.subdirectory, PointerStore.subdirectory, "era.json", "blind.json", Person.file, Install.file,
                      ".health-split"] {
             try? fileSystem.removeTree(root + "/" + name)
         }
-        for stray in ["era.json.sealing", "blind.json.sealing"] { try? fileSystem.remove(root + "/" + stray) }
+        for stray in ["era.json.sealing", "blind.json.sealing", Person.file + ".sealing"] { try? fileSystem.remove(root + "/" + stray) }
         saveQueue.sync {
             if !Rollup.clearHealth(file: rollupFile, ring: vault.ring(.logbook), fileSystem: fileSystem) {
                 Log.error("observations: the monthly rollup could not be read, so its health summaries were left in it")

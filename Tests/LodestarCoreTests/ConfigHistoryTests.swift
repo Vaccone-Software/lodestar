@@ -22,6 +22,47 @@ final class ConfigHistoryTests: XCTestCase {
         XCTAssertEqual(changes[1].new, .int(1200))
     }
 
+    /// The facts about you are sealed with the health record, so the
+    /// history, which is plaintext and backed up, never keeps a copy.
+    func testTheFactsAboutYouAreNeverRecorded() {
+        let before: [String: ConfigValue] = ["health": .table(["born": .string("1990"), "exact-keyboards": .bool(false)])]
+        let after: [String: ConfigValue] = ["health": .table(["hand": .string("left"), "exact-keyboards": .bool(true)])]
+        XCTAssertEqual(ConfigHistory.changes(from: before, to: after).map(\.path), [["health", "exact-keyboards"]])
+        // The whole section added at once is one change at the table: it
+        // keeps what else came with it, and nothing personal.
+        let added = ConfigHistory.changes(from: [:], to: ["health": .table(["born": .string("1990"),
+                                                                             "exact-keyboards": .bool(true)])])
+        XCTAssertEqual(added.map(\.path), [["health"]])
+        XCTAssertEqual(added[0].new, .table(["exact-keyboards": .bool(true)]))
+        XCTAssertTrue(ConfigHistory.changes(from: [:], to: ["health": .table(["born": .string("1990")])]).isEmpty)
+    }
+
+    func testAnOlderHistoryIsScrubbedOfTheFacts() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("history-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let at = Date(timeIntervalSince1970: 1_790_000_000)
+        let lines = [
+            ConfigHistory.Entry(group: 1, index: 0, at: at, path: ["health", "born"], old: nil, new: .string("1990"), source: "Settings"),
+            ConfigHistory.Entry(group: 2, index: 0, at: at, path: ["scroll", "speed"], old: .int(1800), new: .int(1200), source: "Settings"),
+            ConfigHistory.Entry(group: 3, index: 0, at: at, path: ["health"], old: nil,
+                                new: .table(["hand": .string("left")]), source: "The file"),
+        ]
+        // Written line by line the way an earlier build did, unfiltered.
+        var text = ""
+        for entry in lines {
+            var object: [String: Any] = ["t": entry.at.timeIntervalSince1970, "g": entry.group, "p": entry.path, "s": entry.source]
+            if let new = entry.new { object["n"] = Json.emitFragment(new) }
+            if let old = entry.old { object["o"] = Json.emitFragment(old) }
+            text += String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self) + "\n"
+        }
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(ConfigHistory.scrubPersonal(in: file), 2)
+        XCTAssertEqual(ConfigHistory.read(from: file).map(\.path), [["scroll", "speed"]])
+        let after = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertFalse(after.contains("1990") || after.contains("left"))
+        XCTAssertEqual(ConfigHistory.scrubPersonal(in: file), 0, "a clean history is left alone")
+    }
+
     func testApplyingWritesBackOrRemoves() {
         let tree: [String: ConfigValue] = ["scroll": .table(["speed": .int(1200)])]
         let restored = ConfigHistory.applying(.int(1800), at: ["scroll", "speed"], to: tree)

@@ -12,7 +12,7 @@ import StoicStore
 ///   `keys-DAY.N.bin.z` (a closed one: the deflated bytes the sealed day
 ///   holds, which are the bytes a `.bin.z` always was), the same under
 ///   `pointer/`; `health-events.jsonl` and `health-events-YYYY-MM.jsonl`;
-///   `health-YYYY-MM.jsonl.z`; `era.json`; `blind.json`.
+///   `health-YYYY-MM.jsonl.z`; `era.json`; `blind.json`; `person.json`.
 /// - logbook: `events.jsonl` and `events-YYYY-MM.jsonl`, `observations.json`,
 ///   `rollups.json`.
 ///
@@ -85,7 +85,7 @@ public enum RecordExport {
             lines(base: ObservationStore.healthLogBase, in: data, ring: ring, fileSystem: fileSystem, put: put,
                   problem: { report.problems.append($0) })
             archives(in: data, ring: ring, fileSystem: fileSystem, put: put, problem: { report.problems.append($0) })
-            for name in ["era.json", "blind.json"] {
+            for name in ["era.json", "blind.json", Person.file] {
                 whole(name, in: data, ring: ring, fileSystem: fileSystem, put: put, problem: { report.problems.append($0) })
             }
         }

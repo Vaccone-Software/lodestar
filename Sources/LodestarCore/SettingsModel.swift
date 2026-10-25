@@ -271,6 +271,9 @@ public enum SettingsModel {
         public var inputMonitoring = "unknown"
         /// The health record's size warning, once it is near its bound.
         public var healthWarning: String?
+        /// The person's facts, from the sealed `person.json`: nil until the
+        /// health record has opened, or while it cannot be read.
+        public var person: Person?
         /// Why the health record is not being read or written, when it is
         /// paused (the keychain is locked or refused) or its key is gone.
         public var healthKeyProblem: String?
@@ -705,6 +708,13 @@ public enum SettingsModel {
            attention: config.meetingsEnabled && !calendarsGranted && machine.calendars != "unknown"))
 
         // 8 · Keys
+        // The facts about you are sealed with the health record, so they
+        // read as nothing until it has opened.
+        let person = machine.person
+        let aboutDimmed = !config.observationsHealth || person == nil
+        func about(_ detail: String) -> String {
+            !config.observationsHealth ? "Needs health" : person == nil ? "Opens with the health record" : detail
+        }
         let remapEntries = config.keyOverrides.sorted { $0.key < $1.key }
             .map { TableEntry(key: String($0.key), display: "Keycode \($0.key)", sub: "types \($0.value)") }
         sections.append(Section(name: "Keys", rows: [
@@ -750,7 +760,7 @@ public enum SettingsModel {
                 dimmed: !config.logbookEnabled, group: "Logbook"),
             Row(title: "Health", path: "observations.health",
                 control: .toggle(config.observationsHealth),
-                detail: "The rhythm of your hands, by hand and finger, and how the pointer moves. No key is stored, but the pattern can partly show what you typed, so it stays on this Mac",
+                detail: "The rhythm of your hands, by hand and finger, and how the pointer moves. No key is stored, but the pattern can partly show what you typed, so it stays on this Mac. Fingers are read as a touch typist uses them",
                 isDefault: config.observationsHealth, group: "Health",
                 problem: machine.healthKeyProblem ?? machine.healthWarning),
             Row(title: "Limit", path: "observations.health-mb",
@@ -767,14 +777,24 @@ public enum SettingsModel {
                 isDefault: !config.healthExactKeyboards,
                 dimmed: !config.observationsHealth, group: "Health"),
             Row(title: "Born", path: "health.born",
-                control: .text(config.healthBorn.map(String.init) ?? "", placeholder: "Year"),
-                detail: config.observationsHealth ? "Age adjusts every reading of the hands" : "Needs health",
-                isDefault: config.healthBorn == nil, dimmed: !config.observationsHealth, group: "About you"),
+                control: .text(person?.born.map(String.init) ?? "", placeholder: "Year"),
+                detail: about("Age adjusts every reading of the hands"),
+                isDefault: person?.born == nil, dimmed: aboutDimmed, group: "About you"),
+            Row(title: "Sex", path: "health.sex",
+                control: .choice(options: [""] + Person.sexes,
+                                 labels: ["Not set", "Female", "Male", "Intersex"], current: person?.sex ?? ""),
+                detail: about("As assigned at birth"),
+                isDefault: (person?.sex ?? "").isEmpty, dimmed: aboutDimmed, group: "About you"),
             Row(title: "Dominant hand", path: "health.hand",
-                control: .choice(options: ["", "left", "right", "either"],
-                                 labels: ["Not set", "Left", "Right", "Either"], current: config.healthHand),
-                detail: config.observationsHealth ? "The hand you write with" : "Needs health",
-                isDefault: config.healthHand.isEmpty, dimmed: !config.observationsHealth, group: "About you"),
+                control: .choice(options: [""] + Person.hands,
+                                 labels: ["Not set", "Left", "Right", "Either"], current: person?.hand ?? ""),
+                detail: about("The hand you write with"),
+                isDefault: (person?.hand ?? "").isEmpty, dimmed: aboutDimmed, group: "About you"),
+            Row(title: "Typing", path: "health.typing",
+                control: .choice(options: [""] + Person.typings,
+                                 labels: ["Not set", "Touch typing", "Other"], current: person?.typing ?? ""),
+                detail: about("Whether each finger keeps to its own keys. The finger readings assume it does"),
+                isDefault: (person?.typing ?? "").isEmpty, dimmed: aboutDimmed, group: "About you"),
             Row(title: "Walk", path: "coach.stand",
                 control: .toggle(config.standEnabled),
                 detail: "A cue to walk for two minutes, at the next stopping point after a stretch without a break",

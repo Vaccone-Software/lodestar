@@ -428,11 +428,11 @@ extension ConfigFile {
 
     private static let healthSection = section(Health.self, default: Health()) {
         Field("born", \.born, .optional(.string()),
-              doc: "The year you were born, four digits. Age is the first thing a reading of the hands is adjusted for. Optional.")
+              doc: "Moved to the health record, sealed. A year written here is moved there at launch and taken out of this file.")
         Field("exact-keyboards", \.exactKeyboards, .bool,
               doc: "Charge each press to the keyboard that sent it, by matching it to that keyboard's own report. Needs Input Monitoring. Off by default; without it a press two keyboards could have sent is charged to neither.")
         Field("hand", \.hand, .optional(.string(oneOf: ["left", "right", "either"])),
-              doc: "The hand you write with. Fine motor signs are often one sided and the record keeps each hand apart. Optional.")
+              doc: "Moved to the health record, sealed. A hand written here is moved there at launch and taken out of this file.")
         Field("keyboards", \.keyboards, keyboardKeys,
               doc: "Keyboard id (vendor:product:hash, as the Keyboards page shows it) → the keys a split or custom board moves. Letters keep their columns everywhere and are never here.")
     }

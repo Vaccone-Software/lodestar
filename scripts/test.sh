@@ -24,8 +24,8 @@
 # rewritten after every run; a class with no timing yet goes to the lightest
 # shard). A shard that runs no tests fails the run: a bad -XCTest name runs
 # nothing and exits 0. So does a total that does not match the test list,
-# a shard still running after TEST_SHARD_SECONDS (300; its stack is sampled
-# to .build/test-shards/<shard>.hang.txt), and a skip that
+# a shard whose log has not moved in TEST_SHARD_SECONDS (300; its stack is
+# sampled to .build/test-shards/<shard>.hang.txt), and a skip that
 # Tests/allowed-skips.txt does not allow.
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -126,31 +126,37 @@ for list in "$OUT"/app*.list "$OUT/core.list"; do
 done
 
 # A shard that hangs (a deadlock, a wait that never ends) would hold the
-# run, and a ship, for ever. Past the limit its stack is sampled, so the
-# hang can be read, and it is stopped.
+# run, and a ship, for ever. A hang is a shard that has stopped moving,
+# not one that is slow: every test writes a line as it starts and ends,
+# so a log untouched for the limit is a shard stuck inside one test. The
+# limit was once on the whole shard, and a slow runner stopped five shards
+# that were still passing tests (2026-10-25, the longest a single class
+# taking six minutes there), which read as a red main and held a ship.
+# Past the limit the shard's stack is sampled, so the hang can be read,
+# and the shard is stopped; the others run on.
 failed=0
-deadline=$((SECONDS + SHARD_SECONDS))
 while :; do
     alive=()
     for index in "${!pids[@]}"; do
         kill -0 "${pids[$index]}" 2>/dev/null && alive+=("$index")
     done
     [ ${#alive[@]} -eq 0 ] && break
-    if [ "$SECONDS" -ge "$deadline" ]; then
-        for index in "${alive[@]}"; do
-            pid=${pids[$index]}
-            name=$(basename "${logs[$index]}" .log)
-            in=$(grep -E "^Test Case .* started" "${logs[$index]}" | tail -1)
-            echo "✕ $name still running after ${SHARD_SECONDS}s, in: $in"
-            sample "$pid" 2 -file "$OUT/$name.hang.txt" >/dev/null 2>&1 \
-                && echo "  its stack: $OUT/$name.hang.txt"
-            kill -TERM "$pid" 2>/dev/null
-        done
+    now=$(date +%s)
+    for index in "${alive[@]}"; do
+        log=${logs[$index]}
+        moved=$(stat -f %m "$log" 2>/dev/null || echo "$now")
+        [ $((now - moved)) -lt "$SHARD_SECONDS" ] && continue
+        pid=${pids[$index]}
+        name=$(basename "$log" .log)
+        in=$(grep -E "^Test Case .* started" "$log" | tail -1)
+        echo "✕ $name has not moved in ${SHARD_SECONDS}s, in: $in"
+        sample "$pid" 2 -file "$OUT/$name.hang.txt" >/dev/null 2>&1 \
+            && echo "  its stack: $OUT/$name.hang.txt"
+        kill -TERM "$pid" 2>/dev/null
         sleep 2
-        for index in "${alive[@]}"; do kill -KILL "${pids[$index]}" 2>/dev/null; done
+        kill -KILL "$pid" 2>/dev/null
         failed=1
-        break
-    fi
+    done
     sleep 0.5
 done
 for index in "${!pids[@]}"; do

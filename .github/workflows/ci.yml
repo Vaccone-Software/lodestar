@@ -107,11 +107,11 @@ jobs:
         # Sharded across a few xctest processes: the same suite, about a
         # quarter of the wall time.
         #
-        # TEST_SHARD_SECONDS is a stopgap: a shard is stopped after 300 s on
-        # a desk, and this runner is about twice as slow as one. The gallery
-        # sweeps now share their builds, but until a run here shows the
-        # slowest shard well under 300 s, 600 keeps a slow shard from being
-        # read as a hang. Lower it once a green run has the margin.
+        # TEST_SHARD_SECONDS is how long a shard's log may stand still
+        # before it is read as a hang: 300 s on a desk. This runner is about
+        # twice as slow, and its slowest single test has taken six minutes,
+        # so it gets 600. A slow shard that keeps passing tests is never
+        # stopped; the job's own timeout bounds the whole.
         env:
           TEST_SHARD_SECONDS: 600
         run: LODESTAR_DATASETS="$HOME/.cache/lodestar-datasets" ./scripts/test.sh

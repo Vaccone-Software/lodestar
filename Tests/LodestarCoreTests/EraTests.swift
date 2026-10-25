@@ -64,10 +64,10 @@ final class EraTests: XCTestCase {
         XCTAssertEqual(before.fingerprint, base.fingerprint, "an era written before the map existed")
     }
 
-    func testTheHealthKindsAreThePulseTheWindowTheEraTheClicksAndTheBlindSpans() {
-        XCTAssertEqual(ObservationEvent.healthKinds, [.pulse, .window, .era, .clicks, .blind],
+    func testTheHealthKindsAreThePulseTheWindowTheEraTheClicksTheBlindSpansAndTheVoice() {
+        XCTAssertEqual(ObservationEvent.healthKinds, [.pulse, .window, .era, .clicks, .blind, .voice],
                        "the click pulse is gated by the health switch, so it is kept with health, "
-                       + "and so is the record of when the instrument could not see")
+                       + "and so is the record of when the instrument could not see, and the voice")
     }
 
     /// A keyboard's report interval is what the registry states, or

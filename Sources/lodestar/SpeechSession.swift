@@ -106,6 +106,20 @@ enum SpeechState: Equatable {
     /// No recognizer on this machine (macOS before 26, or no locale model).
     case unavailable
     case failed(String)
+
+    static let modelNotInstalled = "the speech model could not be installed"
+
+    /// Whether the draft asks again on its own. A microphone that would
+    /// not start, or stopped, is usually a radio changing profile, a lid,
+    /// or an audio stack still settling after an update, and each of
+    /// those passes; closing and opening the draft was the only way to
+    /// ask again, and the hand had to know to do it. A refused grant, a
+    /// missing recognizer and a model that would not install do not pass
+    /// by asking, and asking again would start the download again.
+    var retries: Bool {
+        guard case .failed(let why) = self else { return false }
+        return why != Self.modelNotInstalled
+    }
 }
 
 /// The recognizer behind the draft's speak door: one session per draft,
@@ -247,8 +261,12 @@ final class AudioInput: @unchecked Sendable {
     private var observer: NSObjectProtocol?
     /// The session in flight — the device asked for and the sink — kept
     /// so a configuration change can rebuild it. nil between sessions.
-    private var inFlight: (device: String?, sink: (AVAudioPCMBuffer) -> Void)?
+    private var inFlight: (device: String?, sink: (AVAudioPCMBuffer) -> Void, lost: () -> Void)?
     private var rebuildPending = false
+    /// Which session is in flight, by number: a rebuild waiting out its
+    /// settle belongs to the session that asked for it, and must not
+    /// rebuild, or tell lost, the one that replaced it.
+    private var sessionNumber = 0
     /// Rebuilds a session may spend: a radio that keeps flipping must not
     /// rebuild forever.
     static let rebuildCap = 6
@@ -487,23 +505,41 @@ final class AudioInput: @unchecked Sendable {
     /// The fallback: a fresh engine for the session in flight, on the
     /// same sink, when the kept one will not start again. Bounded twice:
     /// attempts per change, rebuilds per session.
-    private func rebuild(attempt: Int) {
+    private func rebuild(attempt: Int, session: Int? = nil) {
         dispatchPrecondition(condition: .onQueue(queue))
         guard let inFlight else { return } // the session ended while this waited
+        let session = session ?? sessionNumber
+        guard session == sessionNumber else { return } // and another began
         guard keeper.mayRebuild() else {
             Log.info("draft", ["speech": "audio configuration changed", "rebuilds": keeper.rebuilds, "gaveUp": true])
+            lose(inFlight.lost)
             return
         }
         do {
-            let started = try startNow(device: inFlight.device, sink: inFlight.sink, fresh: true)
+            let started = try startNow(device: inFlight.device, sink: inFlight.sink, lost: inFlight.lost, fresh: true)
             Log.info("draft", ["speech": "audio configuration changed", "rebuilt": true,
                                "attempt": attempt, "inHz": Int(started.format.sampleRate)])
         } catch {
             Log.info("draft", ["speech": "audio configuration changed",
                                "rebuild failed": error.localizedDescription, "attempt": attempt])
-            guard attempt < 4 else { return }
-            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in self?.rebuild(attempt: attempt + 1) }
+            // The failed start stopped the session's engine, so a give-up
+            // here is a session with no microphone: it is told, and the
+            // draft asks again from the top.
+            guard attempt < 4 else { lose(inFlight.lost); return }
+            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in
+                self?.rebuild(attempt: attempt + 1, session: session)
+            }
         }
+    }
+
+    /// The session in flight has no engine any more, and nothing here
+    /// will bring one back. It is let go, so no later notice rebuilds it
+    /// behind the session that replaces it, and told once.
+    private func lose(_ lost: () -> Void) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        Log.info("draft", ["speech": "microphone lost"])
+        stopNow()
+        lost()
     }
 
     private func discard() {
@@ -672,11 +708,17 @@ final class AudioInput: @unchecked Sendable {
     /// the engine's queue with the format and the name of the device
     /// actually read, or the error: no usable format is what an
     /// unplugged or exclusively held device looks like.
+    ///
+    /// `lost` runs on the engine's queue, once, if the session's engine
+    /// goes down mid-session and every restart and rebuild fails: the
+    /// session is told, rather than left listening to nothing.
     func start(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
+               lost: @escaping () -> Void = {},
                completion: @escaping (Result<(format: AVAudioFormat, name: String?), Error>) -> Void) {
         queue.async {
+            self.sessionNumber += 1
             self.keeper.sessionBegan()
-            completion(Result { try self.startNow(device: device, sink: sink) })
+            completion(Result { try self.startNow(device: device, sink: sink, lost: lost) })
         }
     }
 
@@ -684,11 +726,11 @@ final class AudioInput: @unchecked Sendable {
     /// configuration change must not trust the node's own report of its
     /// format, which is what the stale check below reads.
     private func startNow(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
-                          fresh: Bool = false) throws
+                          lost: @escaping () -> Void, fresh: Bool = false) throws
         -> (format: AVAudioFormat, name: String?) {
         dispatchPrecondition(condition: .onQueue(queue))
         stopNow()
-        inFlight = (device, sink)
+        inFlight = (device, sink, lost)
         deliveryLock.lock(); delivered = 0; signalled = false; deliveryLock.unlock()
         if fresh { discard() }
         let target = try resolveTarget(device: device, logs: true)
@@ -1012,7 +1054,7 @@ private actor AnalyzerBox {
                 }
             } catch {
                 Log.info("draft", ["speech": "asset install failed", "error": "\(error)"])
-                say(.failed("the speech model could not be installed")); return
+                say(.failed(SpeechState.modelNotInstalled)); return
             }
         }
 
@@ -1097,7 +1139,9 @@ private actor AnalyzerBox {
             guard remaining > 0.25 else { break }
             do {
                 started = try await Self.startMicrophone(microphone, device: wanted, within: remaining,
-                                                         stillWanted: stillWanted) { buffer in gate.fromHeadset(buffer) }
+                                                         stillWanted: stillWanted,
+                                                         lost: { [weak self] in Task { await self?.lost(say: say) } })
+                                                         { buffer in gate.fromHeadset(buffer) }
             } catch is CancellationError {
                 stopOwnBridge()
                 return
@@ -1119,11 +1163,30 @@ private actor AnalyzerBox {
             }
         }
         guard let started else {
-            // The bridge was only ever standing in, and a start still out
-            // there must not come alive after the draft has said it failed.
-            stopOwnBridge()
-            microphone.stop()
-            say(.failed("the microphone could not start")); return
+            switch gate.standing {
+            case .headset:
+                // Its start timed out after the engine came alive: the
+                // words are arriving, so the start did what it was for.
+                let input = AudioInput.plannedTarget(device: wanted).flatMap(AudioInput.name(of:))
+                Log.info("draft", ["speech": "audio start timed out, but the input is heard",
+                                   "input": input ?? "unknown"])
+                say(.listening(input: input))
+            case .bridge:
+                // The headset would not start, and the Mac's microphone
+                // has been hearing the take since the Listening sound.
+                // Ending the take here threw that away, six times in the
+                // logs. The bridge keeps it, already said as the input;
+                // a start still out on the engine's queue that lands
+                // later hands over the way a slow one always has.
+                Log.info("draft", ["speech": "headset did not start, the bridge keeps the take"])
+            case .nothing:
+                // A start still out there must not come alive after the
+                // draft has said it failed.
+                stopOwnBridge()
+                microphone.stop()
+                say(.failed("the microphone could not start"))
+            }
+            return
         }
         // The bridge is let go at the handover — the headset's first buffer
         // with a voice in it — never when its start returns: `start`
@@ -1181,6 +1244,15 @@ private actor AnalyzerBox {
         say(.listening(input: AudioInput.name(of: builtIn)))
     }
 
+    /// The engine went down mid-session and nothing brought it back. The
+    /// words so far are the draft's; the session says it failed, and the
+    /// draft starts a fresh one.
+    private func lost(say: (SpeechState) -> Void) {
+        guard !stopped else { return }
+        stopOwnBridge()
+        say(.failed("the microphone stopped"))
+    }
+
     /// This session's bridge, and no other session's.
     private func stopOwnBridge() {
         if let bridgeTicket { bridge.stop(ticket: bridgeTicket) }
@@ -1194,6 +1266,7 @@ private actor AnalyzerBox {
     /// successor's stop, which then takes the tap off again.
     private static func startMicrophone(_ microphone: AudioInput, device: String?, within seconds: TimeInterval,
                                         stillWanted: @escaping @MainActor () -> Bool,
+                                        lost: @escaping () -> Void,
                                         sink: @escaping (AVAudioPCMBuffer) -> Void) async throws
         -> (format: AVAudioFormat, name: String?) {
         // Bounded, because the thing on the other side of this call is a
@@ -1212,7 +1285,7 @@ private actor AnalyzerBox {
                     guard stillWanted() else {
                         continuation.resume(throwing: CancellationError()); return
                     }
-                    microphone.start(device: device, sink: sink) { continuation.resume(with: $0) }
+                    microphone.start(device: device, sink: sink, lost: lost) { continuation.resume(with: $0) }
                 }
             }
         }
@@ -1449,6 +1522,8 @@ final class Handover: @unchecked Sendable {
     private var bridging = false
     private var bridgeOpen = false
     private var headsetLive = false
+    /// The headset took over, and the bridge was let go for good.
+    private var handedOver = false
     private var openedAt = Date()
     /// Runs on the audio thread, once, with how long the bridge stood in.
     var onHandover: ((Int) -> Void)?
@@ -1473,6 +1548,25 @@ final class Handover: @unchecked Sendable {
         }
     }
 
+    /// What the recognizer is hearing when the headset's start gives up.
+    enum Standing: Equatable {
+        /// The headset delivered: its start timed out after its engine
+        /// came alive, and it is the take's microphone.
+        case headset
+        /// The bridge is open and was never let go: the Mac's own
+        /// microphone carries the take.
+        case bridge
+        case nothing
+    }
+
+    var standing: Standing {
+        lock.withLock {
+            if headsetLive { return .headset }
+            if bridgeOpen, !handedOver { return .bridge }
+            return .nothing
+        }
+    }
+
     func fromBridge(_ buffer: AVAudioPCMBuffer) {
         lock.lock()
         defer { lock.unlock() }
@@ -1485,7 +1579,10 @@ final class Handover: @unchecked Sendable {
         lock.lock()
         if !headsetLive, !bridging || AudioInput.hasSignal(buffer) {
             headsetLive = true
-            if bridging { handedAfter = Int(Date().timeIntervalSince(openedAt) * 1000) }
+            if bridging {
+                handedAfter = Int(Date().timeIntervalSince(openedAt) * 1000)
+                handedOver = true
+            }
             bridging = false
         }
         if headsetLive { push(buffer) }

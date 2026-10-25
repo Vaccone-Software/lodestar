@@ -122,6 +122,9 @@ final class FakeSpeech: SpeechSession {
         if !slowToListen { onState(.listening(input: "Stage Microphone")) }
     }
     func ready() { onState?(.listening(input: "Stage Microphone")) }
+    /// The session says it failed, the way a microphone that would not
+    /// start, or stopped mid-take, does.
+    func fail(_ why: String = "the microphone could not start") { onState?(.failed(why)) }
     func pause() { pauses += 1 }
     func resume() { resumes += 1 }
     func stop(completion: @escaping () -> Void) {

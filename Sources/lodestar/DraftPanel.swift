@@ -34,6 +34,9 @@ struct DraftView {
     /// hand waits: the register line says so, because the meter's
     /// stillness is not a message.
     var silent = false
+    /// The start failed and the draft asks again on its own: the line
+    /// says so, so nobody closes the draft to get the microphone back.
+    var retrying = false
     /// Where ⏎ lands right now: the frontmost app, or the clipboard.
     let destination: (name: String, icon: NSImage?)?
     /// The origin field's text was pulled in, so ⏎ replaces it there.
@@ -962,7 +965,7 @@ final class DraftPanel {
             return "preparing speech"
         case .denied: return "microphone not allowed, typing only"
         case .unavailable: return "speech needs macOS 26, typing only"
-        case .failed(let why): return why
+        case .failed(let why): return view.retrying ? "\(why), trying again" : why
         case .listening:
             // Off, or waiting for insert mode: the light is out, and that
             // is the whole message.

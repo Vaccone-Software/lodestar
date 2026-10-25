@@ -943,20 +943,21 @@ final class DraftScenarioTests: XCTestCase {
 
     /// A session that never reports listening is stopped and named, so
     /// the register line cannot say "opening the microphone" forever, and
-    /// the door starts a fresh session.
-    func testASilentSessionIsNamedAndTheDoorRetries() {
+    /// the draft starts a fresh session on its own.
+    func testASilentSessionIsNamedAndTheDraftRetries() {
         let stage = Stage()
         stage.speech.slowToListen = true
         stage.lode(".")
         XCTAssertEqual(stage.speech.listens, 1)
         stage.clock.advance(by: DraftController.landBackstopSeconds)
-        XCTAssertEqual(stage.speech.stops, 0, "eight seconds is the leash, not two")
-        stage.clock.advance(by: DraftController.listenWatchdogSeconds)
+        XCTAssertEqual(stage.speech.stops, 0, "the watchdog's leash is longer than the landing's")
+        stage.clock.advance(by: DraftController.listenWatchdogSeconds - DraftController.landBackstopSeconds)
         XCTAssertEqual(stage.speech.stops, 1, "the silent session is stopped")
         XCTAssertTrue(stage.draft.isOpen, "the draft stays, typing still works")
         XCTAssertEqual(stage.draft.state["listening"] as? Bool, false)
-        stage.lode(".")
-        XCTAssertEqual(stage.speech.listens, 2, "the door starts a fresh session")
+        XCTAssertEqual(stage.draft.state["retrying"] as? Bool, true)
+        stage.clock.advance(by: DraftController.retrySeconds[0])
+        XCTAssertEqual(stage.speech.listens, 2, "a fresh session, with no hand")
         stage.speech.ready()
         XCTAssertEqual(stage.draft.state["listening"] as? Bool, true)
         XCTAssertEqual(stage.speech.openSessions, 1)
@@ -1229,7 +1230,7 @@ final class DraftSilentMicTests: XCTestCase {
         let stage = Stage()
         stage.speech.slowToListen = true
         stage.lode(".")
-        stage.clock.advance(by: DraftController.listenWatchdogSeconds + 1)
+        stage.clock.advance(by: DraftController.listenWatchdogSeconds + 0.5)
         XCTAssertEqual(stage.speech.openSessions, 0, "the silent session was stopped, not left running")
         _ = stage.press("escape")
         _ = stage.press("escape")

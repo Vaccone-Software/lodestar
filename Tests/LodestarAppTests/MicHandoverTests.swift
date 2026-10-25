@@ -81,4 +81,28 @@ final class MicHandoverTests: XCTestCase {
         XCTAssertEqual(heard, [1, 2, 3, 4, 5])
         XCTAssertEqual(handovers, 0)
     }
+
+    /// When the headset's start gives up, what the recognizer is hearing
+    /// decides whether the take goes on: the bridge never let go keeps
+    /// it, a headset that delivered is it, and nothing is a failure.
+    func testWhatStandsWhenTheHeadsetGivesUp() {
+        let none = Handover { _ in }
+        XCTAssertEqual(none.standing, .nothing, "no bridge, no buffer")
+
+        let bridged = Handover { _ in }
+        bridged.openBridge()
+        bridged.fromHeadset(buffer(0, voiced: false))
+        XCTAssertEqual(bridged.standing, .bridge, "a silent link is not a takeover")
+
+        let handed = Handover { _ in }
+        handed.openBridge()
+        handed.fromHeadset(buffer(2, voiced: true))
+        XCTAssertEqual(handed.standing, .headset)
+        handed.bridgeAgain()
+        XCTAssertEqual(handed.standing, .nothing, "the bridge was let go at the handover and is gone")
+
+        let headsetOnly = Handover { _ in }
+        headsetOnly.fromHeadset(buffer(0, voiced: false))
+        XCTAssertEqual(headsetOnly.standing, .headset, "without a bridge any buffer is the headset heard")
+    }
 }

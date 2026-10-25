@@ -533,6 +533,7 @@ final class DraftController {
         }
         out["listening"] = listening
         out["silent"] = hearsNothing
+        out["retrying"] = retrying
         out["mic"] = micWanted
         if let inputName { out["input"] = inputName }
         out["expanded"] = expanded
@@ -579,7 +580,7 @@ final class DraftController {
         provisional = nil
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
-        firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
+        firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0; retries = 0
 
         // What is under the cursor: a selection through either door, the
         // whole field through edit.
@@ -676,7 +677,7 @@ final class DraftController {
         switch door {
         case .speak:
             micWanted = true
-            if !sessionStarted { startListening() }
+            if !sessionStarted || speechState?.retries == true { listenAgain() }
             if mode != .insert { setMode(.insert) } else { resumeIfWanted() }
         case .edit, .clip:
             // The silent posture: the mic stops writing, the mode stays.
@@ -759,6 +760,22 @@ final class DraftController {
     static let silenceNoteSeconds: TimeInterval = 3
     private(set) var hearsNothing = false
     private var silenceWatch: DispatchWorkItem?
+    /// A microphone that would not start, or stopped, is asked for again
+    /// while the draft wants it, without a hand doing anything: soon at
+    /// first, since most failures are a radio changing profile, then
+    /// every few seconds for as long as the draft stays open. The words
+    /// already in the draft stay where they are. `lode .` asks at once.
+    static let retrySeconds: [TimeInterval] = [1, 2, 4, 5]
+    private var retries = 0
+    private var retryWork: DispatchWorkItem?
+    /// Whether the line says the draft is asking again: a failure the
+    /// draft retries, while the mic is wanted, from the first failure
+    /// until a session listens.
+    private var retrying: Bool { retries > 0 && micWanted && speechState?.retries == true }
+    /// Whether this session has said anything about itself. The last
+    /// session's failure stays on the line while the next one starts, so
+    /// the watchdog asks this rather than whether a state is set.
+    private var sessionSpoke = false
 
     // MARK: - Speech
 
@@ -772,12 +789,17 @@ final class DraftController {
         session += 1
         let mine = session
         sessionStarted = true
+        retryWork?.cancel()
+        retryWork = nil
+        sessionSpoke = false
         listening = false
         heardAlive = false
         hearsNothing = false
         silenceWatch?.cancel()
         onListen?()
-        journal?.begin(app: frontmost()?.name, at: clock.now())
+        // Once a draft: a session started again inside it, on a new input
+        // or after a failure, keeps what the journal has so far.
+        if listens == 0 { journal?.begin(app: frontmost()?.name, at: clock.now()) }
         settler.reset()
         run = nil
         lastSpoken = nil
@@ -794,7 +816,10 @@ final class DraftController {
         speech.listen(input: inputDevice, onState: { [weak self] state in
             guard let self, self.isOpen, self.session == mine else { return }
             self.speechState = state
+            self.sessionSpoke = true
+            if state.retries { self.scheduleRetry(session: mine) }
             if case .listening(let input) = state {
+                self.retries = 0
                 // Said twice when the Mac's microphone stands in for a
                 // waking headset: first for the bridge, then for the
                 // headset. The wait the hand felt is the first.
@@ -854,15 +879,55 @@ final class DraftController {
             // never speak — v0.28.0's wedged audio queue looked exactly
             // like this from the foot.
             guard let self, self.isOpen, self.session == mine, !self.listening,
-                  self.speechState == nil else { return }
+                  !self.sessionSpoke else { return }
             Log.info("draft", ["speech": "no listening state", "seconds": Int(Self.listenWatchdogSeconds)])
             self.speechState = .failed("the microphone did not start")
             self.speech.stop {}
             self.sessionStarted = false
+            self.scheduleRetry(session: mine)
             self.render()
         }
         listenWatchdog = watchdog
         clock.after(Self.listenWatchdogSeconds, watchdog)
+    }
+
+    /// Ask for the microphone again after the next wait, if the draft
+    /// still wants it then. A failure only ever schedules: the asking is
+    /// `listenAgain`, which waits for the failed session's last words.
+    private func scheduleRetry(session mine: Int) {
+        guard isOpen, !closing, door != .clip, retryWork == nil else { return }
+        let wait = Self.retrySeconds[min(retries, Self.retrySeconds.count - 1)]
+        retries += 1
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.retryWork = nil
+            guard self.isOpen, !self.closing, self.session == mine else { return }
+            // Muted meanwhile: the failure stands, and `lode .` asks.
+            guard self.micWanted else { self.render(); return }
+            Log.info("draft", ["speech": "trying the microphone again", "attempt": self.retries])
+            self.listenAgain()
+        }
+        retryWork = work
+        Log.info("draft", ["speech": "retry scheduled", "seconds": wait])
+        clock.after(wait, work)
+    }
+
+    /// A fresh session in the same draft. The old one is stopped first
+    /// and the new one starts when it has, so words the recognizer was
+    /// still settling when the microphone went land in this draft rather
+    /// than being dropped as a previous session's.
+    private func listenAgain() {
+        retryWork?.cancel()
+        retryWork = nil
+        guard sessionStarted else { startListening(); return }
+        let mine = session
+        sessionStarted = false
+        listening = false
+        speech.stop { [weak self] in
+            guard let self, self.isOpen, !self.closing, self.session == mine, !self.sessionStarted else { return }
+            self.startListening()
+            self.render()
+        }
     }
 
     /// The foot says when the microphone has been open this
@@ -1747,6 +1812,9 @@ final class DraftController {
         silenceWatch?.cancel()
         silenceWatch = nil
         hearsNothing = false
+        retryWork?.cancel()
+        retryWork = nil
+        retries = 0
         stashWork?.cancel()
         stashWork = nil
         stash?(nil)
@@ -1847,7 +1915,7 @@ final class DraftController {
             editorMarks: buffer.ghost.isEmpty ? editorMarks : [],
             pending: vim.isPending, speech: speechState, input: inputName, level: level,
             inputs: inputs, systemInput: systemInputName, chosenInput: inputDevice,
-            micOn: micWanted, silent: hearsNothing,
+            micOn: micWanted, silent: hearsNothing, retrying: retrying,
             destination: card == nil ? front.map { ($0.name, $0.icon) } : nil,
             replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid,
             card: card, width: doorWidth, standsAbove: standsAbove, expanded: expanded,

@@ -714,6 +714,22 @@ final class DraftController {
         if next == .normal { pauseSpeech() } else { resumeIfWanted() }
     }
 
+    /// `draft type` inserts text whichever mode the draft is in.
+    ///
+    /// After escape the draft is in normal mode, where letters are commands
+    /// and return commits. The script asked for the characters, so insert
+    /// mode opens after the character the cursor is on — where the insert
+    /// cursor sat before escape stepped back. A half-typed command or a
+    /// selection is dropped first, by the editor's escape, and the draft
+    /// stays up.
+    func prepareToTypeText() {
+        guard isOpen, mode != .insert, !closing else { return }
+        _ = vim.key(.escape, buffer: &buffer, pasteboard: { nil })
+        let end = buffer.lineEnd(from: buffer.cursor)
+        if buffer.cursor < end { buffer.setCursor(buffer.cursor + 1) }
+        setMode(.insert)
+    }
+
     // MARK: - The mouse
 
     /// An input was chosen on the foot. The config line is the
@@ -1302,15 +1318,25 @@ final class DraftController {
     }
 
     /// Normal and visual mode: the editor decides, the shell keeps the
-    /// two keys the bar owns. `⏎` commits in every mode; a bare `esc` —
-    /// nothing pending, no selection — closes.
+    /// two keys the bar owns. Plain return commits in every mode.
+    /// Shift-return inserts a newline, the same key insert mode uses, so
+    /// a newline typed from normal mode stays in the draft. A bare escape
+    /// — nothing pending, no selection — closes.
     private func normalKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
         revised = []
         if handBaseline == nil { handBaseline = buffer.text }
         handSinceSpeech = true
         run = nil
         settler.handInterrupted()
-        if key == "return" { commit(); return true }
+        if key == "return" {
+            if shift {
+                insertNewlineAfterCursor()
+                render()
+                return true
+            }
+            commit()
+            return true
+        }
         let vimKey: Vim.Key
         switch key {
         case "escape": vimKey = .escape
@@ -1356,6 +1382,22 @@ final class DraftController {
         matchSpeechToSelection()
         render()
         return true
+    }
+
+    /// A line break after the character the cursor is on. Normal mode
+    /// rests on a character, so the break belongs after it, and the mode
+    /// stays: the next plain return still commits.
+    private func insertNewlineAfterCursor() {
+        // The editor's escape drops a pending operator or a selection and
+        // leaves the draft open. Unhandled here means there was nothing
+        // to drop; the shell is what would close on that, and this is not
+        // the shell's escape.
+        _ = vim.key(.escape, buffer: &buffer, pasteboard: { nil })
+        let end = buffer.lineEnd(from: buffer.cursor)
+        let at = buffer.cursor < end ? buffer.cursor + 1 : buffer.cursor
+        vim.replaceKeepingCursor(at..<at, with: "\n", buffer: &buffer)
+        vim.enterNormal(&buffer)
+        typedCharacters += 1
     }
 
     // MARK: - Endings

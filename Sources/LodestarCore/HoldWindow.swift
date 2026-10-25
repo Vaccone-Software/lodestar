@@ -300,6 +300,10 @@ public struct WindowStats: Codable, Equatable {
     public var modifierHold: Moments?
     // Context, filled by the shell at close.
     public var app: String?
+    /// The app's kind, Lodestar's class and what the app declares about
+    /// itself (`AppCategory`).
+    public var category: String?
+    public var declaredCategory: String?
     public var role: String?
     public var keyboards: [String]?
     public var pointers: [String]?

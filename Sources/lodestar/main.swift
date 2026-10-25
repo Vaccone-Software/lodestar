@@ -553,8 +553,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.health.noteBlindEnded(.tapOff, at: at)
         }
         health.context = { [weak draft] in
-            HealthMonitor.WindowContext(
-                app: NSWorkspace.shared.frontmostApplication?.localizedName,
+            let front = NSWorkspace.shared.frontmostApplication
+            return HealthMonitor.WindowContext(
+                app: front?.localizedName,
+                category: front.map(AppCategories.of),
                 dictation: draft?.isOpen ?? false)
         }
         health.setEnabled(loaded.observationsHealth)

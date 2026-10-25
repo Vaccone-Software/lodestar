@@ -34,6 +34,7 @@ public struct ClickPulse: Equatable {
         var pointer = PointerMoments()
         var scrolls = 0
         var scrollSeconds = 0.0
+        var category: AppCategory?
     }
 
     var windowStart: Date?
@@ -43,12 +44,13 @@ public struct ClickPulse: Equatable {
 
     /// One click landed. Returns the previous window's events (one per
     /// app) when this click opens a new window.
-    public mutating func click(app: String, role: String?, trip: Bool,
+    public mutating func click(app: String, category: AppCategory? = nil, role: String?, trip: Bool,
                                act: PointerTracker.Click? = nil,
                                at now: Date) -> [ObservationEvent] {
         let flushed = rollIfDue(now: now)
         let name = cellName(for: app, at: now)
         var cell = cells[name] ?? Cell()
+        if name != Self.other { cell.category = cell.category ?? category }
         cell.clicks += 1
         if trip { cell.trips += 1 }
         var roleName = Self.roleName(role)
@@ -85,11 +87,12 @@ public struct ClickPulse: Equatable {
     }
 
     /// One wheel burst landed in an app and ran this long.
-    public mutating func scroll(app: String, seconds: Double,
+    public mutating func scroll(app: String, category: AppCategory? = nil, seconds: Double,
                                 at now: Date) -> [ObservationEvent] {
         let flushed = rollIfDue(now: now)
         let name = cellName(for: app, at: now)
         var cell = cells[name] ?? Cell()
+        if name != Self.other { cell.category = cell.category ?? category }
         cell.scrolls += 1
         cell.scrollSeconds += max(0, seconds)
         cells[name] = cell
@@ -136,6 +139,8 @@ public struct ClickPulse: Equatable {
         return cells.sorted { $0.key < $1.key }.map { app, cell in
             var event = ObservationEvent(t: start, kind: .clicks)
             event.app = app
+            event.category = cell.category?.kind
+            event.declaredCategory = cell.category?.declared
             event.clicks = cell.clicks
             event.trips = cell.trips
             event.roles = cell.roles

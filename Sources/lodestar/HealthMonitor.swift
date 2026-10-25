@@ -33,6 +33,7 @@ final class HealthMonitor {
     /// What the shell knows at a window's close that the presses do not.
     struct WindowContext {
         var app: String?
+        var category: AppCategory?
         var dictation: Bool
     }
     var context: (() -> WindowContext)?
@@ -813,7 +814,8 @@ final class HealthMonitor {
         for click in clicks {
             if let flushed = pulse.click(at: click.at) { out.append(dressedLocked(flushed)) }
             let app = Self.appName(click.pid)
-            out.append(contentsOf: clickPulse.click(app: app, role: click.role, trip: click.trip,
+            out.append(contentsOf: clickPulse.click(app: app, category: Self.appCategory(click.pid),
+                                                    role: click.role, trip: click.trip,
                                                     act: click.act, at: click.at))
             if let release = releaseByStamp[click.at] {
                 out.append(contentsOf: clickPulse.released(app: app, release, at: click.at))
@@ -828,6 +830,7 @@ final class HealthMonitor {
                 out.append(dressedLocked(flushed))
             }
             out.append(contentsOf: clickPulse.scroll(app: Self.appName(burst.pid),
+                                                     category: Self.appCategory(burst.pid),
                                                      seconds: burst.last.timeIntervalSince(burst.start),
                                                      at: burst.start))
             pointerStore.append(.scroll(start: burst.start,
@@ -896,6 +899,8 @@ final class HealthMonitor {
         var stats = stats
         let context = context?()
         stats.app = context?.app
+        stats.category = context?.category?.kind
+        stats.declaredCategory = context?.category?.declared
         stats.dictation = context?.dictation
         stats.power = Self.powerSource()
         stats.screens = NSScreen.screens.count
@@ -983,6 +988,10 @@ final class HealthMonitor {
 
     private static func appName(_ pid: pid_t?) -> String {
         pid.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName } ?? "unknown"
+    }
+
+    private static func appCategory(_ pid: pid_t?) -> AppCategory? {
+        pid.flatMap { NSRunningApplication(processIdentifier: $0) }.map(AppCategories.of)
     }
 
     /// Lookup queue. The app under a point, and nothing else about it.
@@ -1111,5 +1120,26 @@ final class HealthMonitor {
     private func stopPressureMonitor() {
         if let pressureMonitor { NSEvent.removeMonitor(pressureMonitor) }
         pressureMonitor = nil
+    }
+}
+
+/// Each running app's `AppCategory`, read once per bundle: the declared
+/// category is in its Info.plist, which does not change while it runs.
+/// Any thread.
+enum AppCategories {
+    private static let cache = NSCache<NSString, Box>()
+
+    private final class Box {
+        let category: AppCategory
+        init(_ category: AppCategory) { self.category = category }
+    }
+
+    static func of(_ app: NSRunningApplication) -> AppCategory {
+        let id = app.bundleIdentifier ?? ""
+        if let known = cache.object(forKey: id as NSString) { return known.category }
+        let declared = app.bundleURL.flatMap { Bundle(url: $0)?.object(forInfoDictionaryKey: "LSApplicationCategoryType") as? String }
+        let category = AppCategory.of(bundleID: app.bundleIdentifier, declared: declared)
+        if !id.isEmpty { cache.setObject(Box(category), forKey: id as NSString) }
+        return category
     }
 }

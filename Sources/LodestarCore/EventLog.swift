@@ -151,6 +151,10 @@ public struct ObservationEvent: Codable, Equatable {
     public var hover: Double?
     public var pressed: String?
     public var app: String?
+    /// A click pulse's app, by kind (`AppCategory`): Lodestar's class and
+    /// what the app declares about itself.
+    public var category: String?
+    public var declaredCategory: String?
     public var route: String?
     /// A breath restore names every app its layout holds, so the count
     /// follows the combination rather than the letter — rebinding a

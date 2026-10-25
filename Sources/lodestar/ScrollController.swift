@@ -27,15 +27,18 @@ final class ScrollController {
     /// logged.
     private(set) var aimLabel: String?
     private var pendingG = false
-    /// Wheel-delta polarity follows the system natural-scrolling preference
-    /// (measured empirically: natural ON means positive wheel1 = content
-    /// down). Read at entry so a changed preference is picked up.
-    private var sign: Int32 = 1
-    /// The horizontal axis answers backwards (measured the same way:
-    /// natural ON, where positive wheel1 moves the viewport toward the
-    /// document's end, positive wheel2 moves it toward the LEFT edge —
-    /// the start). One shared sign put h and l in each other's hands.
-    private var horizontalSign: Int32 { -sign }
+    /// A posted wheel event means what its numbers say: positive wheel1
+    /// moves the view toward the document's start, positive wheel2 toward
+    /// its left edge, on every Mac. The system's natural-scrolling setting
+    /// is applied to a device's events before anyone sees them and never
+    /// to an event an app posts, so there is no setting to read. The sign
+    /// used to follow that setting, from a measurement taken with Scroll
+    /// Reverser 1.x on the maker's Mac: it reversed every event that was
+    /// not the trackpad's, Lodestar's own included, vertically only. That
+    /// is why the axes once seemed to disagree, and why j ran up the page
+    /// the day Scroll Reverser 2.0 began leaving apps' events alone.
+    private static let downSign: Int32 = -1
+    private static let rightSign: Int32 = -1
 
     private(set) var appName = ""
     /// The app's own icon, for the pill's trailing wing.
@@ -74,40 +77,6 @@ final class ScrollController {
 
     init(model: WindowModel) {
         self.model = model
-        refreshNaturalScroll()
-    }
-
-    /// The system's scroll direction. A global-domain preference read
-    /// waits on cfprefsd, and one such read on main never came back after
-    /// a Bluetooth restart (the 2026-09-28 crash): this one ran inside the
-    /// key tap on every entry. Entry uses the value last read and asks
-    /// again on a queue of its own for next time; a change in System
-    /// Settings shows up one entry late. Replaced by the tests, to hang.
-    var readNaturalScroll: () -> Bool = {
-        CFPreferencesCopyAppValue("com.apple.swipescrolldirection" as CFString,
-                                  kCFPreferencesAnyApplication) as? Bool ?? true
-    }
-    private let directionLock = NSLock()
-    private var naturalScroll = true
-    private var readingDirection = false
-    private let directionReads = DispatchQueue(label: "lodestar.scroll.direction", qos: .utility)
-
-    private func refreshNaturalScroll() {
-        let start = directionLock.withLock { () -> Bool in
-            guard !readingDirection else { return false }
-            readingDirection = true
-            return true
-        }
-        guard start else { return }
-        let read = readNaturalScroll
-        directionReads.async { [weak self] in
-            let natural = read()
-            guard let self else { return }
-            self.directionLock.withLock {
-                self.naturalScroll = natural
-                self.readingDirection = false
-            }
-        }
     }
 
     private var discoveryGeneration = 0
@@ -150,8 +119,6 @@ final class ScrollController {
         aimsLanded = 0
         aimsAway = 0
         discoveryGeneration += 1
-        sign = directionLock.withLock { naturalScroll } ? 1 : -1
-        refreshNaturalScroll()
         if let focused = model.focusedWindowNow() {
             appName = focused.appName
             appIcon = NSRunningApplication(processIdentifier: focused.pid)?.icon
@@ -322,7 +289,7 @@ final class ScrollController {
         horizontalRemainder -= Double(dx)
         if dy != 0 || dx != 0 {
             if HotkeyEngine.traceTap { Log.info("smooth: tick dy=\(dy) dx=\(dx) held=\(heldKeys.sorted())") }
-            post(dx: horizontalSign * dx, dy: sign * dy)
+            post(dx: Self.rightSign * dx, dy: Self.downSign * dy)
         }
     }
 
@@ -468,11 +435,11 @@ final class ScrollController {
     }
 
     private func postVertical(_ down: Int32) {
-        post(dy: sign * down)
+        post(dy: Self.downSign * down)
     }
 
     private func postHorizontal(_ right: Int32) {
-        post(dx: horizontalSign * right)
+        post(dx: Self.rightSign * right)
     }
 
     private func post(dx: Int32 = 0, dy: Int32 = 0) {

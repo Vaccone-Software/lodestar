@@ -211,38 +211,39 @@ final class ScrollScenarioTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(full - 2 * half), 1)
     }
 
-    /// Entry reads the system's scroll direction, a preference that waits
-    /// on cfprefsd. A read that hangs must not hold the key tap: entry
-    /// uses the value last read, and the direction follows the setting
-    /// from the next entry on.
-    func testAHungDirectionReadNeverHoldsEntry() {
+    /// Every verb's direction, in the numbers a posted wheel event
+    /// carries: negative wheel1 moves the view toward the document's end,
+    /// negative wheel2 toward its right edge, whatever the Mac's
+    /// natural-scrolling setting, which never applies to a posted event.
+    /// The sign once followed that setting and nothing here asked which
+    /// way j went, so j ran up the page for weeks.
+    func testEveryVerbScrollsTheWayItNames() {
         let stage = Stage()
-        // A known setting first, whatever this Mac's is.
-        stage.scroller.readNaturalScroll = { true }
         enterScroll(stage)
-        stage.press("escape")
-        stage.settle(turns: 5)
 
-        let hung = DispatchSemaphore(value: 0)
-        stage.scroller.readNaturalScroll = { _ = hung.wait(timeout: .now() + 5); return false }
-        let started = Date()
-        enterScroll(stage)
-        // A loaded machine makes entry slow; only a read held inside it
-        // makes it as slow as the hang.
-        XCTAssertLessThan(Date().timeIntervalSince(started), 2, "entry did not wait on the read")
-        stage.keyDown("j")
-        stage.pump(until: { !stage.wheel.isEmpty })
-        let natural = stage.wheel.first?.dy ?? 0
-        stage.keyUp("j")
-        stage.press("escape")
-        hung.signal()
-        stage.settle(turns: 5)
+        func first(_ verb: String, _ act: () -> Void) -> (dx: Int32, dy: Int32) {
+            stage.wheel = []
+            act()
+            stage.pump(until: { !stage.wheel.isEmpty })
+            XCTAssertFalse(stage.wheel.isEmpty, "\(verb) posted nothing")
+            return stage.wheel.first ?? (0, 0)
+        }
+        func held(_ key: String) -> (dx: Int32, dy: Int32) {
+            let tick = first(key) { stage.keyDown(key) }
+            stage.keyUp(key)
+            stage.settle(turns: 3)
+            return tick
+        }
 
-        stage.wheel = []
-        enterScroll(stage)
-        stage.keyDown("j")
-        stage.pump(until: { !stage.wheel.isEmpty })
-        XCTAssertEqual(stage.wheel.first?.dy ?? 0, -natural, "the setting read late applies on the next entry")
-        stage.keyUp("j")
+        XCTAssertLessThan(held("j").dy, 0, "j goes down the page")
+        XCTAssertGreaterThan(held("k").dy, 0, "k goes up the page")
+        XCTAssertLessThan(held("l").dx, 0, "l goes right")
+        XCTAssertGreaterThan(held("h").dx, 0, "h goes left")
+        XCTAssertLessThan(first("d") { stage.press("d") }.dy, 0, "d goes down half a page")
+        XCTAssertGreaterThan(first("u") { stage.press("u") }.dy, 0, "u goes up half a page")
+        XCTAssertLessThan(first("G") { stage.press("g", shift: true) }.dy, 0, "G goes to the end")
+        XCTAssertGreaterThan(first("gg") { stage.press("g"); stage.press("g") }.dy, 0, "gg goes to the start")
+        XCTAssertLessThan(first("$") { stage.press("4", shift: true) }.dx, 0, "$ goes to the right edge")
+        XCTAssertGreaterThan(first("0") { stage.press("0") }.dx, 0, "0 goes to the left edge")
     }
 }

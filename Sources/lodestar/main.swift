@@ -1282,6 +1282,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// A move out of the config is under way; the reload it causes must
     /// not start another.
     private var movingPerson = false
+    /// Bumped when the health record is deleted or set aside, before it
+    /// goes: a write queued earlier checks it, so it can never bring the
+    /// facts back into the record that replaced it.
+    private let personGeneration = PersonGeneration()
+    /// The move out of the config could not be sealed this launch: said
+    /// once, not at every reload.
+    private var personMoveFailed = false
 
     /// Main. The facts as the launch read them, once the keys settled.
     private func personRead(_ read: PersonFile.Read, scrubbed: Int) {
@@ -1314,22 +1321,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard next != current else { return nil }
         person = next
         settings.config = config
-        savePerson(next, over: current) { _ in }
+        savePerson(next, over: current, announce: true) { _ in }
         return nil
     }
 
     /// Main. Seals `next` off the main thread. On failure the row goes back
-    /// to what is on disk and says so; `done` hears which.
-    private func savePerson(_ next: Person, over previous: Person, done: @escaping (Bool) -> Void) {
+    /// to what is on disk and, when `announce`, says so; `done` hears which.
+    /// A write the deletion of the record overtook is not made, and one it
+    /// overtook mid-write is removed again.
+    private func savePerson(_ next: Person, over previous: Person, announce: Bool,
+                            done: @escaping (Bool) -> Void) {
         let file = PersonFile(ring: vault.ring(.health))
+        let generation = personGeneration.value
+        let counter = personGeneration
         personQueue.async { [weak self] in
+            guard counter.value == generation else { return }
             let written = file.write(next)
+            if counter.value != generation { try? FileManager.default.removeItem(at: file.stored.url) }
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, counter.value == generation else { return }
                 guard written != .written else { return done(true) }
                 Log.error("health: person.json was not written", ["why": "\(written)"])
                 if self.person == next { self.person = previous }
-                self.hud.flash("✕ Not saved. The health record could not be written")
+                if announce { self.hud.flash("✕ Not saved. The health record could not be written") }
                 self.settings.config = self.config
                 done(false)
             }
@@ -1341,13 +1355,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// file. The config history never kept them (`ConfigHistory.changes`),
     /// so the removal leaves no plaintext copy behind.
     private func movePersonOutOfConfig() {
-        guard !movingPerson, let current = person,
+        guard !movingPerson, !personMoveFailed, let current = person,
               config.healthBorn != nil || !config.healthHand.isEmpty else { return }
+        switch vault.ring(.health).availability {
+        case .paused, .keyLost: return
+        default: break
+        }
         let merged = current.movingIn(born: config.healthBorn, hand: config.healthHand)
         movingPerson = true
+        // The facts are the merged ones from here, so an edit made while
+        // the move is sealing builds on them and not on what came before.
+        person = merged
         let strip = { [weak self] in
             guard let self else { return }
-            self.person = merged
             if let problem = self.rewriteConfig(flash: "", logged: "health: the facts about you moved to the sealed record",
                                                 edit: { tree in
                                                     Person.configPaths.reduce(tree) { ConfigHistory.applying(nil, at: $1, to: $0) }
@@ -1357,15 +1377,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.movingPerson = false
         }
         guard merged != current else { return strip() }
-        savePerson(merged, over: current) { [weak self] saved in
-            if saved { strip() } else { self?.movingPerson = false }
+        savePerson(merged, over: current, announce: false) { [weak self] saved in
+            if saved {
+                strip()
+            } else {
+                self?.movingPerson = false
+                self?.personMoveFailed = true
+            }
         }
     }
 
-    /// Main. The health record was deleted or set aside, and the facts went
-    /// with it.
+    /// Main. The health record is about to be deleted or set aside, and
+    /// the facts go with it: called before it goes, so no write queued
+    /// earlier lands in the record that replaces it.
     private func forgetPerson() {
+        personGeneration.bump()
         person = Person()
+        movingPerson = false
         settings.config = config
     }
 
@@ -1700,17 +1728,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // files that nothing can open are moved (never deleted) into a
             // dated folder, and the next press makes a new key.
             health.forgetBuffered()
+            forgetPerson()
             if let folder = vault.ring(.health).startNewRecord() {
-                forgetPerson()
                 hud.flash("✓ New health record · the old files are in \(folder)")
             } else {
                 hud.flash("✕ Could not start a new health record — nothing changed")
             }
             settings.config = config
         case "delete-health":
+            forgetPerson()
             health.forgetBuffered()
             observationStore?.clearHealth()
-            forgetPerson()
             hud.flash("✓ Health record deleted")
         default:
             Log.error("settings", ["unknown action": action])
@@ -2537,9 +2565,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let clears = observationStore?.consumeClearRequest(), clears.logbook || clears.health {
             if clears.logbook { observationStore?.clearLogbook() }
             if clears.health {
+                forgetPerson()
                 health.forgetBuffered()
                 observationStore?.clearHealth()
-                forgetPerson()
             }
             hud.flash(clears.logbook && clears.health ? "⌂ logbook and health cleared"
                       : clears.logbook ? "⌂ logbook cleared" : "⌂ health cleared")
@@ -3199,4 +3227,12 @@ app.setActivationPolicy(.accessory)
 // events reach the unified log only.
 withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog()]) }) {
     app.run()
+}
+
+/// A counter any thread may read: the facts' generation (`forgetPerson`).
+final class PersonGeneration: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = 0
+    var value: Int { lock.lock(); defer { lock.unlock() }; return current }
+    func bump() { lock.lock(); current += 1; lock.unlock() }
 }

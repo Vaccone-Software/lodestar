@@ -105,5 +105,9 @@ final class VoiceTests: XCTestCase {
         XCTAssertNil(VoiceStats.analyse(quiet(3), words: 0))
         XCTAssertNil(VoiceStats.analyse(voice(seconds: 0.5).signal + quiet(1), words: 1))
         XCTAssertNil(VoiceStats.analyse([], words: 0))
+        // Shorter than one frame: nothing is read past the end.
+        for count in [1, 160, 481, 639] {
+            XCTAssertNil(VoiceStats.analyse([Float](repeating: 0.1, count: count), words: 1))
+        }
     }
 }

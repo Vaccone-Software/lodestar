@@ -352,6 +352,10 @@ final class DraftController {
     /// Every microphone this draft listened through: more than one means
     /// the Mac's own stood in while a headset woke.
     private var inputsHeard: Set<String> = []
+    /// How many times this draft started listening. A restart (a new
+    /// microphone, the watchdog) begins the held audio again, so the words
+    /// counted no longer match the audio held: its voice is not measured.
+    private var listens = 0
     private var backspaces = 0
     private var modeSwitches = 0
     private var firstKeyAt: Date?
@@ -575,7 +579,7 @@ final class DraftController {
         provisional = nil
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
-        firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []
+        firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
 
         // What is under the cursor: a selection through either door, the
         // whole field through edit.
@@ -653,7 +657,7 @@ final class DraftController {
         doorWidth = panel.width(for: text)
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
-        firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []
+        firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
         mode = .insert
         vim.startInsert(buffer)
         Log.info("draft", ["open": Draft.Door.clip.rawValue, "characters": text.count])
@@ -786,6 +790,7 @@ final class DraftController {
                 self.settler.codeNames = index
             }
         }
+        listens += 1
         speech.listen(input: inputDevice, onState: { [weak self] state in
             guard let self, self.isOpen, self.session == mine else { return }
             self.speechState = state
@@ -1779,7 +1784,7 @@ final class DraftController {
     /// session holds, before the next session drops it. Only the numbers
     /// are kept.
     private func measureVoice(app: String) {
-        guard measuresVoice, spokenWords > 0, let observations else { return }
+        guard measuresVoice, spokenWords > 0, listens == 1, let observations else { return }
         let held = speech.held
         let samples = held.slice(from: 0, to: held.seconds)
         let words = spokenWords

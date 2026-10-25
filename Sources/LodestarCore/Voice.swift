@@ -68,8 +68,8 @@ public struct VoiceStats: Codable, Equatable {
     /// Nil when there is too little sound to say anything (under a second
     /// of speech).
     public static func analyse(_ samples: [Float], words: Int, mic: String? = nil, mixed: Bool? = nil) -> VoiceStats? {
+        guard samples.count >= frame else { return nil }
         let count = (samples.count - frame) / hop + 1
-        guard count > 0 else { return nil }
         let hopSeconds = Double(hop) / rate
         var dbs = [Float](repeating: -160, count: count)
         var lags = [Float](repeating: 0, count: count)

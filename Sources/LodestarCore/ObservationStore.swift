@@ -513,6 +513,9 @@ public final class ObservationStore {
     /// One spoken draft's voice, measured once it closed: health's switch,
     /// since it describes the person and not Lodestar.
     public func voice(_ stats: VoiceStats, app: String?, at start: Date) {
+        // A draft that began before the record was deleted belongs to the
+        // record that is gone.
+        if let cleared = healthClearedAt, start < cleared { return }
         var event = ObservationEvent(t: start, kind: .voice)
         event.voice = stats
         event.app = app
@@ -548,6 +551,8 @@ public final class ObservationStore {
     }
 
     private var healthEnabled = true
+    /// When the health record was last deleted under this launch.
+    private var healthClearedAt: Date?
 
     /// The instrument observing itself: a surface's warmup, in seconds.
     public func latency(surface: String, seconds: TimeInterval, at now: Date = Date()) {
@@ -618,6 +623,7 @@ public final class ObservationStore {
     /// cleared only if the rollup can be read; if it cannot, it is left as it
     /// is and the log says so.
     public func clearHealth() {
+        healthClearedAt = Date()
         healthLog.clear()
         let directory = file.deletingLastPathComponent()
         let root = directory.path

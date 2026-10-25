@@ -7,8 +7,9 @@ import LodestarEars
 /// the draft closes, as the editor's model is. A model lives under
 /// `~/.local/share/lodestar/ears/`; choosing Standard or Full in Settings
 /// fetches its pinned files (never on a metered connection), and
-/// Automatic uses the best one already there. With none, the draft runs
-/// on Apple's recognizer and its own pipeline alone.
+/// Automatic uses the best one already there. With none, or when a load
+/// fails, the draft runs on Apple's recognizer and its own pipeline
+/// alone. The failure stays until a later load works.
 ///
 /// Each tier also brings the language model the draft asks what was
 /// meant (`CleanupModel`), fetched once the ear is whole into the models
@@ -23,6 +24,14 @@ final class EarHost {
     private(set) var tier: EarTier = .apple
     private var idle: DispatchWorkItem?
     private var loading = false
+    /// The ear now in memory failed its last load. Kept until a later load
+    /// of this same ear works, or the tier is replaced. While it is set,
+    /// the draft hears with Apple's recognizer alone.
+    private var loadFailed = false
+    /// What Settings was last told. It is told again only when the words move.
+    private var lastStatus = ""
+    /// The row's words changed, so Settings can draw them.
+    var statusChanged: () -> Void = {}
 
     /// Fetches a chosen tier's model; `ready` runs when it is whole.
     let download = EditorDownload(root: EarHost.folder)
@@ -119,12 +128,18 @@ final class EarHost {
         if let fetching = cleanupDownload.model, fetching != suited.cleanup.map(ModelID.cleanup) {
             cleanupDownload.cancel(keepingPartial: true)
         }
-        defer { adoptCleanup() }
+        defer {
+            adoptCleanup()
+            noteStatus()
+        }
         let next = EarTier.resolved(named, memoryGB: EditorEngine.physicalGB, hasModel: Self.hasModel)
         guard next != tier || (ear == nil && next != .apple) else { return }
         ear?.unload()
         ear = nil
         tier = next
+        // The ear just installed has not been asked to load. A failure
+        // belonged to the one it replaces.
+        loadFailed = false
         if let engine = next.engine, let url = Self.modelFolder(next) {
             ear = EarFactory.make(engine, folder: url)
         }
@@ -172,13 +187,43 @@ final class EarHost {
         return removed
     }
 
-    /// What the Settings row says: the ear in use, or the one on its way.
+    /// What the Settings row says: a load that failed (the draft is on
+    /// Apple's recognizer), the model on its way, or the ear in use.
     var status: String {
-        if let fetching = download.status ?? cleanupDownload.status { return fetching }
+        Self.statusLine(tier: tier, named: named,
+                        fetching: download.status ?? cleanupDownload.status,
+                        loadFailed: loadFailed)
+    }
+
+    /// The row's words for a tier. A failed load is said ahead of a download:
+    /// the cleanup model arriving must not hide that the ear did not load.
+    static func statusLine(tier: EarTier, named: String, fetching: String?,
+                           loadFailed: Bool) -> String {
+        if loadFailed, tier != .apple {
+            return "\(tier.name) failed to load, so Apple's recognizer is being used"
+        }
+        if let fetching { return fetching }
         switch tier {
         case .apple: return named == "apple" ? "" : "Not on this Mac yet"
         case .standard, .full, .max: return "\(tier.name) in use"
         }
+    }
+
+    /// Settings hears when the row's words have moved.
+    private func noteStatus() {
+        let next = status
+        guard next != lastStatus else { return }
+        lastStatus = next
+        statusChanged()
+    }
+
+    /// For the tests: an ear and the tier the row would be speaking about,
+    /// without a model folder on disk.
+    func stageForTesting(tier: EarTier, named: String, ear: SettlingEar? = nil, loadFailed: Bool = false) {
+        self.ear = ear
+        self.tier = tier
+        self.named = named
+        self.loadFailed = loadFailed
     }
 
     /// Dictation started: the ear loads now, off the main thread, if it
@@ -191,16 +236,28 @@ final class EarHost {
         }
         guard let ear, !ear.isLoaded, !loading else { return }
         loading = true
+        let loadingEar = ear
         Task.detached { [weak self] in
             let began = Date()
+            var failed = false
             do {
-                try await ear.load()
-                Log.info("draft", ["ear": ear.name, "loaded ms": Int(Date().timeIntervalSince(began) * 1000)])
+                try await loadingEar.load()
+                Log.info("draft", ["ear": loadingEar.name, "loaded ms": Int(Date().timeIntervalSince(began) * 1000)])
             } catch {
-                Log.info("draft", ["ear": ear.name, "load failed": "\(error)"])
+                failed = true
+                Log.info("draft", ["ear": loadingEar.name, "load failed": "\(error)"])
             }
-            await MainActor.run { self?.loading = false }
+            let outcome = failed
+            await MainActor.run { self?.finishLoad(of: loadingEar, failed: outcome) }
         }
+    }
+
+    /// `ear`'s load ended. A failure stays until a later load of this same
+    /// ear works. A load for an ear since replaced does not count.
+    private func finishLoad(of ear: SettlingEar, failed: Bool) {
+        loading = false
+        if (self.ear as AnyObject?) === (ear as AnyObject) { loadFailed = failed }
+        noteStatus()
     }
 
     /// The draft closed: the ear lets its memory go after a while.

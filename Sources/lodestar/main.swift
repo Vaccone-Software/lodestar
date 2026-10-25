@@ -432,6 +432,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         earHost.ready = { [weak self] tier in
             self?.hud.flash("✓ The \(tier.name.lowercased()) dictation model is ready\nIt now hears each phrase twice")
         }
+        earHost.statusChanged = { [weak self] in
+            self?.settings.machineStateChanged()
+        }
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
         draft.sounds = config.sounds
         draft.measuresVoice = config.observationsHealth

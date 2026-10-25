@@ -49,6 +49,8 @@ public struct Config {
     public var showMenuBar = true
     /// How the active display is chosen: pointer | focus.
     public var activeDisplayMode = ActivePolicy.Mode.pointer
+    /// Which way a mouse wheel scrolls: system | natural | standard.
+    public var mouseScrolling = MouseScroll.Direction.system
     /// "metric" or "imperial": the units a copied measurement is read
     /// into. Empty until chosen, and then the region's.
     public var units = ""
@@ -425,6 +427,7 @@ public struct Config {
         config.showMenuBar = file.app.showMenuBar
         config.units = file.app.units
         config.activeDisplayMode = file.app.activeDisplay
+        config.mouseScrolling = file.app.mouseScrolling
         config.trigger = file.lode.trigger
         config.lodeTap = file.lode.tap
         config.scrollStep = CGFloat(file.scroll.step)

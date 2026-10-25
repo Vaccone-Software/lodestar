@@ -71,6 +71,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let control = ControlSocket()
     private let settings = SettingsController()
     private let health = HealthMonitor(vault: AppDelegate.sealedVault)
+    /// app.mouse-scrolling: turns a mouse wheel apart from the trackpad.
+    private let mouseScroll = MouseScrollTap()
     /// Which road each focus change took — stamped by the summon path,
     /// the main tap (⌘⇥), and the mouse tap (clicks); read by the focus
     /// observer. See `FocusRoads`.
@@ -178,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         KeyboardLayout.install()
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
+        mouseScroll.configure(loaded.mouseScrolling)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         // A layout switched at lunch renames the keys by the afternoon:
         // the overlay recomputes the moment the input source changes.
@@ -827,6 +830,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 Log.info("accessibility granted — waking up")
                 self.model.stop()
                 self.model.start()
+                // Made before trust, the wheel's tap could not be.
+                self.mouseScroll.configure(self.config.mouseScrolling)
                 if self.engine.start() {
                     self.flashReady("\(self.model.windows.count) windows tracked")
                 }
@@ -1390,6 +1395,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // As health last read it, off the main thread: the privacy
             // service is never asked from here.
             state.inputMonitoring = self?.health.listenGranted.map { $0 ? "Granted" : "Not granted" } ?? "unknown"
+            state.naturalScrolling = self?.mouseScroll.naturalScrolling
+            state.scrollReverserRunning = NSWorkspace.shared.runningApplications
+                .contains { $0.bundleIdentifier == "com.pilotmoon.scroll-reverser" }
             state.draftModelLabels = EarTier.allCases.map { $0.label(memoryGB: EditorEngine.physicalGB) }
             state.draftModelsUnavailable = Set(EarTier.allCases
                 .filter { EditorEngine.physicalGB < $0.memoryNeeded - 1 }.map(\.rawValue))
@@ -2453,6 +2461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
+        mouseScroll.configure(loaded.mouseScrolling)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         engine.config = loaded
         webBar.config = loaded

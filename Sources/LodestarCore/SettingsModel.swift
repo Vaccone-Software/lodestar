@@ -269,6 +269,11 @@ public enum SettingsModel {
         public var earStatus = ""
         /// Input Monitoring, for exact keyboard attribution: "Granted" or not.
         public var inputMonitoring = "unknown"
+        /// The Mac's one scroll direction, as last read off the main thread:
+        /// nil until it has been.
+        public var naturalScrolling: Bool?
+        /// Scroll Reverser is running, which would turn the wheel a second time.
+        public var scrollReverserRunning = false
         /// The health record's size warning, once it is near its bound.
         public var healthWarning: String?
         /// The person's facts, from the sealed `person.json`: nil until the
@@ -412,6 +417,20 @@ public enum SettingsModel {
             return granted(state) ? row : row.doing(Action(id: "open-\(pane)", label: "Open System Settings"))
         }
 
+        // A mouse's wheel apart from the trackpad. System names what the
+        // Mac's one setting is, so the choice says what it leaves in place.
+        let systemLabel = machine.naturalScrolling.map { "System · " + ($0 ? "Natural" : "Standard") } ?? "System"
+        var mouseDetail = "Which way a mouse wheel scrolls. The trackpad keeps the Mac's own setting"
+        if machine.scrollReverserRunning, config.mouseScrolling != .system {
+            mouseDetail += ". Scroll Reverser is running too. Quit it so the wheel is not turned twice"
+        }
+        let mouseScrolling = Row(title: "Mouse scrolling", path: "app.mouse-scrolling",
+            control: .choice(options: MouseScroll.Direction.allCases.map(\.rawValue),
+                             labels: [systemLabel, "Natural", "Standard"],
+                             current: config.mouseScrolling.rawValue),
+            detail: mouseDetail,
+            isDefault: config.mouseScrolling == .system, group: "Mouse")
+
         // 0 · General
         sections.append(Section(name: "General", rows: [
             Row(title: "Start at login", path: "app.start-at-login",
@@ -440,6 +459,7 @@ public enum SettingsModel {
                 control: .toggle(config.eyeComfort),
                 detail: "Lodestar adjusts its own surfaces through the day to be easier on your eyes: dimmer and softer after sunset, dimmer still late at night, and quieter when you're not using them. What you copy and view is never changed",
                 isDefault: config.eyeComfort, group: "Sound and display"),
+            mouseScrolling,
             permission("Accessibility", state: machine.accessibility,
                        detail: "Seeing windows, moving them and reading menus. Lodestar cannot work without it",
                        pane: "accessibility", group: "Permission"),

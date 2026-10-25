@@ -63,41 +63,44 @@ final class MainThreadWatchdogTests: XCTestCase {
 
     /// An answer late enough to cost the key tap, short of the ceiling, is
     /// written down with how late it was, and the launch's is told apart.
+    ///
+    /// The watchdog asks a queue this test holds, not main: XCTest's main
+    /// thread is not always free to answer inside a test, and twice in CI
+    /// an ask went unanswered for ten seconds while the test ran the run
+    /// loop, which read as a freeze. Holding a queue is exact: it answers
+    /// the moment it is resumed, whatever else the machine is doing.
     func testALateAnswerIsReportedWithItsLength() {
-        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 10, launchCeiling: 10, lateThreshold: 0.2)
+        let target = DispatchQueue(label: "watchdog-test.main")
+        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 10, launchCeiling: 10, lateThreshold: 0.2,
+                                          target: target)
         let lock = NSLock()
         var late: [(seconds: TimeInterval, launch: Bool)] = []
         var stalls = 0
         watchdog.onLate = { seconds, launch in lock.withLock { late.append((seconds, launch)) } }
         watchdog.onStall = { _ in lock.withLock { stalls += 1 } }
         // Each report is waited for, not slept for: the watchdog's utility
-        // thread is scheduled late when the suite's shards all run, and a
-        // fixed wait stopped it before it had judged the hitch (the report
-        // was missing, read as 0 s). A loaded run can also add a short late
-        // answer of its own, so the hitch is looked for, not counted to.
+        // thread can be scheduled late when the suite's shards all run.
+        func waitFor(within seconds: TimeInterval, _ done: () -> Bool) {
+            let deadline = Date(timeIntervalSinceNow: seconds)
+            while !done(), Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+        }
         func hitch(_ seen: [(seconds: TimeInterval, launch: Bool)]) -> (seconds: TimeInterval, launch: Bool)? {
             seen.first { !$0.launch && $0.seconds >= 0.3 }
         }
-        func runUntil(within seconds: TimeInterval, _ done: () -> Bool) {
-            let deadline = Date(timeIntervalSinceNow: seconds)
-            while !done(), Date() < deadline {
-                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-            }
-        }
+        // A slow launch: held from before the first ask, long against the
+        // 0.2 s threshold and short of the allowance.
+        target.suspend()
         watchdog.start()
-        // A slow launch, long against the 0.2 s threshold and short of the
-        // allowance, so a late first ask still lands inside it.
-        Thread.sleep(forTimeInterval: 1.0)
-        runUntil(within: 5) { !lock.withLock { late }.isEmpty }
-        // The ceilings are far above every hold: under ship's load main has
-        // answered more than 3 s after an ask, and this test is about late
-        // reports arriving, not where frozen begins (the verdict test below
-        // holds that against a clock).
-        // A hitch while running, long against the 0.3 s asserted below: with
-        // the suite's seven processes running, the watchdog's ask has been
-        // seen arriving more than 0.7 s into a 1 s hitch, so this one is 2 s.
-        Thread.sleep(forTimeInterval: 2.0)
-        runUntil(within: 5) { hitch(lock.withLock { late }) != nil }
+        Thread.sleep(forTimeInterval: 0.6)
+        target.resume()
+        waitFor(within: 5) { !lock.withLock { late }.isEmpty }
+        // A hitch while running, held until an ask has been waiting on it
+        // for longer than the 0.3 s asserted below.
+        waitFor(within: 1) { false }
+        target.suspend()
+        Thread.sleep(forTimeInterval: 0.8)
+        target.resume()
+        waitFor(within: 5) { hitch(lock.withLock { late }) != nil }
         watchdog.stop()
         let seen = lock.withLock { late }
         XCTAssertEqual(lock.withLock { stalls }, 0, "late is not frozen")

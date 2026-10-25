@@ -84,6 +84,11 @@ final class MainThreadWatchdog {
     /// the same. Injectable, so the decisions are tested without waiting.
     private let clock: AnyClock
     typealias Instant = AnyClock.Instant
+    /// The queue asked: main, in the app. A test asks a queue it holds
+    /// itself, because XCTest's main thread is not always free to answer
+    /// inside a test, and a hold it did not make read as a ten second
+    /// freeze (twice in CI, 2026-10-25).
+    private let target: DispatchQueue
 
     private var thread: Thread?
     private var running = false
@@ -94,8 +99,9 @@ final class MainThreadWatchdog {
     /// is caught only if it covers an ask, and the tap goes off in about
     /// a second.
     init(interval: TimeInterval = 0.5, ceiling: TimeInterval = 8, launchCeiling: TimeInterval = 60,
-         lateThreshold: TimeInterval = 1, clock: AnyClock = .suspending) {
+         lateThreshold: TimeInterval = 1, clock: AnyClock = .suspending, target: DispatchQueue = .main) {
         self.clock = clock
+        self.target = target
         self.interval = interval
         self.ceiling = ceiling
         self.launchCeiling = max(ceiling, launchCeiling)
@@ -145,7 +151,7 @@ final class MainThreadWatchdog {
             answeredAt = nil
             lock.unlock()
             let asked = clock.now
-            DispatchQueue.main.async { [weak self] in
+            target.async { [weak self] in
                 guard let self else { return }
                 self.lock.lock()
                 self.answeredAt = self.clock.now

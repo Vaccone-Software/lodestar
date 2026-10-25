@@ -510,6 +510,15 @@ public final class ObservationStore {
         recordHealth(event)
     }
 
+    /// One spoken draft's voice, measured once it closed: health's switch,
+    /// since it describes the person and not Lodestar.
+    public func voice(_ stats: VoiceStats, app: String?, at start: Date) {
+        var event = ObservationEvent(t: start, kind: .voice)
+        event.voice = stats
+        event.app = app
+        recordHealth(event)
+    }
+
     /// A quarter hour of clicks in one app, folded by `ClickPulse`. The
     /// same gate as the pulse: it watches every click, not Lodestar's.
     public func clickPulse(_ event: ObservationEvent) {

@@ -346,6 +346,12 @@ final class DraftController {
     private var openedAt = Date.distantPast
     private var typedCharacters = 0
     private var spokenWords = 0
+    /// Health's switch: a spoken draft's voice is measured as it closes
+    /// (`VoiceStats`) only while it is on.
+    var measuresVoice = false
+    /// Every microphone this draft listened through: more than one means
+    /// the Mac's own stood in while a headset woke.
+    private var inputsHeard: Set<String> = []
     private var backspaces = 0
     private var modeSwitches = 0
     private var firstKeyAt: Date?
@@ -569,7 +575,7 @@ final class DraftController {
         provisional = nil
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
-        firstKeyAt = nil; firstWordAt = nil; peakDb = nil
+        firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []
 
         // What is under the cursor: a selection through either door, the
         // whole field through edit.
@@ -647,7 +653,7 @@ final class DraftController {
         doorWidth = panel.width(for: text)
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
-        firstKeyAt = nil; firstWordAt = nil; peakDb = nil
+        firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []
         mode = .insert
         vim.startInsert(buffer)
         Log.info("draft", ["open": Draft.Door.clip.rawValue, "characters": text.count])
@@ -790,6 +796,7 @@ final class DraftController {
                 let first = !self.listening
                 self.listening = true
                 self.inputName = input
+                if let input { self.inputsHeard.insert(input) }
                 self.watchForSilence(session: mine)
                 // The device actually read, when the session named it:
                 // a pinned input that fell back gates on what is open.
@@ -1765,6 +1772,26 @@ final class DraftController {
         Log.info("draft", ["end": action, "words": spokenWords, "typed": typedCharacters,
                            "seconds": Int(now.timeIntervalSince(openedAt)),
                            "peakDb": peakDb.map { Int($0) } ?? "none"])
+        measureVoice(app: destination?.name ?? "clipboard")
+    }
+
+    /// The draft's voice, measured off the main thread from the audio the
+    /// session holds, before the next session drops it. Only the numbers
+    /// are kept.
+    private func measureVoice(app: String) {
+        guard measuresVoice, spokenWords > 0, let observations else { return }
+        let held = speech.held
+        let samples = held.slice(from: 0, to: held.seconds)
+        let words = spokenWords
+        let start = openedAt
+        let inputs = inputsHeard
+        let last = inputName
+        DispatchQueue.global(qos: .utility).async {
+            let mic = last.flatMap(AudioInput.transportClass(named:))
+            guard let stats = VoiceStats.analyse(samples, words: words, mic: mic,
+                                                 mixed: inputs.count > 1 ? true : nil) else { return }
+            DispatchQueue.main.async { observations.voice(stats, app: app, at: start) }
+        }
     }
 
     // MARK: - Drawing

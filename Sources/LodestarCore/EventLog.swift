@@ -125,6 +125,11 @@ public struct ObservationEvent: Codable, Equatable {
         /// nothing else; never which app held secure input. An analysis
         /// excludes these spans instead of reading them as rest.
         case blind
+        /// One spoken draft's voice, as numbers (`VoiceStats`): pitch,
+        /// loudness, jitter, shimmer, harmonics-to-noise, pauses and rate,
+        /// `app` where it went. Computed in memory once the draft closed;
+        /// the audio itself is never kept.
+        case voice
         /// A window joined a layout beside others by the hand — a shift
         /// summon, a chord letter, a beside move: `app` the arrival,
         /// `apps` the members it joined. Never a breath restore, which
@@ -141,7 +146,7 @@ public struct ObservationEvent: Codable, Equatable {
 
     /// The kinds that are the health record: what leaves a retired
     /// shard for the health archive instead of dying with it.
-    public static let healthKinds: Set<Kind> = [.pulse, .window, .era, .clicks, .blind]
+    public static let healthKinds: Set<Kind> = [.pulse, .window, .era, .clicks, .blind, .voice]
 
     public var t: Date
     public var kind: Kind
@@ -255,6 +260,7 @@ public struct ObservationEvent: Codable, Equatable {
     public var boutSeconds: Double?
     /// A window's description.
     public var window: WindowStats?
+    public var voice: VoiceStats?
     /// The keyboards attached while the pulse ran, by roster id.
     public var keyboards: [String]?
     /// The instrument watching itself: the callback's clock against the

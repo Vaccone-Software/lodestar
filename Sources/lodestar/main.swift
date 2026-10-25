@@ -431,6 +431,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
         draft.sounds = config.sounds
+        draft.measuresVoice = config.observationsHealth
         draft.playback = PlaybackPause()
         // The in-flight stash: a crash mid-draft costs at most the last
         // half second of words, recovered to the pasteboard at the next boot.
@@ -2523,6 +2524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyEditor(loaded)
         draftController?.inputDevice = loaded.draftInput.isEmpty ? nil : loaded.draftInput
         draftController?.sounds = loaded.sounds
+        draftController?.measuresVoice = loaded.observationsHealth
         clipboardController.maxBytes = loaded.clipboardMaxBytes
         clipboardController.saveFolder = loaded.clipboardSaveFolder
         clipboardController.setEnabled(loaded.clipboardEnabled)

@@ -886,6 +886,17 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
             }
             print(line)
         }
+        // The voice of the spoken drafts, measured as each closed.
+        if let voice = VoiceStats.summary(events: events, days: 28) {
+            var line = pad("  voice", 10)
+            line += pad("\(voice.drafts) draft\(voice.drafts == 1 ? "" : "s")", 20)
+            if let f0 = voice.f0 { line += pad(String(format: "pitch %.0fHz", f0), 15) }
+            if let jitter = voice.jitter { line += pad(String(format: "jitter %.1f%%", jitter * 100), 14) }
+            if let shimmer = voice.shimmer { line += pad(String(format: "shimmer %.1f%%", shimmer * 100), 15) }
+            if let hnr = voice.hnr { line += pad(String(format: "hnr %.0fdB", hnr), 10) }
+            if let rate = voice.rate { line += String(format: "%.1f words/s", rate) }
+            print(line)
+        }
         // The instrument on itself: how much of the typing the raw record
         // holds, how late the tap ran, and how many keyboards were seen.
         var quality = pad("  quality", 10)

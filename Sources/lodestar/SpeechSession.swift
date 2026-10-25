@@ -553,6 +553,19 @@ final class AudioInput: @unchecked Sendable {
         return fresh
     }
 
+    /// A named input's kind, for the voice record: built-in, bluetooth,
+    /// usb or other. Never the name, which is often a person's.
+    static func transportClass(named name: String) -> String? {
+        guard let id = inputDevices().first(where: { $0.name == name })?.id,
+              let transport = transport(of: id) else { return nil }
+        switch transport {
+        case kAudioDeviceTransportTypeBuiltIn: return "built-in"
+        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return "bluetooth"
+        case kAudioDeviceTransportTypeUSB: return "usb"
+        default: return "other"
+        }
+    }
+
     /// Every device with an input stream, by CoreAudio id and name.
     static func inputDevices() -> [(id: AudioDeviceID, name: String)] {
         var address = AudioObjectPropertyAddress(

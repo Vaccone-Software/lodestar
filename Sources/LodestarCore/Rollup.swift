@@ -810,6 +810,11 @@ public struct Rollup: Codable, Equatable {
             // archive needs nothing yet.
             return
 
+        case .voice:
+            // Each draft's voice is its own row in the health log, which is
+            // never pruned: nothing is summarised away here.
+            return
+
         case .clicks:
             guard let app = event.app else { return }
             var record = month.health.clicksByApp[app] ?? ClickMonth()

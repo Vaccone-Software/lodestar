@@ -2411,6 +2411,15 @@ extension SettingsController {
     func switchView(for path: String) -> AccentSwitch? { switches[path] }
     /// For the tests: the places as the model made them.
     var sectionsForTesting: [SettingsModel.Section] { sections }
+    /// For the tests: every menu the drawn place holds, with its row's path
+    /// and the values its items stand for, in the row's order.
+    var choicesForTesting: [(path: String, options: [String], popup: NSPopUpButton)] {
+        popups.sorted { $0.key < $1.key }.compactMap { index, popup in
+            guard current.rows.indices.contains(index),
+                  case .choice(let options, _, _) = current.rows[index].control else { return nil }
+            return (current.rows[index].path, options, popup)
+        }
+    }
     /// For the tests and the pictures: one setting as a place draws it.
     func settingRowForTesting(_ row: SettingsModel.Row, index: Int = 0, width: CGFloat, letterWidth: CGFloat) -> NSView {
         buildRow(row, index: index, width: width, letterWidth: letterWidth)

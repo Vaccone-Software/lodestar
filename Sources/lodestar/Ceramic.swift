@@ -1049,14 +1049,24 @@ final class ChoiceMenuItemView: NSView {
         sync()
     }
 
+    /// The whole line takes the click. A click goes to the deepest view
+    /// under it, and that was the line's slab, whose own mouse-up ends the
+    /// press and goes no further: the choice was never sent, so no menu in
+    /// Settings could change anything (0.53–0.54). The slab inside is
+    /// drawing only.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point) == nil ? nil : self
+    }
+
     /// A view in a menu takes the click itself: choose, close, and send
     /// the popup's action as the system's item would.
     override func mouseDown(with event: NSEvent) {
-        step.mouseDown(with: event)
+        choose(true)
+        step.press(true)
     }
 
     override func mouseUp(with event: NSEvent) {
-        step.mouseUp(with: event)
+        step.press(false)
         guard let item = enclosingMenuItem, item.isEnabled, let menu = item.menu else { return }
         menu.cancelTracking()
         let index = menu.index(of: item)

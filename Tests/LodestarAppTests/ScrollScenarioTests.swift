@@ -234,6 +234,16 @@ final class ScrollScenarioTests: XCTestCase {
             stage.settle(turns: 3)
             return tick
         }
+        // An edge is a glide of 150 steps, and the first g of gg rightly
+        // lets the last one run on: a press turns the run loop, so on a
+        // slow machine the steps G still owed landed as gg's. Each edge
+        // gets a session of its own, since leaving ends a glide.
+        func edge(_ verb: String, _ act: () -> Void) -> (dx: Int32, dy: Int32) {
+            stage.press("escape")
+            stage.settle(turns: 3)
+            enterScroll(stage)
+            return first(verb, act)
+        }
 
         XCTAssertLessThan(held("j").dy, 0, "j goes down the page")
         XCTAssertGreaterThan(held("k").dy, 0, "k goes up the page")
@@ -241,9 +251,9 @@ final class ScrollScenarioTests: XCTestCase {
         XCTAssertGreaterThan(held("h").dx, 0, "h goes left")
         XCTAssertLessThan(first("d") { stage.press("d") }.dy, 0, "d goes down half a page")
         XCTAssertGreaterThan(first("u") { stage.press("u") }.dy, 0, "u goes up half a page")
-        XCTAssertLessThan(first("G") { stage.press("g", shift: true) }.dy, 0, "G goes to the end")
-        XCTAssertGreaterThan(first("gg") { stage.press("g"); stage.press("g") }.dy, 0, "gg goes to the start")
-        XCTAssertLessThan(first("$") { stage.press("4", shift: true) }.dx, 0, "$ goes to the right edge")
-        XCTAssertGreaterThan(first("0") { stage.press("0") }.dx, 0, "0 goes to the left edge")
+        XCTAssertLessThan(edge("G") { stage.press("g", shift: true) }.dy, 0, "G goes to the end")
+        XCTAssertGreaterThan(edge("gg") { stage.press("g"); stage.press("g") }.dy, 0, "gg goes to the start")
+        XCTAssertLessThan(edge("$") { stage.press("4", shift: true) }.dx, 0, "$ goes to the right edge")
+        XCTAssertGreaterThan(edge("0") { stage.press("0") }.dx, 0, "0 goes to the left edge")
     }
 }

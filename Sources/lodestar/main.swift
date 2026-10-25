@@ -562,7 +562,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         health.setEnabled(loaded.observationsHealth)
         health.setFingerMap(loaded.fingerMap)
-        health.setExactKeyboards(loaded.healthExactKeyboards)
 
         // The coach: decisions in LodestarCore, this wiring is the coat.
         coach = CoachController()
@@ -1623,6 +1622,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             SystemEvents.open(URL(string: privacy + "Privacy_Accessibility")!)
         case "open-screen-recording":
             SystemEvents.open(URL(string: privacy + "Privacy_ScreenCapture")!)
+        case "open-input-monitoring":
+            SystemEvents.open(URL(string: privacy + "Privacy_ListenEvent")!)
         case "open-calendars":
             SystemEvents.open(URL(string: privacy + "Privacy_Calendars")!)
         case "clear-clipboard":
@@ -2472,7 +2473,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         observationStore?.setLogbookBound(loaded.logbookBytes)
         health.setEnabled(loaded.observationsHealth)
         health.setFingerMap(loaded.fingerMap)
-        health.setExactKeyboards(loaded.healthExactKeyboards)
         if let clears = observationStore?.consumeClearRequest(), clears.logbook || clears.health {
             if clears.logbook { observationStore?.clearLogbook() }
             if clears.health {

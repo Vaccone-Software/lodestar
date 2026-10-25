@@ -35,8 +35,8 @@ public struct EraInfo: Codable, Equatable {
     /// interval is not yet written down (`EraTracker`).
     public var reportIntervals: [String: ReportInterval]?
     /// The keyboard column was written by matching each press to its
-    /// keyboard's own report (`health.exact-keyboards`, Input Monitoring
-    /// granted), falling back to the roster's attribution only when no
+    /// keyboard's own report (Input Monitoring granted; before 0.55, also the
+    /// `health.exact-keyboards` setting), falling back to the roster's attribution only when no
     /// single physical keyboard matched. Nil or false: the roster's
     /// attribution alone. It changes what the column means, so it is part
     /// of the fingerprint when on.

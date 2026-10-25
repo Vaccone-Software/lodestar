@@ -589,37 +589,37 @@ final class HealthMonitor {
 
     // MARK: - Exact keyboards (entry point on the listener's thread, work on the queue)
 
-    private var exactWanted = false
+    /// Input Monitoring was asked for this launch: macOS shows its prompt
+    /// only while the question is unanswered, and Lodestar asks once.
+    private var askedToListen = false
     private lazy var listener = KeyboardListener { [weak self] usage, stamp, device in
         // The listener's thread: hand the four fields on and return.
         self?.queue.async { self?.reportLocked(usage: usage, stamp: stamp, device: device) }
     }
-    /// Main. Whether presses are being matched to reports right now: the
-    /// setting is on, health is on, Input Monitoring is granted, and the
-    /// manager opened. The era says so.
+    /// Main. Whether presses are being matched to reports right now: health
+    /// is on, Input Monitoring is granted, and the manager opened. The era
+    /// says so. There is no switch for it: when health watches the keys,
+    /// each press is charged to the keyboard that sent it wherever macOS
+    /// allows, and to the roster's best answer where it does not.
     private(set) var exactActive = false
     /// Whether Input Monitoring is granted. Replaced by the tests.
     var canListen: () -> Bool = { Permissions.canListenToKeyboards }
-    /// Asks macOS for Input Monitoring. Replaced by the tests.
-    var requestListening: () -> Void = { Permissions.requestKeyboardListening() }
+    /// Asks macOS for Input Monitoring. Replaced by the tests, and never
+    /// asked from a test run: a monitor that turns health on under the
+    /// suite must not put the system's prompt on the desk or the runner.
+    var requestListening: () -> Void = TestRun.active ? {} : { Permissions.requestKeyboardListening() }
 
-    /// Config's `health.exact-keyboards`. Main thread. Turned on without
-    /// the permission, macOS is asked once, then and only then; until it
-    /// is granted nothing is opened and attribution is the roster's.
-    func setExactKeyboards(_ on: Bool) {
-        let turnedOn = on && !exactWanted
-        exactWanted = on
-        if turnedOn, enabled, !canListen() { requestListening() }
-        let was = exactActive
-        reconcileExact()
-        if enabled, was != exactActive { checkEra() }
-    }
-
-    /// Main. Start or stop the listener to match the setting, the switch
-    /// and the permission; run again each minute, so a grant made while
-    /// Lodestar runs takes effect without a relaunch.
+    /// Main. Start or stop the listener to match the switch and the
+    /// permission; run again each minute, so a grant made while Lodestar
+    /// runs takes effect without a relaunch. The first time health is on
+    /// without the permission, macOS is asked, once a launch; until it is
+    /// granted nothing is opened and attribution is the roster's.
     private func reconcileExact() {
-        let want = exactWanted && enabled && canListen()
+        if enabled, !askedToListen, !canListen() {
+            askedToListen = true
+            requestListening()
+        }
+        let want = enabled && canListen()
         if want, !exactActive {
             exactActive = listener.start()
         } else if !want, exactActive {

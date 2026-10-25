@@ -148,8 +148,8 @@ enum GalleryRow {
             ])
             var model: [SettingsModel.Row] = [
                 SettingsModel.Row(title: "Start at login", path: "app.login", control: .toggle(true), isDefault: true),
-                SettingsModel.Row(title: "Exact keyboard", path: "health.exact-keyboards", control: .toggle(true),
-                                  detail: "Needs health", isDefault: false, dimmed: true),
+                SettingsModel.Row(title: "Coach", path: "coach.enabled", control: .toggle(true),
+                                  detail: "Needs the logbook", isDefault: false, dimmed: true),
                 SettingsModel.Row(title: "Limit", path: "observations.health-mb",
                                   control: .number(1024, min: 64, max: 16_384, unit: "MB"),
                                   detail: "Needs health", dimmed: true),
@@ -226,7 +226,6 @@ enum GalleryRow {
             var config = settings.config
             config.logbookEnabled = false
             config.observationsHealth = false
-            config.healthExactKeyboards = true
             settings.config = config
             settings.renderForTesting(place: SettingsModel.placeIndex("Observations"))
             return [settings]

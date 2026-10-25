@@ -17,9 +17,10 @@ public enum Permissions {
     }
 
     /// Input Monitoring: listening to keyboards through the HID manager,
-    /// which the health record's exact keyboard attribution needs
-    /// (`health.exact-keyboards`). Asked only when that is turned on; the
-    /// event tap needs Accessibility and never this.
+    /// which the health record's exact keyboard attribution needs. Asked
+    /// once a launch while health is on and it is not granted (macOS shows
+    /// the prompt only while it is unanswered); the event tap needs
+    /// Accessibility and never this.
     public static var canListenToKeyboards: Bool {
         IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
     }

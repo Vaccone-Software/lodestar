@@ -116,6 +116,21 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(sex, "female")
     }
 
+    /// Exact keyboard attribution has no switch: health asks for Input
+    /// Monitoring itself, and Settings shows the grant.
+    func testInputMonitoringIsAPermissionNotASwitch() {
+        let rows = place("Observations").rows
+        XCTAssertFalse(rows.contains { $0.path == "health.exact-keyboards" || $0.title == "Exact keyboard" })
+        var machine = SettingsModel.MachineState()
+        machine.inputMonitoring = "Not granted"
+        let asking = place("Observations", Config(), machine).rows.first { $0.title == "Input Monitoring" }
+        XCTAssertEqual(asking?.action?.id, "open-input-monitoring")
+        machine.inputMonitoring = "Granted"
+        let granted = place("Observations", Config(), machine).rows.first { $0.title == "Input Monitoring" }
+        XCTAssertNotNil(granted)
+        XCTAssertNil(granted?.action, "nothing to open once it is granted")
+    }
+
     func testAboutYouWaitsForTheHealthRecord() {
         let rows = place("Observations").rows.filter { $0.group == "About you" }
         XCTAssertTrue(rows.allSatisfy(\.dimmed), "nothing to show until the sealed facts are read")

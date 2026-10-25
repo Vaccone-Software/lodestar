@@ -136,7 +136,6 @@ public struct ConfigFile: Sendable, Equatable {
     public struct Health: Sendable, Equatable {
         /// The year, or none: a fact only the person can give.
         public var born: String?
-        public var exactKeyboards = false
         public var hand: String?
         public var keyboards: [String: [String: String]] = [:]
     }
@@ -265,6 +264,9 @@ extension ConfigFile {
             "select.commit-on-unique", "guide",
             // the registry itself, which the operation above has read
             "profiles",
+            // exact keyboard attribution, which is simply how health reads
+            // the keys now, wherever Input Monitoring allows (0.55)
+            "health.exact-keyboards",
         ])
 
     /// An object of the file, read exactly: a spelling that is not the
@@ -429,8 +431,6 @@ extension ConfigFile {
     private static let healthSection = section(Health.self, default: Health()) {
         Field("born", \.born, .optional(.string()),
               doc: "Moved to the health record, sealed. A year written here is moved there at launch and taken out of this file.")
-        Field("exact-keyboards", \.exactKeyboards, .bool,
-              doc: "Charge each press to the keyboard that sent it, by matching it to that keyboard's own report. Needs Input Monitoring. Off by default; without it a press two keyboards could have sent is charged to neither.")
         Field("hand", \.hand, .optional(.string(oneOf: ["left", "right", "either"])),
               doc: "Moved to the health record, sealed. A hand written here is moved there at launch and taken out of this file.")
         Field("keyboards", \.keyboards, keyboardKeys,

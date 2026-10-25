@@ -50,7 +50,7 @@ final class ConfigFileSchemaTests: XCTestCase {
             "health": .table(["keyboards": .table([:])]),
             "keys": .table([:]),
         ]
-        expected["health"] = .table(["keyboards": .table([:]), "exact-keyboards": .bool(false)])
+        expected["health"] = .table(["keyboards": .table([:])])
         XCTAssertEqual(ConfigFile.defaultTree, expected)
     }
 

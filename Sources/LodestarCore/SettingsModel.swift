@@ -768,14 +768,9 @@ public enum SettingsModel {
                 detail: config.observationsHealth ? "Lodestar tells you when the record nears this. Health is never deleted on its own" : "Needs health",
                 isDefault: config.healthBytes == Retention.healthBytes,
                 dimmed: !config.observationsHealth, group: "Health"),
-            Row(title: "Exact keyboard", path: "health.exact-keyboards",
-                control: .toggle(config.healthExactKeyboards),
-                detail: !config.observationsHealth ? "Needs health"
-                    : config.healthExactKeyboards && machine.inputMonitoring != "Granted"
-                    ? "Needs Input Monitoring in Privacy & Security"
-                    : "Charge each press to the keyboard that sent it. Needs Input Monitoring",
-                isDefault: !config.healthExactKeyboards,
-                dimmed: !config.observationsHealth, group: "Health"),
+            permission("Input Monitoring", state: machine.inputMonitoring,
+                       detail: "Charging each press to the keyboard that sent it, for health",
+                       pane: "input-monitoring", group: "Health"),
             Row(title: "Born", path: "health.born",
                 control: .text(person?.born.map(String.init) ?? "", placeholder: "Year"),
                 detail: about("Age adjusts every reading of the hands"),

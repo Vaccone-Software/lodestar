@@ -163,9 +163,6 @@ public struct Config {
     /// clusters. Only the finger column reads it; the hand column is the
     /// windows' class and never moves.
     public var fingerMap = FingerMap()
-    /// `health.exact-keyboards`: charge each press to the keyboard whose
-    /// HID report matches it. Off by default; needs Input Monitoring.
-    public var healthExactKeyboards = false
     public var coachEnabled = true
     /// The walk: a cue at a stopping point after `standAfterMinutes` of
     /// unbroken work.
@@ -509,7 +506,6 @@ public struct Config {
         config.healthBytes = Int64(file.observations.healthMB) << 20
         config.logbookEnabled = file.observations.logbook
         config.observationsHealth = file.observations.health
-        config.healthExactKeyboards = file.health.exactKeyboards
         config.coachEnabled = file.coach.enabled
         config.standEnabled = file.coach.stand
         config.standAfterMinutes = file.coach.standAfter

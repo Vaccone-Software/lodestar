@@ -140,9 +140,10 @@ final class ExactKeyboardAttributionTests: XCTestCase {
         XCTAssertEqual(explicitOff.fingerprint, off.fingerprint)
     }
 
-    /// The live monitor: with exact attribution off (the default), or on
-    /// without Input Monitoring, nothing is opened.
-    func testOffOrWithoutThePermissionNothingListens() {
+    /// The live monitor: exact attribution has no switch. Health on without
+    /// Input Monitoring asks macOS once a launch and opens nothing; health
+    /// off asks nothing.
+    func testHealthOnAsksForTheKeyboardsOnceAndWithoutThemNothingListens() {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("exact-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let health = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
@@ -150,15 +151,21 @@ final class ExactKeyboardAttributionTests: XCTestCase {
         var asked = 0
         health.canListen = { false }
         health.requestListening = { asked += 1 }
+        XCTAssertEqual(asked, 0, "health off asks nothing")
         health.setEnabled(true)
-        XCTAssertFalse(health.exactActive)
-        health.setExactKeyboards(true)
         XCTAssertFalse(health.exactActive, "no permission, no listener")
-        XCTAssertEqual(asked, 1, "macOS is asked once, when it is turned on")
-        health.setExactKeyboards(true)
-        XCTAssertEqual(asked, 1)
-        health.setExactKeyboards(false)
+        XCTAssertEqual(asked, 1, "macOS is asked when health is on and it is not granted")
+        health.tick()
+        health.setEnabled(false)
+        health.setEnabled(true)
+        XCTAssertEqual(asked, 1, "once a launch, whatever turns over")
         XCTAssertFalse(health.exactActive)
         health.setEnabled(false)
+    }
+
+    /// An older config that set the switch loads clean, and the next write
+    /// leaves the key behind.
+    func testTheRetiredSwitchLoadsClean() {
+        XCTAssertEqual(ConfigFile.problems(in: ["health": .table(["exact-keyboards": .bool(true)])]), [])
     }
 }

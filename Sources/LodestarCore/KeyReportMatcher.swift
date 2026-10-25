@@ -6,8 +6,8 @@ import Foundation
 /// The roster's attribution (`DeviceRoster.attribute`) goes by the event's
 /// keyboard type and the lid, and writes nothing when two keyboards could
 /// have sent a press. A keyboard change moves hold times more than most
-/// effects worth studying, so with `health.exact-keyboards` on (and Input
-/// Monitoring granted) the HID manager is listened to as well, and each
+/// effects worth studying, so wherever Input Monitoring is granted the HID
+/// manager is listened to as well, and each
 /// press is charged to the one device whose report matches it.
 ///
 /// **The usage never leaves this type.** It is compared in memory to make

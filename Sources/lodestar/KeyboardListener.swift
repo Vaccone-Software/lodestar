@@ -3,8 +3,8 @@ import IOKit.hid
 import LodestarCore
 
 /// The keyboards' own reports, heard through the HID manager, for exact
-/// attribution (`KeyReportMatcher`). Opened only with
-/// `health.exact-keyboards` on and Input Monitoring granted; never seized,
+/// attribution (`KeyReportMatcher`). Opened whenever health is on and
+/// Input Monitoring is granted; never seized,
 /// so every other reader of the keyboards hears them as before.
 ///
 /// The callback runs on the listener's own thread and does what the tap

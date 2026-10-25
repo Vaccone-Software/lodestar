@@ -1,30 +1,74 @@
 import AppKit
 
 // The DMG window background, drawn — not designed in an editor — so it is
-// versioned, reproducible, and in lockstep with the icon and the site: the
-// same near-black ground, the same star, the same sparse northern
-// sky with international orange beacons.
+// versioned, reproducible, and in lockstep with the app and the site: the
+// homepage's wall in Ceramic's night glaze. Lodestar's other doors stand
+// around the window as quiet panes, and one bar in full contrast holds the
+// name, the app and where it goes.
 //
-// The pane is a plotting sheet, not a poster. The two icons are stations on
-// a measured course: a hairline span between them, a plain tick where the
-// app starts, and the lodestar itself where it lands. Direction is carried
-// by that asymmetry — origin unlit, destination a star — so no arrow is
-// drawn, and the accent is spent once, on the thing you are steering to.
+// Three facts about Finder decide the drawing (measured on macOS 27,
+// 2026-10-25). It sets every icon's name in black on a background
+// picture, in dark mode too, so names stand only on a light surface: the
+// bar is the slab, the day's ground on the night's. It composites a
+// transparent picture over white, so the picture cannot follow the Mac's
+// look and is opaque. And its path bar, when the person has it on, covers
+// the last 30 points of the window, so nothing is drawn there.
 //
-// Usage: swift scripts/make-dmg-background.swift <output-dir> <version>
+// Usage: swift scripts/make-dmg-background.swift <output-dir> <minimum-macos>
 //   Writes background.png (660×400) and background@2x.png; make-dmg.sh
-//   joins them into the retina TIFF Finder wants.
+//   joins them into the retina TIFF Finder wants. Nothing in it changes
+//   from release to release: the floor comes from the app's Info.plist.
 
 let outputDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "."
-let version = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : ""
+let floor = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "27"
 
 let width: CGFloat = 660
 let height: CGFloat = 400
 
 // Finder geometry (top-left coordinates, mirrored in make-dmg.sh): the app
-// at (165, 200), Applications at (495, 200), icons 96px.
-let appSlot = CGPoint(x: 165, y: height - 200)
-let folderSlot = CGPoint(x: 495, y: height - 200)
+// at (190, 214), Applications at (470, 214), icons 96 points. Finder
+// centres an icon on the position it is given.
+let iconY: CGFloat = 214
+let appX: CGFloat = 190
+let folderX: CGFloat = 470
+
+func hex(_ v: Int, _ alpha: CGFloat = 1) -> NSColor {
+    NSColor(srgbRed: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
+            blue: CGFloat(v & 0xFF) / 255, alpha: alpha)
+}
+
+// Ceramic's steps (Sources/LodestarCore/Palette.swift): the night outside,
+// the day inside the slab.
+enum Night {
+    static let ground = hex(0x120F0C), pane = hex(0x1D1916), ink = hex(0xF1EBE2), quiet = hex(0xA99F92)
+    static let slab = hex(0xF1E8DF), slabSide = hex(0xADA093)
+}
+enum Day {
+    static let ink = hex(0x1E1814), quiet = hex(0x66584E), orange = hex(0xC83500)
+}
+
+/// Top-left to AppKit's bottom-left.
+func y(_ top: CGFloat) -> CGFloat { height - top }
+
+/// Ceramic's type: the system sans at its sizes (design/02-type.md).
+func font(_ size: CGFloat, _ weight: NSFont.Weight) -> NSFont { NSFont.systemFont(ofSize: size, weight: weight) }
+
+func text(_ s: String, size: CGFloat, weight: NSFont.Weight = .regular, color: NSColor,
+          x: CGFloat, top: CGFloat, centred: Bool = true) {
+    let string = NSAttributedString(string: s, attributes: [.font: font(size, weight), .foregroundColor: color])
+    let bounds = string.size()
+    string.draw(at: CGPoint(x: centred ? x - bounds.width / 2 : x, y: y(top) - bounds.height))
+}
+
+func rounded(_ rect: NSRect, _ radius: CGFloat, fill: NSColor, edge: NSColor? = nil) {
+    fill.setFill()
+    NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+    guard let edge else { return }
+    edge.setStroke()
+    let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: radius - 0.5, yRadius: radius - 0.5)
+    path.lineWidth = 1
+    path.stroke()
+}
 
 /// The mark, small: its faces in International Orange, drawn from Mark.swift
 /// (make-dmg.sh compiles this script beside it), so the pane's star is the
@@ -45,169 +89,64 @@ func drawMark(center: CGPoint, radius: CGFloat) {
     }
 }
 
-/// Deterministic stars: the same sky every render, every release.
-struct Seeded {
-    var state: UInt64 = 0x10DE57A2
-    mutating func next() -> CGFloat {
-        state = state &* 6364136223846793005 &+ 1442695040888963407
-        return CGFloat(state >> 33) / CGFloat(UInt64(1) << 31)
-    }
-}
-
-func brandFont(size: CGFloat) -> NSFont {
-    for name in ["MapleMono-NF-Medium", "Maple Mono NF", "Menlo"] {
-        if let font = NSFont(name: name, size: size) { return font }
-    }
-    return NSFont.monospacedSystemFont(ofSize: size, weight: .medium)
-}
-
-func capsString(_ text: String, size: CGFloat, alpha: CGFloat) -> (NSAttributedString, CGSize) {
-    let attributes: [NSAttributedString.Key: Any] = [
-        .font: brandFont(size: size),
-        .kern: size * 0.38,
-        .foregroundColor: NSColor.white.withAlphaComponent(alpha),
-    ]
-    let string = NSAttributedString(string: text, attributes: attributes)
-    var bounds = string.size()
-    bounds.width -= size * 0.38  // trailing kern is not visible width
-    return (string, bounds)
-}
-
-func drawCaps(_ text: String, center: CGPoint, size: CGFloat, alpha: CGFloat) {
-    let (string, bounds) = capsString(text, size: size, alpha: alpha)
-    string.draw(at: CGPoint(x: center.x - bounds.width / 2, y: center.y - bounds.height / 2))
-}
-
-func drawCaps(_ text: String, at left: CGPoint, size: CGFloat, alpha: CGFloat) {
-    let (string, bounds) = capsString(text, size: size, alpha: alpha)
-    string.draw(at: CGPoint(x: left.x, y: left.y - bounds.height / 2))
-}
-
-func drawCaps(_ text: String, rightAlignedAt right: CGPoint, size: CGFloat, alpha: CGFloat) {
-    let (string, bounds) = capsString(text, size: size, alpha: alpha)
-    string.draw(at: CGPoint(x: right.x - bounds.width, y: right.y - bounds.height / 2))
-}
-
 func draw() {
-    // Near-black ground with a breath of the icon's deep-space blue at the
-    // top — darkness with a floor light, never a poster gradient.
-    NSGradient(colors: [
-        NSColor(calibratedRed: 0.055, green: 0.065, blue: 0.10, alpha: 1),
-        NSColor(calibratedRed: 0.039, green: 0.039, blue: 0.043, alpha: 1),
-    ])!.draw(in: NSRect(x: 0, y: 0, width: width, height: height), angle: -90)
+    Night.ground.setFill()
+    NSRect(x: 0, y: 0, width: width, height: height).fill()
 
-    // The sky: sparse, still, mostly dim, a few international orange
-    // beacons — the site's starfield at rest.
-    var random = Seeded()
-    for _ in 0..<110 {
-        let x = random.next() * width
-        let y = random.next() * height
-        let size = 0.5 + random.next() * 0.9
-        let brightness = 0.14 + pow(random.next(), 2.2) * 0.55
-        let beacon = random.next() < 0.045
-        let color = beacon
-            ? NSColor(calibratedRed: 1.0, green: 0.31, blue: 0.0, alpha: brightness + 0.15)
-            : NSColor.white.withAlphaComponent(brightness)
-        color.setFill()
-        NSBezierPath(ovalIn: NSRect(x: x - size / 2, y: y - size / 2,
-                                    width: size, height: size)).fill()
+    // The wall: six of Lodestar's doors, named and quiet, running off the
+    // window's sides the way the homepage's wall runs off the page.
+    let rows: [(top: CGFloat, bottom: CGFloat)] = [(18, 112), (128, 222), (238, 332)]
+    // Each name fits whole on its side of the bar: nothing is cut by the
+    // window's edge or tucked under the bar.
+    let left = ["Breaths", "The browser", "Select text"]
+    let right = ["Meetings", "The coach", "Health"]
+    for (i, row) in rows.enumerated() {
+        for (x, name) in [(CGFloat(-50), left[i]), (CGFloat(582), right[i])] {
+            let pane = NSRect(x: x, y: y(row.bottom), width: 126, height: row.bottom - row.top)
+            rounded(pane, 12, fill: Night.pane, edge: Night.ink.withAlphaComponent(0.08))
+            text(name, size: 13, weight: .medium, color: Night.quiet.withAlphaComponent(0.8),
+                 x: max(pane.minX, 0) + 10, top: row.top + 14, centred: false)
+        }
     }
 
-    // Finder sets an icon's label in the system's label colour whatever
-    // the picture behind it — black, on this ground, and nothing in the
-    // view options says otherwise. Two pale plates under the two labels,
-    // sized to the words, so the names read as names.
-    let labelFont = NSFont.systemFont(ofSize: 12)
-    for (name, x) in [("lodestar.app", CGFloat(165)), ("Applications", CGFloat(495))] {
-        let textWidth = (name as NSString).size(withAttributes: [.font: labelFont]).width
-        let plate = NSRect(x: x - (textWidth + 18) / 2, y: 163 - 10, width: textWidth + 18, height: 20)
-        NSColor(calibratedWhite: 0.94, alpha: 0.96).setFill()
-        NSBezierPath(roundedRect: plate, xRadius: 6, yRadius: 6).fill()
-    }
+    // The bar is the slab: it stands on its side, and inside it is the day.
+    let bar = NSRect(x: 100, y: y(334), width: 460, height: 312)
+    rounded(bar, 22, fill: Night.slabSide)
+    rounded(NSRect(x: bar.minX, y: bar.minY + 5, width: bar.width, height: bar.height - 5), 22, fill: Night.slab)
 
-    // The header is set, not drawn. The compass mark belongs to the app
-    // icon standing right below it; repeating it here put two white stars
-    // in one composition, each weakening the other. Rules flanking the
-    // wordmark is the sheet-title convention, and it leaves the icon as the
-    // only mark on the pane.
-    let headerY = height - 104
-    let (wordmark, wordmarkSize) = capsString("LODESTAR", size: 15, alpha: 0.82)
-    wordmark.draw(at: CGPoint(x: width / 2 - wordmarkSize.width / 2,
-                              y: headerY - wordmarkSize.height / 2))
+    // The name, the mark beside it, and what to do.
+    let name = NSAttributedString(string: "Lodestar", attributes: [.font: font(23, .semibold), .foregroundColor: Day.ink])
+    let markRadius: CGFloat = 13, gap: CGFloat = 10
+    let nameLeft = width / 2 - (markRadius * 2 + gap + name.size().width) / 2
+    drawMark(center: CGPoint(x: nameLeft + markRadius, y: y(60)), radius: markRadius)
+    name.draw(at: CGPoint(x: nameLeft + markRadius * 2 + gap, y: y(60) - name.size().height / 2 - 1))
+    text("Drag Lodestar into Applications to install it", size: 16, color: Day.quiet, x: width / 2, top: 82)
 
-    let flank = NSBezierPath()
-    let flankGap = wordmarkSize.width / 2 + 22
-    let flankReach: CGFloat = 96
-    flank.move(to: CGPoint(x: width / 2 - flankGap, y: headerY))
-    flank.line(to: CGPoint(x: width / 2 - flankGap - flankReach, y: headerY))
-    flank.move(to: CGPoint(x: width / 2 + flankGap, y: headerY))
-    flank.line(to: CGPoint(x: width / 2 + flankGap + flankReach, y: headerY))
-    flank.lineWidth = 1
-    NSColor.white.withAlphaComponent(0.15).setStroke()
-    flank.stroke()
-
-    // The course: a hairline span across the gap between the two icons, at
-    // their centerline, held clear of both by a margin so it reads as
-    // measured distance rather than a rule under them.
-    let origin = CGPoint(x: appSlot.x + 64, y: appSlot.y)
-    let destination = CGPoint(x: folderSlot.x - 64, y: folderSlot.y)
-
-    // Dashed, in the chart convention where a broken line is the course not
-    // yet run. Solid, it read as a progress bar.
-    let span = NSBezierPath()
-    span.move(to: origin)
-    span.line(to: CGPoint(x: destination.x - 10, y: destination.y))
-    span.lineWidth = 1
-    span.setLineDash([5, 4], count: 2, phase: 0)
-    NSColor.white.withAlphaComponent(0.22).setStroke()
-    span.stroke()
-
-    // The origin tick: the plain end of a dimension line. Unlit, because
-    // the light is where you are going.
-    let tick = NSBezierPath()
-    tick.move(to: CGPoint(x: origin.x, y: origin.y - 4.5))
-    tick.line(to: CGPoint(x: origin.x, y: origin.y + 4.5))
-    tick.lineWidth = 1
-    NSColor.white.withAlphaComponent(0.30).setStroke()
-    tick.stroke()
-
-    // The destination: the mark itself, small and lit, standing where the
-    // arrowhead used to point. You are dragging toward the lodestar.
-    drawMark(center: destination, radius: 9)
-
-    drawCaps("DRAG TO INSTALL", center: CGPoint(x: width / 2, y: appSlot.y + 26), size: 8, alpha: 0.38)
-
-    // Registration marks: the corner ticks of a drawing sheet. They give
-    // the pane its edges without boxing it in, and they are the reason the
-    // lower half reads as deliberate space rather than leftover space.
-    let inset: CGFloat = 22
-    let arm: CGFloat = 13
-    let corners = NSBezierPath()
-    for (x, y, dx, dy) in [(inset, inset, 1.0, 1.0),
-                           (width - inset, inset, -1.0, 1.0),
-                           (inset, height - inset, 1.0, -1.0),
-                           (width - inset, height - inset, -1.0, -1.0)] {
-        corners.move(to: CGPoint(x: x + arm * CGFloat(dx), y: y))
-        corners.line(to: CGPoint(x: x, y: y))
-        corners.line(to: CGPoint(x: x, y: y + arm * CGFloat(dy)))
-    }
-    corners.lineWidth = 1
-    NSColor.white.withAlphaComponent(0.13).setStroke()
-    corners.stroke()
-
-    // The title block: rule, then the sheet's particulars. Set inside the
-    // registration marks, not flush with them — the margin is what makes
-    // the corner ticks read as marks rather than a border.
-    let margin = inset + 16
     let rule = NSBezierPath()
-    rule.move(to: CGPoint(x: margin, y: 52))
-    rule.line(to: CGPoint(x: width - margin, y: 52))
+    rule.move(to: CGPoint(x: bar.minX, y: y(118)))
+    rule.line(to: CGPoint(x: bar.maxX, y: y(118)))
     rule.lineWidth = 1
-    NSColor.white.withAlphaComponent(0.09).setStroke()
+    Day.ink.withAlphaComponent(0.10).setStroke()
     rule.stroke()
-    drawCaps("KEYBOARD NAVIGATION FOR MACOS", at: CGPoint(x: margin, y: 34), size: 7.5, alpha: 0.30)
-    let particulars = version.isEmpty ? "APPLE SILICON · MACOS 14 OR LATER" : "V\(version) · APPLE SILICON · MACOS 14 OR LATER"
-    drawCaps(particulars, rightAlignedAt: CGPoint(x: width - margin, y: 34), size: 7.5, alpha: 0.30)
+
+    // Applications is where you put it: a drop target sinks
+    // (design/04-material.md), one step below the slab with a firmer edge,
+    // holding the folder and its name.
+    let well = NSRect(x: folderX - 72, y: y(iconY + 88), width: 144, height: 152)
+    rounded(well, 16, fill: hex(0xE2D8CD), edge: Day.ink.withAlphaComponent(0.14))
+
+    // Which way: the system's arrow, in the one orange, where the hand
+    // goes next. Nothing here stands up, since nothing here is pressed.
+    let symbol = NSImage.SymbolConfiguration(pointSize: 23, weight: .semibold)
+        .applying(NSImage.SymbolConfiguration(paletteColors: [Day.orange]))
+    if let arrow = NSImage(systemSymbolName: "arrow.right", accessibilityDescription: nil)?.withSymbolConfiguration(symbol) {
+        let size = arrow.size
+        let centre = (appX + 48 + well.minX) / 2
+        arrow.draw(in: NSRect(x: centre - size.width / 2, y: y(iconY) - size.height / 2,
+                              width: size.width, height: size.height))
+    }
+
+    text("Apple silicon · macOS \(floor) or later", size: 13, weight: .medium, color: Night.quiet, x: width / 2, top: 344)
 }
 
 func write(scale: CGFloat, to path: String) {

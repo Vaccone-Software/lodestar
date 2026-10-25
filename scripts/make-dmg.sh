@@ -1,8 +1,8 @@
 #!/bin/bash
 # Assemble dist/lodestar-<version>.dmg from dist/lodestar.app — the drag
 # pane a download button implies: app on the left, Applications on the
-# right, the transfer arc drawn between them. Renders the background from
-# source, lays out the Finder window, compresses. Signing, notarization,
+# right, in the homepage's wall. Renders the background from source, lays
+# out the Finder window, compresses. Signing, notarization,
 # and stapling stay in release.sh with the zip.
 #
 # The Finder layout step needs Automation consent for the terminal that
@@ -34,7 +34,10 @@ mkdir "$STAGE/root"
 cp -R "$APP" "$STAGE/root/lodestar.app"
 ln -s /Applications "$STAGE/root/Applications"
 mkdir "$STAGE/root/.background"
-./scripts/swift-with-mark.sh scripts/make-dmg-background.swift "$STAGE/root/.background" "$VERSION" >/dev/null
+# The floor the window states is the one the app declares, so the picture
+# never needs a hand at release time.
+FLOOR=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP/Contents/Info.plist" | sed 's/\.0$//')
+./scripts/swift-with-mark.sh scripts/make-dmg-background.swift "$STAGE/root/.background" "$FLOOR" >/dev/null
 tiffutil -cathidpicheck "$STAGE/root/.background/background.png" \
     "$STAGE/root/.background/background@2x.png" \
     -out "$STAGE/root/.background/background.tiff" >/dev/null 2>&1
@@ -62,9 +65,9 @@ else
 fi
 
 echo "→ laying out the window"
-# Finder places an icon's center 28pt below the requested y; the art's
-# icon row sits at 200, so ask for 172. Hidden files park below the fold
-# for anyone browsing with ⌘⇧. on. Bounds are re-set after the reopen —
+# Finder centres an icon on the position it is given (macOS 27; older
+# Finders put it 28 points lower, and the old art was drawn for that).
+# Hidden files park below the fold for anyone browsing with ⌘⇧. on. Bounds are re-set after the reopen —
 # the final close persists that window's frame, not the first one's.
 osascript <<OSA
 tell application "Finder"
@@ -79,14 +82,14 @@ tell application "Finder"
         set icon size of options to 96
         set text size of options to 12
         set background picture of options to file ".background:background.tiff"
-        set position of item "lodestar.app" of container window to {165, 172}
+        set position of item "lodestar.app" of container window to {190, 214}
         try
             set extension hidden of item "lodestar.app" to true
         end try
-        set position of item "Applications" of container window to {495, 172}
+        set position of item "Applications" of container window to {470, 214}
         repeat with dotName in {".background", ".fseventsd", ".VolumeIcon.icns", ".Trashes"}
             try
-                set position of item dotName of container window to {165, 700}
+                set position of item dotName of container window to {175, 700}
             end try
         end repeat
         update without registering applications

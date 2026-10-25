@@ -130,4 +130,45 @@ final class DraftMicRetryTests: XCTestCase {
         stage.clock.advance(by: DraftController.retrySeconds[1])
         XCTAssertEqual(stage.speech.listens, 3, "and asked again")
     }
+
+    /// A retried session still starting is left to land: `lode .` while
+    /// the line still shows the old failure does not start it over.
+    func testTheDoorLeavesARetryThatIsStillStarting() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.slowToListen = true
+        stage.speech.fail()
+        stage.clock.advance(by: DraftController.retrySeconds[0])
+        XCTAssertEqual(stage.speech.listens, 2)
+        stage.lode(".")
+        XCTAssertEqual(stage.speech.listens, 2, "a slow radio must be allowed to finish")
+        stage.speech.ready()
+        XCTAssertEqual(stage.draft.state["listening"] as? Bool, true)
+    }
+
+    /// A session that recovers on its own before the retry comes is kept.
+    func testListeningCancelsTheRetry() {
+        let stage = Stage()
+        stage.speech.slowToListen = true
+        stage.lode(".")
+        stage.speech.fail("the microphone stopped")
+        stage.speech.ready()
+        stage.clock.advance(by: 30)
+        XCTAssertEqual(stage.speech.listens, 1, "the working session was not torn down")
+        XCTAssertEqual(stage.speech.openSessions, 1)
+    }
+
+    /// Muted while the failed session stops: nothing opens the microphone.
+    func testMutedDuringTheStopOpensNothing() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.fail()
+        stage.speech.slowToStop = true
+        stage.clock.advance(by: DraftController.retrySeconds[0])
+        stage.lode(".", shift: true)
+        stage.speech.finish()
+        XCTAssertEqual(stage.speech.listens, 1)
+        stage.lode(".")
+        XCTAssertEqual(stage.speech.listens, 2, "the door asks")
+    }
 }

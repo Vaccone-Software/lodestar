@@ -477,12 +477,12 @@ final class AudioInput: @unchecked Sendable {
         }
         guard !rebuildPending else { return }
         rebuildPending = true
-        restart(attempt: 1)
+        restart(attempt: 1, session: sessionNumber)
     }
 
-    private func restart(attempt: Int) {
+    private func restart(attempt: Int, session: Int) {
         dispatchPrecondition(condition: .onQueue(queue))
-        guard inFlight != nil, let engine else { rebuildPending = false; return }
+        guard inFlight != nil, session == sessionNumber, let engine else { rebuildPending = false; return }
         if engine.isRunning { rebuildPending = false; return }
         engine.prepare()
         do {
@@ -495,10 +495,12 @@ final class AudioInput: @unchecked Sendable {
                                "restart failed": error.localizedDescription, "attempt": attempt])
             guard attempt < 4 else {
                 rebuildPending = false
-                rebuild(attempt: 1)
+                rebuild(attempt: 1, session: session)
                 return
             }
-            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in self?.restart(attempt: attempt + 1) }
+            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in
+                self?.restart(attempt: attempt + 1, session: session)
+            }
         }
     }
 
@@ -962,6 +964,9 @@ private actor AnalyzerBox {
     private var feed: AudioFeed?
     private var format: AVAudioFormat?
     private var stopped = false
+    /// The start loop is still trying the microphone: it reports its own
+    /// outcome, so an engine lost between its attempts is not a failure.
+    private var starting = false
 
     private let held: HeldAudio
 
@@ -1126,6 +1131,8 @@ private actor AnalyzerBox {
         var started: (format: AVAudioFormat, name: String?)?
         let began = Date()
         var attempt = 0
+        starting = true
+        defer { starting = false }
         while started == nil, attempt < SpeechStart.attempts {
             attempt += 1
             if attempt > 1 {
@@ -1140,7 +1147,7 @@ private actor AnalyzerBox {
             do {
                 started = try await Self.startMicrophone(microphone, device: wanted, within: remaining,
                                                          stillWanted: stillWanted,
-                                                         lost: { [weak self] in Task { await self?.lost(say: say) } })
+                                                         lost: { [weak self] in Task { await self?.lost(gate: gate, say: say) } })
                                                          { buffer in gate.fromHeadset(buffer) }
             } catch is CancellationError {
                 stopOwnBridge()
@@ -1247,8 +1254,14 @@ private actor AnalyzerBox {
     /// The engine went down mid-session and nothing brought it back. The
     /// words so far are the draft's; the session says it failed, and the
     /// draft starts a fresh one.
-    private func lost(say: (SpeechState) -> Void) {
-        guard !stopped else { return }
+    /// A bridge still hearing the take keeps it, as it does when the
+    /// headset never starts at all.
+    private func lost(gate: Handover, say: (SpeechState) -> Void) {
+        guard !stopped, !starting else { return }
+        if gate.standing == .bridge {
+            Log.info("draft", ["speech": "headset lost, the bridge keeps the take"])
+            return
+        }
         stopOwnBridge()
         say(.failed("the microphone stopped"))
     }

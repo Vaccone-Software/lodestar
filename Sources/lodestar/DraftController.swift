@@ -677,7 +677,10 @@ final class DraftController {
         switch door {
         case .speak:
             micWanted = true
-            if !sessionStarted || speechState?.retries == true { listenAgain() }
+            // A session that has itself failed is asked again now; one
+            // still starting after a retry is left to land, though the
+            // line still shows the failure before it.
+            if !sessionStarted || (sessionSpoke && speechState?.retries == true) { listenAgain() }
             if mode != .insert { setMode(.insert) } else { resumeIfWanted() }
         case .edit, .clip:
             // The silent posture: the mic stops writing, the mode stays.
@@ -820,6 +823,8 @@ final class DraftController {
             if state.retries { self.scheduleRetry(session: mine) }
             if case .listening(let input) = state {
                 self.retries = 0
+                self.retryWork?.cancel()
+                self.retryWork = nil
                 // Said twice when the Mac's microphone stands in for a
                 // waking headset: first for the bridge, then for the
                 // headset. The wait the hand felt is the first.
@@ -925,6 +930,8 @@ final class DraftController {
         listening = false
         speech.stop { [weak self] in
             guard let self, self.isOpen, !self.closing, self.session == mine, !self.sessionStarted else { return }
+            // Muted while the old session stopped: the door asks.
+            guard self.micWanted else { self.render(); return }
             self.startListening()
             self.render()
         }

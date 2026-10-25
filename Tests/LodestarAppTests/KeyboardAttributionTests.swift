@@ -151,16 +151,30 @@ final class ExactKeyboardAttributionTests: XCTestCase {
         var asked = 0
         health.canListen = { false }
         health.requestListening = { asked += 1 }
+        // The permission is read off the main thread, answered on main, and
+        // the request, when there is one, goes off main again.
+        func settle() {
+            health.drainPermissionForTesting()
+            let heard = expectation(description: "main")
+            DispatchQueue.main.async { heard.fulfill() }
+            wait(for: [heard], timeout: 10)
+            health.drainPermissionForTesting()
+        }
         XCTAssertEqual(asked, 0, "health off asks nothing")
+        XCTAssertNil(health.listenGranted, "nothing read yet")
         health.setEnabled(true)
+        settle()
         XCTAssertFalse(health.exactActive, "no permission, no listener")
+        XCTAssertEqual(health.listenGranted, false)
         XCTAssertEqual(asked, 1, "macOS is asked when health is on and it is not granted")
         health.tick()
         health.setEnabled(false)
         health.setEnabled(true)
+        settle()
         XCTAssertEqual(asked, 1, "once a launch, whatever turns over")
         XCTAssertFalse(health.exactActive)
         health.setEnabled(false)
+        settle()
     }
 
     /// An older config that set the switch loads clean, and the next write

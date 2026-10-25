@@ -1387,7 +1387,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let engine = self?.editorController?.engine ?? EditorEngine.resolved(self?.config.editorModel ?? "")
             state.editorEngineCurrent = self?.config.editorModel ?? ""
             state.earStatus = self?.earHost.status ?? ""
-            state.inputMonitoring = Permissions.canListenToKeyboards ? "Granted" : "Not granted"
+            // As health last read it, off the main thread: the privacy
+            // service is never asked from here.
+            state.inputMonitoring = self?.health.listenGranted.map { $0 ? "Granted" : "Not granted" } ?? "unknown"
             state.draftModelLabels = EarTier.allCases.map { $0.label(memoryGB: EditorEngine.physicalGB) }
             state.draftModelsUnavailable = Set(EarTier.allCases
                 .filter { EditorEngine.physicalGB < $0.memoryNeeded - 1 }.map(\.rawValue))

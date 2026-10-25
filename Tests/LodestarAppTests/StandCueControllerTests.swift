@@ -52,7 +52,8 @@ final class StandCueControllerTests: XCTestCase {
     private func drainMain() {
         let drained = expectation(description: "main queue drained")
         DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 2)
+        // As long as a slow runner needs: the wait ends the moment main drains.
+        wait(for: [drained], timeout: 15)
     }
 
     func testAnAppSwitchAfterThirtyMinutesShowsTheCue() {

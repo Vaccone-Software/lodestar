@@ -602,8 +602,16 @@ final class HealthMonitor {
     /// each press is charged to the keyboard that sent it wherever macOS
     /// allows, and to the roster's best answer where it does not.
     private(set) var exactActive = false
-    /// Whether Input Monitoring is granted. Replaced by the tests.
-    var canListen: () -> Bool = { Permissions.canListenToKeyboards }
+    /// Whether Input Monitoring is granted: a question to the privacy
+    /// service, asked off the main thread (`reconcileExact`). Replaced by the
+    /// tests, and never asked from a test run.
+    var canListen: () -> Bool = TestRun.active ? { false } : { Permissions.canListenToKeyboards }
+    /// Main. Input Monitoring as it was last read, off the main thread; nil
+    /// before the first read. Settings shows this rather than asking.
+    private(set) var listenGranted: Bool?
+    /// Where the permission is asked: the privacy service can be slow to
+    /// answer, and the main thread never waits on it.
+    private let permissionReads = DispatchQueue(label: "lodestar.health.permission", qos: .utility)
     /// Asks macOS for Input Monitoring. Replaced by the tests, and never
     /// asked from a test run: a monitor that turns health on under the
     /// suite must not put the system's prompt on the desk or the runner.
@@ -611,15 +619,38 @@ final class HealthMonitor {
 
     /// Main. Start or stop the listener to match the switch and the
     /// permission; run again each minute, so a grant made while Lodestar
-    /// runs takes effect without a relaunch. The first time health is on
-    /// without the permission, macOS is asked, once a launch; until it is
-    /// granted nothing is opened and attribution is the roster's.
+    /// runs takes effect without a relaunch. The permission is read off the
+    /// main thread and the answer applied back on it (`applyExact`). Health
+    /// turned off stops the listener at once.
     private func reconcileExact() {
-        if enabled, !askedToListen, !canListen() {
-            askedToListen = true
-            requestListening()
+        if !enabled { applyExact(granted: nil) }
+        let canListen = canListen
+        permissionReads.async { [weak self] in
+            let granted = canListen()
+            DispatchQueue.main.async { self?.applyExact(granted: granted) }
         }
-        let want = enabled && canListen()
+    }
+
+    /// Tests: every permission read sent out has been answered, and the
+    /// answer applied on main.
+    func drainPermissionForTesting() {
+        permissionReads.sync {}
+    }
+
+    /// Main. The first time health is on without the permission, macOS is
+    /// asked, once a launch (off the main thread too); until it is granted
+    /// nothing is opened and attribution is the roster's.
+    private func applyExact(granted reading: Bool?) {
+        if let reading { listenGranted = reading }
+        let granted = reading ?? listenGranted ?? false
+        if reading != nil, enabled, !askedToListen, !granted {
+            askedToListen = true
+            let request = requestListening
+            permissionReads.async { request() }
+        }
+        let was = exactActive
+        let want = enabled && granted
+        defer { if enabled, was != exactActive { checkEra() } }
         if want, !exactActive {
             exactActive = listener.start()
         } else if !want, exactActive {

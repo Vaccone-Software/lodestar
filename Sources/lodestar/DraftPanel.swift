@@ -983,6 +983,12 @@ final class DraftPanel {
     }
 
     static func note(for view: DraftView) -> String {
+        // A Mac selection the microphone is waiting to replace is the news,
+        // and outranks where ⏎ lands, which is the pulled field's.
+        if view.style == .standard, view.selection?.isEmpty == false, micWanted(view),
+           case .listening = view.speech, !view.silent {
+            return "speak to replace the selection"
+        }
         if view.replacing { return "replaces the selection" }
         switch view.speech {
         case .preparing(let progress):

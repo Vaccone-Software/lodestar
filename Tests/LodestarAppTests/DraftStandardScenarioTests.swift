@@ -532,6 +532,31 @@ final class DraftStandardScenarioTests: XCTestCase {
         XCTAssertTrue(vim.detail.contains("Vim keys"))
     }
 
+    // MARK: - The foot
+
+    func testTheFootSaysWhenAMacSelectionWaitsForSpeech() {
+        func note(_ style: Draft.EditingStyle, selecting: Bool = true, mic: Bool = true,
+                  replacing: Bool = false, silent: Bool = false) -> String {
+            var buffer = Draft.Buffer(text: "hello world", cursor: 0)
+            if selecting { buffer.selectAll() }
+            var view = DraftView(buffer: buffer, mode: .insert, editor: .insert, selection: buffer.selection,
+                                 speech: .listening(input: "Mic"), destination: nil, replacing: replacing)
+            view.style = style
+            view.micOn = mic
+            view.silent = silent
+            view.input = "Mic"
+            return DraftPanel.note(for: view)
+        }
+        XCTAssertEqual(note(.standard), "speak to replace the selection")
+        XCTAssertEqual(note(.standard, replacing: true), "speak to replace the selection",
+                       "over a pulled field's own \"replaces the selection\"")
+        XCTAssertEqual(note(.standard, selecting: false, replacing: true), "replaces the selection")
+        XCTAssertEqual(note(.standard, selecting: false), "")
+        XCTAssertEqual(note(.standard, mic: false), "", "no microphone, nothing to speak into")
+        XCTAssertEqual(note(.standard, silent: true), "hearing nothing on Mic", "a deaf device is told first")
+        XCTAssertEqual(note(.vim), "", "Vim's visual selection is unchanged")
+    }
+
     // MARK: - The keys
 
     func testTheKeysSheetSaysEscClosesUnderStandardAndStopsTypingUnderVim() {
@@ -554,5 +579,6 @@ final class DraftStandardScenarioTests: XCTestCase {
             .flatMap { $0.rows }.map(\.label)
         XCTAssertTrue(card.contains("Back to the clipboard"))
         XCTAssertFalse(card.contains("Stop typing, start editing"))
+        XCTAssertFalse(card.contains("Select, then speak to replace it"), "the clip door has no microphone")
     }
 }

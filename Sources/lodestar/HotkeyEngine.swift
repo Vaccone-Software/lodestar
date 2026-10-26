@@ -1965,7 +1965,8 @@ final class HotkeyEngine {
                 .init(header: "Dictation", rows: [
                     GuideRow(keys: ["lode", "."], label: "Turn dictation on"),
                     GuideRow(keys: ["lode", "⇧."], label: "Turn dictation off"),
-                ] + (style == .standard ? [GuideRow(key: "⇧← ⇧→", label: "Select, then speak to replace it")] : [])),
+                ] + (style == .standard && !card
+                     ? [GuideRow(key: "⇧← ⇧→", label: "Select, then speak to replace it")] : [])),
             ]
         case .normal:
             // The verbs stand alone and the group says what follows them.

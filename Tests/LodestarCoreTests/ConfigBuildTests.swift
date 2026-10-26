@@ -71,6 +71,17 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertTrue(lodeProblems.contains { $0.contains("trigger") }, "\(lodeProblems)")
     }
 
+    /// The draft is edited like any Mac field unless the file asks for Vim,
+    /// and a style that is neither is flagged and leaves the default.
+    func testTheDraftIsStandardUnlessTheFileAsksForVim() throws {
+        XCTAssertEqual(try build("{}").0.draftEditingStyle, .standard)
+        XCTAssertEqual(try build(#"{"draft": {"editing-style": "vim"}}"#).0.draftEditingStyle, .vim)
+
+        let (config, problems) = try build(#"{"draft": {"editing-style": "helix"}}"#)
+        XCTAssertEqual(config.draftEditingStyle, .standard)
+        XCTAssertTrue(problems.contains { $0.contains("draft.editing-style") }, "\(problems)")
+    }
+
     /// Pre-0.9.11 files named the lode key "hyper" and must still work —
     /// and the retired raw-hyper value folds into the default on the way.
     func testLegacyHyperSectionStillSetsTheTrigger() throws {

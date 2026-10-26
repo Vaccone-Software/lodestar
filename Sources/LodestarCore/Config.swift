@@ -124,6 +124,8 @@ public struct Config {
     /// Where an image saved from the strip lands, unless the name typed
     /// says otherwise. `~` is the home folder.
     public var clipboardSaveFolder = "~/Downloads"
+    /// `draft.editing-style`: standard, or vim for the modal editor.
+    public var draftEditingStyle = Draft.EditingStyle.standard
     /// `draft.words`: the user's own vocabulary, repaired into speech.
     public var draftWords: [String] = []
     /// `draft.input`: the microphone by name; empty means the system's
@@ -442,6 +444,7 @@ public struct Config {
         config.clipboardExcludePatterns = file.clipboard.exclude.filter(\.value).keys.sorted()
         config.clipboardTimeZones = file.clipboard.timeZones
             .filter { $0.value && TimeZone(identifier: $0.key) != nil }.keys.sorted()
+        config.draftEditingStyle = file.draft.editingStyle
         config.draftWords = file.draft.words.filter(\.value).keys.sorted()
         config.draftInput = file.draft.input.trimmingCharacters(in: .whitespaces)
         config.draftModel = file.draft.model

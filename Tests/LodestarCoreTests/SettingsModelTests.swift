@@ -81,6 +81,38 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(place("Write").rows.contains { $0.path == "editor.skip-apps" })
     }
 
+    /// The Editing style is the Speak page's second row of the Draft group,
+    /// directly under Microphone: Standard and Vim, Standard the default.
+    func testTheEditingStyleSitsUnderTheMicrophone() throws {
+        let rows = place("Speak").rows.filter { $0.group == "Draft" }.map(\.title)
+        let microphone = try XCTUnwrap(rows.firstIndex(of: "Microphone"))
+        XCTAssertEqual(rows[microphone + 1], "Editing style")
+
+        let row = try XCTUnwrap(place("Speak").rows.first { $0.path == "draft.editing-style" })
+        guard case .choice(let options, let labels, let current) = row.control else {
+            return XCTFail("the style is a choice")
+        }
+        XCTAssertEqual(options, ["standard", "vim"])
+        XCTAssertEqual(labels, ["Standard", "Vim"])
+        XCTAssertEqual(current, "standard")
+        XCTAssertTrue(row.isDefault)
+
+        var vim = Config()
+        vim.draftEditingStyle = .vim
+        let chosen = try XCTUnwrap(place("Speak", vim).rows.first { $0.path == "draft.editing-style" })
+        guard case .choice(_, _, let now) = chosen.control else { return XCTFail("the style is a choice") }
+        XCTAssertEqual(now, "vim")
+        XCTAssertFalse(chosen.isDefault)
+    }
+
+    /// Someone looking for Vim, or for the draft's keys, finds the Speak place.
+    func testSearchingForVimOrEditingFindsTheEditingStyle() {
+        for query in ["vim", "editing", "style"] {
+            XCTAssertEqual(SettingsModel.search(query, in: sections).first?.title, "Editing style", query)
+        }
+        XCTAssertTrue(SettingsModel.search("keys", in: sections).contains { $0.sectionName == "Speak" })
+    }
+
     /// Words is one page with two doors: Write and Speak both open it.
     func testWordsIsOnePageBehindWriteAndSpeak() {
         for name in ["Write", "Speak"] {

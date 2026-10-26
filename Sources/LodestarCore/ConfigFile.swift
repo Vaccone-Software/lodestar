@@ -129,6 +129,7 @@ public struct ConfigFile: Sendable, Equatable {
     }
 
     public struct Draft: Sendable, Equatable {
+        public var editingStyle = LodestarCore.Draft.EditingStyle.standard
         public var input = ""
         public var model = ""
         public var words: [String: Bool] = [:]
@@ -422,6 +423,8 @@ extension ConfigFile {
     .readingNullAsEmpty()
 
     private static let draftSection = section(Draft.self, default: Draft()) {
+        Field("editing-style", \.editingStyle, .enumeration(LodestarCore.Draft.EditingStyle.self),
+              doc: "How the draft is edited: standard, as in any Mac text field, or vim, the modal editor (esc leaves typing for normal mode).")
         Field("input", \.input, .string(),
               doc: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input.")
         Field("model", \.model, .string(oneOf: ["", "apple", "standard", "full", "max"]),

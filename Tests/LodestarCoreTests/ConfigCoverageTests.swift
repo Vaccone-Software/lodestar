@@ -64,6 +64,7 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["draft", "words", "Ghostty"], value: .bool(true)) {
             $0.draftWords.contains("Ghostty")
         },
+        Probe(path: ["draft", "editing-style"], value: .string("vim")) { $0.draftEditingStyle == .vim },
         Probe(path: ["draft", "input"], value: .string("MacBook Pro Microphone")) {
             $0.draftInput == "MacBook Pro Microphone"
         },

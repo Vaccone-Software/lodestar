@@ -35,7 +35,8 @@ final class ConfigFileSchemaTests: XCTestCase {
             "scroll": .table(["smooth": .bool(true), "speed": .int(1800), "step": .int(60)]),
             "select": .table(["copy-on-complete": .bool(false)]),
             "appearance": .table(["eye-comfort": .bool(true)]),
-            "draft": .table(["input": .string(""), "model": .string(""), "words": .table([:])]),
+            "draft": .table(["editing-style": .string("standard"), "input": .string(""), "model": .string(""),
+                             "words": .table([:])]),
             "clipboard": .table([
                 "enabled": .bool(true), "max-size-mb": .int(500), "save-to": .string("~/Downloads"),
                 "exclude-apps": .table([:]), "exclude": .table([:]), "time-zones": .table([:]),
@@ -417,6 +418,9 @@ final class ConfigFileSchemaTests: XCTestCase {
     func testAChoiceIsOfferedTheNearestAndARepairedSectionSaysNothingOfItsDefault() {
         XCTAssertEqual(ConfigFile.problems(in: ["editor": .table(["model": .string("ful")])]), [
             "editor.model: \"ful\" is not allowed, expected one of \"\", \"spelling\", \"minimal\", \"standard\", \"full\"; used the default \"\" (did you mean 'full'?)",
+        ])
+        XCTAssertEqual(ConfigFile.problems(in: ["draft": .table(["editing-style": .string("helix")])]), [
+            "draft.editing-style: \"helix\" is not allowed, expected one of \"standard\", \"vim\"; used the default \"standard\"",
         ])
         XCTAssertEqual(ConfigFile.problems(in: ["health": .table(["hand": .string("lefft")])]), [
             "health.hand: \"lefft\" is not allowed, expected one of \"left\", \"right\", \"either\"; used the default (did you mean 'left'?)",

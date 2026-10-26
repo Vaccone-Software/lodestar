@@ -49,7 +49,7 @@ final class DraftKeysCeilingTests: XCTestCase {
     }
 
     private var sections: [CheatSheet.Section] {
-        HotkeyEngine.draftSections(style: .vim, editor: .insert, card: false)
+        HotkeyEngine.draftSections(style: .standard, editor: .insert, card: false)
     }
 
     func testAFullDraftDoesNotGrowPastTheTopOfTheScreen() {
@@ -118,7 +118,7 @@ final class DraftKeysCeilingTests: XCTestCase {
         var above = view(tall)
         above.standsAbove = 220
         panel.show(above)
-        panel.showKeys(HotkeyEngine.draftSections(style: .vim, editor: .insert, card: true))
+        panel.showKeys(HotkeyEngine.draftSections(style: .standard, editor: .insert, card: true))
         XCTAssertLessThanOrEqual(panel.frame.maxY, screen.maxY)
         // Measured from the screen's own floor: a display arranged below
         // or beside the main one does not start at zero.

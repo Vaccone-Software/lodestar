@@ -376,11 +376,13 @@ final class DraftStandardScenarioTests: XCTestCase {
         standard.lode(".", shift: true)
         XCTAssertTrue(labels(standard).contains("Close, kept in the clipboard"))
         XCTAssertFalse(labels(standard).contains("Stop typing, start editing"))
+        XCTAssertTrue(labels(standard).contains("Select, then speak to replace it"))
 
         let vim = Stage()
         vim.lode(".", shift: true)
         XCTAssertTrue(labels(vim).contains("Stop typing, start editing"))
         XCTAssertFalse(labels(vim).contains("Close, kept in the clipboard"))
+        XCTAssertFalse(labels(vim).contains("Select, then speak to replace it"), "Vim's sheet is unchanged")
 
         let card = HotkeyEngine.draftSections(style: .standard, editor: .insert, card: true)
             .flatMap { $0.rows }.map(\.label)

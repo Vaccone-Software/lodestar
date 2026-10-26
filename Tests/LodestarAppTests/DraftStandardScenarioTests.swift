@@ -221,6 +221,93 @@ final class DraftStandardScenarioTests: XCTestCase {
         }
     }
 
+    // MARK: - The rest of the Mac field's keys, in both styles
+
+    private func bothStyles(_ body: (Stage, String) -> Void) {
+        for style in Draft.EditingStyle.allCases {
+            let stage = Stage()
+            stage.draft.editingStyle = style
+            body(stage, style.rawValue)
+        }
+    }
+
+    func testForwardDeleteAndControlDTakeTheSelectionOrTheNextCharacter() {
+        bothStyles { stage, name in
+            stage.field = DraftController.Field(selection: nil, value: "one two three", cursor: 4)
+            stage.lode(".", shift: true)
+            XCTAssertTrue(stage.chord("forwarddelete", [.maskSecondaryFn]), name)
+            XCTAssertEqual(stage.draft.buffer.text, "one wo three", "fn ⌫ takes the next character (\(name))")
+            XCTAssertTrue(stage.controlPress("d"))
+            XCTAssertEqual(stage.draft.buffer.text, "one o three", "⌃d does the same (\(name))")
+            XCTAssertEqual(stage.draft.buffer.cursor, 4, "the cursor stays")
+        }
+        // With a selection standing (Standard's), only the selection goes.
+        let stage = standardStage(field: "one two three", cursor: 7)
+        stage.lode(".", shift: true)
+        stage.chord("left", [shift, option])
+        stage.press("forwarddelete")
+        XCTAssertEqual(stage.draft.buffer.text, "one  three")
+        XCTAssertTrue(stage.commandPress("z"))
+        XCTAssertEqual(stage.draft.buffer.text, "one two three", "its own undo step")
+        stage.chord("right", [shift, option])
+        XCTAssertEqual(selected(stage), "two")
+        stage.controlPress("d")
+        XCTAssertEqual(stage.draft.buffer.text, "one  three")
+    }
+
+    func testForwardDeleteAtTheEndOfTheTextDeletesNothing() {
+        bothStyles { stage, name in
+            stage.field = DraftController.Field(selection: nil, value: "end", cursor: 3)
+            stage.lode(".", shift: true)
+            XCTAssertTrue(stage.press("forwarddelete"), name)
+            XCTAssertEqual(stage.draft.buffer.text, "end", name)
+        }
+    }
+
+    func testControlFBNPAreTheArrows() {
+        bothStyles { stage, name in
+            stage.field = DraftController.Field(selection: nil, value: "ab\ncd", cursor: 1)
+            stage.lode(".", shift: true)
+            stage.controlPress("f")
+            XCTAssertEqual(stage.draft.buffer.cursor, 2, "⌃f (\(name))")
+            stage.controlPress("b")
+            XCTAssertEqual(stage.draft.buffer.cursor, 1, "⌃b (\(name))")
+            stage.controlPress("n")
+            XCTAssertEqual(stage.draft.buffer.cursor, 4, "⌃n, its column (\(name))")
+            stage.controlPress("p")
+            XCTAssertEqual(stage.draft.buffer.cursor, 1, "⌃p (\(name))")
+            XCTAssertTrue(stage.draft.isOpen)
+            XCTAssertEqual(stage.draft.buffer.text, "ab\ncd")
+        }
+    }
+
+    func testControlFAndBWithASelectionCollapseItAsTheArrowsDo() {
+        let stage = standardStage(field: "one two three", cursor: 7)
+        stage.lode(".", shift: true)
+        stage.chord("left", [shift, option])
+        stage.controlPress("f")
+        XCTAssertEqual(stage.draft.buffer.cursor, 7)
+        XCTAssertNil(stage.draft.buffer.selection)
+        stage.chord("left", [shift, option])
+        stage.controlPress("b")
+        XCTAssertEqual(stage.draft.buffer.cursor, 4)
+        stage.chord("right", [shift, option])
+        stage.controlPress("p")
+        XCTAssertEqual(stage.draft.buffer.cursor, 0, "from the selection's start")
+    }
+
+    func testHomeEndAndThePageKeysAreSwallowedAndTypeNothing() {
+        bothStyles { stage, name in
+            stage.field = DraftController.Field(selection: nil, value: "one two", cursor: 3)
+            stage.lode(".", shift: true)
+            for key in ["home", "end", "pageup", "pagedown"] {
+                XCTAssertTrue(stage.press(key), "\(key) (\(name))")
+            }
+            XCTAssertEqual(stage.draft.buffer.text, "one two")
+            XCTAssertEqual(stage.draft.buffer.cursor, 3)
+        }
+    }
+
     // MARK: - Select all, and speech over it
 
     func testCommandASelectsAllAsAMacSelectionNotVimsVisual() {

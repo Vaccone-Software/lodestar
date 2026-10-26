@@ -175,6 +175,12 @@ public enum Draft {
             cursor = start
         }
 
+        /// The character after the cursor: fn ⌫ and ⌃d.
+        public mutating func deleteForward() {
+            guard !deleteSelection(), cursor < characters.count else { return }
+            characters.remove(at: cursor)
+        }
+
         public mutating func deleteToLineEnd() {
             guard !deleteSelection() else { return }
             let end = lineEnd(from: cursor)

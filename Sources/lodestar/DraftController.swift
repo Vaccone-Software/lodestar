@@ -1359,8 +1359,8 @@ final class DraftController {
         // later revises the reserved words in place (`provisional`), not
         // at the cursor. Moves and the commit leave the ghost to its own
         // rules.
-        let moves = ["escape", "left", "right", "up", "down"]
-        let editingControl = control && ["h", "w", "u", "k"].contains(key)
+        let moves = ["escape", "left", "right", "up", "down", "home", "end", "pageup", "pagedown"]
+        let editingControl = control && ["h", "w", "u", "k", "d"].contains(key)
         let editingKey = !control && !moves.contains(key) && !(key == "return" && !shift)
         if editingControl || editingKey {
             markSelectionStep()
@@ -1375,12 +1375,18 @@ final class DraftController {
                 speechAnchor = (buffer.cursor, clock.now())
             }
         }
-        // The control chords every macOS field answers: line ends, a word
-        // or a line back, the rest of the line forward.
+        // The control chords every macOS field answers: line ends, a
+        // character or a line either way, a word or a line back, the
+        // rest of the line forward, the next character.
         if control {
             switch key {
             case "a": buffer.moveLineStart()
             case "e": buffer.moveLineEnd()
+            case "f": buffer.moveRight()
+            case "b": buffer.moveLeft()
+            case "n": buffer.moveDown()
+            case "p": buffer.moveUp()
+            case "d": buffer.deleteForward()
             case "h":
                 backspaces += 1
                 let before = buffer.count
@@ -1417,6 +1423,8 @@ final class DraftController {
             if option { buffer.deleteWordBackward() } else { buffer.backspace() }
             // The editor hears one backspace per character removed.
             for _ in 0..<(before - buffer.count) { vim.insertBackspace() }
+        case "forwarddelete":
+            buffer.deleteForward()
         case "left":
             if option { buffer.moveWordLeft() } else { buffer.moveLeft() }
         case "right":

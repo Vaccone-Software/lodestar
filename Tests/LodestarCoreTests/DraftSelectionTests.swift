@@ -188,6 +188,7 @@ final class DraftSelectionTests: XCTestCase {
             ("⌥⌫", { $0.deleteWordBackward() }),
             ("⌘⌫", { $0.deleteToLineStart() }),
             ("⌃k", { $0.deleteToLineEnd() }),
+            ("fn ⌫", { $0.deleteForward() }),
         ]
         for (name, delete) in deletions {
             var b = buffer("one two three", cursor: 4)

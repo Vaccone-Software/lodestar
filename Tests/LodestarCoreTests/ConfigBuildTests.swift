@@ -230,6 +230,17 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(problems, [])
     }
 
+    /// Mouse scrolling retired: a mouse's own app or a scrolling utility
+    /// turns the wheel. A file that still sets it loads clean and keeps
+    /// nothing of it.
+    func testAFileThatStillSetsMouseScrollingLoadsClean() throws {
+        for direction in ["system", "natural", "standard"] {
+            let (config, problems) = try build(#"{"app": {"mouse-scrolling": "\#(direction)", "sounds": false}}"#)
+            XCTAssertEqual(problems, [], "\(direction): no warning for a retired setting")
+            XCTAssertFalse(config.sounds, "the rest of the section still reads")
+        }
+    }
+
     // MARK: - Appearance
 
     /// The accent setting retired with Ceramic: Lodestar is International

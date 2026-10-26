@@ -23,7 +23,6 @@ final class ConfigFileSchemaTests: XCTestCase {
                 "auto-update": .bool(true), "channel": .string("stable"), "sounds": .bool(true),
                 "start-at-login": .bool(true), "show-menu-bar": .bool(true),
                 "active-display": .string("pointer"), "units": .string(""),
-                "mouse-scrolling": .string("system"),
             ]),
             "graph": .table([:]),
             "web": .table([

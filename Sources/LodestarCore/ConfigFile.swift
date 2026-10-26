@@ -52,7 +52,6 @@ public struct ConfigFile: Sendable, Equatable {
         public var activeDisplay = ActivePolicy.Mode.pointer
         public var autoUpdate = true
         public var channel = Updater.Channel.stable
-        public var mouseScrolling = MouseScroll.Direction.system
         public var showMenuBar = true
         public var sounds = true
         public var startAtLogin = true
@@ -269,6 +268,9 @@ extension ConfigFile {
             // exact keyboard attribution, which is simply how health reads
             // the keys now, wherever Input Monitoring allows (0.55)
             "health.exact-keyboards",
+            // turning the mouse's wheel apart from the trackpad (0.54.2), which
+            // a mouse's own app or a scrolling utility does better (0.54.6)
+            "app.mouse-scrolling",
         ])
 
     /// An object of the file, read exactly: a spelling that is not the
@@ -296,8 +298,6 @@ extension ConfigFile {
               doc: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only).")
         Field("channel", \.channel, .enumeration(Updater.Channel.self),
               doc: "Which releases updates follow. Stable takes a build once it has run on preview Macs for a few days. Preview takes every build as it ships.")
-        Field("mouse-scrolling", \.mouseScrolling, .enumeration(MouseScroll.Direction.self),
-              doc: "Which way a mouse wheel scrolls, apart from the trackpad: natural, standard, or system to follow the Mac's one setting for both.")
         Field("show-menu-bar", \.showMenuBar, .bool,
               doc: "Show the status item permanently; false hides it until lodestar is picked in the launcher.")
         Field("sounds", \.sounds, .bool,

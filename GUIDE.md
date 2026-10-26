@@ -21,8 +21,8 @@ Lode is **right ⌘** (configurable in `~/.config/lodestar/lodestar.json`).
 | `lode ⏎`                       | Ask: links · domains · search, each routed to its profile                    |
 | `⌘K` in the launcher / Ask     | Add to graph · add a link · route a host or search — written into the config |
 | `lode -`                       | Commands: the frontmost app's verbs, fuzzy, `↵` runs one                     |
-| `lode .`                       | The draft, listening: speak and type into one cursor, `⏎` pastes where yours was, `⇧⏎` new line, `esc` normal mode, `esc` again keeps it in the clipboard |
-| `lode ⇧.`                      | The draft, editing: the field's text (or selection) pulled in, silent, typing; `esc` for vim, `⏎` puts it back |
+| `lode .`                       | The draft, listening: speak and type into one cursor, `⏎` pastes where yours was, `⇧⏎` new line, `esc` closes it, kept in the clipboard (with the Vim editing style, `esc` is normal mode and a second `esc` closes) |
+| `lode ⇧.`                      | The draft, editing: the field's text (or selection) pulled in, silent, typing; `esc` closes it, kept in the clipboard (with the Vim editing style, `esc` is vim), `⏎` puts it back |
 | `` lode `  ``                  | Scroll mode: `j/k` `h/l` · `d/u` half-page · `⇧` 3× / full page · `gg`/`⇧G` `0`/`$` edges · `/` aims at a word |
 | `lode ;` / `lode ⇧;`           | Click by reading — type what you see, `⇧letter` clicks; `⇧;` chains clicks   |
 | `lode /`                       | Select text by typing it — `⇧letter` anchors, `⌘C` takes the anchored word   |

@@ -15,9 +15,9 @@ Free tools that stay on your Mac: Write, Switch, Keep and Speak.
   layouts, relaunching what is not running.
 - **Keep**: everything you copy, on `⇧⌘V`. A letter pastes, `/` searches, and a
   clip that is a color, a time or a measurement arrives read.
-- **Speak**: `lode .` opens the draft. Talk and type into one cursor, edit with
-  Vim keys, and `⏎` puts it where your cursor was. Turned into text on this
-  Mac, and no audio is kept.
+- **Speak**: `lode .` opens the draft. Talk and type into one cursor, edit as in
+  any Mac text field or with Vim keys if you choose them, and `⏎` puts it where
+  your cursor was. Turned into text on this Mac, and no audio is kept.
 
 The first launch asks which one you came for and walks you through it. The
 rest arrive later, one lesson at a time, when they would help.

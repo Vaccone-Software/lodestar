@@ -109,8 +109,12 @@ final class MainThreadWatchdogTests: XCTestCase {
         XCTAssertNotNil(hitch(seen), "then one while running, with how long it held: \(seen)")
     }
 
+    /// Main kept turning answers in milliseconds, so nothing is written
+    /// down. The threshold is half a second, against a window three times
+    /// that: at 0.2 s one answer on CI's slowest runners crossed it with
+    /// main doing nothing but turning (2026-10-25).
     func testAnOnTimeAnswerSaysNothing() {
-        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 1, launchCeiling: 1, lateThreshold: 0.2)
+        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 2, launchCeiling: 2, lateThreshold: 0.5)
         let lock = NSLock()
         var late = 0
         watchdog.onLate = { _, _ in lock.withLock { late += 1 } }
@@ -118,7 +122,7 @@ final class MainThreadWatchdogTests: XCTestCase {
         // starved past this ceiling, and that took the whole shard with it.
         watchdog.onStall = { _ in }
         watchdog.start()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.5))
         watchdog.stop()
         XCTAssertEqual(lock.withLock { late }, 0)
     }

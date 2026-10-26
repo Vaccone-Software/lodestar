@@ -159,10 +159,11 @@ public struct Vim {
             || surround != nil || wrapRange != nil
     }
 
-    /// The visual selection, when there is one, in document order and
-    /// inclusive of the cursor's character.
+    /// The selection, when there is one, in document order: the visual
+    /// one, inclusive of the cursor's character, or else the buffer's own
+    /// Mac selection, which Standard makes and Vim never does.
     public func selection(in buffer: Draft.Buffer) -> Range<Int>? {
-        guard case .visual(let line) = mode else { return nil }
+        guard case .visual(let line) = mode else { return buffer.selection }
         let a = min(visualAnchor, buffer.cursor), b = max(visualAnchor, buffer.cursor)
         if line {
             return buffer.lineStart(from: a)..<min(buffer.count, buffer.lineEnd(from: b) + 1)
@@ -271,18 +272,20 @@ public struct Vim {
         }
     }
 
-    /// Speech landing on a visual selection: the words replace it and
-    /// insert mode opens where the change ends — `c`, said rather than
-    /// typed. One snapshot covers both halves, so ⌘Z brings back the
-    /// selection exactly as it stood.
+    /// Speech landing on a selection: the words replace it and insert mode
+    /// opens where the change ends — `c`, said rather than typed. One
+    /// snapshot covers both halves, so ⌘Z brings back the selection
+    /// exactly as it stood. A Mac selection is made in insert mode, which
+    /// is already where the change ends.
     @discardableResult
     public mutating func speakOver(_ range: Range<Int>, with text: String,
                                    buffer: inout Draft.Buffer) -> [Effect] {
-        guard case .visual = mode else { return [] }
+        guard mode != .normal else { return [] }
         snapshot(buffer)
         let target = min(range.lowerBound, buffer.count)..<min(range.upperBound, buffer.count)
         buffer.replace(target, with: text)
         buffer.setCursor(target.lowerBound + text.count)
+        guard case .visual = mode else { return [] }
         lastVisual = nil
         return enterInsert(&buffer, snapshotTaken: true)
     }

@@ -22,6 +22,15 @@ public enum Draft {
         case insert, normal
     }
 
+    /// How the draft is edited. Standard speaks the dialect every Mac text
+    /// field speaks and never leaves insert mode; Vim is the modal editor
+    /// (`Vim`), one esc away from insert. A choice rather than a toggle,
+    /// set once in Settings: a style re-spells keys, so every surface that
+    /// speaks a key follows the one chosen.
+    public enum EditingStyle: String, CaseIterable, Equatable, Sendable {
+        case standard, vim
+    }
+
     /// What the last input was, because a backspace takes that grain: a
     /// character after typing, a word after speech. A transcript's unit
     /// of error is the word; a keyboard's is the character.
@@ -36,6 +45,10 @@ public enum Draft {
     public struct Buffer: Equatable, Sendable {
         public private(set) var characters: [Character] = []
         public private(set) var cursor: Int = 0
+        /// The far end of a Mac selection, between characters, from the
+        /// cursor: the text from one to the other is selected. Vim keeps
+        /// its selection to itself and never sets this.
+        public private(set) var anchor: Int?
         public private(set) var ghost: String = ""
         public private(set) var lastGrain: Grain?
 
@@ -50,9 +63,16 @@ public enum Draft {
         public var isEmpty: Bool { characters.isEmpty }
         public var count: Int { characters.count }
 
+        /// What a Mac selection holds, in document order. nil while the
+        /// anchor and the cursor meet.
+        public var selection: Range<Int>? {
+            guard let anchor, anchor != cursor else { return nil }
+            return min(anchor, cursor)..<max(anchor, cursor)
+        }
+
         // MARK: Input
 
-        /// Typed characters land at the cursor.
+        /// Typed characters land at the cursor, in place of a selection.
         ///
         /// `joining` applies the spacing rule when what stands before is
         /// spoken. A hand that starts typing after a settled phrase means
@@ -69,6 +89,7 @@ public enum Draft {
         @discardableResult
         public mutating func type(_ typed: String, joining: Bool = false) -> String {
             guard !typed.isEmpty else { return "" }
+            deleteSelection()
             var text = typed
             // Not before whitespace of the hand's own: a typed space
             // after a spoken word is the hand putting the space there,
@@ -83,14 +104,15 @@ public enum Draft {
             return text
         }
 
-        /// A settled recognizer result lands at the cursor, joined to what
-        /// is before it by the spacing rule, and the ghost it replaces
-        /// goes away.
+        /// A settled recognizer result lands at the cursor, in place of a
+        /// selection, joined to what is before it by the spacing rule, and
+        /// the ghost it replaces goes away.
         public mutating func settle(_ spoken: String, isOrdinary: ((String) -> Bool)? = nil) {
             ghost = ""
-            let trimmed = Draft.cased(spoken.trimmingCharacters(in: .whitespacesAndNewlines),
-                                      after: characters[..<cursor], isOrdinary: isOrdinary)
-            guard !trimmed.isEmpty else { return }
+            let heard = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !heard.isEmpty else { return }
+            deleteSelection()
+            let trimmed = Draft.cased(heard, after: characters[..<cursor], isOrdinary: isOrdinary)
             let joined = Draft.separator(after: characters[..<cursor], before: trimmed) + trimmed
             let incoming = Array(joined)
             characters.insert(contentsOf: incoming, at: cursor)
@@ -105,6 +127,7 @@ public enum Draft {
         public mutating func clearGhost() { ghost = "" }
 
         public mutating func newline() {
+            deleteSelection()
             characters.insert("\n", at: cursor)
             cursor += 1
             lastGrain = .typed
@@ -112,12 +135,16 @@ public enum Draft {
 
         // MARK: Deleting
 
+        /// Each deletion below takes a selection instead of what it would
+        /// have taken, and only that.
+        ///
         /// The grain rule: one character if the last input was typed, one
         /// word if it was spoken. Consecutive backspaces keep the grain, so
         /// three after a sentence take three words; typing anything
         /// resets it. The ghost is never touched — it is what is still
         /// being said, and it settles on its own.
         public mutating func backspace() {
+            guard !deleteSelection() else { return }
             if lastGrain == .spoken { deleteSpokenWord() } else { deleteBackward() }
         }
 
@@ -132,7 +159,7 @@ public enum Draft {
         }
 
         public mutating func deleteBackward() {
-            guard cursor > 0 else { return }
+            guard !deleteSelection(), cursor > 0 else { return }
             characters.remove(at: cursor - 1)
             cursor -= 1
         }
@@ -140,7 +167,7 @@ public enum Draft {
         /// Trailing whitespace before the cursor, then the run of
         /// non-whitespace before that — what ⌥⌫ takes in any field.
         public mutating func deleteWordBackward() {
-            guard cursor > 0 else { return }
+            guard !deleteSelection(), cursor > 0 else { return }
             var start = cursor
             while start > 0, characters[start - 1].isWhitespace { start -= 1 }
             while start > 0, !characters[start - 1].isWhitespace { start -= 1 }
@@ -149,6 +176,7 @@ public enum Draft {
         }
 
         public mutating func deleteToLineEnd() {
+            guard !deleteSelection() else { return }
             let end = lineEnd(from: cursor)
             guard end > cursor else { return }
             characters.removeSubrange(cursor..<end)
@@ -156,26 +184,51 @@ public enum Draft {
         }
 
         public mutating func deleteToLineStart() {
+            guard !deleteSelection() else { return }
             let start = lineStart(from: cursor)
             guard start < cursor else { return }
             characters.removeSubrange(start..<cursor)
             cursor = start
         }
 
+        /// A selection taken out, the cursor landing where it began. False,
+        /// and nothing changed, when nothing was selected.
+        @discardableResult
+        public mutating func deleteSelection() -> Bool {
+            defer { anchor = nil }
+            guard let range = selection else { return false }
+            characters.removeSubrange(range)
+            cursor = range.lowerBound
+            return true
+        }
+
         // MARK: Moving
 
-        public mutating func moveLeft() { cursor = max(0, cursor - 1); lastGrain = nil }
-        public mutating func moveRight() { cursor = min(characters.count, cursor + 1); lastGrain = nil }
-        public mutating func moveLineStart() { cursor = lineStart(from: cursor); lastGrain = nil }
-        public mutating func moveLineEnd() { cursor = lineEnd(from: cursor); lastGrain = nil }
-        public mutating func moveStart() { cursor = 0; lastGrain = nil }
-        public mutating func moveEnd() { cursor = characters.count; lastGrain = nil }
+        /// A plain move ends a selection, and ← and → end it where it
+        /// began or ended, as in any Mac field.
+        public mutating func moveLeft() {
+            cursor = selection?.lowerBound ?? max(0, cursor - 1)
+            anchor = nil
+            lastGrain = nil
+        }
+
+        public mutating func moveRight() {
+            cursor = selection?.upperBound ?? min(characters.count, cursor + 1)
+            anchor = nil
+            lastGrain = nil
+        }
+
+        public mutating func moveLineStart() { cursor = lineStart(from: cursor); anchor = nil; lastGrain = nil }
+        public mutating func moveLineEnd() { cursor = lineEnd(from: cursor); anchor = nil; lastGrain = nil }
+        public mutating func moveStart() { cursor = 0; anchor = nil; lastGrain = nil }
+        public mutating func moveEnd() { cursor = characters.count; anchor = nil; lastGrain = nil }
 
         public mutating func moveWordLeft() {
             var i = cursor
             while i > 0, characters[i - 1].isWhitespace { i -= 1 }
             while i > 0, !characters[i - 1].isWhitespace { i -= 1 }
             cursor = i
+            anchor = nil
             lastGrain = nil
         }
 
@@ -184,27 +237,49 @@ public enum Draft {
             while i < characters.count, characters[i].isWhitespace { i += 1 }
             while i < characters.count, !characters[i].isWhitespace { i += 1 }
             cursor = i
+            anchor = nil
             lastGrain = nil
         }
 
         /// Up and down keep the column where the line allows it.
         public mutating func moveUp() {
             let start = lineStart(from: cursor)
-            guard start > 0 else { cursor = 0; return }
+            guard start > 0 else { cursor = 0; anchor = nil; return }
             let column = cursor - start
             let previousStart = lineStart(from: start - 1)
             let previousEnd = start - 1
             cursor = min(previousStart + column, previousEnd)
+            anchor = nil
             lastGrain = nil
         }
 
         public mutating func moveDown() {
             let end = lineEnd(from: cursor)
-            guard end < characters.count else { cursor = characters.count; return }
+            guard end < characters.count else { cursor = characters.count; anchor = nil; return }
             let column = cursor - lineStart(from: cursor)
             let nextStart = end + 1
             let nextEnd = lineEnd(from: nextStart)
             cursor = min(nextStart + column, nextEnd)
+            anchor = nil
+            lastGrain = nil
+        }
+
+        // MARK: Selecting
+
+        /// The cursor goes where `move` takes it and the selection grows or
+        /// shrinks with it, its far end staying where it was: where the
+        /// cursor started, when nothing was selected. `move` is one of the
+        /// plain moves, run from the cursor as if nothing were selected.
+        public mutating func select(_ move: (inout Buffer) -> Void) {
+            let held = anchor ?? cursor
+            anchor = nil
+            move(&self)
+            anchor = held
+        }
+
+        public mutating func selectAll() {
+            anchor = 0
+            cursor = characters.count
             lastGrain = nil
         }
 
@@ -232,11 +307,13 @@ public enum Draft {
             let incoming = Array(text)
             characters.replaceSubrange(lower..<upper, with: incoming)
             cursor = lower + incoming.count
+            anchor = nil
             lastGrain = .typed
         }
 
         public mutating func setCursor(_ index: Int) {
             cursor = max(0, min(index, characters.count))
+            anchor = nil
             lastGrain = nil
         }
 
@@ -244,6 +321,7 @@ public enum Draft {
         public mutating func restore(characters: [Character], cursor: Int) {
             self.characters = characters
             self.cursor = max(0, min(cursor, characters.count))
+            anchor = nil
             ghost = ""
         }
 

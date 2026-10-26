@@ -471,6 +471,7 @@ final class DesignDriftTests: XCTestCase {
     func testNoBareKeystrokeIsUppercasedForDisplay() throws {
         let allowed: [(file: String, snippet: String, why: String)] = [
             ("MeetingController.swift", "unit.uppercased()", "a countdown's unit (MIN), not a key"),
+            ("SelectOverlay.swift", "label.uppercased()", "a hint is picked with Shift, so it wears capitals"),
             ("ClipboardStrip.swift", "\"⌥\") + label.uppercased()", "a chord: ⌥ then the letter as a capital"),
             ("ClipboardStrip.swift", "chord = label.uppercased()", "a chord: the letter after a modifier is a capital"),
             ("ClipboardStrip.swift", "\\(label.uppercased()), match", "what VoiceOver says"),

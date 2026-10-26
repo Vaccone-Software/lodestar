@@ -19,6 +19,21 @@ final class ChipNarrowingTests: XCTestCase {
         XCTAssertEqual(SelectOverlay.narrowed(chips, typed: "z").map(\.label), [], "a letter no label starts with leaves nothing")
     }
 
+    /// A chip wears the key that picks it. A match or a target is picked
+    /// with Shift, so its letters are capitals; the editor's lens picks with
+    /// the bare letter, so its tag stays lowercase.
+    func testAChipWearsTheKeyThatPicksIt() {
+        XCTAssertEqual(chip("jl").legend, "JL")
+        XCTAssertEqual(SelectOverlay.Chip(label: "jl", frames: [], style: .target).legend, "JL")
+        XCTAssertEqual(SelectOverlay.Chip(label: "j", frames: [], style: .tag("their")).legend, "j")
+        let (_, marks) = SelectOverlay.compose(chips: [chip("jl")], anchor: [], typed: "j",
+                                               bounds: NSRect(x: 0, y: 0, width: 400, height: 300),
+                                               look: NSView(), local: { $0 })
+        let drawn = marks.flatMap { $0.subviews.compactMap { $0 as? Key } }
+        XCTAssertEqual(drawn.map(\.legend), ["JL"], "drawn in capitals")
+        XCTAssertEqual(drawn.first?.quietPrefix, 1, "a typed letter goes quiet whatever its case")
+    }
+
     /// A hint is a name to type, not a key to find: its letters share one key.
     private func keys(_ mark: NSView) -> [Key] { mark.subviews.compactMap { $0 as? Key } }
 

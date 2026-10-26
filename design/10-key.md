@@ -36,7 +36,7 @@ A key is as wide as its legend plus 8 at each side (a grid step), and never narr
 - **A bare keystroke is shown as typed:** lowercase. A capital appears only where Shift is actually pressed.
 - **A chord with modifiers** follows macOS: the modifiers' glyphs, then the letter as a capital, on one key (`⌘K`, `⌥J`, `⌥⇧⌘V`).
 - **Named keys** are words where macOS uses words (`esc`, `tab`, `space`, and Lodestar's own `lode`) and glyphs where it uses glyphs (`⏎`, `⌫`, `⇧`, `⌘`, `⌥`, `⌃`, `↑ ↓ ← →`).
-- **A sequence** (keys pressed one after another) is one key per keystroke, 4 apart: `e` `p`, never a chip reading "e p". The one exception is a click hint: a hint is a name to type, not a key to find, so its letters share one key, set tight (`jk`), and the letters already typed go quiet inside it (see Decided in review).
+- **A sequence** (keys pressed one after another) is one key per keystroke, 4 apart: `e` `p`, never a chip reading "e p". The one exception is a click hint: a hint is a name to type, not a key to find, so its letters share one key, set tight (`JK`), and the letters already typed go quiet inside it (see Decided in review). A hint in select, the click door or the aim band is picked with Shift, which opens the pick and may stay held through it, so its letters are capitals: what the hand presses, and a capital `L` is never read as an `I`. A tag in the editor's lens is picked with the bare letter and stays lowercase.
 - **A double tap** is one key followed by `×2` in quiet ink at the meta size, 4 after it: `lode` ×2.
 - **A key named in a sentence** (a flash, a caption, the coach) is drawn as a key, inline, or written as typed; never capitalised to stand out.
 
@@ -56,7 +56,7 @@ On the slab (the chosen row) a key takes the slab's look, face, side and hairlin
 
 1. **One key, everywhere.** Every place Lodestar draws a key uses this primitive; no surface draws its own.
 2. **On its face, on one band.** Legends sit on the face, centred by band, so a row of keys shares a baseline.
-3. **As typed.** Lowercase for a bare keystroke; capitals only for Shift, and in a modifier chord.
+3. **As typed.** Lowercase for a bare keystroke; capitals only for Shift (a hint picked with it), and in a modifier chord.
 4. **One keystroke, one key.** Sequences are separate keys; a double tap is one key and ×2. A click hint alone draws its letters in one key.
 5. **One lit key at a time.** The orange marks where the hand goes next; a second lit key means one is wrong (a chord's keys, pressed together, count as one).
 6. **Hugs its legend.** No minimum width beyond square.

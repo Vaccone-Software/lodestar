@@ -28,6 +28,16 @@ final class SelectOverlay {
         let frames: [CGRect]
         var style: Style = .match
 
+        /// The letters the chip's key wears: what picks it, as typed. A
+        /// match or a target is picked with Shift, which opens the pick and
+        /// may stay held through it, so it wears capitals (and a capital
+        /// `L` is never read as an `I`). The editor's lens picks with the
+        /// bare letter, so its tag wears the letter lowercase.
+        var legend: String {
+            if case .tag = style { return label }
+            return label.uppercased()
+        }
+
         /// The fix a lens tag carries, if this is one.
         var fix: String? {
             if case .tag(let word) = style { return word }
@@ -156,7 +166,7 @@ final class SelectOverlay {
             let target = appKitRect(first)
             switch chip.style {
             case .tag(let word):
-                let tag = KeyMark.tag(letter: chip.label, word: word, typed: typed)
+                let tag = KeyMark.tag(letter: chip.legend, word: word, typed: typed)
                 let placed = Self.place(tag.frame.size, above: target, avoiding: placedTags, within: bounds)
                 tag.frame.origin = placed.frame.origin
                 if let x = placed.connectorX {
@@ -178,7 +188,7 @@ final class SelectOverlay {
             case .target:
                 break
             }
-            let key = KeyMark.key(chip.label, typed: typed)
+            let key = KeyMark.key(chip.legend, typed: typed)
             let width = key.frame.width, height = key.frame.height
             let x = min(max(target.minX - Grid.hair, 0), bounds.width - width)
             // A match's key floats just above the word; a target's pins to

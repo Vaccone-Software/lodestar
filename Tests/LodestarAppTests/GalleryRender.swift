@@ -23,10 +23,33 @@ struct GalleryLook: Equatable {
         BarTheme.accentColor = { BarTheme.internationalOrange }
     }
 
+    /// Back to the Mac's own look, and the main queue left quiet.
+    ///
+    /// The builds are kept for the process, and every one of them answers a
+    /// change of look on the main queue's next turns: layout, redraws. Left
+    /// queued, that work ran inside whatever test came next. After KeyTests
+    /// a 0.5 s run of the run loop took 4.7 s on CI, and the watchdog's tests
+    /// read the wait as a freeze (2026-10-25, four tests that night). It
+    /// runs here instead, inside the class that caused it.
     static func reset() {
         NSApplication.shared.appearance = nil
         BarTheme.accentColor = { BarTheme.internationalOrange }
         Ceramic.followSystemAppearance()
+        settleMain()
+    }
+
+    /// Turn the run loop until the main queue answers promptly three times
+    /// in a row, or `limit` passes.
+    static func settleMain(limit: TimeInterval = 30) {
+        let deadline = Date().addingTimeInterval(limit)
+        var quiet = 0
+        while quiet < 3, Date() < deadline {
+            var answered = false
+            let asked = Date()
+            DispatchQueue.main.async { answered = true }
+            while !answered, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+            quiet = Date().timeIntervalSince(asked) < 0.02 ? quiet + 1 : 0
+        }
     }
 }
 

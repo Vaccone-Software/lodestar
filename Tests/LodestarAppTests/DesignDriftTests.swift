@@ -247,7 +247,7 @@ final class DesignDriftTests: XCTestCase {
             XCTAssertTrue(hit, "the guard misses: \(sample)")
         }
         let allowed = [
-            "field.textColor = BarTheme.ink", "layer.shadowColor = BarTheme.shadow.cgColor",
+            "field.textColor = BarTheme.ink", "layer.shadowColor = BarTheme.shadowInk.cgColor",
             "NSColor(srgbRed: red, green: green, blue: blue, alpha: 1)", "panel.backgroundColor = .clear",
             "layer.borderColor = Ceramic.resolved(BarTheme.hairline, in: self)",
         ]

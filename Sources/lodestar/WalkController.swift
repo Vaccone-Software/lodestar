@@ -667,8 +667,6 @@ final class WalkController: NSObject {
                 let image = PictureView()
                 image.image = picture
                 image.imageScaling = .scaleProportionallyUpOrDown
-                // A picture is content: on the slab it stays as it is.
-                image.heldInSlab = selected
                 image.translatesAutoresizingMaskIntoConstraints = false
                 image.widthAnchor.constraint(equalToConstant: tileWidth - tileInset * 2).isActive = true
                 image.heightAnchor.constraint(equalToConstant: (tileWidth - tileInset * 2) * Self.pictureAspect).isActive = true

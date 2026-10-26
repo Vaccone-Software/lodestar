@@ -75,56 +75,11 @@ final class AppearanceRoot: NSView {
     }
 }
 
-/// A clay picture on the page. In the light an object stands off the page
-/// by its shadow, the way the night lets a pale object stand off by its
-/// tone: a soft warm shadow cast from the object's own outline, in the
-/// layer, so nothing frames it. `away` is the way the shadow falls, a unit
-/// vector with y up; on the Settings overview the mark at the centre is the
-/// light and every place's shadow falls away from it. Nil falls straight
-/// down. The night casts none.
-final class PictureView: NSImageView {
-    var away: CGVector? { didSet { restyle() } }
-    /// Held inside a slab: a picture is content, drawn as it is, so it takes
-    /// the look around the slab and not the one inside it.
-    var heldInSlab = false { didSet { pin.active = heldInSlab } }
-    private lazy var pin = Slab.Flip(self)
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        pin.settle()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        restyle()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        restyle()
-    }
-
-    override func layout() {
-        super.layout()
-        restyle()
-    }
-
-    private func restyle() {
-        wantsLayer = true
-        guard let layer else { return }
-        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        layer.masksToBounds = false
-        layer.shadowColor = BarTheme.shadow.cgColor
-        let width = max(bounds.width, 1)
-        let direction = away ?? CGVector(dx: 0, dy: -1)
-        // Cast from the mark the shadow is long and plain enough to read
-        // as direction at a glance; a lone picture's sits close beneath it.
-        layer.shadowOpacity = dark ? 0 : (away == nil ? 0.32 : 0.64)
-        let reach = width * (away == nil ? 0.03 : 0.096)
-        layer.shadowRadius = width * (away == nil ? 0.04 : 0.07)
-        layer.shadowOffset = CGSize(width: direction.dx * reach, height: direction.dy * reach)
-    }
-}
+/// A picture on the page: a cameo that carries its own shadow, cast by the
+/// same light from above as everything else, so the view adds none. Each
+/// look's cameo is the other look's clay, so on a slab it takes the slab's
+/// look like everything else there, and stays the slab's opposite.
+final class PictureView: NSImageView {}
 
 /// A flat surface whose fill and edge follow the appearance: a group, a
 /// rule, a dot, a caret. It casts nothing and stands on nothing. A layer's colour is a fixed value, so one set
@@ -420,10 +375,6 @@ enum BarTheme {
             return look.ink.color.withAlphaComponent(look.hairlineAlpha)
         }
     }
-    /// What a content picture's shadow is cast in (a picture is content, not
-    /// chrome): the night's ground, and by day the quiet ink. A pane casts
-    /// `shadowInk`, the same two, at the contract's share.
-    static var shadow: NSColor { palette.isDark ? palette.ground.color : palette.quietInk.color }
     /// The light look as the level has it: clay's own steps, which the dark
     /// look borrows for its lightest and darkest things.
     private static var clayInForce: Palette.Steps { EyeComfortState.shared.steps(dark: false) }

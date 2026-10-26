@@ -298,7 +298,7 @@ final class GeometryTests: XCTestCase {
     func testEverySurfaceKeepsTheGeometryRules() throws {
         var outside: [String] = [], shadows: [String] = [], keys: [String] = [], empty: [String] = []
         var rows: [String] = [], targets: [String] = [], words: [String] = [], checked = 0
-        var counts = ["shadows": 0, "key columns": 0, "empty": 0, "settings rows": 0, "word controls": 0, "raised rows": 0, "targets": 0]
+        var counts = ["key columns": 0, "empty": 0, "settings rows": 0, "word controls": 0, "raised rows": 0, "targets": 0]
         for look in GalleryLook.all {
             look.apply()
             for shot in GalleryShots.all where shot.looks.contains(look) {
@@ -323,13 +323,10 @@ final class GeometryTests: XCTestCase {
                     if !parent.bounds.insetBy(dx: -0.5, dy: -0.5).contains(inParent), inParent.width > 0, inParent.height > 0 {
                         outside.append("\(name): \(type(of: view)) \(inParent.integral) leaves \(type(of: parent)) \(parent.bounds.integral)")
                     }
+                    // Nothing inside a surface casts a shadow of its own: a key
+                    // stands on a side, and a picture carries its shadow in it.
                     if let layer = view.layer, layer.shadowOpacity > 0, layer.shadowRadius <= 8 {
-                        counts["shadows", default: 0] += 1
-                        let reach = layer.shadowRadius + abs(layer.shadowOffset.height)
-                        let drawn = frame(of: view, in: root).insetBy(dx: -layer.shadowRadius, dy: -reach)
-                        if !bounds.contains(drawn) {
-                            shadows.append("\(name): \(type(of: view)) draws \(drawn.integral) past the surface \(root.bounds.integral)")
-                        }
+                        shadows.append("\(name): \(type(of: view)) casts a shadow")
                     }
                 }
 
@@ -431,13 +428,12 @@ final class GeometryTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(checked, 100, "the gallery's surfaces were built")
-        XCTAssertGreaterThan(counts["shadows"] ?? 0, 10, "keys and rows with a lip were looked at")
         XCTAssertGreaterThan(counts["key columns"] ?? 0, 50, "keys were looked at")
         XCTAssertGreaterThan(counts["settings rows"] ?? 0, 50, "settings rows were looked at")
         XCTAssertGreaterThan(counts["raised rows"] ?? 0, 10, "the bars' rows were looked at")
         XCTAssertGreaterThan(counts["targets"] ?? 0, 20, "clickable things were looked at")
         XCTAssertEqual(Array(Set(outside)).sorted(), [], "a view reserves the room for what it holds")
-        XCTAssertEqual(Array(Set(shadows)).sorted(), [], "reserve room for a lip or a shadow's reach")
+        XCTAssertEqual(Array(Set(shadows)).sorted(), [], "a key has a side and a picture its own shadow; nothing in a surface casts one")
         XCTAssertEqual(Array(Set(keys)).sorted(), [], "a column of keys is as wide as its widest")
         XCTAssertEqual(Array(Set(empty)).sorted(), [], "a column with nothing in it takes no space")
         XCTAssertEqual(Array(Set(rows)).sorted(), [], "a row's parts share the title's first line")

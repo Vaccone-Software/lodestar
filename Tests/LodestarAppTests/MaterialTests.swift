@@ -126,10 +126,12 @@ final class MaterialTests: XCTestCase {
     // MARK: - Thickness over shadow, no gradients, no glows (rules 4 and 5)
 
     /// Pressability is a side, never a shadow: a shadow falls only from a
-    /// floating pane. The theme casts it; a content picture and a file's
-    /// sheet keep the shadows of content; the app's own artwork has its own.
+    /// floating pane, cast through Material.swift. A content picture and a
+    /// file's sheet keep the shadows of content; the app's own artwork has
+    /// its own; a cameo carries its shadow in the picture, so the theme
+    /// casts none.
     func testOnlyThePanesAndContentCastAShadow() throws {
-        let casters: Set<String> = ["Ceramic.swift", "Material.swift", "ClipboardStrip.swift", "AppIconArt.swift"]
+        let casters: Set<String> = ["Material.swift", "ClipboardStrip.swift", "AppIconArt.swift"]
         var found: [String] = []
         for file in DesignDriftTests.swiftFiles(under: DesignDriftTests.appSources) where !casters.contains(file.lastPathComponent) {
             let raw = try String(contentsOf: file, encoding: .utf8)
@@ -140,10 +142,6 @@ final class MaterialTests: XCTestCase {
             }
         }
         XCTAssertEqual(found, [], "a pane casts its shadow through PaneShadow; a key has a side, not a shadow")
-        // What the theme itself casts is the pane's, and a picture's.
-        let ceramic = DesignDriftTests.code(try String(contentsOf: DesignDriftTests.appSources.appendingPathComponent("Ceramic.swift"), encoding: .utf8))
-        let shadows = ceramic.components(separatedBy: ".shadowOpacity").count - 1
-        XCTAssertEqual(shadows, 1, "the theme file shades only the picture; the pane's shadow is Material.swift's")
     }
 
     /// The one gradient that remains is the Settings scroll's foot, a mask

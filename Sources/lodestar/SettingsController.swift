@@ -1179,10 +1179,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         for (index, section) in sections.enumerated() {
             let angle = (-90 + 36 * CGFloat(index)) * .pi / 180
             let point = NSPoint(x: center.x + rx * cos(angle), y: center.y + ry * sin(angle))
-            // The mark is the light: each place's shadow falls away from it,
-            // so the ring reads as objects around one light. (Flipped field:
-            // y grows down here and up in the picture.)
-            let tile = buildPlaceTile(section, index: index, away: CGVector(dx: cos(angle), dy: -sin(angle)))
+            let tile = buildPlaceTile(section, index: index)
             // The picture sits on the ring; its name and line hang below.
             tile.frame = NSRect(x: point.x - Self.placeTile.width / 2, y: point.y - Self.placePicture.height / 2,
                                 width: Self.placeTile.width, height: Self.placeTile.height)
@@ -1208,13 +1205,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         return field
     }
 
-    private func buildPlaceTile(_ section: SettingsModel.Section, index: Int, away: CGVector? = nil) -> NSView {
+    private func buildPlaceTile(_ section: SettingsModel.Section, index: Int) -> NSView {
         let tile = HandStack()
         tile.orientation = .vertical
         tile.alignment = .centerX
         tile.spacing = Grid.tight
         let picture = PictureView()
-        picture.away = away
         picture.image = Self.picture(section.picture)
         picture.imageScaling = .scaleProportionallyUpOrDown
         picture.translatesAutoresizingMaskIntoConstraints = false
@@ -1377,9 +1373,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         column.addArrangedSubview(backRow)
         column.setCustomSpacing(Grid.section, after: backRow)
 
-        // The place's picture floats on its own shadow, as it does on the
-        // overview: a picture is an object with no floor, never one set in
-        // a box.
+        // The place's picture stands on the column as it does on the
+        // overview: a cameo with its own shadow, never one set in a box.
         let card = NSView()
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: Self.leftColumn).isActive = true

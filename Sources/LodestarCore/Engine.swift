@@ -992,6 +992,10 @@ public struct EngineCore {
             } else {
                 effects.append(.flash("✕ no focused window to aim in"))
             }
+        case "home", "end", "pageup", "pagedown":
+            // The page's own scroll keys, which passed when the table had no
+            // name for them: a mode about scrolling does not take them away.
+            effects.append(.passThrough)
         default:
             break // swallowed — mode discipline
         }

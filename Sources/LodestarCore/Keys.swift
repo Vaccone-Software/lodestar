@@ -18,6 +18,10 @@ public enum Keys {
         36: "return", 48: "tab", 49: "space", 51: "delete", 53: "escape",
         50: "`", 33: "[", 30: "]", 39: "'", 24: "=", 27: "-", 42: "\\",
         123: "left", 124: "right", 125: "down", 126: "up",
+        // fn ⌫ and the four keys that scroll and jump. Named so the tap
+        // sees them: unnamed, they passed to the app under a surface that
+        // had taken every other key.
+        117: "forwarddelete", 115: "home", 119: "end", 116: "pageup", 121: "pagedown",
     ]
 
     /// The positions a layout may rename: every key whose ANSI name is the

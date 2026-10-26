@@ -423,6 +423,7 @@ final class DraftPanel {
     var takesPointer: Bool { gate.open }
     func gatePointer(at point: NSPoint) { gate.update(pointer: point) }
     var caretFrame: NSRect { caret.frame }
+    var caretShown: Bool { !caret.isHidden }
     var caretColor: NSColor? { caret.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)) }
     /// Every view on the register line, named, for a layout probe.
     var registerViews: [(String, NSView)] {
@@ -843,7 +844,10 @@ final class DraftPanel {
             scroll.contentView.scroll(to: .zero)
         }
 
-        // The caret, at the cursor's glyph.
+        // The caret, at the cursor's glyph. A Mac field draws no caret
+        // while text is selected: the highlight is where the next key lands.
+        caret.isHidden = view.style == .standard && view.selection?.isEmpty == false
+            && view.buffer.ghost.isEmpty
         if let layout = textView.layoutManager, let container = textView.textContainer {
             let cursorUTF16 = (String(view.buffer.characters[..<view.buffer.cursor]) as NSString).length
             let glyph = layout.glyphIndexForCharacter(at: min(cursorUTF16, max(0, attributed.length)))
@@ -1101,14 +1105,21 @@ extension DraftPanel {
             // WAIT=1 stages the microphone still opening: the grey floor.
             let waiting = ProcessInfo.processInfo.environment["WAIT"] == "1"
             if waiting { buffer = Draft.Buffer() }
-            panel.show(DraftView(buffer: buffer, mode: .insert, editor: .insert,
+            // SELECT=1 stages a Mac selection over the last words, waiting
+            // for the voice; STYLE=vim stages the Vim style's mono.
+            if ProcessInfo.processInfo.environment["SELECT"] == "1" {
+                buffer.clearGhost()
+                buffer.select { for _ in 0..<6 { $0.moveWordLeft() } }
+            }
+            let style: Draft.EditingStyle = ProcessInfo.processInfo.environment["STYLE"] == "vim" ? .vim : .standard
+            panel.show(DraftView(buffer: buffer, mode: .insert, editor: .insert, selection: buffer.selection,
                                  speech: waiting ? nil : .listening(input: "MacBook Pro Microphone"),
                                  input: "MacBook Pro Microphone",
                                  // LEVEL= stages another loudness: 1 curves into the corners.
                                  level: Float(ProcessInfo.processInfo.environment["LEVEL"] ?? "") ?? 0.6,
                                  inputs: inputs, systemInput: "Cypress", chosenInput: "MacBook Pro Microphone",
                                  micOn: true,
-                                 destination: ("Messages", icon), replacing: false))
+                                 destination: ("Messages", icon), replacing: false, style: style))
             // MENU=1 stages the input menu open beside the draft.
             if ProcessInfo.processInfo.environment["MENU"] == "1" { panel.toggleInputMenu() }
             // KEYS=1 stages the keys up, as lode ? shows them.

@@ -557,6 +557,26 @@ final class DraftStandardScenarioTests: XCTestCase {
         XCTAssertEqual(note(.vim), "", "Vim's visual selection is unchanged")
     }
 
+    func testNoCaretIsDrawnWhileTextIsSelected() {
+        let panel = DraftPanel()
+        defer { panel.hide() }
+        func show(_ buffer: Draft.Buffer, _ style: Draft.EditingStyle) {
+            var view = DraftView(buffer: buffer, mode: .insert, editor: .insert, selection: buffer.selection,
+                                 speech: nil, destination: nil, replacing: false)
+            view.style = style
+            panel.show(view)
+        }
+        var buffer = Draft.Buffer(text: "one two three")
+        show(buffer, .standard)
+        XCTAssertTrue(panel.caretShown)
+        buffer.select { $0.moveWordLeft() }
+        show(buffer, .standard)
+        XCTAssertFalse(panel.caretShown, "the highlight is where the next key lands, as in any Mac field")
+        buffer.moveRight()
+        show(buffer, .standard)
+        XCTAssertTrue(panel.caretShown, "the caret comes back where the selection ended")
+    }
+
     // MARK: - The keys
 
     func testTheKeysSheetSaysEscClosesUnderStandardAndStopsTypingUnderVim() {

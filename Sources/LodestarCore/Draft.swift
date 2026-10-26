@@ -204,26 +204,45 @@ public enum Draft {
 
         // MARK: Moving
 
-        /// A plain move ends a selection, and ← and → end it where it
-        /// began or ended, as in any Mac field.
-        public mutating func moveLeft() {
-            cursor = selection?.lowerBound ?? max(0, cursor - 1)
+        /// A plain move ends a selection, as in any Mac field, and starts
+        /// from its edge in the direction it goes: its start for a move
+        /// back, its end for a move forward. ← and → only go that far.
+        private mutating func collapse(toEnd: Bool) {
+            if let range = selection { cursor = toEnd ? range.upperBound : range.lowerBound }
             anchor = nil
+        }
+
+        public mutating func moveLeft() {
+            let selected = selection != nil
+            collapse(toEnd: false)
+            if !selected { cursor = max(0, cursor - 1) }
             lastGrain = nil
         }
 
         public mutating func moveRight() {
-            cursor = selection?.upperBound ?? min(characters.count, cursor + 1)
-            anchor = nil
+            let selected = selection != nil
+            collapse(toEnd: true)
+            if !selected { cursor = min(characters.count, cursor + 1) }
             lastGrain = nil
         }
 
-        public mutating func moveLineStart() { cursor = lineStart(from: cursor); anchor = nil; lastGrain = nil }
-        public mutating func moveLineEnd() { cursor = lineEnd(from: cursor); anchor = nil; lastGrain = nil }
+        public mutating func moveLineStart() {
+            collapse(toEnd: false)
+            cursor = lineStart(from: cursor)
+            lastGrain = nil
+        }
+
+        public mutating func moveLineEnd() {
+            collapse(toEnd: true)
+            cursor = lineEnd(from: cursor)
+            lastGrain = nil
+        }
+
         public mutating func moveStart() { cursor = 0; anchor = nil; lastGrain = nil }
         public mutating func moveEnd() { cursor = characters.count; anchor = nil; lastGrain = nil }
 
         public mutating func moveWordLeft() {
+            collapse(toEnd: false)
             var i = cursor
             while i > 0, characters[i - 1].isWhitespace { i -= 1 }
             while i > 0, !characters[i - 1].isWhitespace { i -= 1 }
@@ -233,6 +252,7 @@ public enum Draft {
         }
 
         public mutating func moveWordRight() {
+            collapse(toEnd: true)
             var i = cursor
             while i < characters.count, characters[i].isWhitespace { i += 1 }
             while i < characters.count, !characters[i].isWhitespace { i += 1 }
@@ -243,6 +263,7 @@ public enum Draft {
 
         /// Up and down keep the column where the line allows it.
         public mutating func moveUp() {
+            collapse(toEnd: false)
             let start = lineStart(from: cursor)
             guard start > 0 else { cursor = 0; anchor = nil; return }
             let column = cursor - start
@@ -254,6 +275,7 @@ public enum Draft {
         }
 
         public mutating func moveDown() {
+            collapse(toEnd: true)
             let end = lineEnd(from: cursor)
             guard end < characters.count else { cursor = characters.count; anchor = nil; return }
             let column = cursor - lineStart(from: cursor)

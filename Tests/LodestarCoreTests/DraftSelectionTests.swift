@@ -119,6 +119,36 @@ final class DraftSelectionTests: XCTestCase {
         }
     }
 
+    /// On a Mac every plain move from a selection starts at its edge in the
+    /// direction it goes, whichever end the cursor was left at.
+    func testEveryPlainMoveStartsFromTheSelectionsEdgeInItsDirection() {
+        let moves: [(String, (inout Draft.Buffer) -> Void, Int)] = [
+            ("⌥←", { $0.moveWordLeft() }, 0),
+            ("⌘←", { $0.moveLineStart() }, 0),
+            ("⌥→", { $0.moveWordRight() }, 18),
+            ("⌘→", { $0.moveLineEnd() }, 18),
+        ]
+        for (name, move, cursor) in moves {
+            for rightward in [false, true] {
+                var b = buffer("one two three four", cursor: rightward ? 4 : 13)
+                b.select { if rightward { $0.moveWordRight(); $0.moveWordRight() } else { $0.moveWordLeft(); $0.moveWordLeft() } }
+                XCTAssertEqual(b.selection, 4..<13, name)
+                move(&b)
+                XCTAssertEqual(b.cursor, cursor, "\(name), cursor left \(rightward ? "after" : "before") the selection")
+            }
+        }
+        for rightward in [false, true] {
+            var b = buffer("ab\ncdef\ngh", cursor: rightward ? 3 : 5)
+            b.select { if rightward { $0.moveRight(); $0.moveRight() } else { $0.moveLeft(); $0.moveLeft() } }
+            XCTAssertEqual(b.selection, 3..<5)
+            var up = b
+            up.moveUp()
+            XCTAssertEqual(up.cursor, 0, "↑ from the start")
+            b.moveDown()
+            XCTAssertEqual(b.cursor, 10, "↓ from the end, keeping its column")
+        }
+    }
+
     func testOtherKeysAreLeftToTheCaller() {
         var b = buffer("hello", cursor: 2)
         XCTAssertFalse(press("left", in: &b), "a plain arrow is insert mode's own")

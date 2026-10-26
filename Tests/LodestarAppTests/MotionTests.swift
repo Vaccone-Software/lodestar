@@ -372,7 +372,7 @@ final class MotionTests: XCTestCase {
         XCTAssertEqual(SoftShadow.inset(draft.panel.frame), folded, "shut, the moment show returns")
         XCTAssertEqual(draft.frame.height, folded.height, accuracy: 0.5)
 
-        let sections = HotkeyEngine.draftSections(editor: .insert, card: false)
+        let sections = HotkeyEngine.draftSections(style: .vim, editor: .insert, card: false)
         draft.showKeys(sections)
         XCTAssertGreaterThan(draft.keysFrame.height, 0, "the keys are in place")
         XCTAssertGreaterThan(draft.frame.height, folded.height + 100, "and the glass has taken their room")

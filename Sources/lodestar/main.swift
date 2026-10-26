@@ -432,6 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         earHost.ready = { [weak self] tier in
             self?.hud.flash("✓ The \(tier.name.lowercased()) dictation model is ready\nIt now hears each phrase twice")
         }
+        draft.editingStyle = config.draftEditingStyle
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
         draft.sounds = config.sounds
         draft.measuresVoice = config.observationsHealth
@@ -2473,6 +2474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draftController?.earContext = Array(loaded.draftWords.prefix(30))
         earHost.configure(loaded.draftModel)
         applyEditor(loaded)
+        draftController?.editingStyle = loaded.draftEditingStyle
         draftController?.inputDevice = loaded.draftInput.isEmpty ? nil : loaded.draftInput
         draftController?.sounds = loaded.sounds
         draftController?.measuresVoice = loaded.observationsHealth
@@ -2496,6 +2498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         coach?.enabled = loaded.coachEnabled && loaded.logbookEnabled
         meetings.config = loaded
+        walk.config = loaded
         settings.config = loaded
         // A year or a hand written into the file, by hand or by a build
         // before the facts were sealed, moves out of it.

@@ -63,6 +63,15 @@ struct DraftView {
     var wet: Range<Int>? = nil
     /// Words a pass rewrote, underlined quietly until the hand's next key.
     var revised: [Range<Int>] = []
+    /// The text is set in mono where vim is, and in the system's sans where
+    /// it is not. Vim until a view says otherwise: the style is the
+    /// controller's to decide, and every view it draws says.
+    var style = Draft.EditingStyle.vim
+
+    /// The role the text is set in.
+    var role: BarTheme.Role { Self.role(for: style) }
+
+    static func role(for style: Draft.EditingStyle) -> BarTheme.Role { style == .vim ? .draft : .body }
 }
 
 /// The voice light: the panel's own top edge, lit in the accent while the
@@ -284,11 +293,12 @@ final class DraftPanel {
     private static let leastInputWidth: CGFloat = 80
     /// The lines a speaking draft holds.
     static let compactLines = 4
-    /// The draft and the editor's lens are the system's mono, where vim is:
-    /// every letter is one cell, so the block cursor, which is a plate as
-    /// wide as the letter it covers, is one cell, and the find lights'
-    /// semibold letters (the marked role) keep the line's width.
-    private static var font: NSFont { BarTheme.Role.draft.font }
+    /// The draft under Vim and the editor's lens are the system's mono, where
+    /// vim is: every letter is one cell, so the block cursor, which is a
+    /// plate as wide as the letter it covers, is one cell, and the find
+    /// lights' semibold letters (the marked role) keep the line's width.
+    /// Under Standard the draft is the body's sans and its caret a bar.
+    ///
     /// The width of a space, one cell: what a block cursor covers where no letter is.
     private static var spaceWidth: CGFloat { BarTheme.spaceWidth(in: .draft) }
     /// The panel's ground, for the glyph a block cursor inverts: the
@@ -457,11 +467,12 @@ final class DraftPanel {
     /// between the draft's own width and the screen. Prose stays at
     /// reading width, code gets its columns. Measured once, at open, so
     /// typing never resizes the panel.
-    func width(for text: String) -> CGFloat {
+    func width(for text: String, style: Draft.EditingStyle) -> CGFloat {
+        let font = DraftView.role(for: style).font
         let screen = ActivePolicy.presentationFrame
         var longest: CGFloat = 0
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let measured = (String(line) as NSString).size(withAttributes: [.font: Self.font]).width
+            let measured = (String(line) as NSString).size(withAttributes: [.font: font]).width
             longest = max(longest, measured)
         }
         let asked = (longest + Self.padX * 2 + 8).rounded(.up)
@@ -544,9 +555,9 @@ final class DraftPanel {
         // words will land, which is not necessarily the end.
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 3
-        var settledAttributes = BarTheme.attributes(.draft, color: BarTheme.ink)
+        var settledAttributes = BarTheme.attributes(view.role, color: BarTheme.ink)
         settledAttributes[.paragraphStyle] = paragraph
-        var ghostAttributes = BarTheme.attributes(.draft, color: BarTheme.secondaryColor)
+        var ghostAttributes = BarTheme.attributes(view.role, color: BarTheme.secondaryColor)
         ghostAttributes[.paragraphStyle] = paragraph
         let before = String(view.buffer.characters[..<view.buffer.cursor])
         let after = String(view.buffer.characters[view.buffer.cursor...])
@@ -628,7 +639,7 @@ final class DraftPanel {
         textView.textContainer?.containerSize = NSSize(width: textWidth, height: .greatestFiniteMagnitude)
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         let used = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0
-        let lineHeight = textView.layoutManager?.defaultLineHeight(for: Self.font) ?? 22
+        let lineHeight = textView.layoutManager?.defaultLineHeight(for: view.role.font) ?? 22
         // Opened whole, the text grows the panel to the display's visible
         // height and scrolls past it — one rule for every door. A card
         // opened to be read wants all of itself on screen. Folded, it
@@ -1002,6 +1013,7 @@ extension DraftPanel {
                                  micOn: true, destination: ("Terminal", icon), replacing: false)
             view.wet = wet
             view.revised = revised
+            view.style = .standard
             return view
         }
         let misheard = before + " If it does, remove it and use the gap, then rerun the bill."
@@ -1055,7 +1067,7 @@ extension DraftPanel {
                                  inputs: ["Cypress", "MacBook Pro Microphone"],
                                  systemInput: "Cypress",
                                  micOn: true,
-                                 destination: ("Notes", icon), replacing: false))
+                                 destination: ("Notes", icon), replacing: false, style: .standard))
             return panel
         }
         let panel = DraftPanel()
@@ -1078,12 +1090,12 @@ extension DraftPanel {
                                  level: Float(ProcessInfo.processInfo.environment["LEVEL"] ?? "") ?? 0.6,
                                  inputs: inputs, systemInput: "Cypress", chosenInput: "MacBook Pro Microphone",
                                  micOn: true,
-                                 destination: ("Messages", icon), replacing: false))
+                                 destination: ("Messages", icon), replacing: false, style: .standard))
             // MENU=1 stages the input menu open beside the draft.
             if ProcessInfo.processInfo.environment["MENU"] == "1" { panel.toggleInputMenu() }
             // KEYS=1 stages the keys up, as lode ? shows them.
             if ProcessInfo.processInfo.environment["KEYS"] == "1" {
-                panel.showKeys(HotkeyEngine.draftSections(editor: .insert, card: false))
+                panel.showKeys(HotkeyEngine.draftSections(style: .standard, editor: .insert, card: false))
             }
         } else {
             buffer = Draft.Buffer(text: "The quick brown fox\njumps over the lazy dog.", cursor: 10)

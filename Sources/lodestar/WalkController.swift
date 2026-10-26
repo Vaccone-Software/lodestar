@@ -843,7 +843,7 @@ final class WalkController: NSObject {
         }
     }
 
-    static func lessonCard(_ lesson: Curriculum.Lesson) -> LessonCard {
+    static func lessonCard(_ lesson: Curriculum.Lesson, editing style: Draft.EditingStyle = .standard) -> LessonCard {
         let (position, total) = Curriculum.position(of: lesson)
         let count = "Lesson \(position) of \(total)"
         func row(_ keys: [String], _ label: String, double: Bool = false) -> LessonCard.Row {
@@ -871,8 +871,10 @@ final class WalkController: NSObject {
                               detail: "A name, a domain, or a question. \(count)",
                               rows: [row(["lode", "⏎"], "Ask"), row(["⏎"], "Open")])
         case .draft:
-            return LessonCard(sentence: "Dictation and Vim editing in one draft",
-                              detail: "Speak or type, edit with Vim keys, and it lands where the cursor was. \(count)",
+            return LessonCard(sentence: style == .vim ? "Dictation and Vim editing in one draft"
+                                                      : "Dictation and editing in one draft",
+                              detail: "Speak or type, edit \(style == .vim ? "with Vim keys" : "like any Mac text field"), "
+                                  + "and it lands where the cursor was. \(count)",
                               rows: [row(["lode", "."], "Draft with dictation"),
                                      row(["lode", "⇧."], "Draft without dictation"),
                                      row(["⏎"], "Place it")])
@@ -936,7 +938,7 @@ final class WalkController: NSObject {
             let note = Self.provenNote(for: lesson)
             stack = VoiceCard.build(sentence: note.sentence, detail: note.detail, rows: [])
         } else {
-            let card = Self.lessonCard(lesson)
+            let card = Self.lessonCard(lesson, editing: config.draftEditingStyle)
             let rows = Self.lessonRows(card, answerable: lesson == .editor,
                                        answer: { [weak self] in self?.assent() },
                                        later: { [weak self] in _ = self?.pass() })

@@ -418,7 +418,7 @@ final class DesignDriftTests: XCTestCase {
     /// There is one key, the launcher's: a guide, a gesture line and a
     /// card's footer draw `Key`, never a grey chip of their own.
     func testTheGuidesAndLinesDrawTheOneKey() {
-        let guide = CheatSheet.columns(HotkeyEngine.draftSections(editor: .normal, card: false))
+        let guide = CheatSheet.columns(HotkeyEngine.draftSections(style: .vim, editor: .normal, card: false))
         XCTAssertEqual(keyShapes(in: guide).count, 0, "a guide's keys are the one key")
         let line = Keycaps.line([.init(["lode", "lode"], "go"), .init(["esc"], "back")])
         XCTAssertEqual(keyShapes(in: line).count, 0)

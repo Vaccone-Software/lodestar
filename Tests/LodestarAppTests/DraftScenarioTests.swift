@@ -1037,7 +1037,7 @@ final class DraftKeysScenarioTests: XCTestCase {
     /// The keys answer for the mode the hand is actually in.
     func testTheKeysFollowTheEditorsMode() {
         func labels(_ editor: Vim.Mode) -> [String] {
-            HotkeyEngine.draftSections(editor: editor, card: false).flatMap { $0.rows }.map(\.label)
+            HotkeyEngine.draftSections(style: .vim, editor: editor, card: false).flatMap { $0.rows }.map(\.label)
         }
         XCTAssertTrue(labels(.insert).contains("Start a new line"))
         XCTAssertTrue(labels(.normal).contains("Left, down, up, right"))

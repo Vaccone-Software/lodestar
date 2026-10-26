@@ -304,7 +304,7 @@ enum StripPreview {
             DispatchQueue.main.async {
                 let panel = DraftPanel.preview(0)
                 heldDraft = panel
-                panel.showKeys(HotkeyEngine.draftSections(editor: .insert, card: false))
+                panel.showKeys(HotkeyEngine.draftSections(style: .standard, editor: .insert, card: false))
             }
             app.run()
         }

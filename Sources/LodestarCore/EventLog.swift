@@ -96,7 +96,7 @@ public struct ObservationEvent: Codable, Equatable {
         /// open, `typed` characters typed, `words` spoken words settled,
         /// `backspaces`, `switches` between modes, `openToFirstKey` and
         /// `firstWord` the two hesitations, `warm` whether the model was
-        /// already loaded. Never the text.
+        /// already loaded, `editing` the editing style. Never the text.
         case draft
         /// The clipboard strip closed: `action` (pasted | acted |
         /// abandoned), `source` how the card was addressed (label | pin |
@@ -226,6 +226,9 @@ public struct ObservationEvent: Codable, Equatable {
     /// A select event: the pointer rested over the window that was read.
     public var pointerOn: Bool?
     public var warm: Bool?
+    /// A draft: the editing style it ran under (standard | vim), so the
+    /// record can show which hands use which.
+    public var editing: String?
     /// A draft: the loudest the microphone read, in dBFS, sampled at the
     /// meter's ten a second. -140 is a deaf device delivering zeros, a
     /// quiet room reads about -60, speech about -30. nil when no audio

@@ -1904,7 +1904,9 @@ final class HotkeyEngine {
     /// opens depends on what is standing: a bar's keys, the settings
     /// window's, a lens's, or at idle the whole system.
     func sheetSections() -> [CheatSheet.Section] {
-        if draft.isOpen { return Self.draftSections(editor: draft.vim.mode, card: draft.editingClip != nil) }
+        if draft.isOpen {
+            return Self.draftSections(style: draft.editingStyle, editor: draft.vim.mode, card: draft.editingClip != nil)
+        }
         if settingsUp() { return Self.settingsSections }
         if searcher.isVisible { return Self.launcherSections }
         if webBar.isVisible { return Self.askSections }
@@ -1943,7 +1945,7 @@ final class HotkeyEngine {
     /// The draft's own keys. The legend that used to sit under the text
     /// said three of these and had room for no more; behind `lode ?`
     /// there is room for the editor the draft actually is.
-    static func draftSections(editor: Vim.Mode, card: Bool) -> [CheatSheet.Section] {
+    static func draftSections(style: Draft.EditingStyle, editor: Vim.Mode, card: Bool) -> [CheatSheet.Section] {
         let commit = card ? "Save to the card" : "Paste where ⏎ lands"
         let leave = card ? "Back to the clipboard" : "Close, kept in the clipboard"
         switch editor {
@@ -1957,7 +1959,8 @@ final class HotkeyEngine {
                 .init(header: "Draft", rows: [
                     GuideRow(key: "⏎", label: commit),
                     GuideRow(key: "⇧⏎", label: "Start a new line"),
-                    GuideRow(key: "esc", label: "Stop typing, start editing"),
+                    // Standard has no normal mode to start editing in.
+                    GuideRow(key: "esc", label: style == .vim ? "Stop typing, start editing" : leave),
                 ]),
                 .init(header: "Dictation", rows: [
                     GuideRow(keys: ["lode", "."], label: "Turn dictation on"),

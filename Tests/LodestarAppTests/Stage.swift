@@ -326,6 +326,9 @@ final class Stage {
         self.clipboard = clipboard
         scroller = ScrollController(model: model)
         draft = DraftController(speech: speech, clock: clock.clock)
+        // Most of what the stage's scenarios prove is the modal editor's;
+        // a scenario of Standard's says so.
+        draft.editingStyle = .vim
         draft.secureInput = { false }
         // The draft's matcher, built at once and from the repository's
         // dictionary, so a scenario's names are put back as the app's are.

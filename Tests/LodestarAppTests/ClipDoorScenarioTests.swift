@@ -135,6 +135,25 @@ final class ClipDoorScenarioTests: XCTestCase {
         XCTAssertEqual(stage.lastDraft?.row, "escape")
     }
 
+    /// Standard has no normal mode to step through: the one esc closes the
+    /// door, and the edit is kept all the same.
+    func testStandardEscapeKeepsANewCardAtOnce() {
+        let stage = Stage()
+        stage.draft.editingStyle = .standard
+        let original = stage.seedClip("keep me")
+        openDoor(stage)
+        append(stage, ["space", "x"])
+        stage.press("escape")
+        XCTAssertFalse(stage.draft.isOpen)
+        XCTAssertEqual(stage.clipboard.history.clips.map(\.preview), ["keep me x", "keep me"])
+        XCTAssertEqual(stage.clipboard.history.clips[1].id, original.id, "the original stands")
+        XCTAssertTrue(stage.pasteboard.isEmpty)
+        XCTAssertEqual(stage.engine.grammarState, .paste(searching: false))
+        XCTAssertEqual(stage.lastDraft?.action, "kept")
+        XCTAssertEqual(stage.lastDraft?.row, "escape")
+        XCTAssertEqual(stage.lastDraft?.editing, "standard")
+    }
+
     func testEscapeWithUnchangedTextLeavesNoTrace() {
         let stage = Stage()
         let clip = stage.seedClip("read only")
@@ -485,13 +504,13 @@ final class ClipDoorPanelTests: XCTestCase {
     func testProseKeepsTheDraftsWidthAndCodeWidensToTheScreen() {
         let panel = DraftPanel()
         let screen = ActivePolicy.presentationFrame
-        XCTAssertEqual(panel.width(for: "short"), 720)
-        XCTAssertEqual(panel.width(for: (1...50).map { "line \($0)" }.joined(separator: "\n")), 720)
+        XCTAssertEqual(panel.width(for: "short", style: .vim), 720)
+        XCTAssertEqual(panel.width(for: (1...50).map { "line \($0)" }.joined(separator: "\n"), style: .vim), 720)
         let code = String(repeating: "let value = compute(input) ", count: 4)
-        let wide = panel.width(for: code)
+        let wide = panel.width(for: code, style: .vim)
         XCTAssertGreaterThan(wide, 720)
         XCTAssertLessThanOrEqual(wide, screen.width - Grid.section * 2)
-        XCTAssertEqual(panel.width(for: String(repeating: "x", count: 5000)), screen.width - Grid.section * 2,
+        XCTAssertEqual(panel.width(for: String(repeating: "x", count: 5000), style: .vim), screen.width - Grid.section * 2,
                        "never past the screen")
     }
 
@@ -499,7 +518,7 @@ final class ClipDoorPanelTests: XCTestCase {
         let panel = DraftPanel()
         defer { panel.hide() }
         var wide = view(String(repeating: "let value = compute(input) ", count: 4))
-        wide.width = panel.width(for: wide.buffer.text)
+        wide.width = panel.width(for: wide.buffer.text, style: wide.style)
         panel.show(wide)
         XCTAssertEqual(panel.frame.width, wide.width!, accuracy: 0.5)
         panel.show(view("short"))
@@ -524,17 +543,17 @@ final class ClipDoorPanelTests: XCTestCase {
         func labels(_ sections: [CheatSheet.Section]) -> [String] {
             sections.flatMap { $0.rows }.map(\.label)
         }
-        let card = labels(HotkeyEngine.draftSections(editor: .normal, card: true))
+        let card = labels(HotkeyEngine.draftSections(style: .vim, editor: .normal, card: true))
         XCTAssertTrue(card.contains("Save to the card"), "\(card)")
         XCTAssertTrue(card.contains("Back to the clipboard"), "\(card)")
 
-        let draft = labels(HotkeyEngine.draftSections(editor: .normal, card: false))
+        let draft = labels(HotkeyEngine.draftSections(style: .vim, editor: .normal, card: false))
         XCTAssertTrue(draft.contains("Paste where ⏎ lands"), "\(draft)")
         XCTAssertTrue(draft.contains("Close, kept in the clipboard"), "\(draft)")
 
         // Insert mode names the two keys the legend used to, and no more
         // of the editor than the hand is holding.
-        let insert = labels(HotkeyEngine.draftSections(editor: .insert, card: false))
+        let insert = labels(HotkeyEngine.draftSections(style: .vim, editor: .insert, card: false))
         XCTAssertTrue(insert.contains("Start a new line"), "\(insert)")
         XCTAssertTrue(insert.contains("Stop typing, start editing"), "\(insert)")
     }

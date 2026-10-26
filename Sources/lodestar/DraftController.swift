@@ -112,6 +112,9 @@ final class DraftController {
     private(set) var intentChanged = 0
     /// Counts of what the settler changed this session, for the record.
     private(set) var settled = (names: 0, ellipses: 0, joins: 0, fillers: 0, corrections: 0)
+    /// How the draft is edited (`draft.editing-style`). Standard never
+    /// leaves insert mode and its esc closes; the keys are the style's.
+    var editingStyle = Draft.EditingStyle.standard
     /// The microphone to read (`draft.input`), by name; nil follows the
     /// system default.
     var inputDevice: String?
@@ -526,6 +529,7 @@ final class DraftController {
         out["ghost"] = buffer.ghost
         out["mode"] = mode == .insert ? "insert" : "normal"
         out["door"] = door.rawValue
+        out["style"] = editingStyle.rawValue
         switch vim.mode {
         case .insert: out["editor"] = "insert"
         case .normal: out["editor"] = "normal"
@@ -655,7 +659,7 @@ final class DraftController {
         origin = nil
         micWanted = false
         self.standsAbove = standsAbove
-        doorWidth = panel.width(for: text)
+        doorWidth = panel.width(for: text, style: editingStyle)
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
@@ -862,7 +866,10 @@ final class DraftController {
             guard let self, self.isOpen, self.session == mine, self.mode == .insert, self.micWanted,
                   // Reserved words await their final; a cumulative volatile
                   // would show them twice. The final revises them in place.
-                  self.provisional == nil else { return }
+                  self.provisional == nil,
+                  // A selection waits for the final that replaces it: a ghost
+                  // at the cursor would hide the highlight it is about to take.
+                  self.buffer.selection == nil else { return }
             if self.firstWordAt == nil {
                 self.firstWordAt = self.clock.now()
                 self.observations?.latency(surface: "draft-first-word",
@@ -1023,10 +1030,11 @@ final class DraftController {
     private func settle(_ heard: Heard) {
         learnFromTheHand()
         let writing = mode == .insert && micWanted
-        // Speaking over a selection is `c` with the voice: the words take
-        // the selection's place and insert opens where they end. Behind
-        // one undo step, so ⌘Z brings the selection back as it stood.
-        if case .visual = vim.mode, micWanted, listening,
+        // Speaking over a selection, visual or a Mac's, is `c` with the
+        // voice: the words take the selection's place and insert opens
+        // where they end. Behind one undo step, so ⌘Z brings the selection
+        // back as it stood.
+        if micWanted, listening,
            let range = vim.selection(in: buffer), !heard.text.trimmingCharacters(in: .whitespaces).isEmpty {
             settler.handInterrupted()
             let repaired = settler.land(heard, after: "", canReachBack: false).text
@@ -1209,6 +1217,18 @@ final class DraftController {
         // held ⏎ would reach the app ahead of the paste and send.
         if closing { return true }
         pasteRefused = false
+        // Standard's selection keys, ⌘ or not.
+        if editingStyle == .standard, mode == .insert, !control {
+            // Words still being heard become text before a selection can
+            // be drawn across them. Any shifted key settles them, as typing
+            // it would.
+            if shift { settleGhostAsSeen() }
+            if Draft.Standard.move(key, shift: shift, option: option, command: command, in: &buffer) {
+                handActed()
+                render()
+                return true
+            }
+        }
         if command {
             // In normal mode the chords are the editor's own verbs, so
             // they are one undo step each and `.` knows them.
@@ -1219,7 +1239,7 @@ final class DraftController {
             }
             switch key {
             case "delete":
-                if mode == .insert { buffer.deleteToLineStart(); backspaces += 1 }
+                if mode == .insert { markSelectionStep(); buffer.deleteToLineStart(); backspaces += 1 }
                 render(); return true
             case "left":
                 buffer.moveLineStart(); render(); return true
@@ -1232,6 +1252,7 @@ final class DraftController {
                     for case .flash(let text) in effects { flashPasteVerdict(text) }
                 } else if let text = pasteboardForDraft() {
                     settleGhostAsSeen()
+                    markSelectionStep()
                     buffer.type(text); vim.typed(text); typedCharacters += text.count
                 } else if pasteRefused {
                     flashPasteVerdict("")
@@ -1239,7 +1260,12 @@ final class DraftController {
                 render()
                 return true
             case "c":
-                writePasteboard(buffer.text); flash?("⌂ draft copied"); return true
+                if let selection = buffer.selection {
+                    writePasteboard(buffer.slice(selection)); flash?("⌂ copied")
+                } else {
+                    writePasteboard(buffer.text); flash?("⌂ draft copied")
+                }
+                return true
             case "z":
                 // Insert mode speaks the dialect every macOS field speaks,
                 // and every field answers ⌘Z: here it is the editor's undo
@@ -1251,6 +1277,12 @@ final class DraftController {
                 render()
                 return true
             case "a":
+                if editingStyle == .standard {
+                    settleGhostAsSeen()
+                    buffer.selectAll()
+                    render()
+                    return true
+                }
                 // Select all: the whole buffer as the editor's selection,
                 // which is what d, c, y and ⌘C then act on.
                 setMode(.normal)
@@ -1260,8 +1292,15 @@ final class DraftController {
                 render()
                 return true
             case "x":
-                // Nothing is selected in insert mode; say what would be.
-                flash?("nothing selected, ⌘A selects all")
+                guard let selection = buffer.selection else {
+                    // Nothing is selected; say what would be.
+                    flash?("nothing selected, ⌘A selects all")
+                    return true
+                }
+                markSelectionStep()
+                writePasteboard(buffer.slice(selection))
+                buffer.deleteSelection()
+                render()
                 return true
             default:
                 return false
@@ -1286,12 +1325,26 @@ final class DraftController {
         }
     }
 
-    private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
+    /// The hand acted on the text: the revisions underlined for it are
+    /// seen, the text as it stood is kept to learn what the hand corrects,
+    /// and what the recognizer says next is no longer the last result's
+    /// continuation.
+    private func handActed() {
         revised = []
         if handBaseline == nil { handBaseline = buffer.text }
         handSinceSpeech = true
         run = nil
         settler.handInterrupted()
+    }
+
+    /// A Mac selection about to be replaced or deleted is its own undo
+    /// step, so ⌘Z brings the text back.
+    private func markSelectionStep() {
+        if buffer.selection != nil { vim.markInsertBoundary(buffer) }
+    }
+
+    private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
+        handActed()
         // Words still a ghost when the hand starts writing become text
         // on the spot, reserved where they stand: dictate, type, dictate
         // lands in the order it happened, and the final that arrives
@@ -1302,6 +1355,7 @@ final class DraftController {
         let editingControl = control && ["h", "w", "u", "k"].contains(key)
         let editingKey = !control && !moves.contains(key) && !(key == "return" && !shift)
         if editingControl || editingKey {
+            markSelectionStep()
             if !buffer.ghost.isEmpty {
                 settleGhostAsSeen()
             } else if speechAnchor == nil, provisional == nil, micWanted, listening,
@@ -1343,6 +1397,9 @@ final class DraftController {
         }
         switch key {
         case "escape":
+            // Standard has no normal mode to step into: esc closes, as a
+            // bare esc in normal mode does.
+            if editingStyle == .standard { cancel(reason: "escape"); return true }
             setMode(.normal)
         case "return":
             if shift { buffer.newline(); vim.typed("\n"); typedCharacters += 1 } else { commit(); return true }
@@ -1377,11 +1434,7 @@ final class DraftController {
     /// two keys the bar owns. `⏎` commits in every mode; a bare `esc` —
     /// nothing pending, no selection — closes.
     private func normalKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
-        revised = []
-        if handBaseline == nil { handBaseline = buffer.text }
-        handSinceSpeech = true
-        run = nil
-        settler.handInterrupted()
+        handActed()
         if key == "return" { commit(); return true }
         let vimKey: Vim.Key
         switch key {
@@ -1848,7 +1901,7 @@ final class DraftController {
             backspaces: backspaces, switches: modeSwitches,
             firstKey: firstKeyAt.map { $0.timeIntervalSince(openedAt) },
             firstWord: firstWordAt.map { $0.timeIntervalSince(openedAt) },
-            warm: wasWarm, peakDb: peakDb.map { $0.rounded() }, at: now)
+            warm: wasWarm, peakDb: peakDb.map { $0.rounded() }, editing: editingStyle, at: now)
         Log.info("draft", ["end": action, "words": spokenWords, "typed": typedCharacters,
                            "seconds": Int(now.timeIntervalSince(openedAt)),
                            "peakDb": peakDb.map { Int($0) } ?? "none"])
@@ -1926,7 +1979,7 @@ final class DraftController {
             destination: card == nil ? front.map { ($0.name, $0.icon) } : nil,
             replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid,
             card: card, width: doorWidth, standsAbove: standsAbove, expanded: expanded,
-            wet: wetRange, revised: revisedRanges))
+            wet: wetRange, revised: revisedRanges, style: editingStyle))
     }
 
     private static func appIcon(_ bundleID: String) -> NSImage? {

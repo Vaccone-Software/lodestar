@@ -272,22 +272,32 @@ public struct Vim {
         }
     }
 
-    /// Speech landing on a selection: the words replace it and insert mode
-    /// opens where the change ends — `c`, said rather than typed. One
-    /// snapshot covers both halves, so ⌘Z brings back the selection
-    /// exactly as it stood. A Mac selection is made in insert mode, which
-    /// is already where the change ends.
+    /// Speech landing on a selection: the words replace it, behind one
+    /// snapshot, so ⌘Z brings back the selection exactly as it stood. A
+    /// visual selection is `c`, said rather than typed: insert mode opens
+    /// where the change ends. A Mac selection is made in insert mode, which
+    /// is already there.
     @discardableResult
     public mutating func speakOver(_ range: Range<Int>, with text: String,
                                    buffer: inout Draft.Buffer) -> [Effect] {
-        guard mode != .normal else { return [] }
+        switch mode {
+        case .normal:
+            return []
+        case .insert:
+            replaceForSpeech(range, with: text, buffer: &buffer)
+            return []
+        case .visual:
+            replaceForSpeech(range, with: text, buffer: &buffer)
+            lastVisual = nil
+            return enterInsert(&buffer, snapshotTaken: true)
+        }
+    }
+
+    private mutating func replaceForSpeech(_ range: Range<Int>, with text: String, buffer: inout Draft.Buffer) {
         snapshot(buffer)
         let target = min(range.lowerBound, buffer.count)..<min(range.upperBound, buffer.count)
         buffer.replace(target, with: text)
         buffer.setCursor(target.lowerBound + text.count)
-        guard case .visual = mode else { return [] }
-        lastVisual = nil
-        return enterInsert(&buffer, snapshotTaken: true)
     }
 
     public mutating func typed(_ text: String) {

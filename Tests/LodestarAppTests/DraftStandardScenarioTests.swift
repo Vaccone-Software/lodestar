@@ -124,7 +124,7 @@ final class DraftStandardScenarioTests: XCTestCase {
         stage.lode(".", shift: true)
         XCTAssertEqual(stage.draft.sessionStyle, .standard)
         type(stage, "x")
-        XCTAssertEqual(stage.draft.buffer.text, "one twox", "the next draft is Standard: letters are letters")
+        XCTAssertEqual(stage.draft.buffer.text, "xone two", "the next draft is Standard: letters are letters")
         stage.press("escape")
         XCTAssertFalse(stage.draft.isOpen, "and its esc closes")
         XCTAssertEqual(stage.lastDraft?.editing, "standard")

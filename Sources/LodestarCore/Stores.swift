@@ -85,6 +85,11 @@ public struct PersistedState: Codable, Sendable {
     /// The curriculum's record, by lesson: offers made, when, and whether
     /// the hand completed it. Machine owned, like the walk's step.
     public var curriculum: [String: Curriculum.Record]?
+    /// Whether the draft's editing style has been settled for this Mac: the
+    /// one-time choice made when the setting arrived (`EditingStyleMigration`).
+    /// Machine owned: it must outlive a config that drops the key at its
+    /// default, or a hand that chose Standard would be given Vim back.
+    public var editingStyleSettled: Bool?
 }
 
 /// The corruption ritual, shared by every store that keeps user data:
@@ -385,6 +390,15 @@ public final class StateStore {
 
     public func markWalkCompleted(version: String) {
         state.walkCompletedVersion = version
+        save()
+    }
+
+    // MARK: - The draft's editing style
+
+    public var editingStyleSettled: Bool { state.editingStyleSettled == true }
+
+    public func settleEditingStyle() {
+        state.editingStyleSettled = true
         save()
     }
 

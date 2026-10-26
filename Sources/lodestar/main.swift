@@ -170,6 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Paths.migrateIfNeeded()
         // The alert sound is Lodestar's, and Sound settings finds it here.
         AlertSound.installAtBoot()
+        // Before the config is made: a Mac whose file is already there has
+        // run Lodestar before.
+        ranBefore = FileManager.default.fileExists(atPath: Config.file.path)
         var (loaded, problems) = Config.load()
         // What the browsers actually have joins what the config references,
         // so pickers and most-recent resolution see every real profile.
@@ -804,6 +807,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         installWalk()
         installMeetings()
         installSettings()
+        settleEditingStyle()
 
         guard Permissions.isTrusted else {
             // A freshly installed bundle has its own TCC identity. Prompt,
@@ -1588,10 +1592,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if store.isKnown {
             parking.adopt(store.parkedSpots)
             applyEditor(config)
+            settleEditingStyle()
         }
         if let warning = store.bootWarning, warning != stateWarningFlashed {
             stateWarningFlashed = warning
             hud.flash("⚠ \(warning)")
+        }
+    }
+
+    /// Whether this Mac had run Lodestar before this launch.
+    private var ranBefore = false
+
+    /// The draft's editing style, settled once for a Mac that had run
+    /// Lodestar before: it keeps Vim (`EditingStyleMigration`). Asked again
+    /// when the state settles, if it was not known at boot.
+    private func settleEditingStyle() {
+        do {
+            if try EditingStyleMigration.run(ranBefore: ranBefore, state: store) {
+                Log.info("draft", ["editing-style": "vim, kept for a Mac that ran Lodestar before"])
+                applyConfigReload(successFlash: "")
+            }
+        } catch {
+            Log.error("draft", ["editing-style": "could not be settled", "error": "\(error)"])
         }
     }
 

@@ -355,6 +355,7 @@ extension PersistedState {
         out.walkStep = newer.walkStep ?? walkStep
         out.walkCompletedVersion = newer.walkCompletedVersion ?? walkCompletedVersion
         out.walkDoor = newer.walkDoor ?? walkDoor
+        out.editingStyleSettled = newer.editingStyleSettled ?? editingStyleSettled
         // Consent was given once, when it was first given.
         out.editorConsentAt = [editorConsentAt, newer.editorConsentAt].compactMap { $0 }.min()
 

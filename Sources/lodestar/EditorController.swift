@@ -273,7 +273,7 @@ final class EditorController: EditorLens {
         }
         readQueued = true
         let source = self.source
-        let frontmost = front?.pid
+        let frontmost = front?.pid, frontName = front?.name
         axQueue.async { [weak self] in
             let started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             let read = source.focusedField(frontmost: frontmost)
@@ -281,7 +281,7 @@ final class EditorController: EditorLens {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.readQueued = false
-                self.noteReadCost(ms, read: read, frontmost: frontmost)
+                self.noteReadCost(ms, read: read, frontName: frontName)
                 self.receive(read)
                 if self.readAgain {
                     self.readAgain = false
@@ -295,9 +295,8 @@ final class EditorController: EditorLens {
     /// when the hand moves on — the app's own main thread answered it.
     private var readCost = EditorReadCost()
 
-    private func noteReadCost(_ ms: Double, read: EditorField?, frontmost: pid_t?) {
-        let app = read?.appName
-            ?? frontmost.flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName } ?? "?"
+    private func noteReadCost(_ ms: Double, read: EditorField?, frontName: String?) {
+        let app = read?.appName ?? frontName ?? "?"
         if let summary = readCost.add(app: app, ms: ms) { logReadCost(summary) }
     }
 
@@ -320,9 +319,7 @@ final class EditorController: EditorLens {
 
     /// The app in front, as the read sees it. The tests stand in their own.
     var frontmostApp: () -> (pid: pid_t, bundleID: String?, name: String?)? = {
-        NSWorkspace.shared.frontmostApplication.map {
-            ($0.processIdentifier, $0.bundleIdentifier, $0.localizedName)
-        }
+        FrontmostApp.shared.current.map { ($0.pid, $0.bundleID, $0.name) }
     }
 
     /// Apps whose fields are never read, decided before anything is asked:

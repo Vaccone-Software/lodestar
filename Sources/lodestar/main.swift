@@ -170,9 +170,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Paths.migrateIfNeeded()
         // The alert sound is Lodestar's, and Sound settings finds it here.
         AlertSound.installAtBoot()
-        // Before the config is made: a Mac whose file is already there has
-        // run Lodestar before.
-        ranBefore = FileManager.default.fileExists(atPath: Config.file.path)
         var (loaded, problems) = Config.load()
         // What the browsers actually have joins what the config references,
         // so pickers and most-recent resolution see every real profile.
@@ -210,6 +207,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         layout = LayoutController(model: model, parking: parking, moveQueue: moves)
         appIndex = AppIndex()
         store = StateStore(vault: vault)
+        // Before the first save: a Mac whose state file is already there has
+        // run Lodestar before. The command line only reads it.
+        ranBefore = store.existsOnDisk
         // Read off the main thread from the first moment (the keychain may
         // be asked); the boot below waits a moment for it, not for ever.
         store.openInBackground()

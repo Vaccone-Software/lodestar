@@ -69,6 +69,53 @@ final class EditingStyleMigrationTests: XCTestCase {
         XCTAssertEqual(style, .standard)
     }
 
+    /// A launch as the app makes it: whether the state file was there is
+    /// read before the store opens.
+    @discardableResult
+    private func appLaunch() throws -> Bool {
+        let ranBefore = SealedFixture.stateStore(state, load: false).existsOnDisk
+        return try EditingStyleMigration.run(ranBefore: ranBefore, state: SealedFixture.stateStore(state), config: config)
+    }
+
+    /// The command line makes the config file, so a new Mac that ran a
+    /// command first has one; it does not make the state.
+    func testANewMacThatRanACommandFirstIsNotGivenVim() throws {
+        try existingInstall()
+        XCTAssertFalse(SealedFixture.stateStore(state, load: false).existsOnDisk)
+        XCTAssertFalse(try appLaunch())
+        XCTAssertEqual(style, .standard)
+        XCTAssertTrue(SealedFixture.stateStore(state, load: false).existsOnDisk, "and the first launch leaves the record")
+        XCTAssertFalse(try appLaunch())
+        XCTAssertEqual(style, .standard)
+    }
+
+    func testAMacWithAStateFileFromBeforeKeepsVimAndALostStateFileReadsAsNew() throws {
+        try existingInstall()
+        // What an earlier build left: a state with no word about the style.
+        SealedFixture.stateStore(state).save()
+        XCTAssertTrue(try appLaunch())
+        XCTAssertEqual(style, .vim)
+
+        // A Mac that chose Standard, then lost its state file: new again.
+        try Config.edit(in: config) { Json.setting($0, path: ["draft", "editing-style"], to: .string("standard"))! }
+        try FileManager.default.removeItem(at: SealedFixture.sealedState(state))
+        XCTAssertFalse(try appLaunch())
+        XCTAssertEqual(style, .standard)
+    }
+
+    /// A state that started fresh cannot say whether the choice was made.
+    func testADamagedStateSettlesWithoutGivingAStandardHandVim() throws {
+        try existingInstall()
+        SealedFixture.stateStore(state).save()
+        try Data("not a sealed file".utf8).write(to: SealedFixture.sealedState(state))
+        try? FileManager.default.removeItem(at: SealedFixture.sealedState(state).appendingPathExtension("bak"))
+        let store = SealedFixture.stateStore(state)
+        XCTAssertNotNil(store.bootWarning, "the state started fresh and said so")
+        XCTAssertFalse(try EditingStyleMigration.run(ranBefore: true, state: store, config: config))
+        XCTAssertEqual(style, .standard)
+        XCTAssertTrue(store.editingStyleSettled, "and it is not asked again")
+    }
+
     func testAStateThatIsNotKnownYetSettlesNothing() throws {
         try existingInstall()
         let unread = SealedFixture.stateStore(state, load: false)

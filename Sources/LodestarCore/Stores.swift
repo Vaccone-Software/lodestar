@@ -144,6 +144,12 @@ public final class StateStore {
     private let files: StateFiles
     public var sealedFile: URL { files.sealedURL }
 
+    /// Whether any state file is on disk, read or not. Only the app's own
+    /// store writes one, so it is how a Mac says it has run Lodestar before.
+    public var existsOnDisk: Bool {
+        [file, sealedFile].contains { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     public private(set) var state = PersistedState()
     private var pendingSave: DispatchWorkItem?
     private var reportedSaveFailure = false

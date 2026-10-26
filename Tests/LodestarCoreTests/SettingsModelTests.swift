@@ -96,6 +96,7 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(labels, ["Standard", "Vim"])
         XCTAssertEqual(current, "standard")
         XCTAssertTrue(row.isDefault)
+        XCTAssertEqual(row.detail, "Edits like any Mac text field. Esc closes the draft")
 
         var vim = Config()
         vim.draftEditingStyle = .vim
@@ -103,6 +104,7 @@ final class SettingsModelTests: XCTestCase {
         guard case .choice(_, _, let now) = chosen.control else { return XCTFail("the style is a choice") }
         XCTAssertEqual(now, "vim")
         XCTAssertFalse(chosen.isDefault)
+        XCTAssertEqual(chosen.detail, "Vim's modes and motions. Esc goes to normal mode first")
     }
 
     /// Someone looking for Vim, or for the draft's keys, finds the Speak place.

@@ -598,7 +598,9 @@ public enum SettingsModel {
                 control: .choice(options: Draft.EditingStyle.allCases.map(\.rawValue),
                                  labels: ["Standard", "Vim"],
                                  current: config.draftEditingStyle.rawValue),
-                detail: "Standard edits like any Mac text field, and esc closes the draft. Vim leaves typing for normal mode on esc, and a second esc closes",
+                detail: config.draftEditingStyle == .vim
+                    ? "Vim's modes and motions. Esc goes to normal mode first"
+                    : "Edits like any Mac text field. Esc closes the draft",
                 isDefault: config.draftEditingStyle == .standard, group: "Draft"),
             speakModel,
             words.inGroup("Words"),
@@ -1096,6 +1098,7 @@ public enum SettingsModel {
             for (rowIndex, row) in section.rows.enumerated() {
                 var entries = ""
                 if case .table(_, let list) = row.control { entries = list.map(\.display).joined(separator: " ") }
+                if case .choice(_, let labels, _) = row.control { entries = labels.joined(separator: " ") }
                 let rest = "\(row.path) \(row.detail ?? "") \(entries)".lowercased()
                 let score: Int
                 if row.title.lowercased().hasPrefix(needle) { score = 0 }

@@ -656,6 +656,7 @@ final class DraftPanel {
         // ending on the focus's line: a line cut through at the top would
         // be a fade drawn with a ruler.
         var window: (top: CGFloat, height: CGFloat)?
+        var whole = expanded
         if !expanded, let layout = textView.layoutManager, layout.numberOfGlyphs > 0 {
             var lines: [NSRect] = []
             layout.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: layout.numberOfGlyphs)) {
@@ -685,7 +686,21 @@ final class DraftPanel {
                 let end = lines.firstIndex { abs($0.minY - focusLine.minY) < 0.5 } ?? lines.count - 1
                 let start = max(0, end - (Self.compactLines - 1))
                 let last = min(lines.count - 1, start + Self.compactLines - 1)
-                window = (lines[start].minY, min(maxTextHeight, lines[last].maxY - lines[start].minY))
+                // A Mac selection the held lines would cut is read whole:
+                // Standard has no `zo`, and what ⌘X, ⌫ or speech is about to
+                // take should be seen first. It folds again with the selection.
+                var cut = false
+                if view.style == .standard, let selection = view.selection, view.buffer.ghost.isEmpty,
+                   let range = drawable(selection), let container = textView.textContainer {
+                    let selected = layout.boundingRect(
+                        forGlyphRange: layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: container)
+                    cut = selected.minY < lines[start].minY - 0.5 || selected.maxY > lines[last].maxY + 0.5
+                }
+                if cut {
+                    whole = true
+                } else {
+                    window = (lines[start].minY, min(maxTextHeight, lines[last].maxY - lines[start].minY))
+                }
             }
         }
         // The text box keeps a floor of its own so an empty draft is not a
@@ -697,12 +712,12 @@ final class DraftPanel {
         let floor = keysShown ? lineHeight : Self.minTextHeight
         // Folded, the box is exactly its lines: a line cut through the
         // middle at the top would be a fade drawn by a ruler.
-        let textHeight = window?.height ?? (expanded
+        let textHeight = window?.height ?? (whole
             ? min(maxTextHeight, max(floor, used + lineHeight * 0.4))
             : min(maxTextHeight, max(floor, used)))
         // A scroller says there is more to read, which is true only when
         // reading is the task.
-        scroll.hasVerticalScroller = expanded && used > maxTextHeight
+        scroll.hasVerticalScroller = whole && used > maxTextHeight
 
         // Whole points: the window lands on them anyway, and a glass whose
         // edge falls between pixels is a soft edge.

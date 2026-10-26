@@ -451,6 +451,49 @@ final class DraftStandardScenarioTests: XCTestCase {
         XCTAssertLessThan(panel.textScrollOrigin, atTheEnd, "the window rose with the cursor")
     }
 
+    private var twelveLines: String { (1...12).map { "line \($0)" }.joined(separator: "\n") }
+
+    private func height(_ stage: Stage) -> CGFloat { stage.draft.editorCanvas?.height ?? 0 }
+
+    /// Standard has no `zo`: a selection the four lines would cut is shown
+    /// whole while it stands, so what ⌘X, ⌫ or speech takes can be read.
+    func testASelectionThatTheHeldLinesWouldCutShowsTheWholeText() {
+        let stage = standardStage(field: twelveLines, cursor: twelveLines.count)
+        stage.lode(".", shift: true)
+        let folded = height(stage)
+        stage.chord("left", [shift, option])
+        XCTAssertEqual(height(stage), folded, accuracy: 0.5, "a word on the last line: inside the four")
+        stage.chord("up", [shift])
+        XCTAssertGreaterThan(height(stage), folded + 20,
+                             "the held lines now end on the cursor's line, above the selection's far end")
+        stage.press("delete")
+        XCTAssertEqual(height(stage), folded, accuracy: 0.5, "and folds with the selection")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, false, "the draft itself was never opened")
+    }
+
+    func testSelectAllOnALongDraftShowsItWholeAndOnAShortOneChangesNothing() {
+        let long = standardStage(field: twelveLines, cursor: 0)
+        long.lode(".", shift: true)
+        let folded = height(long)
+        XCTAssertTrue(long.commandPress("a"))
+        XCTAssertGreaterThan(height(long), folded + 20)
+
+        let short = standardStage(field: "one\ntwo", cursor: 0)
+        short.lode(".", shift: true)
+        let before = height(short)
+        XCTAssertTrue(short.commandPress("a"))
+        XCTAssertEqual(height(short), before, accuracy: 0.5)
+    }
+
+    func testVimsVisualSelectionIsLeftToItsOwnFold() {
+        let stage = Stage()
+        stage.field = DraftController.Field(selection: nil, value: twelveLines, cursor: 0)
+        stage.lode(".", shift: true)
+        let folded = height(stage)
+        XCTAssertTrue(stage.commandPress("a"))
+        XCTAssertLessThan(height(stage), folded + 20, "zo is Vim's to ask for")
+    }
+
     // MARK: - What it draws
 
     func testAStandardDraftIsSetInSansAndVimsInMonoAndTheSelectionIsDrawn() {

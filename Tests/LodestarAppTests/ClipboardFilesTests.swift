@@ -256,16 +256,30 @@ final class ClipboardFilesTests: XCTestCase {
 
     /// A slow volume must not hold the card, nor the capture, nor make the
     /// card wait for a picture that is not coming: the icon is drawn.
+    ///
+    /// The slow answer never comes until the test has its verdict: the
+    /// thumbnailer waits to be released, so "without waiting for it" is a
+    /// fact, not a race. It slept two seconds once, against a 1.8 second
+    /// bound, and a slow runner spent the difference (CI, 2026-10-25).
     func testAThumbnailerThatOverrunsItsDeadlineIsAnsweredWithTheIcon() throws {
-        FileSense.deadline = 0.3
-        FileSense.thumbnailer = { _ in Thread.sleep(forTimeInterval: 2); return Self.swatch() }
+        FileSense.deadline = 1
+        let release = DispatchSemaphore(value: 0)
+        let answered = NSLock()
+        var returned = false
+        FileSense.thumbnailer = { _ in
+            release.wait()
+            answered.withLock { returned = true }
+            return Self.swatch()
+        }
+        addTeardownBlock { for _ in 0..<8 { release.signal() } }
         let url = try make("slow.txt")
         let began = Date()
         copy([url])
-        XCTAssertLessThan(Date().timeIntervalSince(began), 0.25, "the card exists before anything is read")
+        XCTAssertLessThan(Date().timeIntervalSince(began), FileSense.deadline * 0.9,
+                          "the card exists before anything is read, and before the deadline")
         let id = try XCTUnwrap(store.clips.first).id
-        wait("the icon stands in", timeout: 1.8) { self.store.thumbnail(for: id) != nil }
-        XCTAssertLessThan(Date().timeIntervalSince(began), 1.8, "without waiting for the slow answer")
+        wait("the icon stands in", timeout: 20) { self.store.thumbnail(for: id) != nil }
+        XCTAssertFalse(answered.withLock { returned }, "without waiting for the slow answer")
         wait("and the card is told it is an icon") { self.store.clips.first?.fileFacts?.first?.pictured == false }
     }
 

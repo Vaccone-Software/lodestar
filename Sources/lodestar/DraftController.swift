@@ -112,9 +112,13 @@ final class DraftController {
     private(set) var intentChanged = 0
     /// Counts of what the settler changed this session, for the record.
     private(set) var settled = (names: 0, ellipses: 0, joins: 0, fillers: 0, corrections: 0)
-    /// How the draft is edited (`draft.editing-style`). Standard never
-    /// leaves insert mode and its esc closes; the keys are the style's.
+    /// How the next draft is edited (`draft.editing-style`).
     var editingStyle = Draft.EditingStyle.standard
+    /// How this draft is edited: the configured style as the door found it,
+    /// kept until the draft closes. A config reload mid-draft must not leave
+    /// Standard in normal mode, or a Mac selection in a Vim session.
+    /// Standard never leaves insert mode and its esc closes.
+    private(set) var sessionStyle = Draft.EditingStyle.standard
     /// The microphone to read (`draft.input`), by name; nil follows the
     /// system default.
     var inputDevice: String?
@@ -529,7 +533,7 @@ final class DraftController {
         out["ghost"] = buffer.ghost
         out["mode"] = mode == .insert ? "insert" : "normal"
         out["door"] = door.rawValue
-        out["style"] = editingStyle.rawValue
+        out["style"] = sessionStyle.rawValue
         switch vim.mode {
         case .insert: out["editor"] = "insert"
         case .normal: out["editor"] = "normal"
@@ -563,6 +567,7 @@ final class DraftController {
         isOpen = true
         closing = false
         self.door = door
+        sessionStyle = editingStyle
         buffer = Draft.Buffer()
         vim = Vim()
         // Four lines from every door, so the work behind stays in view;
@@ -643,6 +648,7 @@ final class DraftController {
         isOpen = true
         closing = false
         door = .clip
+        sessionStyle = editingStyle
         clipOrigin = (clip, text)
         buffer = Draft.Buffer(text: text, cursor: 0)
         vim = Vim()
@@ -659,7 +665,7 @@ final class DraftController {
         origin = nil
         micWanted = false
         self.standsAbove = standsAbove
-        doorWidth = panel.width(for: text, style: editingStyle)
+        doorWidth = panel.width(for: text, style: sessionStyle)
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
@@ -1218,7 +1224,7 @@ final class DraftController {
         if closing { return true }
         pasteRefused = false
         // Standard's selection keys, ⌘ or not.
-        if editingStyle == .standard, mode == .insert, !control {
+        if sessionStyle == .standard, mode == .insert, !control {
             // Words still being heard become text before a selection can
             // be drawn across them. Any shifted key settles them, as typing
             // it would.
@@ -1277,7 +1283,7 @@ final class DraftController {
                 render()
                 return true
             case "a":
-                if editingStyle == .standard {
+                if sessionStyle == .standard {
                     settleGhostAsSeen()
                     buffer.selectAll()
                     render()
@@ -1399,7 +1405,7 @@ final class DraftController {
         case "escape":
             // Standard has no normal mode to step into: esc closes, as a
             // bare esc in normal mode does.
-            if editingStyle == .standard { cancel(reason: "escape"); return true }
+            if sessionStyle == .standard { cancel(reason: "escape"); return true }
             setMode(.normal)
         case "return":
             if shift { buffer.newline(); vim.typed("\n"); typedCharacters += 1 } else { commit(); return true }
@@ -1901,7 +1907,7 @@ final class DraftController {
             backspaces: backspaces, switches: modeSwitches,
             firstKey: firstKeyAt.map { $0.timeIntervalSince(openedAt) },
             firstWord: firstWordAt.map { $0.timeIntervalSince(openedAt) },
-            warm: wasWarm, peakDb: peakDb.map { $0.rounded() }, editing: editingStyle, at: now)
+            warm: wasWarm, peakDb: peakDb.map { $0.rounded() }, editing: sessionStyle, at: now)
         Log.info("draft", ["end": action, "words": spokenWords, "typed": typedCharacters,
                            "seconds": Int(now.timeIntervalSince(openedAt)),
                            "peakDb": peakDb.map { Int($0) } ?? "none"])
@@ -1979,7 +1985,7 @@ final class DraftController {
             destination: card == nil ? front.map { ($0.name, $0.icon) } : nil,
             replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid,
             card: card, width: doorWidth, standsAbove: standsAbove, expanded: expanded,
-            wet: wetRange, revised: revisedRanges, style: editingStyle))
+            wet: wetRange, revised: revisedRanges, style: sessionStyle))
     }
 
     private static func appIcon(_ bundleID: String) -> NSImage? {

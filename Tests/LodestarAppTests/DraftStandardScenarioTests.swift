@@ -99,6 +99,37 @@ final class DraftStandardScenarioTests: XCTestCase {
         XCTAssertEqual(stage.lastDraft?.editing, "vim")
     }
 
+    // MARK: - A session keeps its style
+
+    /// A config reload mid-draft changes the next draft, not this one: the
+    /// style in force is the one the door found.
+    func testTheStyleIsFixedForTheSessionAndChangesAtTheNextDoor() {
+        let stage = Stage()
+        stage.field = DraftController.Field(selection: nil, value: "one two", cursor: 0)
+        stage.lode(".", shift: true)
+        stage.press("escape")
+        XCTAssertEqual(stage.draft.mode, .normal)
+
+        stage.draft.editingStyle = .standard
+        XCTAssertEqual(stage.draft.sessionStyle, .vim)
+        stage.press("x")
+        XCTAssertEqual(stage.draft.buffer.text, "ne two", "x is still a vim verb")
+        stage.chord("right", [shift])
+        XCTAssertNil(stage.draft.buffer.selection, "and ⇧→ is still only a move")
+        XCTAssertTrue(stage.engine.sheetSections().flatMap { $0.rows }.map(\.label).contains("Left, down, up, right"))
+        stage.press("escape")
+        XCTAssertFalse(stage.draft.isOpen, "a bare esc in normal mode closes, as Vim's does")
+        XCTAssertEqual(stage.lastDraft?.editing, "vim")
+
+        stage.lode(".", shift: true)
+        XCTAssertEqual(stage.draft.sessionStyle, .standard)
+        type(stage, "x")
+        XCTAssertEqual(stage.draft.buffer.text, "one twox", "the next draft is Standard: letters are letters")
+        stage.press("escape")
+        XCTAssertFalse(stage.draft.isOpen, "and its esc closes")
+        XCTAssertEqual(stage.lastDraft?.editing, "standard")
+    }
+
     // MARK: - Selecting
 
     func testShiftArrowsSelectTypingReplacesAndCommandZBringsItBack() {

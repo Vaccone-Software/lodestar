@@ -1905,7 +1905,7 @@ final class HotkeyEngine {
     /// window's, a lens's, or at idle the whole system.
     func sheetSections() -> [CheatSheet.Section] {
         if draft.isOpen {
-            return Self.draftSections(style: draft.editingStyle, editor: draft.vim.mode, card: draft.editingClip != nil)
+            return Self.draftSections(style: draft.sessionStyle, editor: draft.vim.mode, card: draft.editingClip != nil)
         }
         if settingsUp() { return Self.settingsSections }
         if searcher.isVisible { return Self.launcherSections }

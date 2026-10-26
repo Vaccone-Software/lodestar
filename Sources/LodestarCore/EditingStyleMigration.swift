@@ -6,9 +6,10 @@ import Foundation
 /// their hands. That a Mac ran Lodestar before is told by its state file
 /// being there before the first launch of this build: the command line only
 /// reads it, so a new Mac that runs a command first is still new, where the
-/// config file, which the command line makes, would call it old. It is once because the config is sparse: a hand that then
-/// picks Standard leaves no key behind, and a Mac that looked old again at
-/// every launch would be given Vim back. The state records that the choice
+/// config file, which the command line makes, would call it old. It is
+/// once because the config is sparse: a hand that then picks Standard
+/// leaves no key behind, and a Mac that looked old again at every launch
+/// would be given Vim back. The state records that the choice
 /// was made, and a new Mac is recorded without being given anything.
 public enum EditingStyleMigration {
     /// Whether the config was written. Does nothing until the state is

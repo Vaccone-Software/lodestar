@@ -596,7 +596,7 @@ public enum SettingsModel {
                 isDefault: config.draftInput.isEmpty, group: "Draft"),
             Row(title: "Editing style", path: "draft.editing-style",
                 control: .choice(options: Draft.EditingStyle.allCases.map(\.rawValue),
-                                 labels: ["Standard", "Vim"],
+                                 labels: Draft.EditingStyle.allCases.map(\.label),
                                  current: config.draftEditingStyle.rawValue),
                 detail: config.draftEditingStyle == .vim
                     ? "Vim's modes and motions. Esc goes to normal mode first"

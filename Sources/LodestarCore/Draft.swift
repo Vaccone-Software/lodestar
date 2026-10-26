@@ -29,6 +29,9 @@ public enum Draft {
     /// speaks a key follows the one chosen.
     public enum EditingStyle: String, CaseIterable, Equatable, Sendable {
         case standard, vim
+
+        /// The name Settings shows.
+        public var label: String { self == .vim ? "Vim" : "Standard" }
     }
 
     /// What the last input was, because a backspace takes that grain: a

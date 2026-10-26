@@ -71,6 +71,11 @@ struct DraftView {
     /// The role the text is set in.
     var role: BarTheme.Role { Self.role(for: style) }
 
+    /// The draft under Vim and the editor's lens are the system's mono, where
+    /// vim is: every letter is one cell, so the block cursor, which is a
+    /// plate as wide as the letter it covers, is one cell, and the find
+    /// lights' semibold letters (the marked role) keep the line's width.
+    /// Under Standard the draft is the body's sans and its caret a bar.
     static func role(for style: Draft.EditingStyle) -> BarTheme.Role { style == .vim ? .draft : .body }
 }
 
@@ -293,12 +298,6 @@ final class DraftPanel {
     private static let leastInputWidth: CGFloat = 80
     /// The lines a speaking draft holds.
     static let compactLines = 4
-    /// The draft under Vim and the editor's lens are the system's mono, where
-    /// vim is: every letter is one cell, so the block cursor, which is a
-    /// plate as wide as the letter it covers, is one cell, and the find
-    /// lights' semibold letters (the marked role) keep the line's width.
-    /// Under Standard the draft is the body's sans and its caret a bar.
-    ///
     /// The width of a space, one cell: what a block cursor covers where no letter is.
     private static var spaceWidth: CGFloat { BarTheme.spaceWidth(in: .draft) }
     /// The panel's ground, for the glyph a block cursor inverts: the

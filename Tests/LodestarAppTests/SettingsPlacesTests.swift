@@ -40,8 +40,11 @@ final class SettingsPlacesTests: XCTestCase {
 
     func testWordsReturnsToWhicheverPlaceOpenedIt() {
         let settings = controller()
+        // The row's letter is its place in the list, so it is looked up.
+        let speak = SettingsModel.catalog(config: Config(), machine: .init())[4]
+        let words = SettingsModel.labelAlphabet[speak.rows.firstIndex { $0.path == "draft.words" }!]
         settings.pressForTesting("4")
-        settings.pressForTesting("d")
+        settings.pressForTesting(words)
         XCTAssertEqual(settings.pageForTesting, SettingsModel.wordsPage)
         settings.pressForTesting("escape")
         XCTAssertEqual(settings.placeForTesting, 4, "Speak, not Write")

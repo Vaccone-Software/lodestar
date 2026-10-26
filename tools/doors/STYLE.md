@@ -346,3 +346,40 @@ for k in write move keep speak; do
   STILL=1 CLAY=sand CLOSE=1 CW=1200 CH=900 ONLY=40 FONT_DIR=$F $B -b -P scene3.py -- $k out/$k 1200 48
 done
 ```
+
+## Cameo (October 2026)
+
+Since Ceramic, the app's door and place pictures are cameos, not the floating
+clay above: the same models, faced straight on, pressed to a low relief and lit
+by one light from above. The loops and the site still use the clay scene.
+
+- `cameo.py` runs `places.py` (with the four doors added to its builders) up to
+  its render, then faces the model to the camera, scales its depth to 0.3,
+  gives everything one matte grey clay on a ground plane just behind it, and
+  renders 768×576 through an orthographic camera with the relief filling 84%.
+- One sun, 30° above the wall and turned 18° from the left, energy 3.2, angle
+  6°, and a white world at 0.25. A sun, not an area, so the ground is even.
+- The glaze (any orange material, and Write's underline), the letters and ink
+  pieces (a tick, a clock's hand), the letters on the glaze, and a page's lines
+  and rules (`bar`, `ghost`; a lifted meeting's `slot` stays clay) each get a
+  hue of their own (orange, blue, green, magenta) for `cameo.swift` to key
+  out. `MASK=1` renders the relief white on a black ground.
+- `cameo.swift` measures the lit ground (the brightest 8% of the ground's
+  greys), then paints each look: the relief in the other look's clay (#E9DFD4
+  by night, #3A2F28 by day), lit by its brightness against the ground; letters
+  inlaid in ink (#2A221D, #EDE4DA); lines and rules in a quieter ink (#8C7E72,
+  #9A8B7E), because a relief's own light barely shows on espresso and the
+  page's lines vanished by day; letters on the glaze in #1E1814; the glaze
+  in the look's orange; and the shadow it casts on the ground, which is clear.
+- Doors hold one moment of their loop: Write at 2.0 s (the typo underlined),
+  Speak at 4.6 s (the sentence typed), Switch and Keep at 0.
+
+```
+FONT_DIR=<fonts> tools/doors/render_cameo.sh            # all ten, into packaging/
+FONT_DIR=<fonts> tools/doors/render_cameo.sh place-web  # one
+```
+
+Turned down on the way (session 99077833, 2026-10-26): outlines, faces with a
+side and system symbols on keycaps, drawn in code ("boring and lazy"); a line
+engraving shader (moiré at 120 points); the relief in the pane's own colour
+("Pressed"), quieter and see-through on the overview's ring.

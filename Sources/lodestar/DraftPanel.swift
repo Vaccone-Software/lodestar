@@ -64,9 +64,8 @@ struct DraftView {
     /// Words a pass rewrote, underlined quietly until the hand's next key.
     var revised: [Range<Int>] = []
     /// The text is set in mono where vim is, and in the system's sans where
-    /// it is not. Vim until a view says otherwise: the style is the
-    /// controller's to decide, and every view it draws says.
-    var style = Draft.EditingStyle.vim
+    /// it is not.
+    var style = Draft.EditingStyle.standard
 
     /// The role the text is set in.
     var role: BarTheme.Role { Self.role(for: style) }
@@ -1033,7 +1032,6 @@ extension DraftPanel {
                                  micOn: true, destination: ("Terminal", icon), replacing: false)
             view.wet = wet
             view.revised = revised
-            view.style = .standard
             return view
         }
         let misheard = before + " If it does, remove it and use the gap, then rerun the bill."
@@ -1087,7 +1085,7 @@ extension DraftPanel {
                                  inputs: ["Cypress", "MacBook Pro Microphone"],
                                  systemInput: "Cypress",
                                  micOn: true,
-                                 destination: ("Notes", icon), replacing: false, style: .standard))
+                                 destination: ("Notes", icon), replacing: false))
             return panel
         }
         let panel = DraftPanel()
@@ -1110,7 +1108,7 @@ extension DraftPanel {
                                  level: Float(ProcessInfo.processInfo.environment["LEVEL"] ?? "") ?? 0.6,
                                  inputs: inputs, systemInput: "Cypress", chosenInput: "MacBook Pro Microphone",
                                  micOn: true,
-                                 destination: ("Messages", icon), replacing: false, style: .standard))
+                                 destination: ("Messages", icon), replacing: false))
             // MENU=1 stages the input menu open beside the draft.
             if ProcessInfo.processInfo.environment["MENU"] == "1" { panel.toggleInputMenu() }
             // KEYS=1 stages the keys up, as lode ? shows them.
@@ -1121,7 +1119,7 @@ extension DraftPanel {
             buffer = Draft.Buffer(text: "The quick brown fox\njumps over the lazy dog.", cursor: 10)
             panel.show(DraftView(buffer: buffer, mode: .normal, speech: nil,
                                  inputs: inputs, systemInput: "Cypress",
-                                 destination: ("Messages", icon), replacing: true))
+                                 destination: ("Messages", icon), replacing: true, style: .vim))
         }
         return panel
     }

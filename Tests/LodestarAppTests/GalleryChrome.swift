@@ -54,7 +54,8 @@ enum GalleryChrome {
             let marked = (text as NSString).range(of: "definately")
             var view = DraftView(buffer: buffer, mode: .normal, editor: .normal, speech: nil,
                                  inputs: [], systemInput: nil,
-                                 destination: ("Messages", icon("/System/Applications/Messages.app")), replacing: true)
+                                 destination: ("Messages", icon("/System/Applications/Messages.app")), replacing: true,
+                                 style: .vim)
             view.editorMarks = [marked]
             panel.show(view)
             return [panel]

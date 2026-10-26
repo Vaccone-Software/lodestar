@@ -10,7 +10,7 @@ import XCTest
 final class ReadabilityTests: XCTestCase {
     private func view(_ text: String, cursor: Int, editor: Vim.Mode) -> DraftView {
         DraftView(buffer: Draft.Buffer(text: text, cursor: cursor), mode: editor == .insert ? .insert : .normal,
-                  editor: editor, speech: nil, destination: ("Notes", nil), replacing: false)
+                  editor: editor, speech: nil, destination: ("Notes", nil), replacing: false, style: .vim)
     }
 
     private func color(_ panel: DraftPanel, at index: Int) -> NSColor? {

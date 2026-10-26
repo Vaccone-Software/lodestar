@@ -39,7 +39,7 @@ final class DraftPanelFindTests: XCTestCase {
         var buffer = Draft.Buffer(text: "alpha\nbravo")
         buffer.setCursor(0)
         var view = DraftView(buffer: buffer, mode: .normal, speech: nil,
-                             destination: nil, replacing: false)
+                             destination: nil, replacing: false, style: .vim)
         view.findTargets = [1, 6]
         panel.show(view)
         XCTAssertEqual(litPositions(panel), [1, 6],
@@ -53,7 +53,7 @@ final class DraftPanelFindTests: XCTestCase {
         buffer.setCursor(5)
         buffer.showGhost("bravo")
         var view = DraftView(buffer: buffer, mode: .insert, speech: nil,
-                             destination: nil, replacing: false)
+                             destination: nil, replacing: false, style: .vim)
         view.findTargets = [1]
         panel.show(view)
         XCTAssertTrue(litPositions(panel).isEmpty,
@@ -67,7 +67,7 @@ final class DraftPanelFindTests: XCTestCase {
         var buffer = Draft.Buffer(text: "one\ntwo")
         buffer.setCursor(0)
         let view = DraftView(buffer: buffer, mode: .normal, speech: nil,
-                             destination: nil, replacing: false)
+                             destination: nil, replacing: false, style: .vim)
         panel.show(view)
         let down = panel.visualMove(from: 0, down: true, in: buffer)
         XCTAssertEqual(down, 4, "one visual line down from o lands on t")

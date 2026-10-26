@@ -196,7 +196,8 @@ final class TypeRolesTests: XCTestCase {
         let panel = DraftPanel()
         defer { panel.hide() }
         var view = DraftView(buffer: Draft.Buffer(text: "hello world", cursor: 1), mode: .normal,
-                             editor: .normal, speech: nil, destination: ("Notes", nil), replacing: false)
+                             editor: .normal, speech: nil, destination: ("Notes", nil), replacing: false,
+                             style: .vim)
         view.findTargets = [2]
         panel.show(view)
         func fonts() -> (plain: NSFont?, marked: NSFont?) {

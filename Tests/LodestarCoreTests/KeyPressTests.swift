@@ -54,11 +54,11 @@ final class KeyPressTests: XCTestCase {
             let kind = Keys.kind(for: code)
             switch name {
             case "space": XCTAssertEqual(kind, .space)
-            case "delete": XCTAssertEqual(kind, .backspace)
+            case "delete", "forwarddelete": XCTAssertEqual(kind, .backspace)
             case "return": XCTAssertEqual(kind, .enter)
             case "tab": XCTAssertEqual(kind, .tab)
             case "escape": XCTAssertEqual(kind, .escape)
-            case "left", "right", "up", "down": XCTAssertEqual(kind, .navigation)
+            case "left", "right", "up", "down", "home", "end", "pageup", "pagedown": XCTAssertEqual(kind, .navigation)
             default:
                 if name.count == 1, name.first!.isLetter { XCTAssertEqual(kind, .letter, name) }
                 else if name.count == 1, name.first!.isNumber { XCTAssertEqual(kind, .digit, name) }

@@ -1039,8 +1039,10 @@ final class DraftController {
         // Speaking over a selection, visual or a Mac's, is `c` with the
         // voice: the words take the selection's place and insert opens
         // where they end. Behind one undo step, so ⌘Z brings the selection
-        // back as it stood.
-        if micWanted, listening,
+        // back as it stood. Not while words are reserved: that final is
+        // theirs, and revises them in place below, taking any selection
+        // with it.
+        if micWanted, listening, provisional == nil,
            let range = vim.selection(in: buffer), !heard.text.trimmingCharacters(in: .whitespaces).isEmpty {
             settler.handInterrupted()
             let repaired = settler.land(heard, after: "", canReachBack: false).text

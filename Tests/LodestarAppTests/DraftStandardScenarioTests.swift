@@ -254,6 +254,42 @@ final class DraftStandardScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "Hello there.", "then the replacement, whole, in one step")
     }
 
+    /// A selection made while words are still a ghost reserves them as text,
+    /// and their final revises them in place. It is theirs, not a speaking
+    /// over the selection: nothing is written twice. The next utterance,
+    /// with no reservation standing, does replace a selection.
+    func testAFinalForReservedWordsRevisesThemInPlaceAndDropsTheSelection() {
+        let stage = standardStage()
+        stage.lode(".")
+        stage.speech.hear("hello wor")
+        stage.chord("left", [shift])
+        XCTAssertEqual(stage.draft.buffer.text, "hello wor", "the ghost became text where it stood")
+        XCTAssertEqual(selected(stage), "r")
+        stage.speech.settle("Hello world.")
+        XCTAssertEqual(stage.draft.buffer.text, "Hello world.")
+        XCTAssertNil(stage.draft.buffer.selection)
+
+        stage.chord("left", [shift, option])
+        XCTAssertEqual(selected(stage), "world.")
+        stage.speech.settle("again")
+        XCTAssertEqual(stage.draft.buffer.text, "Hello again")
+    }
+
+    func testSelectAllOverAStandingGhostIsRevisedThenReplacedByTheNextUtterance() {
+        let stage = standardStage()
+        stage.lode(".")
+        stage.speech.hear("hello")
+        XCTAssertTrue(stage.commandPress("a"))
+        XCTAssertEqual(selected(stage), "hello")
+        stage.speech.settle("Hello.")
+        XCTAssertEqual(stage.draft.buffer.text, "Hello.")
+        XCTAssertNil(stage.draft.buffer.selection)
+
+        XCTAssertTrue(stage.commandPress("a"))
+        stage.speech.settle("Goodbye.")
+        XCTAssertEqual(stage.draft.buffer.text, "Goodbye.")
+    }
+
     func testSpeechOverAPartialSelectionLeavesTheRestAlone() {
         let stage = standardStage()
         stage.lode(".")

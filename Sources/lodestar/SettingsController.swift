@@ -2067,17 +2067,12 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         field.focusRingType = .none
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
-        let slash = Keycaps.cap("/")
-        slash.translatesAutoresizingMaskIntoConstraints = false
-        well.addSubview(slash)
         well.addSubview(field)
         well.hold(field)
         NSLayoutConstraint.activate([
             well.widthAnchor.constraint(equalToConstant: Self.contentWidth),
             well.heightAnchor.constraint(equalToConstant: BarTheme.fieldHeight),
-            slash.leadingAnchor.constraint(equalTo: well.leadingAnchor, constant: BarTheme.wordPadding),
-            slash.centerYAnchor.constraint(equalTo: well.centerYAnchor),
-            field.leadingAnchor.constraint(equalTo: slash.trailingAnchor, constant: BarTheme.wordPadding),
+            field.leadingAnchor.constraint(equalTo: well.leadingAnchor, constant: BarTheme.wordPadding),
             field.trailingAnchor.constraint(equalTo: well.trailingAnchor, constant: -BarTheme.wordPadding),
             field.centerYAnchor.constraint(equalTo: well.centerYAnchor),
         ])

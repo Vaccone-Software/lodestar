@@ -377,7 +377,7 @@ final class WellTests: XCTestCase {
                                BarTheme.wordPadding, "a note's words are 12 in")
             }
         }
-        // Settings' search: the key 12 in, the words 12 after it.
+        // Settings' search: no key, the words 12 in.
         let (root, keep) = try GallerySettings.window(look: .day) {
             $0.renderForTesting(place: nil)
             $0.searchForTesting("")
@@ -385,12 +385,10 @@ final class WellTests: XCTestCase {
         root.layoutSubtreeIfNeeded()
         let well = try XCTUnwrap(find(WellView.self, in: root).first { !find(InputField.self, in: $0).isEmpty })
         XCTAssertEqual(well.frame.height, BarTheme.fieldHeight, "the search is a field, 32 tall")
-        let key = try XCTUnwrap(find(Key.self, in: well).first)
+        XCTAssertTrue(find(Key.self, in: well).isEmpty, "a search field holds no key: / was pressed to get here")
         let field = try XCTUnwrap(find(InputField.self, in: well).first)
-        XCTAssertEqual(key.frame.minX, BarTheme.wordPadding, "the key is 12 in")
         // A field's words begin at its alignment rect, which the constraints lay out.
-        XCTAssertEqual(field.alignmentRect(forFrame: field.frame).minX, key.frame.maxX + BarTheme.wordPadding,
-                       "the words start 12 after it")
+        XCTAssertEqual(field.alignmentRect(forFrame: field.frame).minX, BarTheme.wordPadding, "the words are 12 in")
         _ = keep
         // Feedback: the note and the reply.
         let (feedback, held) = try GalleryChrome.feedback(45)

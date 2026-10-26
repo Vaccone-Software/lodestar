@@ -36,7 +36,7 @@ A keyboard app is mostly places you type into, and the eye should find the place
 | a band's field  | 32, 4 inside its band | 8.4; the band rounds at 12.4    | 12          | the band's role |
 | an empty slot   | the thing it waits for | the thing's own radius         | n/a         | meta (13), quiet |
 
-Every height is on the size table; Keep's source list's 40-tall field becomes a field (32). A well that holds a key or a symbol at its leading edge (the launcher's mark, Settings' and Keep's `/`) holds it 12 in, and the words start 12 after it.
+Every height is on the size table; Keep's source list's 40-tall field becomes a field (32). A well that holds a key or a symbol at its leading edge (the launcher's mark) holds it 12 in, and the words start 12 after it. A search field holds no `/`: the key has been pressed by the time the field shows, so in front of the query it said nothing, read as the query's first character, and stood raised where pressing it does nothing. The `/` belongs where it is a way in, beside the word it opens (Settings' `/` Search).
 
 ### What lives in it
 
@@ -59,7 +59,7 @@ Every height is on the size table; Keep's source list's 40-tall field becomes a 
 | ----------------------------------------- | -------------------------------- | --------------------------------------- |
 | the launcher, Ask, the commands bar       | a bar's well                     | as it is; the focused edge               |
 | Settings' value, number and add-bar fields | a field (`WellField`)           | as it is; the caret 1.5; the focused edge |
-| Settings' search                          | words on the pane, a rule beneath | a field holding `/`; the rule goes      |
+| Settings' search                          | words on the pane, a rule beneath | a field of words alone; the rule goes   |
 | Feedback's note and reply                 | wells; the note's caret ink, the reply's the system's, the note inset 10 | one caret, inset 12 |
 | Keep's search and Bring's search          | words on the band                | a band's field                           |
 | Keep's source list's filter               | words on the menu, 40 tall       | a field, 32                              |

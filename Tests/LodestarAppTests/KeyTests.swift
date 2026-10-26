@@ -213,7 +213,12 @@ final class KeyTests: XCTestCase {
             let comma = ink(","), period = ink("."), tick = ink("'"), backtick = ink("`"), dash = ink("-")
             for drawn in [comma, period, tick, backtick, dash, ink(";"), ink("/"), ink("=")] {
                 let mark = drawn.key.legend
-                XCTAssertEqual(drawn.key.legendFont.pointSize, BarTheme.Scale.title, "\(mark) \(look.name): the title step")
+                if mark == "/" {
+                    XCTAssertEqual(drawn.key.legendFont.pointSize, Self.draw("a", state: .resting, look: look).key.legendFont.pointSize,
+                                   "\(look.name): a slash is as tall as a capital, so it keeps the letters' size")
+                } else {
+                    XCTAssertEqual(drawn.key.legendFont.pointSize, BarTheme.Scale.title, "\(mark) \(look.name): the title step")
+                }
                 XCTAssertEqual(drawn.ink.midX, drawn.face.midX, accuracy: 0.5, "\(mark) \(look.name): across, by its ink")
                 let band = drawn.key.placement.band
                 XCTAssertEqual((band.lowerBound + band.upperBound) / 2, drawn.face.midY, accuracy: 0.5, "\(mark) \(look.name): the cap band is centred on the face")

@@ -58,6 +58,13 @@ enum KeyLegend {
         !legend.isEmpty && legend.allSatisfy { $0.isASCII && !$0.isLetter && !$0.isNumber && !$0.isWhitespace }
     }
 
+    /// Punctuation that would be a speck at the letters' size. A `/` stands
+    /// as tall as a capital, and drawn larger it filled its key and hung
+    /// below the words beside it, so it keeps the letters' size.
+    static func isSpeck(_ legend: String) -> Bool {
+        isPunctuation(legend) && legend != "/"
+    }
+
     static func band(of legend: String) -> Band {
         !isPunctuation(legend) && !legend.isEmpty && legend.allSatisfy({ $0.isLetter && $0.isLowercase })
             ? .xHeight : .capHeight
@@ -94,7 +101,7 @@ enum KeyLegend {
         var font = size.role.font(night: night)
         // At the letters' size punctuation is a speck: it stands at the
         // title step of the type scale, semibold like every key.
-        if isPunctuation(legend), size == .standard {
+        if isSpeck(legend), size == .standard {
             font = NSFont.systemFont(ofSize: BarTheme.Scale.title, weight: size.role.weight(night: night))
         }
         let made = Measure(font: font, ink: ink(line(legend, font: font)))

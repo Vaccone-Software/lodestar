@@ -484,7 +484,7 @@ final class ClipboardStrip {
         } else {
             count = total > shownBring.count ? "\(shownBring.count) of \(total)" : "\(total) found"
         }
-        addBar(key: "=", query: query, placeholder: "Type what you saw in another window",
+        addBar(query: query, placeholder: "Type what you saw in another window",
                count: count, source: source, frame: local(layout.bar), holdsCaret: sourceMenu == nil)
         if let sourceMenu { addSourceMenu(sourceMenu, under: local(layout.bar)) }
 
@@ -1360,7 +1360,7 @@ final class ClipboardStrip {
     private func addSearchBar(query: String, source: String?, matches: Int?, shown: Int, frame: NSRect,
                               holdsCaret: Bool) {
         let count = matches.map { $0 == 0 ? "No matches" : $0 > shown ? "\(shown) of \($0)" : "\($0) found" }
-        addBar(key: "/", query: query, placeholder: "Search clips", count: count, source: source, frame: frame,
+        addBar(query: query, placeholder: "Search clips", count: count, source: source, frame: frame,
                holdsCaret: holdsCaret)
     }
 
@@ -1368,7 +1368,7 @@ final class ClipboardStrip {
     /// key that opened it, what was typed, how many answer, and the app
     /// the answers are filtered to. The caret is in it unless the list of
     /// sources is open, which has a field of its own.
-    private func addBar(key: String, query: String, placeholder: String, count countText: String?,
+    private func addBar(query: String, placeholder: String, count countText: String?,
                         source: String?, frame: NSRect, holdsCaret: Bool) {
         // The band holds one field and rounds a field's inset beyond it.
         let bar = surface(size: frame.size, fill: .pane, stands: false, rung: BarTheme.bandRadius)
@@ -1380,9 +1380,6 @@ final class ClipboardStrip {
                                 holdsCaret: holdsCaret)
         shownBand = (bar, well)
         let width = well.bounds.width, height = well.bounds.height
-        let slash = Self.placedCap(key, at: NSPoint(x: BarTheme.wordPadding, y: (height - BarTheme.keyHeight) / 2))
-        well.addSubview(slash)
-
         // The source chip at the right: ⇥ and the app the clips come from.
         let chipKey = Self.placedCap("⇥", at: .zero)
         let name = NSTextField(labelWithString: source ?? "All apps")
@@ -1409,7 +1406,7 @@ final class ClipboardStrip {
             right = count.frame.minX - Grid.group
         }
 
-        let x = slash.frame.maxX + BarTheme.wordPadding
+        let x = BarTheme.wordPadding
         let field = query.isEmpty
             ? NSTextField(labelWithAttributedString: BarTheme.placeholder(placeholder, role: .field))
             : NSTextField(labelWithString: query)

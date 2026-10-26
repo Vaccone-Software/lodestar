@@ -28,7 +28,7 @@ A key is as wide as its legend plus 8 at each side (a grid step), and never narr
 
 - **Centred on the face.** The legend sits on the face, which is the top of the key; layout centres the whole key, face and side together (rule 8).
 - **One band per key, ignoring descenders.** A legend with no capitals, digits or symbols is centred on its x-height band; any other legend on its cap-height band. A `g`, `j`, `p` or `y` never moves its key's legend; a row of keys shares one baseline.
-- **Punctuation** alone on a key (`'`, `` ` ``, `;`, `/`, `.`, `,`) is drawn larger, at the title step of the type scale (18, semibold), because at the letters' size it is a speck. It stands on the cap-height band of its own font like any other legend that is not lowercase, so a `,` and a `.` sit low, a `'` and a `` ` `` high and a `-` in the middle, as on a real keycap; it is never centred by its ink up and down, which made every mark a floating blob.
+- **Punctuation** alone on a key (`'`, `` ` ``, `;`, `.`, `,`) is drawn larger, at the title step of the type scale (18, semibold), because at the letters' size it is a speck. A `/` is not a speck: it stands as tall as a capital, and drawn larger it filled its key and hung below the word beside it, so it keeps the letters' size. It stands on the cap-height band of its own font like any other legend that is not lowercase, so a `,` and a `.` sit low, a `'` and a `` ` `` high and a `-` in the middle, as on a real keycap; it is never centred by its ink up and down, which made every mark a floating blob.
 - **Across,** a legend is centred by its ink (punctuation too).
 
 ### What a key says

@@ -16,7 +16,7 @@ final class SettingsModelTests: XCTestCase {
     func testTheTenPlacesInTheirDigitsOrder() {
         XCTAssertEqual(sections.map(\.name), SettingsModel.placeNames)
         XCTAssertEqual(sections.map(\.name), ["General", "Write", "Switch", "Keep", "Speak",
-                                              "Operate", "Web", "Meetings", "Keys", "Observations"])
+                                              "Operate", "Web", "Meetings", "Input", "Observations"])
         XCTAssertEqual(SettingsModel.paneAddresses(count: sections.count),
                        ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
         XCTAssertEqual(SettingsModel.pane(forKey: "3", count: sections.count), 3)
@@ -75,8 +75,8 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(place("Operate").rows.contains { $0.path == "gestures.scroll" })
         XCTAssertTrue(place("Operate").rows.contains { $0.title == "Screen recording" })
         XCTAssertTrue(place("General").rows.contains { $0.title == "Accessibility" })
-        XCTAssertTrue(place("Keys").rows.contains { $0.path == "keys" })
-        XCTAssertTrue(place("Keys").rows.contains { $0.path == "health.keyboards" })
+        XCTAssertTrue(place("Input").rows.contains { $0.path == "keys" })
+        XCTAssertTrue(place("Input").rows.contains { $0.path == "health.keyboards" })
         XCTAssertTrue(place("Speak").rows.contains { $0.path == "draft.model" })
         XCTAssertTrue(place("Write").rows.contains { $0.path == "editor.skip-apps" })
     }

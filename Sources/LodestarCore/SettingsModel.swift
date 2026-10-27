@@ -715,7 +715,7 @@ public enum SettingsModel {
            status: "Calendar and joining",
            attention: config.meetingsEnabled && !calendarsGranted && machine.calendars != "unknown"))
 
-        // 8 · Keys
+        // 8 · Input
         // The facts about you are sealed with the health record, so they
         // read as nothing until it has opened.
         let person = machine.person
@@ -725,7 +725,7 @@ public enum SettingsModel {
         }
         let remapEntries = config.keyOverrides.sorted { $0.key < $1.key }
             .map { TableEntry(key: String($0.key), display: "Keycode \($0.key)", sub: "types \($0.value)") }
-        sections.append(Section(name: "Keys", rows: [
+        sections.append(Section(name: "Input", rows: [
             Row(title: "Lode key", path: "lode.trigger",
                 control: .choice(options: ["right-command", "left-command"],
                                  labels: ["Right ⌘", "Left ⌘"], current: config.trigger.rawValue),
@@ -745,8 +745,8 @@ public enum SettingsModel {
                 detail: "Keycode to key name, for keyboards the built-in table misreads",
                 isDefault: config.keyOverrides.isEmpty, group: "Keyboards"),
         ], picture: "place-keys",
-           sentence: "The key every gesture starts from, and the boards you type on",
-           status: "Lode and keyboards"))
+           sentence: "The key every gesture starts from, and the keyboards and mice you use",
+           status: "Lode, keyboards and mice"))
 
         // 9 · Observations: two records, each with its switch, its limit,
         // and what reads it. The coach reads the logbook; Born and
@@ -843,7 +843,7 @@ public enum SettingsModel {
 
     /// The ten places, in their digits' order.
     public static let placeNames = ["General", "Write", "Switch", "Keep", "Speak",
-                                    "Operate", "Web", "Meetings", "Keys", "Observations"]
+                                    "Operate", "Web", "Meetings", "Input", "Observations"]
     public static func placeIndex(_ name: String) -> Int? { placeNames.firstIndex(of: name) }
 
     public static let keyboardsPage = "Keyboards"
@@ -972,7 +972,7 @@ public enum SettingsModel {
         if boards.isEmpty {
             rows.append(Row(title: "No keyboard found",
                             control: .readout("Attach one and reopen the page.", sub: nil)))
-            return Section(name: keyboardsPage, rows: rows, parent: "Keys", picture: "place-keys", sentence: "Where each key sits on the boards you type on")
+            return Section(name: keyboardsPage, rows: rows, parent: "Input", picture: "place-keys", sentence: "Where each key sits on the boards you type on")
         }
         rows.append(Row(
             title: "Keyboard",
@@ -983,7 +983,7 @@ public enum SettingsModel {
                 "\($0.id). Keys are named as the system reports them. A board that "
                     + "sends one code for both thumbs maps that key to Either."
             }))
-        guard let shown else { return Section(name: keyboardsPage, rows: rows, parent: "Keys", picture: "place-keys", sentence: "Where each key sits on the boards you type on") }
+        guard let shown else { return Section(name: keyboardsPage, rows: rows, parent: "Input", picture: "place-keys", sentence: "Where each key sits on the boards you type on") }
         for key in Keys.SpecialKey.allCases {
             let placed = config.fingerMap.placement(of: key, keyboard: shown.id)
             let options = [""] + FingerMap.Placement.all.map(\.text)
@@ -995,7 +995,7 @@ public enum SettingsModel {
                 isDefault: placed == nil,
                 group: key == .leftShift ? "Keys" : nil))
         }
-        return Section(name: keyboardsPage, rows: rows, parent: "Keys", picture: "place-keys", sentence: "Where each key sits on the boards you type on")
+        return Section(name: keyboardsPage, rows: rows, parent: "Input", picture: "place-keys", sentence: "Where each key sits on the boards you type on")
     }
 
     // MARK: - Labels
@@ -1058,7 +1058,7 @@ public enum SettingsModel {
         "Operate": "click hints scroll select commands menus interactions screen recording",
         "Web": "browser ask links routes profile search engine",
         "Meetings": "calendar meeting join zoom",
-        "Keys": "keyboard lode trigger remap keycode",
+        "Input": "keyboard mouse wheel scroll reverse direction lode trigger remap keycode",
         "Observations": "coach health logbook privacy data delete record",
     ]
 

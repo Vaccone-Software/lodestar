@@ -71,6 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let control = ControlSocket()
     private let settings = SettingsController()
     private let health = HealthMonitor(vault: AppDelegate.sealedVault)
+    /// `mice.reversed-wheels`: turns the wheel of each mouse ticked apart
+    /// from the trackpad.
+    private let reversedWheels = ReversedWheels()
     /// Which road each focus change took — stamped by the summon path,
     /// the main tap (⌘⇥), and the mouse tap (clicks); read by the focus
     /// observer. See `FocusRoads`.
@@ -178,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         KeyboardLayout.install()
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
+        reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         // A layout switched at lunch renames the keys by the afternoon:
         // the overlay recomputes the moment the input source changes.
@@ -832,6 +836,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 Log.info("accessibility granted — waking up")
                 self.model.stop()
                 self.model.start()
+                // Made before trust, the wheel's tap could not be.
+                self.reversedWheels.reconcile()
                 if self.engine.start() {
                     self.flashReady("\(self.model.windows.count) windows tracked")
                 }
@@ -1392,9 +1398,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let engine = self?.editorController?.engine ?? EditorEngine.resolved(self?.config.editorModel ?? "")
             state.editorEngineCurrent = self?.config.editorModel ?? ""
             state.earStatus = self?.earHost.status ?? ""
-            // As health last read it, off the main thread: the privacy
-            // service is never asked from here.
-            state.inputMonitoring = self?.health.listenGranted.map { $0 ? "Granted" : "Not granted" } ?? "unknown"
+            // As health or the wheels last read it, off the main thread: the
+            // privacy service is never asked from here.
+            state.inputMonitoring = (self?.reversedWheels.listenGranted ?? self?.health.listenGranted)
+                .map { $0 ? "Granted" : "Not granted" } ?? "unknown"
             state.draftModelLabels = EarTier.allCases.map { $0.label(memoryGB: EditorEngine.physicalGB) }
             state.draftModelsUnavailable = Set(EarTier.allCases
                 .filter { EditorEngine.physicalGB < $0.memoryNeeded - 1 }.map(\.rawValue))
@@ -1454,6 +1461,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             }
             return keyboards
+        }
+        // The sources the Reversed wheels page lists: asked on every render
+        // and by the page's watch, for the same reason as the keyboards.
+        settings.heardWheels = { [weak self] in self?.reversedWheels.sources() ?? [] }
+        settings.wheelsShowing = { [weak self] showing in self?.reversedWheels.setDiscovering(showing) }
+        reversedWheels.changed = { [weak self] in
+            guard let self else { return }
+            self.settings.config = self.config
         }
         settings.problems = {
             let (loaded, loadProblems) = Config.load()
@@ -2476,6 +2491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         ActivePolicy.mode = loaded.activeDisplayMode
+        reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         engine.config = loaded
         webBar.config = loaded

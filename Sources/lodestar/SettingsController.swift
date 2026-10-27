@@ -42,6 +42,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// closure rather than a field of the machine state, because the
     /// machine state is memoized and this must never be.
     var attachedKeyboards: () -> [SettingsModel.Keyboard] = { [] }
+    /// The mice and apps the Reversed wheels page can speak for, ticked or
+    /// heard, and whether each is here: asked on every render and never
+    /// memoized, for the same reason.
+    var heardWheels: () -> [SettingsModel.Wheel] = { [] }
+    /// The Reversed wheels page is on screen or it is not: the mice are
+    /// listened for only while it is, so that it can list them.
+    var wheelsShowing: (Bool) -> Void = { _ in }
     /// Running apps, for the clipboard exclusion picker.
     var appChoices: () -> [(name: String, bundleID: String)] = { [] }
     /// A row's verb that is not a config write: a permission's pane, a
@@ -122,10 +129,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var openPage: String?
     private var selectedKeyboard: String?
     private var lastRenderedPage: String?
-    /// The Keyboards page's watch: the rule in `KeyboardWatch`, and the
-    /// turns that feed it while the page stands.
-    private var keyboards = KeyboardWatch()
-    private var keyboardTurns: Timer?
+    /// The Keyboards page's and the Reversed wheels page's watch: the rule
+    /// in `KeyboardWatch`, and the turns that feed it while either stands.
+    private var deviceWatch = KeyboardWatch()
+    private var deviceTurns: Timer?
+    private var wheelsAreShowing = false
+    /// The sources the open page lists, for the name a ticked one is kept under.
+    private var wheelEntries: [SettingsModel.WheelEntry] = []
 
     /// What the pane column is showing: the open page, or the pane the
     /// rail has lit. Every handler that reads a row by index reads it
@@ -245,42 +255,60 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     func close() {
         unwatchClicks()
-        stopKeyboardWatch()
+        stopDeviceWatch()
         panel.orderOut(nil)
     }
 
-    // MARK: - The Keyboards page's watch
+    // MARK: - The device pages' watch
+
+    /// The devices the open page is drawn from, each with whether it is
+    /// here; nil when the page shows none.
+    private func watchedDevices() -> [String]? {
+        switch openPage {
+        case SettingsModel.keyboardsPage: return attachedKeyboards().map(\.id)
+        case SettingsModel.wheelsPage: return heardWheels().map { "\($0.id) \($0.present)" }.sorted()
+        default: return nil
+        }
+    }
 
     /// Start or stop the watch to match what the window is showing.
-    /// Called at the end of every render, so opening the page starts it
-    /// and leaving the page — or the window — ends it.
-    private func updateKeyboardWatch() {
-        guard openPage == SettingsModel.keyboardsPage else {
-            stopKeyboardWatch()
+    /// Called at the end of every render, so opening a device page starts
+    /// it and leaving the page — or the window — ends it.
+    private func updateDeviceWatch() {
+        setWheelsShowing(openPage == SettingsModel.wheelsPage)
+        guard let ids = watchedDevices() else {
+            stopDeviceWatch()
             return
         }
-        keyboards.drew(attachedKeyboards().map(\.id))
-        guard keyboardTurns == nil else { return }
-        keyboardTurns = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            self?.keyboardWatchTick()
+        deviceWatch.drew(ids)
+        guard deviceTurns == nil else { return }
+        deviceTurns = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.deviceWatchTick()
         }
     }
 
     /// One turn. The window's own going is not checked: the panel is
     /// borderless and every way out of it — escape, the menu item, a
     /// click outside — is `close`, which stops the watch itself.
-    private func keyboardWatchTick() {
-        guard openPage == SettingsModel.keyboardsPage else {
-            stopKeyboardWatch()
+    private func deviceWatchTick() {
+        guard let ids = watchedDevices() else {
+            stopDeviceWatch()
             return
         }
-        if keyboards.shouldRedraw(attachedKeyboards().map(\.id)) { render() }
+        if deviceWatch.shouldRedraw(ids) { render() }
     }
 
-    private func stopKeyboardWatch() {
-        keyboardTurns?.invalidate()
-        keyboardTurns = nil
-        keyboards.stopped()
+    private func stopDeviceWatch() {
+        deviceTurns?.invalidate()
+        deviceTurns = nil
+        deviceWatch.stopped()
+        setWheelsShowing(false)
+    }
+
+    private func setWheelsShowing(_ on: Bool) {
+        guard on != wheelsAreShowing else { return }
+        wheelsAreShowing = on
+        wheelsShowing(on)
     }
 
     // MARK: - Keys: three layers, escape pops one
@@ -591,7 +619,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         if row.dimmed { return }
         switch row.control {
         case .toggle(let value):
-            write(row.path, .bool(!value))
+            toggle(row, to: !value)
         case .choice:
             // Open, never cycle: cycling wrote values that skipped the
             // path where tokens resolve, and a menu is what a person
@@ -680,6 +708,27 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         layer = .browsing
     }
 
+    /// A switch written. A source on the Reversed wheels page is ticked by
+    /// being an entry of its table, under the name it is listed by, and
+    /// unticked by the entry's absence.
+    private func toggle(_ row: SettingsModel.Row, to on: Bool) {
+        guard let id = wheelID(of: row.path) else { return write(row.path, .bool(on)) }
+        guard on else { return writeEntries(remove: [wheelPath(id)]) }
+        guard let name = wheelEntries.first(where: { $0.id == id })?.name else { return }
+        writeEntries(set: [(wheelPath(id), .string(name))])
+    }
+
+    /// The id a Reversed wheels row's path ends in. An app's holds dots, so
+    /// it is cut off the table's path and never split.
+    private func wheelID(of path: String) -> String? {
+        let table = SettingsModel.wheelsPath + "."
+        return path.hasPrefix(table) ? String(path.dropFirst(table.count)) : nil
+    }
+
+    private func wheelPath(_ id: String) -> [String] {
+        SettingsModel.wheelsPath.split(separator: ".").map(String.init) + [id]
+    }
+
     private func write(_ path: String, _ value: ConfigValue) {
         guard !path.isEmpty else { return }
         if let problem = apply?(path, value) {
@@ -751,7 +800,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         guard let index = owningRow(of: sender) else { return }
         let row = current.rows[index]
         if case .toggle(let value) = row.control, !row.dimmed {
-            write(row.path, .bool(!value))
+            toggle(row, to: !value)
         } else {
             render() // a dimmed switch snaps back
         }
@@ -933,6 +982,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         // hands was missing. Read here, outside the memo, so that opening
         // the page — which renders — cannot draw a stale one.
         machine.keyboards = attachedKeyboards()
+        machine.wheels = heardWheels()
+        wheelEntries = SettingsModel.wheelSources(config: config, machine: machine)
         sections = SettingsModel.catalog(config: config, machine: machine,
                                          problems: findings)
         pages = SettingsModel.pages(config: config, machine: machine,
@@ -986,7 +1037,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             paneScroll.contentView.scroll(to: offset)
             paneScroll.reflectScrolledClipView(paneScroll.contentView)
         }
-        updateKeyboardWatch()
+        updateDeviceWatch()
         // A reload mid-search rebuilt the field; typing must not die with
         // the old one. The hits die with it, though: results standing for
         // a query the empty field no longer shows would be an answer with

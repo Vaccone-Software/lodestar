@@ -80,7 +80,7 @@ final class WheelsPageTests: XCTestCase {
 
         config.reversedWheels[logi.id] = logi.name
         let two = try XCTUnwrap(try input(machine(), config: config).rows.first { $0.path == "mice.reversed-wheels" })
-        XCTAssertEqual(two.detail, "ProtoArc EM11 NL. Mice through Logi Options+", "a source that was not heard still shows")
+        XCTAssertEqual(two.detail, "ProtoArc EM11 NL, Mice through Logi Options+", "a source that was not heard still shows")
     }
 
     /// Input Monitoring now serves the wheels too, so health is not named alone.

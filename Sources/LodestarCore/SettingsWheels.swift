@@ -57,7 +57,7 @@ extension SettingsModel {
     /// The Input place's row for the page: what is ticked, by name.
     static func wheelsSummary(config: Config, machine: MachineState) -> String {
         let ticked = wheelSources(config: config, machine: machine).filter(\.ticked).map(\.title)
-        return ticked.isEmpty ? "None" : ticked.joined(separator: ". ")
+        return ticked.isEmpty ? "None" : ticked.joined(separator: ", ")
     }
 
     static func wheelsSection(config: Config, machine: MachineState) -> Section {

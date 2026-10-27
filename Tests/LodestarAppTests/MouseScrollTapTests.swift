@@ -121,29 +121,51 @@ final class MouseScrollTapTests: XCTestCase {
         XCTAssertFalse(turned(tap, event))
     }
 
-    /// An app that posted a scroll no wheel vouched for is told to the page
-    /// once, by pid, and the callback never grows past its limit.
+    /// An app that posted a scroll is told to the page once, by pid, and the
+    /// callback never grows past its limit.
     func testAPostingAppIsNoticedOnceAndBounded() throws {
         var told = 0
         let tap = tap(noticed: { told += 1 })
         for _ in 0..<5 { _ = tap.handle(.scrollWheel, try wheel(pid: 911)) }
         XCTAssertEqual(told, 1, "once, not once a scroll")
-        XCTAssertEqual(tap.takePosted(), [911])
-        XCTAssertEqual(tap.takePosted(), [], "taken")
+        XCTAssertEqual(tap.takeNoticed().pids, [911])
+        XCTAssertEqual(tap.takeNoticed().pids, [], "taken")
         for pid in 1000..<1100 { _ = tap.handle(.scrollWheel, try wheel(pid: Int64(pid))) }
-        XCTAssertEqual(tap.takePosted().count, 16, "bounded")
+        XCTAssertEqual(tap.takeNoticed().pids.count, 16, "bounded")
         XCTAssertEqual(told, 17)
     }
 
-    func testAWheelsOwnScrollIsNotAnAppPosting() throws {
+    /// A mouse is noticed when a scroll is attributed to it, not when its
+    /// wheel is merely heard: a wheel an app swallows reports and never
+    /// scrolls on its own.
+    func testAMouseIsNoticedOnlyOnceAScrollIsAttributedToIt() throws {
         var told = 0
         let tap = tap(noticed: { told += 1 })
         tap.hear(device: protoarc, stamp: now - ms)
+        XCTAssertEqual(told, 0, "a report alone says nothing")
+        XCTAssertEqual(tap.takeNoticed().devices, [])
+        for _ in 0..<3 { _ = tap.handle(.scrollWheel, try wheel()) }
+        XCTAssertEqual(told, 1, "once, not once a scroll")
+        XCTAssertEqual(tap.takeNoticed().devices, [protoarc])
+        XCTAssertEqual(tap.takeNoticed().devices, [], "taken")
+        for index in 0..<100 {
+            let id = "1:2:\(String(format: "%08x", index))"
+            tap.hear(device: id, stamp: now - ms)
+            _ = tap.handle(.scrollWheel, try wheel(at: now + UInt64(index) * 100 * ms))
+            tap.hear(device: id, stamp: now + UInt64(index) * 100 * ms - ms)
+            _ = tap.handle(.scrollWheel, try wheel(at: now + UInt64(index) * 100 * ms))
+        }
+        XCTAssertLessThanOrEqual(tap.takeNoticed().devices.count, 16, "bounded")
+    }
+
+    /// A posted scroll, a phased one and one nothing vouches for notice no mouse.
+    func testOnlyAnAttributedDeviceScrollNoticesAMouse() throws {
+        let tap = tap()
+        tap.hear(device: protoarc, stamp: now - ms)
         _ = tap.handle(.scrollWheel, try wheel(pid: 911))
-        _ = tap.handle(.scrollWheel, try wheel())
-        _ = tap.handle(.scrollWheel, try wheel(phase: 2, at: now))
-        XCTAssertEqual(told, 0)
-        XCTAssertEqual(tap.takePosted(), [])
+        _ = tap.handle(.scrollWheel, try wheel(phase: 2))
+        _ = tap.handle(.scrollWheel, try wheel(at: now + 500 * ms))
+        XCTAssertEqual(tap.takeNoticed().devices, [])
     }
 
     /// The system turning a slow tap off is answered, and the event passes.

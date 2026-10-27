@@ -17,9 +17,11 @@ import LodestarCore
 /// current off the callback and handed in with `set`), never touches the main
 /// thread and never waits on anything. A stall here would be a stall in
 /// every scroll, which is why it is not the key tap's job and shares no
-/// thread with it. The one thing it says to the outside is that an app
-/// posted a scroll nothing vouched for, once per pid, so that a page can
-/// list it.
+/// thread with it. The one thing it says to the outside is that a source has
+/// been seen, once each: an app posted a scroll, or a scroll was attributed
+/// to a mouse by its wheel report. A page lists a mouse only then, so that a
+/// mouse whose wheel an app swallows is never offered as a switch that
+/// would do nothing.
 ///
 /// It sits at the tail of the session taps. Health's listening tap is at
 /// the head, so the record keeps what the fingers did, never what this
@@ -29,11 +31,13 @@ final class MouseScrollTap {
     private var reports = MouseScroll.Reports()
     private var devices: Set<String> = []
     private var pids: Set<Int64> = []
-    /// The apps that have posted a scroll no wheel reported beside, by pid,
-    /// until a page takes them. Bounded: past the limit the rest are
-    /// forgotten, since a callback never grows a collection without end.
+    /// The apps that have posted a scroll, by pid, and the mice a scroll was
+    /// attributed to, by roster id, each once since a page last took them.
+    /// Bounded and made at their full size: past the limit the rest are
+    /// forgotten, since a callback never grows a collection.
     private var posted: [Int64] = []
-    private static let postedLimit = 16
+    private var attributed: [String] = []
+    private static let noticedLimit = 16
     private var tap: CFMachPort?
     private var runLoop: CFRunLoop?
     private var thread: Thread?
@@ -44,9 +48,9 @@ final class MouseScrollTap {
     /// run at once (two would turn the wheel back again).
     private var generation = 0
     private let ownPID = Int64(getpid())
-    /// A pid is new to `posted`. Called on the tap's thread outside the
-    /// lock and only for a pid not seen since the last take, so it must
-    /// do no more than hand the news on.
+    /// A source is new to `posted` or `attributed`. Called on the tap's
+    /// thread outside the lock and only for one not seen since the last
+    /// take, so it must do no more than hand the news on.
     private let noticed: () -> Void
 
     /// Whether a real tap may be made. A test run never makes one: it would
@@ -55,6 +59,8 @@ final class MouseScrollTap {
 
     init(noticed: @escaping () -> Void = {}) {
         self.noticed = noticed
+        posted.reserveCapacity(Self.noticedLimit)
+        attributed.reserveCapacity(Self.noticedLimit)
     }
 
     deinit { stop() }
@@ -78,12 +84,15 @@ final class MouseScrollTap {
         }
     }
 
-    /// Any thread. The pids of the apps that posted a scroll no wheel
-    /// vouched for since this was last asked.
-    func takePosted() -> [Int64] {
+    /// Any thread. The pids of the apps that posted a scroll, and the ids of
+    /// the mice a scroll was attributed to, since this was last asked.
+    func takeNoticed() -> (pids: [Int64], devices: [String]) {
         lock.withLock {
-            defer { posted = [] }
-            return posted
+            defer {
+                posted.removeAll(keepingCapacity: true)
+                attributed.removeAll(keepingCapacity: true)
+            }
+            return (posted, attributed)
         }
     }
 
@@ -115,9 +124,19 @@ final class MouseScrollTap {
             let source = MouseScroll.attribution(scrollPhase: phase, momentumPhase: momentum, postingPID: poster,
                                                  ownPID: ownPID, stamp: stamp, reports: reports)
             var fresh = false
-            if case .posted(let pid) = source, posted.count < Self.postedLimit, !posted.contains(pid) {
-                posted.append(pid)
-                fresh = true
+            switch source {
+            case .posted(let pid):
+                if posted.count < Self.noticedLimit, !posted.contains(pid) {
+                    posted.append(pid)
+                    fresh = true
+                }
+            case .device(let id):
+                if attributed.count < Self.noticedLimit, !attributed.contains(id) {
+                    attributed.append(id)
+                    fresh = true
+                }
+            case .touch, .own, .ambiguous, .unknown:
+                break
             }
             return (MouseScroll.turns(source, devices: devices, pids: pids), fresh)
         }

@@ -90,11 +90,19 @@ final class ReversedWheelsTests: XCTestCase {
 
     // MARK: - What the page lists
 
-    func testTheListHasWhatIsTickedAndWhatWasHeardWithWhetherItIsHere() {
+    /// A mouse's scroll, attributed by the tap and told to the page.
+    private func attribute(_ wheels: ReversedWheels, _ id: String, name: String, at stamp: UInt64 = 9_000_000_000) throws {
+        wheels.described(device: id, name: name)
+        wheels.tap.hear(device: id, stamp: stamp - 1_000_000)
+        _ = wheels.tap.handle(.scrollWheel, try scroll(stamp: stamp))
+        wheels.resolveNoticed()
+    }
+
+    func testTheListHasWhatIsTickedAndWhatWasAttributedWithWhetherItIsHere() throws {
         let wheels = wheels()
         wheels.attached = { [self.protoarc] }
         wheels.configure([protoarc: "ProtoArc EM11 NL", logi: "Logi Options+"])
-        wheels.heard(device: "1133:16466:00ff00ff", name: "Lift", stamp: 1)
+        try attribute(wheels, "1133:16466:00ff00ff", name: "Lift")
         let listed = Dictionary(uniqueKeysWithValues: wheels.sources().map { ($0.id, $0) })
         XCTAssertEqual(listed.count, 3)
         XCTAssertEqual(listed[protoarc]?.present, true, "ticked, and attached")
@@ -105,19 +113,29 @@ final class ReversedWheelsTests: XCTestCase {
         XCTAssertEqual(wheels.sources().first { $0.id == logi }?.present, true)
     }
 
-    func testAHeardNameWinsOverTheOneTheConfigKept() {
+    /// A mouse whose wheel is heard but never scrolls on its own, because an
+    /// app swallows it, is not listed: it would be a switch that does nothing.
+    func testAMouseThatIsOnlyHeardIsNotListed() {
+        let wheels = wheels()
+        wheels.described(device: protoarc, name: "ProtoArc EM11 NL")
+        wheels.tap.hear(device: protoarc, stamp: 9_000_000_000)
+        wheels.resolveNoticed()
+        XCTAssertEqual(wheels.sources(), [])
+    }
+
+    func testAHeardNameWinsOverTheOneTheConfigKept() throws {
         let wheels = wheels()
         wheels.configure([protoarc: "Old name"])
-        wheels.heard(device: protoarc, name: "ProtoArc EM11 NL", stamp: 1)
+        try attribute(wheels, protoarc, name: "ProtoArc EM11 NL")
         XCTAssertEqual(wheels.sources().map(\.name), ["ProtoArc EM11 NL"])
     }
 
-    func testTheWindowIsToldOnlyWhenADeviceIsFirstHeard() {
+    func testTheWindowIsToldOnlyWhenAMouseIsFirstListed() throws {
         let wheels = wheels()
         var told = 0
         wheels.changed = { told += 1 }
-        wheels.heard(device: protoarc, name: "ProtoArc EM11 NL", stamp: 1)
-        wheels.heard(device: protoarc, name: "ProtoArc EM11 NL", stamp: 2)
+        try attribute(wheels, protoarc, name: "ProtoArc EM11 NL")
+        try attribute(wheels, protoarc, name: "ProtoArc EM11 NL", at: 9_500_000_000)
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertEqual(told, 1)
     }
@@ -137,7 +155,7 @@ final class ReversedWheelsTests: XCTestCase {
     func testATickedMiceReportsReachTheTap() throws {
         let wheels = wheels()
         wheels.configure([protoarc: "ProtoArc EM11 NL"])
-        wheels.heard(device: protoarc, name: "ProtoArc EM11 NL", stamp: 9_000_000_000)
+        wheels.tap.hear(device: protoarc, stamp: 9_000_000_000)
         let event = try scroll(stamp: 9_000_500_000)
         _ = wheels.tap.handle(.scrollWheel, event)
         XCTAssertEqual(event.getIntegerValueField(.scrollWheelEventDeltaAxis1), -2)
@@ -158,5 +176,22 @@ final class ReversedWheelsTests: XCTestCase {
         let other = try scroll(pid: 912, stamp: 9_200_000_000)
         _ = wheels.tap.handle(.scrollWheel, other)
         XCTAssertEqual(other.getIntegerValueField(.scrollWheelEventDeltaAxis1), 2)
+    }
+
+    // MARK: - LaunchServices stays off main
+
+    /// An app's bundle id and the running list are LaunchServices reads, the
+    /// class of round trip that held main for seconds under memory pressure
+    /// (0.54.6). A launch is looked into only when an app is ticked or the
+    /// page is open, and the running list is read on the resolver's queue.
+    func testLaunchServicesIsNotAskedOnMainWhenTheFeatureIsNotInUse() throws {
+        let file = DesignDriftTests.appSources.appendingPathComponent("ReversedWheels.swift")
+        let code = DesignDriftTests.code(try String(contentsOf: file, encoding: .utf8))
+        XCTAssertTrue(code.contains("guard hasAppSource || discovering, let app, let bundle = app.bundleIdentifier"),
+                      "the cheap condition comes before the bundle id")
+        let scan = try XCTUnwrap(code.range(of: "NSWorkspace.shared.runningApplications"))
+        let queued = try XCTUnwrap(code.range(of: "queue.async { [weak self] in\n            var found"))
+        XCTAssertTrue(queued.lowerBound < scan.lowerBound, "the running list is read inside the queue's block")
+        XCTAssertEqual(code.components(separatedBy: "runningApplications").count, 2, "and only there")
     }
 }

@@ -16,9 +16,9 @@ import LodestarCore
 /// Main thread, except where a method says it is not.
 final class ReversedWheels {
     let tap: MouseScrollTap
-    private lazy var listener = WheelListener { [weak self] id, name, stamp in
-        self?.heard(device: id, name: name, stamp: stamp)
-    }
+    private lazy var listener = WheelListener(
+        report: { [weak self] id, stamp in self?.tap.hear(device: id, stamp: stamp) },
+        described: { [weak self] id, name in self?.described(device: id, name: name) })
 
     /// The page's list or the permission changed: the Settings window draws
     /// again if it is showing.
@@ -51,11 +51,18 @@ final class ReversedWheels {
     private var running: [pid_t: String] = [:]
     private var observers: [NSObjectProtocol] = []
 
-    /// What has been heard since launch, by id: a mouse turning a wheel on
-    /// the listener's thread, an app posting a scroll on the resolver's.
+    /// What is known of the sources, by id. The mice the listener has
+    /// described, by name; the mice a scroll has been attributed to since
+    /// launch, which are the ones the page lists (a mouse heard but never
+    /// attributed, because an app swallows its wheel, would be a switch that
+    /// does nothing); the apps that have posted a scroll, by name. Written on
+    /// the listener's and the resolver's threads.
     private let heardLock = NSLock()
-    private var heardDevices: [String: String] = [:]
+    private var names: [String: String] = [:]
+    private var attributedDevices: Set<String> = []
     private var heardApps: [String: String] = [:]
+    /// An app is ticked, so the workspace's notifications matter.
+    private var hasAppSource = false
 
     /// Where the permission is asked and a posting pid is made into an app:
     /// both are service calls, and neither is the main thread's or the tap's.
@@ -68,7 +75,7 @@ final class ReversedWheels {
         let news = DispatchSource.makeUserDataAddSource(queue: queue)
         self.news = news
         tap = MouseScrollTap(noticed: { news.add(data: 1) })
-        news.setEventHandler { [weak self] in self?.resolvePosted() }
+        news.setEventHandler { [weak self] in self?.resolveNoticed() }
         news.resume()
         let center = NSWorkspace.shared.notificationCenter
         observers = [
@@ -90,6 +97,7 @@ final class ReversedWheels {
     func configure(_ reversed: [String: String]) {
         let changed = reversed != ticked
         ticked = reversed
+        hasAppSource = reversed.keys.contains { WheelSource.bundleID(of: $0) != nil }
         if changed { rescan() }
         publish()
         refreshPermission()
@@ -119,11 +127,13 @@ final class ReversedWheels {
         if listenGranted != true { refreshPermission() }
         let here = Set(attached())
         let live = Set(running.values)
-        let (devices, apps) = heardLock.withLock { (heardDevices, heardApps) }
-        var names = ticked
-        names.merge(devices) { _, heard in heard }
-        names.merge(apps) { _, heard in heard }
-        return names.map { id, name in
+        let (devices, apps) = heardLock.withLock {
+            (Dictionary(uniqueKeysWithValues: attributedDevices.compactMap { id in names[id].map { (id, $0) } }), heardApps)
+        }
+        var listed = ticked
+        listed.merge(devices) { _, heard in heard }
+        listed.merge(apps) { _, heard in heard }
+        return listed.map { id, name in
             let present = WheelSource.bundleID(of: id).map(live.contains) ?? here.contains(id)
             return SettingsModel.Wheel(id: id, name: name, present: present)
         }
@@ -187,12 +197,24 @@ final class ReversedWheels {
     }
 
     /// The ticked apps already running, found once when the set changes; the
-    /// notifications keep them after that.
+    /// notifications keep them after that. The workspace is asked on the
+    /// resolver's queue and the answer published on main: LaunchServices
+    /// is never asked from the main thread, where under memory pressure a
+    /// round trip once held it for seconds.
     private func rescan() {
         let apps = Set(ticked.keys.compactMap { WheelSource.bundleID(of: $0) })
         guard !apps.isEmpty else { return }
-        for app in NSWorkspace.shared.runningApplications {
-            if let bundle = app.bundleIdentifier, apps.contains(bundle) { running[app.processIdentifier] = bundle }
+        queue.async { [weak self] in
+            var found: [pid_t: String] = [:]
+            for app in NSWorkspace.shared.runningApplications {
+                if let bundle = app.bundleIdentifier, apps.contains(bundle) { found[app.processIdentifier] = bundle }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.running.merge(found) { _, scanned in scanned }
+                self.publish()
+                self.changed()
+            }
         }
     }
 
@@ -201,34 +223,37 @@ final class ReversedWheels {
         return ticked[id] != nil || heardLock.withLock { heardApps[id] != nil }
     }
 
+    /// An app launched. The cheap question comes first: with no app ticked and
+    /// the page closed the notification is not looked into at all, since an
+    /// app's bundle id is a LaunchServices read.
     private func launched(_ app: NSRunningApplication?) {
-        guard let app, let bundle = app.bundleIdentifier, interesting(bundle) else { return }
+        guard hasAppSource || discovering, let app, let bundle = app.bundleIdentifier, interesting(bundle) else { return }
         running[app.processIdentifier] = bundle
         publish()
         changed()
     }
 
     private func terminated(_ app: NSRunningApplication?) {
-        guard let app, running.removeValue(forKey: app.processIdentifier) != nil else { return }
+        guard !running.isEmpty, let app, running.removeValue(forKey: app.processIdentifier) != nil else { return }
         publish()
         changed()
     }
 
     // MARK: - Who is heard
 
-    /// The listener's thread: a wheel of this device turned. The tap is
-    /// told first, with nothing between the report and the lock; the page is
-    /// told only the first time a device is heard.
-    func heard(device id: String, name: String, stamp: UInt64) {
-        tap.hear(device: id, stamp: stamp)
-        guard heardLock.withLock({ heardDevices.updateValue(name, forKey: id) == nil }) else { return }
-        DispatchQueue.main.async { [weak self] in self?.changed() }
+    /// The listener's thread: a mouse was described.
+    func described(device id: String, name: String) {
+        heardLock.withLock { names[id] = name }
     }
 
-    /// The resolver's queue: apps that posted a scroll no wheel vouched for.
-    /// Which app a pid is, is asked here and never in the callback.
-    private func resolvePosted() {
-        for pid in tap.takePosted() {
+    /// The resolver's queue: a source the tap has seen. A mouse a scroll was
+    /// attributed to is listed; an app that posted one is made of its pid
+    /// here, and never in the callback.
+    func resolveNoticed() {
+        let (pids, devices) = tap.takeNoticed()
+        let isNew = heardLock.withLock { devices.map { attributedDevices.insert($0).inserted }.contains(true) }
+        if isNew { DispatchQueue.main.async { [weak self] in self?.changed() } }
+        for pid in pids {
             guard let app = NSRunningApplication(processIdentifier: pid_t(pid)),
                   let bundle = app.bundleIdentifier else { continue }
             let found = (app.processIdentifier, bundle, app.localizedName ?? bundle)

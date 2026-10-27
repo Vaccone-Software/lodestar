@@ -14,15 +14,18 @@ import LodestarCore
 /// does, and hands on the device's roster id and name and the report's stamp
 /// with `report`, which must stay brief: it is the one thing a scroll's
 /// attribution waits on through the tap's lock, and it never waits for
-/// anything itself. A device is read once, the first time it turns a wheel,
-/// on this same thread, so no one else waits on the registry either. A
-/// virtual device (a remapper's, `DeviceRoster.isVirtual`) is never a mouse
+/// anything itself. A device is read when the manager first matches it, on
+/// this same thread, which is before its first notch, so neither the first
+/// report nor anyone else waits on the registry or the hash. A virtual device (a remapper's, `DeviceRoster.isVirtual`) is never a mouse
 /// the person owns, so its reports are not passed on.
 final class WheelListener {
-    /// A wheel turned: the device's roster id and name, and the report's
-    /// stamp in nanoseconds of uptime, the clock a tap's event is stamped
-    /// on. Called on the listener's thread.
-    private let report: (String, String, UInt64) -> Void
+    /// A wheel turned: the device's roster id and the report's stamp in
+    /// nanoseconds of uptime, the clock a tap's event is stamped on. Called
+    /// on the listener's thread.
+    private let report: (String, UInt64) -> Void
+    /// A mouse was described: its roster id and name. Called on the
+    /// listener's thread, once for each device the manager matches.
+    private let described: (String, String) -> Void
     private var manager: IOHIDManager?
     private var thread: Thread?
     private var runLoop: CFRunLoop?
@@ -40,8 +43,9 @@ final class WheelListener {
     /// Whether a manager may be opened. A test run never opens one.
     var canOpen: () -> Bool = { !TestRun.active }
 
-    init(report: @escaping (String, String, UInt64) -> Void) {
+    init(report: @escaping (String, UInt64) -> Void, described: @escaping (String, String) -> Void) {
         self.report = report
+        self.described = described
     }
 
     var isListening: Bool { manager != nil }
@@ -63,6 +67,12 @@ final class WheelListener {
             return false
         }
         let context = Unmanaged.passUnretained(self).toOpaque()
+        // Registered before the manager is scheduled, which then calls it for
+        // every device already attached as well as for each that arrives.
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
+            guard let context else { return }
+            _ = Unmanaged<WheelListener>.fromOpaque(context).takeUnretainedValue().identity(of: device)
+        }, context)
         IOHIDManagerRegisterInputValueCallback(manager, { context, _, _, value in
             guard let context else { return }
             Unmanaged<WheelListener>.fromOpaque(context).takeUnretainedValue().received(value)
@@ -110,17 +120,21 @@ final class WheelListener {
         let element = IOHIDValueGetElement(value)
         guard MouseScroll.isVerticalWheel(page: IOHIDElementGetUsagePage(element), usage: IOHIDElementGetUsage(element)),
               IOHIDValueGetIntegerValue(value) != 0 else { return }
-        let device = IOHIDElementGetDevice(element)
+        let identity = identity(of: IOHIDElementGetDevice(element))
+        guard !identity.virtual else { return }
+        report(identity.id, UInt64(max(0, EventTime.nanoseconds(ticks: IOHIDValueGetTimeStamp(value)))))
+    }
+
+    /// Who a device is, read the first time it is asked for and kept: by the
+    /// matching callback as a device arrives, and failing that by its first
+    /// report. The listener's thread.
+    private func identity(of device: IOHIDDevice) -> Identity {
         let key = Unmanaged.passUnretained(device).toOpaque()
-        var known = identityLock.withLock { identities[key] }
-        if known == nil {
-            let described = DeviceRoster.describe(device)
-            let made = Identity(device: device, id: described.id, name: described.name,
-                                virtual: DeviceRoster.isVirtual(device))
-            identityLock.withLock { identities[key] = made }
-            known = made
-        }
-        guard let identity = known, !identity.virtual else { return }
-        report(identity.id, identity.name, UInt64(max(0, EventTime.nanoseconds(ticks: IOHIDValueGetTimeStamp(value)))))
+        if let known = identityLock.withLock({ identities[key] }) { return known }
+        let named = DeviceRoster.describe(device)
+        let made = Identity(device: device, id: named.id, name: named.name, virtual: DeviceRoster.isVirtual(device))
+        identityLock.withLock { identities[key] = made }
+        if !made.virtual { described(made.id, made.name) }
+        return made
     }
 }

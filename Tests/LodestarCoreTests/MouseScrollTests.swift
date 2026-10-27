@@ -75,14 +75,23 @@ final class MouseScrollTests: XCTestCase {
     }
 
     /// A mouse utility swallows the wheel and posts its own scrolls: the
-    /// process that posted one is the source, once no wheel reported near it.
+    /// process that posted one is the source.
     func testAScrollAnotherAppPostedIsThatApps() {
         XCTAssertEqual(attribution(pid: 911, MouseScroll.Reports()), .posted(pid: 911))
         XCTAssertTrue(MouseScroll.turns(.posted(pid: 911), devices: [], pids: [911]))
         XCTAssertFalse(MouseScroll.turns(.posted(pid: 911), devices: [protoarc], pids: [912]), "an app not ticked")
         XCTAssertFalse(MouseScroll.turns(.posted(pid: 911), devices: [protoarc], pids: []))
-        XCTAssertEqual(attribution(pid: 911, reports([(protoarc, now - ms)])), .device(protoarc),
-                       "a wheel that reported beside it is the closer witness")
+    }
+
+    /// The poster outranks a report: its pid cannot be forged and covers all
+    /// of a utility's scrolls, so a ticked device's report beside one makes it
+    /// the app's and never the device's.
+    func testAPosterOutranksAReportInTheWindow() {
+        let heard = reports([(protoarc, now - ms)])
+        XCTAssertEqual(attribution(pid: 911, heard), .posted(pid: 911))
+        XCTAssertFalse(MouseScroll.turns(attribution(pid: 911, heard), devices: [protoarc], pids: []),
+                       "the mouse's switch does not turn the utility's scroll")
+        XCTAssertEqual(attribution(pid: 911, reports([(protoarc, now - ms), (logitech, now - ms)])), .posted(pid: 911))
     }
 
     /// Nothing posted it and no wheel reported: a scroll from a surface the

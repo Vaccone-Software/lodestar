@@ -90,19 +90,23 @@ public enum MouseScroll {
     }
 
     /// The scroll's source, in order: a touch surface's phases and
-    /// Lodestar's own pid rule it out; the one device whose wheel reported
-    /// in the window is it; otherwise the process that posted it is. A
-    /// device's report comes before a poster because a mouse whose app
-    /// swallows its wheel posts a scroll after the report, and the report
-    /// is the closer witness.
+    /// Lodestar's own pid rule it out; a scroll another process posted is
+    /// that process's; only a scroll no one posted (a device's own, whose
+    /// posting pid is zero) is looked up among the wheel reports, and the
+    /// one device whose wheel reported in the window is its source. The
+    /// poster comes first because its pid cannot be forged and covers every
+    /// scroll a mouse utility makes after swallowing the wheel, smooth
+    /// continuation included, while a report only sits near some of them:
+    /// asked the other way round, one mouse's scrolls would split between
+    /// the mouse's switch and the utility's.
     public static func attribution(scrollPhase: Int64, momentumPhase: Int64, postingPID: Int64,
                                    ownPID: Int64, stamp: UInt64, reports: Reports) -> Attribution {
         if scrollPhase != 0 || momentumPhase != 0 { return .touch }
         if postingPID == ownPID { return .own }
+        if postingPID != 0 { return .posted(pid: postingPID) }
         let heard = reports.heard(near: stamp)
         if heard.several { return .ambiguous }
         if let device = heard.device { return .device(device) }
-        if postingPID != 0 { return .posted(pid: postingPID) }
         return .unknown
     }
 

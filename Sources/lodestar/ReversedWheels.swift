@@ -1,11 +1,12 @@
 import AppKit
 import LodestarCore
 
-/// The Reversed wheels setting's owner: it starts the pieces that turn a
-/// ticked source's wheel (`MouseScrollTap`, `WheelListener`) and stops them,
-/// by `WheelPlan`, and it tells the Settings page which sources it has
-/// heard. Off is off: with nothing ticked and the page closed neither piece
-/// runs, and the active tap exists only for a ticked source.
+/// The Reversed wheels setting's owner (Settings, Input, Mice): it starts the
+/// pieces that turn a ticked source's wheel (`MouseScrollTap`,
+/// `WheelListener`) and stops them, by `WheelPlan`, and it tells the Settings
+/// window which sources it has heard and which are turning. Off is off: with
+/// nothing ticked and Input not on screen neither piece runs, and the active
+/// tap exists only for a ticked source.
 ///
 /// A scroll is turned only when it is vouched for as a ticked source's, so
 /// what this keeps current for the tap is small and exact: the roster ids of
@@ -20,7 +21,7 @@ final class ReversedWheels {
         report: { [weak self] id, stamp in self?.tap.hear(device: id, stamp: stamp) },
         described: { [weak self] id, name in self?.described(device: id, name: name) })
 
-    /// The page's list or the permission changed: the Settings window draws
+    /// The group's list, a lit row or the permission changed: the Settings window draws
     /// again if it is showing.
     var changed: () -> Void = {}
     /// Whether Input Monitoring is granted: a question to the privacy
@@ -46,14 +47,14 @@ final class ReversedWheels {
     private var ticked: [String: String] = [:]
     private var discovering = false
     private var asked = false
-    /// The apps that matter (ticked, or heard on the page) by the pid each is
+    /// The apps that matter (ticked, or heard while Input is on screen) by the pid each is
     /// running as, read off the workspace's notifications.
     private var running: [pid_t: String] = [:]
     private var observers: [NSObjectProtocol] = []
 
     /// What is known of the sources, by id. The mice the listener has
     /// described, by name; the mice a scroll has been attributed to since
-    /// launch, which are the ones the page lists (a mouse heard but never
+    /// launch, which are the ones the group lists (a mouse heard but never
     /// attributed, because an app swallows its wheel, would be a switch that
     /// does nothing); the apps that have posted a scroll, by name. Written on
     /// the listener's and the resolver's threads.
@@ -61,6 +62,16 @@ final class ReversedWheels {
     private var names: [String: String] = [:]
     private var attributedDevices: Set<String> = []
     private var heardApps: [String: String] = [:]
+    /// The app source each pid that posted a scroll was made into.
+    private var pidSources: [Int64: String] = [:]
+    /// Which sources are lit: from a source's first scroll until it has been
+    /// quiet. Only while the list is on screen (`showing`), and settled by a
+    /// check on the resolver's queue every `settleEvery`, scheduled only
+    /// while something is lit.
+    private var burst = WheelBurst()
+    private var showing = false
+    private var settling = false
+    private static let settleEvery: TimeInterval = 0.2
     /// An app is ticked, so the workspace's notifications matter.
     private var hasAppSource = false
 
@@ -103,14 +114,25 @@ final class ReversedWheels {
         refreshPermission()
     }
 
-    /// The Reversed wheels page is on screen, or it is not: the mice are
-    /// listened for while it is, so that it can list them.
+    /// The Input place is on screen, or it is not: the mice are listened for
+    /// while it is, so that the Mice group can list them and light the one
+    /// whose wheel turns. Nothing is lit when it is not.
     func setDiscovering(_ on: Bool) {
         guard on != discovering else { return }
         discovering = on
+        let wasLit = heardLock.withLock { () -> Bool in
+            showing = on
+            return burst.reset()
+        }
+        // Every source's next scroll is news again, for the first to light it.
+        tap.rearm()
         refreshPermission()
         apply()
+        if wasLit { changed() }
     }
+
+    /// The sources whose wheels are turning now, by id.
+    var lit: Set<String> { heardLock.withLock { burst.lit } }
 
     /// Run again: Accessibility may have been granted since, and the tap
     /// needs it to turn anything.
@@ -118,8 +140,8 @@ final class ReversedWheels {
         refreshPermission()
     }
 
-    /// The sources the page lists: every one ticked and every one heard
-    /// since launch, each with whether it is here now. Asked from the page's
+    /// The sources the group lists: every one ticked and every one heard
+    /// since launch, each with whether it is here now. Asked from the place's
     /// render and its watch; reads the device list afresh, as the Keyboards
     /// page does, and rereads the permission while it is not granted, so that
     /// a grant made in System Settings shows without a relaunch.
@@ -167,7 +189,7 @@ final class ReversedWheels {
         }
     }
 
-    /// Main. The first time the page is open without the permission macOS is
+    /// Main. The first time Input is on screen without the permission macOS is
     /// asked, once a launch; until it is granted nothing is opened.
     func applyPermission(_ granted: Bool) {
         let before = listenGranted
@@ -224,7 +246,7 @@ final class ReversedWheels {
     }
 
     /// An app launched. The cheap question comes first: with no app ticked and
-    /// the page closed the notification is not looked into at all, since an
+    /// Input off screen the notification is not looked into at all, since an
     /// app's bundle id is a LaunchServices read.
     private func launched(_ app: NSRunningApplication?) {
         guard hasAppSource || discovering, let app, let bundle = app.bundleIdentifier, interesting(bundle) else { return }
@@ -235,6 +257,7 @@ final class ReversedWheels {
 
     private func terminated(_ app: NSRunningApplication?) {
         guard !running.isEmpty, let app, running.removeValue(forKey: app.processIdentifier) != nil else { return }
+        _ = heardLock.withLock { pidSources.removeValue(forKey: Int64(app.processIdentifier)) }
         publish()
         changed()
     }
@@ -246,19 +269,70 @@ final class ReversedWheels {
         heardLock.withLock { names[id] = name }
     }
 
-    /// The resolver's queue: a source the tap has seen. A mouse a scroll was
-    /// attributed to is listed; an app that posted one is made of its pid
-    /// here, and never in the callback.
+    /// The resolver's queue: sources the tap has seen scroll. A mouse a scroll
+    /// was attributed to is listed; an app that posted one is made of its pid
+    /// here, and never in the callback. Each source is told once per burst, so
+    /// this runs once for the first scroll and not for the rest, and it is
+    /// where a source's row lights.
     func resolveNoticed() {
         let (pids, devices) = tap.takeNoticed()
+        var began = devices
         let isNew = heardLock.withLock { devices.map { attributedDevices.insert($0).inserted }.contains(true) }
-        if isNew { DispatchQueue.main.async { [weak self] in self?.changed() } }
         for pid in pids {
+            if let known = heardLock.withLock({ pidSources[pid] }) {
+                began.append(known)
+                continue
+            }
             guard let app = NSRunningApplication(processIdentifier: pid_t(pid)),
                   let bundle = app.bundleIdentifier else { continue }
+            let id = WheelSource.app(bundleID: bundle)
+            heardLock.withLock { pidSources[pid] = id }
+            began.append(id)
             let found = (app.processIdentifier, bundle, app.localizedName ?? bundle)
             DispatchQueue.main.async { [weak self] in self?.heard(app: found.0, bundleID: found.1, name: found.2) }
         }
+        let lit = heardLock.withLock { showing && began.map { burst.began($0) }.contains(true) }
+        if isNew || lit { DispatchQueue.main.async { [weak self] in self?.changed() } }
+        scheduleSettle()
+    }
+
+    /// The resolver's queue: look again for sources that have gone quiet.
+    private func scheduleSettle() {
+        let needed = heardLock.withLock { () -> Bool in
+            guard showing, !burst.lit.isEmpty, !settling else { return false }
+            settling = true
+            return true
+        }
+        guard needed else { return }
+        queue.asyncAfter(deadline: .now() + Self.settleEvery) { [weak self] in
+            self?.settle(now: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+        }
+    }
+
+    /// Unlights the sources quiet since `WheelBurst.quiet` before `now`, and
+    /// rearms them in the tap so that their next scroll lights them again.
+    func settle(now: UInt64) {
+        let seen = tap.activity()
+        let (ended, pids, again) = heardLock.withLock { () -> ([String], Set<Int64>, Bool) in
+            var last = seen.devices
+            for (pid, at) in seen.pids {
+                if let id = pidSources[pid] { last[id] = max(last[id] ?? 0, at) }
+            }
+            let ended = burst.settle(lastScroll: last, now: now)
+            settling = false
+            let pids = Set(pidSources.filter { ended.contains($0.value) }.keys)
+            return (ended, pids, showing && !burst.lit.isEmpty)
+        }
+        if !ended.isEmpty {
+            tap.rearm(pids: pids, devices: Set(ended))
+            DispatchQueue.main.async { [weak self] in self?.changed() }
+        }
+        if again { scheduleSettle() }
+    }
+
+    /// Tests: a pid already made into an app, as the resolver would have.
+    func pidSourceForTesting(_ pid: Int64, _ id: String) {
+        heardLock.withLock { pidSources[pid] = id }
     }
 
     /// Main. An app has posted a scroll. Internal so a test can say so.

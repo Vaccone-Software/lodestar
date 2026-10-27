@@ -6,7 +6,7 @@ import LodestarCore
 /// can be told to a device (`MouseScroll`). A wheel is Generic Desktop usage
 /// 0x38, and only that value is asked for: the pointer's motion, which is
 /// the bulk of a mouse's traffic, never reaches the callback. Opened while a
-/// wheel is ticked or the Reversed wheels page is on screen, and needs Input
+/// wheel is ticked or the Input place is on screen, and needs Input
 /// Monitoring; never seized, so every other reader of the mouse hears it as
 /// before.
 ///

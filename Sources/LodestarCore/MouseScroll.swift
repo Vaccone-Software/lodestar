@@ -7,8 +7,8 @@ import CoreGraphics
 /// there already.
 ///
 /// **Nothing is guessed.** A scroll is turned only when something vouches
-/// for who made it, and the person has ticked that source on the Reversed
-/// wheels page. A source is either a mouse, vouched for by the HID report
+/// for who made it, and the person has ticked that source in the Mice
+/// group. A source is either a mouse, vouched for by the HID report
 /// its wheel sent (a mouse's wheel is Generic Desktop usage 0x38, and the
 /// report carries the same timestamp as the scroll it became, measured
 /// 159 of 159 on the maker's Mac: the scroll's stamp minus the report's was
@@ -137,6 +137,43 @@ public enum MouseScroll {
     }
 }
 
+/// When a source's row is lit in the Mice group: from its first
+/// attributed scroll until it has been quiet for `quiet`. A burst of scrolls
+/// is two changes to the window, one lit and one unlit, however long it runs,
+/// so the window is drawn at most twice for it. Pure: the clock is handed in,
+/// in nanoseconds of uptime, the scale a scroll is stamped on.
+public struct WheelBurst: Equatable {
+    public static let quiet: UInt64 = 600_000_000
+
+    public private(set) var lit: Set<String> = []
+
+    public init() {}
+
+    /// A source's first attributed scroll of a burst. True when it lit the
+    /// source, which is when the window is drawn.
+    public mutating func began(_ id: String) -> Bool {
+        lit.insert(id).inserted
+    }
+
+    /// The lit sources that have been quiet for `quiet` as of `now`, unlit
+    /// by this. A source whose last scroll is not known has no burst left.
+    public mutating func settle(lastScroll: [String: UInt64], now: UInt64) -> [String] {
+        let ended = lit.filter { id in
+            guard let last = lastScroll[id] else { return true }
+            return now > last && now - last >= Self.quiet
+        }
+        lit.subtract(ended)
+        return ended.sorted()
+    }
+
+    /// Nothing is lit any more: the list is no longer on screen. True when
+    /// something was.
+    public mutating func reset() -> Bool {
+        defer { lit = [] }
+        return !lit.isEmpty
+    }
+}
+
 /// The ids a ticked source goes by in the config: a mouse by the roster's
 /// `vendor:product:hash`, an app that posts a mouse's scrolls by
 /// `app:<bundle id>`.
@@ -163,7 +200,7 @@ public enum WheelSource {
 }
 
 /// What the wheel machinery runs, from what is asked and what is allowed.
-/// The listener and the tap are separate because the page that finds the
+/// The listener and the tap are separate because the place that finds the
 /// mice needs the one and the tap that turns them needs both.
 public struct WheelPlan: Equatable {
     public enum Tap: Equatable {
@@ -183,7 +220,7 @@ public struct WheelPlan: Equatable {
         self.tap = tap
     }
 
-    /// Off is off: with nothing ticked and no page to find mice for, nothing
+    /// Off is off: with nothing ticked and Input not on screen, nothing
     /// runs, and the active tap runs only for a ticked source. Input
     /// Monitoring gates all of it, since neither the reports nor the scrolls
     /// are heard without it, and the active tap needs Accessibility too.

@@ -156,6 +156,57 @@ final class MouseScrollTests: XCTestCase {
         XCTAssertEqual(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1), -9)
     }
 
+    // MARK: - A burst of scrolls
+
+    /// Lit on the first, unlit once quiet, and the window drawn twice
+    /// however long the burst: the rule on its own, with the clock handed in.
+    func testABurstIsTwoChangesHoweverLongItRuns() {
+        var burst = WheelBurst()
+        var drawn = 0
+        var last: [String: UInt64] = [:]
+        for index in 0..<50 {
+            let at = now + UInt64(index) * 20 * ms
+            last[protoarc] = at
+            if burst.began(protoarc) { drawn += 1 }
+            if !burst.settle(lastScroll: last, now: at + 10 * ms).isEmpty { drawn += 1 }
+        }
+        XCTAssertEqual(burst.lit, [protoarc])
+        XCTAssertEqual(drawn, 1)
+        XCTAssertEqual(burst.settle(lastScroll: last, now: last[protoarc]! + WheelBurst.quiet), [protoarc])
+        XCTAssertEqual(burst.lit, [])
+        XCTAssertEqual(drawn + 1, 2)
+    }
+
+    func testASourceStaysLitUntilItHasBeenQuietForSixTenthsOfASecond() {
+        var burst = WheelBurst()
+        XCTAssertTrue(burst.began(protoarc))
+        XCTAssertFalse(burst.began(protoarc), "already lit: nothing to draw")
+        XCTAssertEqual(burst.settle(lastScroll: [protoarc: now], now: now + 599 * ms), [])
+        XCTAssertEqual(burst.settle(lastScroll: [protoarc: now], now: now + 600 * ms), [protoarc])
+        XCTAssertTrue(burst.began(protoarc), "the next burst lights it again")
+    }
+
+    func testEachSourceHasItsOwnBurst() {
+        var burst = WheelBurst()
+        XCTAssertTrue(burst.began(protoarc))
+        XCTAssertTrue(burst.began("app:com.example.mousetool"))
+        let ended = burst.settle(lastScroll: [protoarc: now, "app:com.example.mousetool": now + 500 * ms], now: now + 700 * ms)
+        XCTAssertEqual(ended, [protoarc])
+        XCTAssertEqual(burst.lit, ["app:com.example.mousetool"])
+    }
+
+    /// A source whose last scroll is not known has no burst left, and leaving
+    /// the list unlights everything.
+    func testAnUnknownSourceIsUnlitAndResetPutsTheLightsOut() {
+        var burst = WheelBurst()
+        _ = burst.began(protoarc)
+        XCTAssertEqual(burst.settle(lastScroll: [:], now: now), [protoarc])
+        _ = burst.began(protoarc)
+        XCTAssertTrue(burst.reset())
+        XCTAssertEqual(burst.lit, [])
+        XCTAssertFalse(burst.reset(), "nothing was lit")
+    }
+
     // MARK: - Sources and the plan
 
     func testASourceIsAMouseByItsRosterIdOrAnAppByItsBundleId() {

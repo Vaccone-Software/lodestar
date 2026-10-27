@@ -140,6 +140,66 @@ final class ReversedWheelsTests: XCTestCase {
         XCTAssertEqual(told, 1)
     }
 
+    // MARK: - A row lights while its wheel turns
+
+    private func uptime() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+
+    /// Lit on the first attributed scroll, unlit once the wheel has been
+    /// quiet, and never while the Input place is not on screen.
+    func testAWheelTurningLightsItsSourceOnlyWhileInputIsOnScreen() throws {
+        let wheels = wheels()
+        let base = uptime()
+        try attribute(wheels, protoarc, name: "ProtoArc EM11 NL", at: base)
+        XCTAssertEqual(wheels.lit, [], "Input is not on screen")
+
+        wheels.setDiscovering(true)
+        try attribute(wheels, protoarc, name: "ProtoArc EM11 NL", at: base + 1_000_000_000)
+        XCTAssertEqual(wheels.lit, [protoarc])
+        wheels.settle(now: base + 1_300_000_000)
+        XCTAssertEqual(wheels.lit, [protoarc], "quiet for 0.3 s is not quiet enough")
+        wheels.settle(now: base + 1_000_000_000 + WheelBurst.quiet + 1)
+        XCTAssertEqual(wheels.lit, [])
+
+        try attribute(wheels, protoarc, name: "ProtoArc EM11 NL", at: base + 3_000_000_000)
+        XCTAssertEqual(wheels.lit, [protoarc], "the next burst lights it again")
+        wheels.setDiscovering(false)
+        XCTAssertEqual(wheels.lit, [], "leaving Input puts the light out")
+    }
+
+    /// A burst is two draws of the window, one lit and one unlit, however
+    /// many scrolls it holds.
+    func testABurstDrawsTheWindowTwice() throws {
+        let wheels = wheels()
+        wheels.setDiscovering(true)
+        var drawn = 0
+        wheels.changed = { drawn += 1 }
+        let base = uptime()
+        wheels.described(device: protoarc, name: "ProtoArc EM11 NL")
+        for index in 0..<40 {
+            let stamp = base + UInt64(index) * 20_000_000
+            wheels.tap.hear(device: protoarc, stamp: stamp - 1_000_000)
+            _ = wheels.tap.handle(.scrollWheel, try scroll(stamp: stamp))
+            wheels.resolveNoticed()
+        }
+        wheels.settle(now: base + 40 * 20_000_000 + WheelBurst.quiet + 1)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(drawn, 2)
+        XCTAssertEqual(wheels.lit, [])
+    }
+
+    /// An app's posted scrolls light its row under its own id.
+    func testAnAppsPostedScrollsLightItsRow() throws {
+        let wheels = wheels()
+        wheels.setDiscovering(true)
+        wheels.pidSourceForTesting(911, logi)
+        let base = uptime()
+        _ = wheels.tap.handle(.scrollWheel, try scroll(pid: 911, stamp: base))
+        wheels.resolveNoticed()
+        XCTAssertEqual(wheels.lit, [logi])
+        wheels.settle(now: base + WheelBurst.quiet + 1)
+        XCTAssertEqual(wheels.lit, [])
+    }
+
     // MARK: - The tap hears it
 
     private func scroll(pid: Int64 = 0, stamp: UInt64) throws -> CGEvent {

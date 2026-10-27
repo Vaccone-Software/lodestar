@@ -121,8 +121,9 @@ final class MouseScrollTapTests: XCTestCase {
         XCTAssertFalse(turned(tap, event))
     }
 
-    /// An app that posted a scroll is told to the page once, by pid, and the
-    /// callback never grows past its limit.
+    /// An app that posted a scroll is told once, by pid, and not again for
+    /// the scrolls after it, however many; the callback never grows past its
+    /// limit.
     func testAPostingAppIsNoticedOnceAndBounded() throws {
         var told = 0
         let tap = tap(noticed: { told += 1 })
@@ -130,9 +131,11 @@ final class MouseScrollTapTests: XCTestCase {
         XCTAssertEqual(told, 1, "once, not once a scroll")
         XCTAssertEqual(tap.takeNoticed().pids, [911])
         XCTAssertEqual(tap.takeNoticed().pids, [], "taken")
+        _ = tap.handle(.scrollWheel, try wheel(pid: 911))
+        XCTAssertEqual(told, 1, "and not again after it was taken: the burst is one piece of news")
         for pid in 1000..<1100 { _ = tap.handle(.scrollWheel, try wheel(pid: Int64(pid))) }
-        XCTAssertEqual(tap.takeNoticed().pids.count, 16, "bounded")
-        XCTAssertEqual(told, 17)
+        XCTAssertEqual(tap.takeNoticed().pids.count, 16 - 1, "bounded, the first still held")
+        XCTAssertEqual(told, 16)
     }
 
     /// A mouse is noticed when a scroll is attributed to it, not when its
@@ -148,14 +151,33 @@ final class MouseScrollTapTests: XCTestCase {
         XCTAssertEqual(told, 1, "once, not once a scroll")
         XCTAssertEqual(tap.takeNoticed().devices, [protoarc])
         XCTAssertEqual(tap.takeNoticed().devices, [], "taken")
-        for index in 0..<100 {
-            let id = "1:2:\(String(format: "%08x", index))"
-            tap.hear(device: id, stamp: now - ms)
-            _ = tap.handle(.scrollWheel, try wheel(at: now + UInt64(index) * 100 * ms))
-            tap.hear(device: id, stamp: now + UInt64(index) * 100 * ms - ms)
-            _ = tap.handle(.scrollWheel, try wheel(at: now + UInt64(index) * 100 * ms))
-        }
-        XCTAssertLessThanOrEqual(tap.takeNoticed().devices.count, 16, "bounded")
+    }
+
+    /// Every scroll stamps its source, so a page can tell when a burst has
+    /// ended; rearming forgets the source, and its next scroll is news.
+    func testAnActivityStampFollowsEachScrollAndRearmMakesTheNextNews() throws {
+        var told = 0
+        let tap = tap(noticed: { told += 1 })
+        tap.hear(device: protoarc, stamp: now - ms)
+        _ = tap.handle(.scrollWheel, try wheel())
+        tap.hear(device: protoarc, stamp: now + 99 * ms)
+        _ = tap.handle(.scrollWheel, try wheel(at: now + 100 * ms))
+        XCTAssertEqual(tap.activity().devices, [protoarc: now + 100 * ms])
+        tap.rearm(devices: [protoarc])
+        XCTAssertEqual(tap.activity().devices, [:])
+        tap.hear(device: protoarc, stamp: now + 899 * ms)
+        _ = tap.handle(.scrollWheel, try wheel(at: now + 900 * ms))
+        XCTAssertEqual(told, 2)
+        tap.rearm()
+        XCTAssertEqual(tap.activity().devices, [:], "none named is every one")
+    }
+
+    /// The callback never grows its lists: they stand at their full size.
+    func testTheListsAreMadeAtTheirFullSize() throws {
+        let file = DesignDriftTests.appSources.appendingPathComponent("MouseScrollTap.swift")
+        let code = DesignDriftTests.code(try String(contentsOf: file, encoding: .utf8))
+        XCTAssertTrue(code.contains("posted.reserveCapacity(Self.noticedLimit)"))
+        XCTAssertTrue(code.contains("attributed.reserveCapacity(Self.noticedLimit)"))
     }
 
     /// A posted scroll, a phased one and one nothing vouches for notice no mouse.

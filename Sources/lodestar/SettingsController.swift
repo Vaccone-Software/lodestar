@@ -42,13 +42,16 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// closure rather than a field of the machine state, because the
     /// machine state is memoized and this must never be.
     var attachedKeyboards: () -> [SettingsModel.Keyboard] = { [] }
-    /// The mice and apps the Reversed wheels page can speak for, ticked or
-    /// heard, and whether each is here: asked on every render and never
-    /// memoized, for the same reason.
+    /// The mice and apps the Mice group can speak for, ticked or heard, and
+    /// whether each is here: asked on every render and never memoized, for
+    /// the same reason.
     var heardWheels: () -> [SettingsModel.Wheel] = { [] }
-    /// The Reversed wheels page is on screen or it is not: the mice are
-    /// listened for only while it is, so that it can list them.
-    var wheelsShowing: (Bool) -> Void = { _ in }
+    /// The sources whose wheels are turning now, by id: their rows are lit.
+    var litWheels: () -> Set<String> = { [] }
+    /// The Input place is on screen or it is not: the mice are listened for
+    /// only while it is, so that the group can list them and light the one
+    /// whose wheel turns.
+    var miceShowing: (Bool) -> Void = { _ in }
     /// Running apps, for the clipboard exclusion picker.
     var appChoices: () -> [(name: String, bundleID: String)] = { [] }
     /// A row's verb that is not a config write: a permission's pane, a
@@ -129,13 +132,15 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var openPage: String?
     private var selectedKeyboard: String?
     private var lastRenderedPage: String?
-    /// The Keyboards page's and the Reversed wheels page's watch: the rule
-    /// in `KeyboardWatch`, and the turns that feed it while either stands.
+    /// The Keyboards page's and the Input place's watch: the rule in
+    /// `KeyboardWatch`, and the turns that feed it while either stands.
     private var deviceWatch = KeyboardWatch()
     private var deviceTurns: Timer?
-    private var wheelsAreShowing = false
-    /// The sources the open page lists, for the name a ticked one is kept under.
+    private var miceAreShowing = false
+    /// The sources the Mice group lists, for the name a ticked one is kept under.
     private var wheelEntries: [SettingsModel.WheelEntry] = []
+    /// The config paths of the rows lit as this render was made.
+    private var lit: Set<String> = []
 
     /// What the pane column is showing: the open page, or the pane the
     /// rail has lit. Every handler that reads a row by index reads it
@@ -259,23 +264,26 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         panel.orderOut(nil)
     }
 
-    // MARK: - The device pages' watch
+    // MARK: - The device lists' watch
 
-    /// The devices the open page is drawn from, each with whether it is
-    /// here; nil when the page shows none.
+    /// The Input place is the one on screen, not a page of it: where the Mice
+    /// group is drawn, and so where the mice are listened for.
+    private var miceOnScreen: Bool {
+        openPage == nil && place != nil && place == SettingsModel.placeIndex("Input")
+    }
+
+    /// The devices what is on screen is drawn from, each with whether it is
+    /// here; nil when it shows none.
     private func watchedDevices() -> [String]? {
-        switch openPage {
-        case SettingsModel.keyboardsPage: return attachedKeyboards().map(\.id)
-        case SettingsModel.wheelsPage: return heardWheels().map { "\($0.id) \($0.present)" }.sorted()
-        default: return nil
-        }
+        if openPage == SettingsModel.keyboardsPage { return attachedKeyboards().map(\.id) }
+        return miceOnScreen ? heardWheels().map { "\($0.id) \($0.present)" }.sorted() : nil
     }
 
     /// Start or stop the watch to match what the window is showing.
-    /// Called at the end of every render, so opening a device page starts
-    /// it and leaving the page — or the window — ends it.
+    /// Called at the end of every render, so opening a device list starts
+    /// it and leaving it — or the window — ends it.
     private func updateDeviceWatch() {
-        setWheelsShowing(openPage == SettingsModel.wheelsPage)
+        setMiceShowing(miceOnScreen)
         guard let ids = watchedDevices() else {
             stopDeviceWatch()
             return
@@ -302,13 +310,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         deviceTurns?.invalidate()
         deviceTurns = nil
         deviceWatch.stopped()
-        setWheelsShowing(false)
+        setMiceShowing(false)
     }
 
-    private func setWheelsShowing(_ on: Bool) {
-        guard on != wheelsAreShowing else { return }
-        wheelsAreShowing = on
-        wheelsShowing(on)
+    private func setMiceShowing(_ on: Bool) {
+        guard on != miceAreShowing else { return }
+        miceAreShowing = on
+        miceShowing(on)
     }
 
     // MARK: - Keys: three layers, escape pops one
@@ -708,7 +716,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         layer = .browsing
     }
 
-    /// A switch written. A source on the Reversed wheels page is ticked by
+    /// A switch written. A source in the Mice group is ticked by
     /// being an entry of its table, under the name it is listed by, and
     /// unticked by the entry's absence.
     private func toggle(_ row: SettingsModel.Row, to on: Bool) {
@@ -718,7 +726,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         writeEntries(set: [(wheelPath(id), .string(name))])
     }
 
-    /// The id a Reversed wheels row's path ends in. An app's holds dots, so
+    /// The id a Mice row's path ends in. An app's holds dots, so
     /// it is cut off the table's path and never split.
     private func wheelID(of path: String) -> String? {
         let table = SettingsModel.wheelsPath + "."
@@ -984,6 +992,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         machine.keyboards = attachedKeyboards()
         machine.wheels = heardWheels()
         wheelEntries = SettingsModel.wheelSources(config: config, machine: machine)
+        // A wheel turning lights its row with the border a search landing
+        // wears, and only where the group is on screen.
+        lit = miceOnScreen ? Set(litWheels().map { "\(SettingsModel.wheelsPath).\($0)" }) : []
         sections = SettingsModel.catalog(config: config, machine: machine,
                                          problems: findings)
         pages = SettingsModel.pages(config: config, machine: machine,
@@ -1361,6 +1372,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 rowViews[index] = view
                 rowsStack.addArrangedSubview(view)
                 if index == landedRow { addLanding(to: view) }
+                if lit.contains(row.path) { raise(view, sides: 0, ends: 0) }
                 if index == highlightRow {
                     highlightRow = nil
                     let control = row.control

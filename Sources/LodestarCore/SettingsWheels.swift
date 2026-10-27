@@ -1,14 +1,13 @@
 import Foundation
 
-/// The Reversed wheels page: one switch per source Lodestar has heard turn
-/// a wheel or has been told to turn, and nothing else on the Mac touched.
+/// The Mice group of the Input place: one switch per source a scroll has been
+/// attributed to or that has been ticked, and nothing else on the Mac touched.
 extension SettingsModel {
-    public static let wheelsPage = "Reversed wheels"
-    /// The config path of the table the page's switches write, which a
+    /// The config path of the table the group's switches write, which a
     /// source's id follows (an id may hold dots, so it is never split).
     public static let wheelsPath = "mice.reversed-wheels"
 
-    /// One source the page lists, as the window sees it.
+    /// One source the group lists, as the window sees it.
     public struct Wheel: Equatable {
         /// The config's key: the roster's id for a mouse, `app:<bundle id>`
         /// for an app that posts a mouse's scrolls.
@@ -24,7 +23,7 @@ extension SettingsModel {
         }
     }
 
-    /// A page row's source, with what its row says about it.
+    /// A row's source, with what its row says about it.
     public struct WheelEntry: Equatable {
         public let id: String
         /// What it is called in a list: a mouse by its name, an app as the
@@ -37,7 +36,7 @@ extension SettingsModel {
         public var isApp: Bool { WheelSource.bundleID(of: id) != nil }
     }
 
-    /// Every source on the page: the ones heard this launch and the ones
+    /// Every source in the group: the ones heard this launch and the ones
     /// ticked, a ticked one that has gone listed all the same under the
     /// name the config kept. Mice first, then the apps, each by name.
     public static func wheelSources(config: Config, machine: MachineState) -> [WheelEntry] {
@@ -54,16 +53,11 @@ extension SettingsModel {
         .sorted { ($0.isApp ? 1 : 0, $0.title, $0.id) < ($1.isApp ? 1 : 0, $1.title, $1.id) }
     }
 
-    /// The Input place's row for the page: what is ticked, by name.
-    static func wheelsSummary(config: Config, machine: MachineState) -> String {
-        let ticked = wheelSources(config: config, machine: machine).filter(\.ticked).map(\.title)
-        return ticked.isEmpty ? "None" : ticked.joined(separator: ", ")
-    }
-
-    static func wheelsSection(config: Config, machine: MachineState) -> Section {
+    /// The group's switches, after the permission row, mice first and then the
+    /// apps. With none, one row says how to list a mouse.
+    static func wheelRows(config: Config, machine: MachineState) -> [Row] {
         let allowed = granted(machine.inputMonitoring)
-        let sources = wheelSources(config: config, machine: machine)
-        var rows = sources.map { source -> Row in
+        let rows = wheelSources(config: config, machine: machine).map { source -> Row in
             let detail: String
             if !allowed {
                 detail = "Needs Input Monitoring"
@@ -75,16 +69,10 @@ extension SettingsModel {
             return Row(title: source.title, path: "\(wheelsPath).\(source.id)", control: .toggle(source.ticked),
                        detail: detail, isDefault: !source.ticked, dimmed: !allowed, group: "Mice")
         }
-        if rows.isEmpty {
-            rows = [Row(title: "No mouse heard",
-                        control: .readout("Turn the wheel of a mouse to list it here", sub: nil),
-                        detail: allowed ? nil : "Needs Input Monitoring", group: "Mice")]
-        }
-        rows.append(permission("Input Monitoring", state: machine.inputMonitoring,
-                               detail: "Hearing which mouse turned a wheel", pane: "input-monitoring",
-                               group: "Permission"))
-        return Section(name: wheelsPage, rows: rows, parent: "Input", picture: "place-keys",
-                       sentence: "A mouse wheel that scrolls the other way, while the trackpad keeps the Mac's setting",
-                       note: "A scroll is turned only when the wheel that made it is heard, so nothing is guessed")
+        guard rows.isEmpty else { return rows }
+        // It stands for the table, so the file's one table has a row even when
+        // no mouse has been heard.
+        return [Row(title: "No mouse heard", path: wheelsPath, control: .readout("Turn the wheel of a mouse to list it here", sub: nil),
+                    detail: allowed ? nil : "Needs Input Monitoring", group: "Mice")]
     }
 }

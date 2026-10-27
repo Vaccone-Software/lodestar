@@ -454,8 +454,8 @@ extension ConfigFile {
 extension ConfigFile {
     private static let miceSection = section(Mice.self, default: Mice()) {
         Field("reversed-wheels", \.reversedWheels,
-              .lossyDictionary(of: .string(), valueDoc: "The name it is listed by on the Reversed wheels page."),
-              doc: "Source → name. Each source listed has its wheel scrolling opposite to the Mac's setting, and nothing else is turned: a mouse by its id (vendor:product:hash, as the Reversed wheels page shows it), or an app that posts a mouse's scrolls as app:<bundle id>. The trackpad is never touched.")
+              .lossyDictionary(of: .string(), valueDoc: "The name it is listed by in Settings, Input, Mice."),
+              doc: "Source → name. Each source listed has its wheel scrolling opposite to the Mac's setting, and nothing else is turned: a mouse by its id (vendor:product:hash, as Settings, Input, Mice shows it), or an app that posts a mouse's scrolls as app:<bundle id>. The trackpad is never touched.")
     }
     .readingNullAsEmpty()
 }

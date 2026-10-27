@@ -1,10 +1,11 @@
 import XCTest
 @testable import LodestarCore
 
-/// The Reversed wheels page behind the Input place's Mice group: one
-/// switch per mouse or app that has been heard or ticked, all off until
-/// chosen, and a place renamed from Keys to hold the keyboards and the mice.
-final class WheelsPageTests: XCTestCase {
+/// The Mice group, last in the Input place: the permission row first, then
+/// one switch per mouse or app a scroll has been attributed to or that is
+/// ticked, all off until chosen. The place was Keys; it holds the keyboards
+/// and the mice.
+final class MiceGroupTests: XCTestCase {
     private let protoarc = SettingsModel.Wheel(id: "9639:64160:ab12cd34", name: "ProtoArc EM11 NL", present: true)
     private let logi = SettingsModel.Wheel(id: "app:com.logi.cp-dev-mgr", name: "Logi Options+", present: true)
 
@@ -15,12 +16,12 @@ final class WheelsPageTests: XCTestCase {
         return machine
     }
 
-    private func page(_ machine: SettingsModel.MachineState, config: Config = Config()) throws -> SettingsModel.Section {
-        try XCTUnwrap(SettingsModel.pages(config: config, machine: machine).first { $0.name == SettingsModel.wheelsPage })
-    }
-
     private func input(_ machine: SettingsModel.MachineState, config: Config = Config()) throws -> SettingsModel.Section {
         try XCTUnwrap(SettingsModel.catalog(config: config, machine: machine).first { $0.name == "Input" })
+    }
+
+    private func mice(_ machine: SettingsModel.MachineState, config: Config = Config()) throws -> [SettingsModel.Row] {
+        try input(machine, config: config).rows.filter { $0.group == "Mice" }
     }
 
     private func toggle(_ row: SettingsModel.Row) -> Bool? {
@@ -39,76 +40,81 @@ final class WheelsPageTests: XCTestCase {
         XCTAssertEqual(place.picture, "place-keys", "the picture stays")
         XCTAssertEqual(place.sentence, "The key every gesture starts from, and the keyboards and mice you use")
         XCTAssertEqual(place.status, "Lode, keyboards and mice")
-        XCTAssertEqual(try page(machine()).parent, "Input")
         XCTAssertEqual(SettingsModel.pages(config: Config(), machine: machine()).first { $0.name == SettingsModel.keyboardsPage }?.parent,
                        "Input")
     }
 
-    func testSearchFindsTheInputPlaceByTheWordsForMice() {
-        let sections = SettingsModel.catalog(config: Config(), machine: machine())
-        for word in ["mouse", "wheel", "scroll", "reverse", "direction", "keyboard"] {
-            XCTAssertTrue(SettingsModel.search(word, in: sections).contains { $0.sectionName == "Input" }, word)
+    /// The group is a place's own, with no page behind it.
+    func testThereIsNoReversedWheelsPage() {
+        XCTAssertEqual(SettingsModel.pages(config: Config(), machine: machine([protoarc])).map(\.name),
+                       [SettingsModel.keyboardsPage, SettingsModel.wordsPage, SettingsModel.historyPage])
+        XCTAssertFalse(SettingsModel.catalog(config: Config(), machine: machine([protoarc]))
+            .flatMap(\.rows).contains { $0.title == "Reversed wheels" })
+    }
+
+    // MARK: - Search
+
+    /// A hand looking for the wheel's direction by any of its words lands on
+    /// the Mice group, in the Input place, first.
+    func testSearchLandsOnTheMiceGroup() throws {
+        let sections = SettingsModel.catalog(config: Config(), machine: machine([protoarc]))
+        for word in ["reverse", "reversed", "wheel", "mouse", "scroll direction", "mice"] {
+            let hits = SettingsModel.search(word, in: sections)
+            let first = try XCTUnwrap(hits.first, word)
+            XCTAssertEqual(first.sectionName, "Input", word)
+            let row = sections[first.section].rows[first.row]
+            XCTAssertEqual(row.group, "Mice", "\(word) lands on \(row.title)")
         }
-        XCTAssertTrue(SettingsModel.search("reversed", in: sections).contains { $0.title == "Reversed wheels" })
+        XCTAssertTrue(SettingsModel.search("keyboard", in: sections).contains { $0.sectionName == "Input" })
     }
 
-    /// Mice sit below Keyboards: one row opening the page, and the permission.
-    func testTheMiceGroupHoldsTheRowAndThePermission() throws {
-        let rows = try input(machine(inputMonitoring: "Not granted")).rows
-        let titles = rows.map(\.title)
-        XCTAssertEqual(titles.last, "Input Monitoring")
-        let reversed = try XCTUnwrap(rows.first { $0.path == "mice.reversed-wheels" })
-        XCTAssertEqual(reversed.title, "Reversed wheels")
-        XCTAssertEqual(reversed.group, "Mice")
-        XCTAssertEqual(reversed.control, .page(SettingsModel.wheelsPage))
-        XCTAssertTrue(try XCTUnwrap(titles.firstIndex(of: "Keyboards")) < XCTUnwrap(titles.firstIndex(of: "Reversed wheels")))
-        XCTAssertEqual(rows.last?.group, "Mice")
-        XCTAssertEqual(rows.last?.action?.id, "open-input-monitoring", "not granted offers the pane")
+    func testSearchLandsOnTheMiceGroupWithNoSourceToo() throws {
+        let sections = SettingsModel.catalog(config: Config(), machine: machine())
+        for word in ["reverse", "wheel", "mouse", "scroll direction"] {
+            let first = try XCTUnwrap(SettingsModel.search(word, in: sections).first, word)
+            XCTAssertEqual(sections[first.section].rows[first.row].group, "Mice", word)
+            XCTAssertEqual(first.sectionName, "Input", word)
+        }
     }
 
-    /// The row says what is ticked, by name, and is at its default when nothing is.
-    func testTheRowSummarisesWhatIsTicked() throws {
-        let bare = try XCTUnwrap(try input(machine([protoarc])).rows.first { $0.path == "mice.reversed-wheels" })
-        XCTAssertEqual(bare.detail, "None")
-        XCTAssertTrue(bare.isDefault, "heard is not ticked")
+    // MARK: - The group
 
-        var config = Config()
-        config.reversedWheels = [protoarc.id: protoarc.name]
-        let one = try XCTUnwrap(try input(machine([protoarc]), config: config).rows.first { $0.path == "mice.reversed-wheels" })
-        XCTAssertEqual(one.detail, "ProtoArc EM11 NL")
-        XCTAssertFalse(one.isDefault)
-
-        config.reversedWheels[logi.id] = logi.name
-        let two = try XCTUnwrap(try input(machine(), config: config).rows.first { $0.path == "mice.reversed-wheels" })
-        XCTAssertEqual(two.detail, "ProtoArc EM11 NL, Mice through Logi Options+", "a source that was not heard still shows")
+    /// Last in the place, so that the rows that come and go never move a
+    /// letter the hand has learned: the permission first, fixed, then the sources.
+    func testTheGroupIsLastAndTheLettersBeforeItNeverMove() throws {
+        let bare = try input(machine())
+        let withMice = try input(machine([protoarc, logi]))
+        let fixed = bare.rows.prefix { $0.group != "Mice" }
+        XCTAssertEqual(withMice.rows.prefix(fixed.count).map(\.letter), fixed.map(\.letter))
+        XCTAssertEqual(withMice.rows.prefix(fixed.count).map(\.title), fixed.map(\.title))
+        XCTAssertEqual(bare.rows[fixed.count].title, "Input Monitoring")
+        XCTAssertEqual(withMice.rows[fixed.count].title, "Input Monitoring")
+        XCTAssertEqual(withMice.rows[fixed.count].letter, bare.rows[fixed.count].letter)
+        XCTAssertTrue(withMice.rows.suffix(from: fixed.count).allSatisfy { $0.group == "Mice" })
+        XCTAssertEqual(withMice.rows.count, fixed.count + 3)
     }
 
-    /// Input Monitoring now serves the wheels too, so health is not named alone.
-    func testTheObservationsPermissionNoLongerSaysHealthOnly() throws {
-        let observations = try XCTUnwrap(SettingsModel.catalog(config: Config(), machine: machine())
-            .first { $0.name == "Observations" })
-        let row = try XCTUnwrap(observations.rows.first { $0.title == "Input Monitoring" })
-        XCTAssertTrue(row.detail?.contains("mouse") ?? false, row.detail ?? "")
+    func testThePermissionRowOffersThePaneWhenNotGranted() throws {
+        let row = try XCTUnwrap(try mice(machine(inputMonitoring: "Not granted")).first)
+        XCTAssertEqual(row.title, "Input Monitoring")
+        XCTAssertEqual(row.control, .readout("Not granted", sub: nil))
+        XCTAssertEqual(row.action?.id, "open-input-monitoring")
     }
 
-    // MARK: - The page
-
-    func testEachSourceHeardIsASwitchThatIsOffUntilChosen() throws {
-        let page = try page(machine([logi, protoarc]))
-        let sources = page.rows.filter { toggle($0) != nil }
-        XCTAssertEqual(sources.map(\.title), ["ProtoArc EM11 NL", "Mice through Logi Options+"], "mice, then apps")
-        XCTAssertEqual(sources.map { toggle($0) }, [false, false])
-        XCTAssertEqual(sources.map(\.path), ["mice.reversed-wheels.9639:64160:ab12cd34",
-                                             "mice.reversed-wheels.app:com.logi.cp-dev-mgr"])
-        XCTAssertTrue(sources.allSatisfy { $0.isDefault && !$0.dimmed && $0.group == "Mice" })
-        XCTAssertEqual(page.rows.last?.title, "Input Monitoring")
-        XCTAssertEqual(page.rows.last?.group, "Permission")
+    func testEachSourceIsASwitchThatIsOffUntilChosenMiceFirst() throws {
+        let rows = try mice(machine([logi, protoarc])).dropFirst()
+        XCTAssertEqual(rows.map(\.title), ["ProtoArc EM11 NL", "Mice through Logi Options+"])
+        XCTAssertEqual(rows.map { toggle($0) }, [false, false])
+        XCTAssertEqual(rows.map(\.path), ["mice.reversed-wheels.9639:64160:ab12cd34",
+                                          "mice.reversed-wheels.app:com.logi.cp-dev-mgr"])
+        XCTAssertTrue(rows.allSatisfy { $0.isDefault && !$0.dimmed })
+        XCTAssertEqual(rows.first?.detail, "Its wheel scrolls the way the Mac does")
     }
 
     func testATickedSourceIsOnAndNotDefault() throws {
         var config = Config()
         config.reversedWheels = [protoarc.id: protoarc.name]
-        let row = try XCTUnwrap(try page(machine([protoarc]), config: config).rows.first { $0.title == protoarc.name })
+        let row = try XCTUnwrap(try mice(machine([protoarc]), config: config).first { $0.title == protoarc.name })
         XCTAssertEqual(toggle(row), true)
         XCTAssertFalse(row.isDefault)
         XCTAssertEqual(row.detail, "Its wheel scrolls the other way")
@@ -119,56 +125,61 @@ final class WheelsPageTests: XCTestCase {
     func testATickedSourceThatIsGoneStillListsAndSaysSo() throws {
         var config = Config()
         config.reversedWheels = [protoarc.id: protoarc.name, logi.id: logi.name]
-        let rows = try page(machine(), config: config).rows
+        let rows = try mice(machine(), config: config)
         let mouse = try XCTUnwrap(rows.first { $0.title == "ProtoArc EM11 NL" })
         XCTAssertEqual(mouse.detail, "Not connected")
         XCTAssertEqual(toggle(mouse), true)
-        let app = try XCTUnwrap(rows.first { $0.title == "Mice through Logi Options+" })
-        XCTAssertEqual(app.detail, "Not running")
+        XCTAssertEqual(rows.first { $0.title == "Mice through Logi Options+" }?.detail, "Not running")
     }
 
     func testTheHeardNameWinsOverTheOneTheConfigKept() throws {
         var config = Config()
         config.reversedWheels = [protoarc.id: "Old name"]
-        let rows = try page(machine([protoarc]), config: config).rows
+        let rows = try mice(machine([protoarc]), config: config)
         XCTAssertTrue(rows.contains { $0.title == "ProtoArc EM11 NL" })
         XCTAssertFalse(rows.contains { $0.title == "Old name" })
     }
 
     func testNothingHeardSaysHowToListAMouse() throws {
-        let page = try page(machine())
-        XCTAssertEqual(page.rows.count, 2)
-        XCTAssertEqual(page.rows[0].control, .readout("Turn the wheel of a mouse to list it here", sub: nil))
-        XCTAssertEqual(page.rows[1].title, "Input Monitoring")
+        let rows = try mice(machine())
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[1].title, "No mouse heard")
+        XCTAssertEqual(rows[1].control, .readout("Turn the wheel of a mouse to list it here", sub: nil))
     }
 
     /// Without the permission nothing can be heard or turned: the switches
-    /// are dimmed and say why, and the permission row offers its pane.
+    /// are dimmed and say why.
     func testWithoutInputMonitoringTheSwitchesAreDimmedAndSayWhy() throws {
         var config = Config()
         config.reversedWheels = [protoarc.id: protoarc.name]
-        let page = try page(machine([protoarc, logi], inputMonitoring: "Not granted"), config: config)
-        let sources = page.rows.filter { toggle($0) != nil }
-        XCTAssertEqual(sources.count, 3 - 1)
-        XCTAssertTrue(sources.allSatisfy { $0.dimmed && $0.detail == "Needs Input Monitoring" })
-        XCTAssertEqual(page.rows.last?.control, .readout("Not granted", sub: nil))
-        XCTAssertEqual(page.rows.last?.action?.id, "open-input-monitoring")
-        let empty = try self.page(machine([], inputMonitoring: "Not granted"))
-        XCTAssertEqual(empty.rows[0].detail, "Needs Input Monitoring")
+        let rows = try mice(machine([protoarc, logi], inputMonitoring: "Not granted"), config: config).dropFirst()
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows.allSatisfy { $0.dimmed && $0.detail == "Needs Input Monitoring" })
+        let empty = try mice(machine(inputMonitoring: "Not granted"))
+        XCTAssertEqual(empty[1].detail, "Needs Input Monitoring")
     }
 
-    /// Every file path the page writes lies under the one table the schema
-    /// declares, so the covenant between window and file holds.
+    /// Every path a switch writes lies under the one table the schema declares.
     func testEveryRowWritesUnderTheTable() throws {
         var config = Config()
         config.reversedWheels = [logi.id: logi.name]
-        for row in try page(machine([protoarc]), config: config).rows where !row.path.isEmpty {
+        for row in try mice(machine([protoarc]), config: config) where !row.path.isEmpty {
             XCTAssertTrue(row.path.hasPrefix(SettingsModel.wheelsPath + "."), row.path)
         }
     }
 
-    /// The history names a change to the table by the row that opens it.
-    func testAChangeToTheTableIsNamedByItsRow() {
+    /// The Observations permission names the mice too.
+    func testTheObservationsPermissionNoLongerSaysHealthOnly() throws {
+        let observations = try XCTUnwrap(SettingsModel.catalog(config: Config(), machine: machine())
+            .first { $0.name == "Observations" })
+        let row = try XCTUnwrap(observations.rows.first { $0.title == "Input Monitoring" })
+        XCTAssertTrue(row.detail?.contains("mouse") ?? false, row.detail ?? "")
+    }
+
+    /// The history names a change to the table as Reversed wheels, a mouse
+    /// or an app, heard or not.
+    func testAChangeToTheTableIsNamedReversedWheels() {
         XCTAssertEqual(SettingsModel.historyTitle(["mice", "reversed-wheels", "app:com.logi.cp-dev-mgr"]), "Reversed wheels")
+        XCTAssertEqual(SettingsModel.historyTitle(["mice", "reversed-wheels", "9639:64160:ab12cd34"]), "Reversed wheels")
     }
 }

@@ -1462,10 +1462,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return keyboards
         }
-        // The sources the Reversed wheels page lists: asked on every render
-        // and by the page's watch, for the same reason as the keyboards.
+        // The sources the Mice group lists: asked on every render and by the
+        // place's watch, for the same reason as the keyboards.
         settings.heardWheels = { [weak self] in self?.reversedWheels.sources() ?? [] }
-        settings.wheelsShowing = { [weak self] showing in self?.reversedWheels.setDiscovering(showing) }
+        settings.litWheels = { [weak self] in self?.reversedWheels.lit ?? [] }
+        settings.miceShowing = { [weak self] showing in self?.reversedWheels.setDiscovering(showing) }
         reversedWheels.changed = { [weak self] in
             guard let self else { return }
             self.settings.config = self.config

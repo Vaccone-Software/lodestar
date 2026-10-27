@@ -260,7 +260,7 @@ public enum SettingsModel {
         /// attached, by the roster, and the ones the config has declared
         /// keys for, attached or not.
         public var keyboards: [Keyboard] = []
-        /// The sources the Reversed wheels page can list besides the ones
+        /// The sources the Mice group can list besides the ones
         /// the config has ticked: each mouse that has turned a wheel and
         /// each app that has posted a mouse's scrolls since launch, and
         /// whether it is here now.
@@ -753,14 +753,13 @@ public enum SettingsModel {
                 control: .table(kind: .keyRemaps, entries: remapEntries),
                 detail: "Keycode to key name, for keyboards the built-in table misreads",
                 isDefault: config.keyOverrides.isEmpty, group: "Keyboards"),
-            Row(title: "Reversed wheels", path: "mice.reversed-wheels",
-                control: .page(wheelsPage),
-                detail: wheelsSummary(config: config, machine: machine),
-                isDefault: config.reversedWheels.isEmpty, group: "Mice"),
+            // The Mice group is last: its rows come and go with the mice heard,
+            // and a letter belongs to its row, so only rows after the fixed
+            // ones may.
             permission("Input Monitoring", state: machine.inputMonitoring,
-                       detail: "Hearing which mouse turned a wheel",
+                       detail: "Hearing which mouse turned a wheel, so its scroll direction can be reversed",
                        pane: "input-monitoring", group: "Mice"),
-        ], picture: "place-keys",
+        ] + wheelRows(config: config, machine: machine), picture: "place-keys",
            sentence: "The key every gesture starts from, and the keyboards and mice you use",
            status: "Lode, keyboards and mice"))
 
@@ -885,7 +884,6 @@ public enum SettingsModel {
     public static func pages(config: Config, machine: MachineState,
                              view: ViewState = ViewState()) -> [Section] {
         [keyboardsSection(config: config, machine: machine, view: view),
-         wheelsSection(config: config, machine: machine),
          Section(name: wordsPage, rows: [
             Row(title: "Words", path: "draft.words",
                 control: .table(kind: .draftWords, entries: config.draftWords.map { TableEntry(key: $0, display: $0) }),
@@ -899,10 +897,12 @@ public enum SettingsModel {
     }
 
     /// The name a changed path goes by: its row's title in the catalog
-    /// (the longest row path it falls under), Letters for the graph, and
+    /// (the longest row path it falls under), Letters for the graph,
+    /// Reversed wheels for the mice, whose rows are as many as the mice, and
     /// the dotted path for anything with no row.
     public static func historyTitle(_ path: [String]) -> String {
         if path.first == "graph" { return "Letters" }
+        if path.first == "mice" { return "Reversed wheels" }
         let dotted = path.joined(separator: ".")
         let rows = (catalog(config: Config(), machine: .init()) + pages(config: Config(), machine: .init()))
             .flatMap(\.rows).filter { !$0.path.isEmpty }

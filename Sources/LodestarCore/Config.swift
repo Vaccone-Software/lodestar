@@ -536,7 +536,7 @@ public struct Config {
             if WheelSource.isValid(id) {
                 config.reversedWheels[id] = name
             } else {
-                problems.append("mice.reversed-wheels.\(id): a mouse's id as the Reversed wheels page shows it, or app:<bundle id>")
+                problems.append("mice.reversed-wheels.\(id): a mouse's id as Settings, Input, Mice shows it, or app:<bundle id>")
             }
         }
         config.webHandleClicks = file.web.clicks.enabled

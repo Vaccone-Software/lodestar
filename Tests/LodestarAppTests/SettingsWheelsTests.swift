@@ -3,10 +3,11 @@ import XCTest
 @testable import lodestar
 @testable import LodestarCore
 
-/// The Reversed wheels page as the window drives it: a switch ticks a source
-/// by writing its table entry under the name it is listed by, unticks it by
-/// removing the entry, and the page says when it is on screen so that the
-/// mice are listened for only then.
+/// The Mice group as the window drives it: a switch ticks a source by
+/// writing its table entry under the name it is listed by, unticks it by
+/// removing the entry, the place says when it is on screen so that the mice
+/// are listened for only then, and the row of a wheel that is turning wears
+/// the border a search landing does.
 final class SettingsWheelsTests: XCTestCase {
     private struct Written: Equatable {
         var path: [String]
@@ -16,6 +17,8 @@ final class SettingsWheelsTests: XCTestCase {
     private let protoarc = SettingsModel.Wheel(id: "9639:64160:ab12cd34", name: "ProtoArc EM11 NL", present: true)
     private let app = SettingsModel.Wheel(id: "app:com.example.mousetool", name: "Mouse Tool", present: true)
 
+    /// Input's rows: six fixed (Lode key to the permission, a to f), so the
+    /// sources are g, h.
     private func controller(wheels: [SettingsModel.Wheel], config: Config = Config(), inputMonitoring: String = "Granted",
                             written: @escaping (Written) -> Void) -> SettingsController {
         let settings = SettingsController.preview(-1)
@@ -32,23 +35,22 @@ final class SettingsWheelsTests: XCTestCase {
         settings.heardWheels = { wheels }
         settings.config = config
         settings.renderForTesting(place: SettingsModel.placeIndex("Input"))
-        settings.openForTesting(page: SettingsModel.wheelsPage)
         return settings
     }
 
-    func testTheInputPlaceOpensTheWheelsPage() {
+    func testTheInputPlaceListsTheSources() {
         let settings = controller(wheels: [protoarc]) { _ in }
-        XCTAssertEqual(settings.pageForTesting, SettingsModel.wheelsPage)
+        XCTAssertNil(settings.pageForTesting)
         XCTAssertTrue(settings.shownTextsForTesting.contains("ProtoArc EM11 NL"))
         settings.close()
     }
 
-    /// The first row's letter ticks a mouse: its entry is written under the
-    /// name it is listed by.
+    /// A source's letter ticks it: its entry is written under the name it is
+    /// listed by.
     func testTheLetterTicksAMouseByWritingItsEntry() {
         var written: [Written] = []
         let settings = controller(wheels: [protoarc, app]) { written.append($0) }
-        XCTAssertTrue(settings.keyForTesting("a"))
+        XCTAssertTrue(settings.keyForTesting("g"))
         XCTAssertEqual(written, [Written(path: ["mice", "reversed-wheels", protoarc.id], value: .string(protoarc.name))])
         settings.close()
     }
@@ -58,7 +60,7 @@ final class SettingsWheelsTests: XCTestCase {
     func testAnAppIsTickedUnderItsOwnNameAndItsIdIsNotSplit() {
         var written: [Written] = []
         let settings = controller(wheels: [protoarc, app]) { written.append($0) }
-        XCTAssertTrue(settings.keyForTesting("b"))
+        XCTAssertTrue(settings.keyForTesting("h"))
         XCTAssertEqual(written, [Written(path: ["mice", "reversed-wheels", "app:com.example.mousetool"],
                                          value: .string("Mouse Tool"))])
         settings.close()
@@ -69,8 +71,8 @@ final class SettingsWheelsTests: XCTestCase {
         var config = Config()
         config.reversedWheels = [protoarc.id: protoarc.name, app.id: app.name]
         let settings = controller(wheels: [protoarc, app], config: config) { written.append($0) }
-        XCTAssertTrue(settings.keyForTesting("a"))
-        XCTAssertTrue(settings.keyForTesting("b"))
+        XCTAssertTrue(settings.keyForTesting("g"))
+        XCTAssertTrue(settings.keyForTesting("h"))
         XCTAssertEqual(written, [Written(path: ["mice", "reversed-wheels", protoarc.id], value: nil),
                                  Written(path: ["mice", "reversed-wheels", "app:com.example.mousetool"], value: nil)])
         settings.close()
@@ -80,37 +82,74 @@ final class SettingsWheelsTests: XCTestCase {
     func testWithoutInputMonitoringAPressWritesNothing() {
         var written: [Written] = []
         let settings = controller(wheels: [protoarc], inputMonitoring: "Not granted") { written.append($0) }
-        settings.keyForTesting("a")
+        settings.keyForTesting("g")
         XCTAssertEqual(written, [])
         settings.close()
     }
 
-    /// The mice are listened for only while the page is on screen.
-    func testThePageSaysWhenItIsOnScreen() {
+    /// The mice are listened for only while the Input place itself is on
+    /// screen: not the overview, not another place, not a page of Input.
+    func testThePlaceSaysWhenItIsOnScreen() {
         var shown: [Bool] = []
         let settings = SettingsController.preview(-1)
-        settings.wheelsShowing = { shown.append($0) }
+        settings.miceShowing = { shown.append($0) }
         settings.heardWheels = { [] }
+        settings.renderForTesting(place: SettingsModel.placeIndex("Keep"))
+        XCTAssertEqual(shown, [])
         settings.renderForTesting(place: SettingsModel.placeIndex("Input"))
-        XCTAssertEqual(shown, [], "the place is not the page")
-        settings.openForTesting(page: SettingsModel.wheelsPage)
         settings.rerender()
         XCTAssertEqual(shown, [true], "once, not once a render")
+        settings.openForTesting(page: SettingsModel.keyboardsPage)
+        XCTAssertEqual(shown, [true, false], "a page of Input is not the group")
         settings.openForTesting(place: "Input")
-        XCTAssertEqual(shown, [true, false])
+        XCTAssertEqual(shown, [true, false, true])
+        settings.openForTesting(place: nil)
+        XCTAssertEqual(shown, [true, false, true, false])
         settings.close()
     }
 
     func testClosingTheWindowSaysTheListIsNoLongerWatched() {
         var shown: [Bool] = []
         let settings = SettingsController.preview(-1)
-        settings.wheelsShowing = { shown.append($0) }
+        settings.miceShowing = { shown.append($0) }
         settings.heardWheels = { [] }
         settings.renderForTesting(place: SettingsModel.placeIndex("Input"))
-        settings.openForTesting(page: SettingsModel.wheelsPage)
         XCTAssertEqual(shown, [true])
         settings.close()
         XCTAssertEqual(shown, [true, false])
+    }
+
+    // MARK: - Lit rows
+
+    /// A wheel turning lights its row with the border a search landing wears
+    /// (one raised step behind the row), and nothing else.
+    func testALitSourceWearsTheLandingBorder() {
+        var lit: Set<String> = []
+        let settings = controller(wheels: [protoarc, app]) { _ in }
+        settings.litWheels = { lit }
+        settings.rerender()
+        let plain = settings.viewsForTesting(of: LandingStep.self).count
+        lit = [protoarc.id]
+        settings.rerender()
+        XCTAssertEqual(settings.viewsForTesting(of: LandingStep.self).count, plain + 1)
+        lit = [protoarc.id, app.id]
+        settings.rerender()
+        XCTAssertEqual(settings.viewsForTesting(of: LandingStep.self).count, plain + 2)
+        lit = []
+        settings.rerender()
+        XCTAssertEqual(settings.viewsForTesting(of: LandingStep.self).count, plain, "unlit when it stops")
+        settings.close()
+    }
+
+    /// Nothing is lit where the Mice group is not drawn.
+    func testNothingIsLitWhileInputIsNotOnScreen() {
+        let settings = controller(wheels: [protoarc]) { _ in }
+        settings.litWheels = { [self.protoarc.id] }
+        settings.renderForTesting(place: SettingsModel.placeIndex("Keep"))
+        XCTAssertEqual(settings.viewsForTesting(of: LandingStep.self).count, 0)
+        settings.openForTesting(page: SettingsModel.keyboardsPage)
+        XCTAssertEqual(settings.viewsForTesting(of: LandingStep.self).count, 0)
+        settings.close()
     }
 
     /// The sources are read for each render, after the doctor's memo, as the

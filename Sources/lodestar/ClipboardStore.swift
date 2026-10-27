@@ -27,6 +27,11 @@ import Synchronization
 /// seconds after a delete** (`deletionDelay`), which is what makes a deleted
 /// clip unrecoverable: until then its record, and the key in it, can still be
 /// opened by the ring.
+///
+/// **The store's state is the main thread's.** What is read off it goes to the
+/// queues, and what they find comes back through `DispatchQueue.main.async`.
+/// Where it lands, and the calls that delete cards or ask after their files,
+/// trap if they are called anywhere else.
 final class ClipboardStore {
     enum Phase: Equatable {
         /// Being read, off the main thread.
@@ -241,6 +246,7 @@ final class ClipboardStore {
     /// Main. The journal has been read (and an older history taken in) off the
     /// main thread: publish it, and apply the copies that came while it opened.
     private func finishOpening(_ result: SealedClipboard.OpenResult, epoch opening: Int) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard opening == epoch, phase == .opening else { return }
         switch result {
         case .unavailable(let why):
@@ -414,6 +420,7 @@ final class ClipboardStore {
     /// ring's key** so that every record written before — and the per-clip key
     /// of each clip deleted since — can no longer be opened by anyone.
     private func compactNow() {
+        dispatchPrecondition(condition: .onQueue(.main))
         compactionWork = nil
         guard phase == .ready else { return }
         saveNow()
@@ -613,6 +620,7 @@ final class ClipboardStore {
     }
 
     private func finishedWriting(_ storage: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
         let left = (inFlight[storage] ?? 1) - 1
         inFlight[storage] = left > 0 ? left : nil
     }
@@ -620,6 +628,7 @@ final class ClipboardStore {
     /// A new clip whose blob could not be written is not a card: nothing
     /// could be pasted from it, and no record of it was kept.
     private func dropUnwritten(_ id: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard let ref = refs[id], unwritten.withLock({ $0.contains(ref.storage) }) else { return }
         index.removeAll { $0.id == id }
         refs[id] = nil
@@ -673,6 +682,7 @@ final class ClipboardStore {
     /// Main. A copy's files are known. A clip deleted while they were being
     /// read takes the pictures that landed after it with it.
     private func filesRead(_ id: String, facts: [Clipboard.FileFact], storage: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard refs[id]?.storage == storage, let position = index.firstIndex(where: { $0.id == id }),
               index[position].kind == .file else {
             if refs.values.allSatisfy({ $0.storage != storage }) {
@@ -699,6 +709,7 @@ final class ClipboardStore {
     /// goes to another thread the first time it is asked, so drawing never
     /// waits on a disk. The answers are kept until the strip is next opened.
     func filesPresent(_ id: String) -> [Bool]? {
+        dispatchPrecondition(condition: .onQueue(.main))
         if let known = presence[id] { return known }
         guard !presenceAsked.contains(id), phase == .ready, let ref = refs[id] else { return nil }
         presenceAsked.insert(id)
@@ -733,6 +744,7 @@ final class ClipboardStore {
     private var paths: [String: [URL]] = [:]
 
     private func presenceKnown(_ id: String, _ answer: [URL?]?, refreshed: [Int: Data], epoch: Int) {
+        dispatchPrecondition(condition: .onQueue(.main))
         // A bookmark made afresh is kept whatever showing asked for it.
         if !refreshed.isEmpty, let ref = refs[id] { keepBookmarks(id, refreshed, storage: ref.storage) }
         guard epoch == presenceEpoch else { return }
@@ -746,6 +758,7 @@ final class ClipboardStore {
 
     /// Main. The bookmarks of a copy's files, made at the copy.
     private func bookmarksMade(_ id: String, _ bookmarks: [Data?], storage: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard refs[id]?.storage == storage, let position = index.firstIndex(where: { $0.id == id }),
               index[position].kind == .file, bookmarks.contains(where: { $0 != nil }) else { return }
         index[position].fileBookmarks = bookmarks
@@ -755,6 +768,7 @@ final class ClipboardStore {
     /// Main. Bookmarks made again for files found by an old or stale one,
     /// by item number, so a card keeps finding its files.
     private func keepBookmarks(_ id: String, _ fresh: [Int: Data], storage: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard refs[id]?.storage == storage, let position = index.firstIndex(where: { $0.id == id }),
               index[position].pastesAsFiles else { return }
         var bookmarks = index[position].fileBookmarks ?? []
@@ -804,6 +818,7 @@ final class ClipboardStore {
     /// reference that no longer resolves. Main; the files are asked about
     /// off it, and nothing leaves while the strip is open.
     func pruneGoneFiles(completion: (() -> Void)? = nil) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard prunesGoneFiles, phase == .ready, !pruning else { completion?(); return }
         defer { pruneGoneFilesSoon(after: Self.prunePeriod) }
         guard !removalsHeld() else { completion?(); return }
@@ -862,6 +877,7 @@ final class ClipboardStore {
 
     private func pruned(_ dead: [(id: String, storage: String)], shrunk: [Shrinking],
                         refreshed: [String: [Int: Data]], completion: (() -> Void)?) {
+        dispatchPrecondition(condition: .onQueue(.main))
         pruning = false
         for (id, fresh) in refreshed { if let ref = refs[id] { keepBookmarks(id, fresh, storage: ref.storage) } }
         defer { completion?() }
@@ -886,6 +902,7 @@ final class ClipboardStore {
 
     /// The strip is opening: what was known about the files is asked again.
     func forgetFilePresence() {
+        dispatchPrecondition(condition: .onQueue(.main))
         presence.removeAll()
         paths.removeAll()
         presenceAsked.removeAll()
@@ -1081,6 +1098,7 @@ final class ClipboardStore {
     }
 
     private func counted(_ id: String, _ counts: (lines: Int, characters: Int)) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard let position = index.firstIndex(where: { $0.id == id }) else { return }
         index[position].lines = counts.lines
         index[position].characters = counts.characters
@@ -1140,6 +1158,7 @@ final class ClipboardStore {
     /// An image's text arrived. The size line stays first, so the card is
     /// the card it was; the text under it is what the search reads.
     private func caption(_ id: String, with text: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard let position = index.firstIndex(where: { $0.id == id }) else { return }
         index[position].preview = Clipboard.captioned(index[position].preview, with: text)
         commitChange(at: position)
@@ -1222,6 +1241,7 @@ final class ClipboardStore {
     }
 
     private func decoded(_ image: NSImage?, for id: String, key: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
         decoding.remove(key)
         // A card deleted while its picture was being read stays deleted.
         guard contains(id) else { return }
@@ -1400,6 +1420,7 @@ final class ClipboardStore {
     /// them is in a record that stays readable until the compaction
     /// `deletionDelay` from now, which is when the deletion is real.
     private func delete(_ ids: [String]) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard phase == .ready else { return }
         let gone = Set(ids)
         let storages = ids.compactMap { refs[$0]?.storage }
@@ -1416,9 +1437,10 @@ final class ClipboardStore {
     /// card seeded a moment ago is on disk before the door reads it.
     func flushIO() { io.sync {} }
 
-    /// The thumbnails dropped and the files of the clips unlinked, off the
-    /// main thread.
+    /// The thumbnails and the file answers of the clips are dropped here, on
+    /// the main thread. Only the unlinking of their files goes to the io queue.
     private func removeFiles(of ids: [String], storages: [String]) {
+        dispatchPrecondition(condition: .onQueue(.main))
         let keys = Set(ids.flatMap { id in (0..<Clipboard.thumbnailedFiles).map { Self.thumbKey(id, $0) } })
         for key in keys {
             thumbnails[key] = nil

@@ -260,6 +260,11 @@ public enum SettingsModel {
         /// attached, by the roster, and the ones the config has declared
         /// keys for, attached or not.
         public var keyboards: [Keyboard] = []
+        /// The sources the Reversed wheels page can list besides the ones
+        /// the config has ticked: each mouse that has turned a wheel and
+        /// each app that has posted a mouse's scrolls since launch, and
+        /// whether it is here now.
+        public var wheels: [Wheel] = []
         /// The editor's engines this Mac may run, their names (Automatic
         /// is added in front by the catalog), and where the one in use stands.
         public var editorEngines: [String] = []
@@ -376,6 +381,16 @@ public enum SettingsModel {
         "\(browser):\(name)"
     }
 
+    static func granted(_ state: String) -> Bool { state.lowercased() == "granted" }
+
+    /// A permission as a row: Granted or Not granted, and where it is
+    /// granted when it is not.
+    static func permission(_ title: String, state: String, detail: String, pane: String, group: String) -> Row {
+        let row = Row(title: title, control: .readout(granted(state) ? "Granted" : "Not granted", sub: nil),
+                      detail: detail, group: group)
+        return granted(state) ? row : row.doing(Action(id: "open-\(pane)", label: "Open System Settings"))
+    }
+
     public static func catalog(config: Config, machine: MachineState,
                                problems: [String] = []) -> [Section] {
         let defaults = ConfigFile.defaultTree
@@ -394,7 +409,6 @@ public enum SettingsModel {
         }
 
         var sections: [Section] = []
-        func granted(_ state: String) -> Bool { state.lowercased() == "granted" }
         func gesture(_ name: String, group: String, detail: String? = nil) -> Row {
             let verb = Gestures.roster.first { $0.name == name }
             let named = Self.gestureNames[name] ?? (name, [], nil)
@@ -405,11 +419,6 @@ public enum SettingsModel {
         func on(_ name: String) -> Bool {
             let keys = Set(Gestures.roster.first { $0.name == name }?.keys ?? [])
             return !config.disabledGestures.isSuperset(of: keys)
-        }
-        func permission(_ title: String, state: String, detail: String, pane: String, group: String) -> Row {
-            let row = Row(title: title, control: .readout(granted(state) ? "Granted" : "Not granted", sub: nil),
-                          detail: detail, group: group)
-            return granted(state) ? row : row.doing(Action(id: "open-\(pane)", label: "Open System Settings"))
         }
 
         // 0 · General
@@ -744,6 +753,13 @@ public enum SettingsModel {
                 control: .table(kind: .keyRemaps, entries: remapEntries),
                 detail: "Keycode to key name, for keyboards the built-in table misreads",
                 isDefault: config.keyOverrides.isEmpty, group: "Keyboards"),
+            Row(title: "Reversed wheels", path: "mice.reversed-wheels",
+                control: .page(wheelsPage),
+                detail: wheelsSummary(config: config, machine: machine),
+                isDefault: config.reversedWheels.isEmpty, group: "Mice"),
+            permission("Input Monitoring", state: machine.inputMonitoring,
+                       detail: "Hearing which mouse turned a wheel",
+                       pane: "input-monitoring", group: "Mice"),
         ], picture: "place-keys",
            sentence: "The key every gesture starts from, and the keyboards and mice you use",
            status: "Lode, keyboards and mice"))
@@ -777,7 +793,7 @@ public enum SettingsModel {
                 isDefault: config.healthBytes == Retention.healthBytes,
                 dimmed: !config.observationsHealth, group: "Health"),
             permission("Input Monitoring", state: machine.inputMonitoring,
-                       detail: "Charging each press to the keyboard that sent it, for health",
+                       detail: "Hearing which keyboard sent a press, for health, and which mouse turned a wheel",
                        pane: "input-monitoring", group: "Health"),
             Row(title: "Born", path: "health.born",
                 control: .text(person?.born.map(String.init) ?? "", placeholder: "Year"),
@@ -869,6 +885,7 @@ public enum SettingsModel {
     public static func pages(config: Config, machine: MachineState,
                              view: ViewState = ViewState()) -> [Section] {
         [keyboardsSection(config: config, machine: machine, view: view),
+         wheelsSection(config: config, machine: machine),
          Section(name: wordsPage, rows: [
             Row(title: "Words", path: "draft.words",
                 control: .table(kind: .draftWords, entries: config.draftWords.map { TableEntry(key: $0, display: $0) }),

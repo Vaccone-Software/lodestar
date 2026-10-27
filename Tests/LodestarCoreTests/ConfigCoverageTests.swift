@@ -127,6 +127,9 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["editor", "skip-apps", "com.apple.mail"], value: .bool(true)) {
             $0.editorSkipApps.contains("com.apple.mail")
         },
+        Probe(path: ["mice", "reversed-wheels", "9639:64160:ab12cd34"], value: .string("ProtoArc EM11 NL")) {
+            $0.reversedWheels["9639:64160:ab12cd34"] == "ProtoArc EM11 NL"
+        },
         Probe(path: ["health", "keyboards", "7504:24926:782ec294", "enter"], value: .string("right thumb")) {
             $0.fingerMap.keyboards["7504:24926:782ec294"]?[.enter] == FingerMap.Placement(.right, .thumb)
         },

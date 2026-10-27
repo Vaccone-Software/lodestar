@@ -50,6 +50,7 @@ final class ConfigFileSchemaTests: XCTestCase {
             "coach": .table(["enabled": .bool(true), "stand": .bool(true), "stand-after": .int(30)]),
             "health": .table(["keyboards": .table([:])]),
             "keys": .table([:]),
+            "mice": .table(["reversed-wheels": .table([:])]),
         ]
         expected["health"] = .table(["keyboards": .table([:])])
         XCTAssertEqual(ConfigFile.defaultTree, expected)
@@ -78,7 +79,7 @@ final class ConfigFileSchemaTests: XCTestCase {
     /// emitter never listed come last, alphabetically.
     func testTheSectionsAreDeclaredInTheOrderOfTheFile() {
         let root = ConfigSchemaWalk.objects().first { $0.path.isEmpty }!.object
-        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["appearance", "draft", "health"])
+        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["appearance", "draft", "health", "mice"])
     }
 
 
@@ -323,6 +324,8 @@ final class ConfigFileSchemaTests: XCTestCase {
         XCTAssertEqual(path("web.routes.a.b.c.d"), ["web", "routes", "a.b.c.d"])
         XCTAssertEqual(path("clipboard.exclude-apps.com.1password.1password"),
                        ["clipboard", "exclude-apps", "com.1password.1password"])
+        XCTAssertEqual(path("mice.reversed-wheels.app:com.logi.cp-dev-mgr"),
+                       ["mice", "reversed-wheels", "app:com.logi.cp-dev-mgr"])
     }
 
     /// Graph letters never contain a dot, so the chain keeps splitting.

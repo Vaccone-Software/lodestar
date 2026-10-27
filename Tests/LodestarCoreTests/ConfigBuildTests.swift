@@ -241,6 +241,43 @@ final class ConfigBuildTests: XCTestCase {
         }
     }
 
+    // MARK: - Reversed wheels
+
+    /// The table of ticked sources reads whole, a mouse by its roster id and
+    /// an app by `app:` and its bundle id, each with the name it is listed by.
+    func testTheReversedWheelsTableReadsMiceAndApps() throws {
+        let (config, problems) = try build("""
+            {"mice": {"reversed-wheels": {"9639:64160:ab12cd34": "ProtoArc EM11 NL",
+                                          "app:com.logi.cp-dev-mgr": "Logi Options+"}}}
+            """)
+        XCTAssertEqual(problems, [])
+        XCTAssertEqual(config.reversedWheels, ["9639:64160:ab12cd34": "ProtoArc EM11 NL",
+                                               "app:com.logi.cp-dev-mgr": "Logi Options+"])
+        XCTAssertEqual(Config().reversedWheels, [:], "nothing is turned until it is asked for")
+    }
+
+    /// An id that is neither shape is reported and kept out, so a typo never
+    /// ticks anything that could not be told apart from a real source.
+    func testAnIdThatIsNeitherShapeIsReportedAndDropped() throws {
+        let (config, problems) = try build(#"{"mice": {"reversed-wheels": {"ProtoArc": "x", "app:": "y", "1:2:ab12cd34": "ok"}}}"#)
+        XCTAssertEqual(config.reversedWheels, ["1:2:ab12cd34": "ok"])
+        XCTAssertEqual(problems.count, 2, "\(problems)")
+        XCTAssertTrue(problems.allSatisfy { $0.hasPrefix("mice.reversed-wheels.") }, "\(problems)")
+    }
+
+    /// An entry written and removed the way the Settings page does it comes
+    /// back through the schema as it went in, dots in an app's id and all.
+    func testAnEntryWrittenAndRemovedRoundTrips() throws {
+        let path = ["mice", "reversed-wheels", "app:com.logi.cp-dev-mgr"]
+        let written = try XCTUnwrap(Json.settingEntry([:], path: path, to: .string("Logi Options+")))
+        let (config, problems) = try build(Json.emit(written))
+        XCTAssertEqual(problems, [])
+        XCTAssertEqual(config.reversedWheels, ["app:com.logi.cp-dev-mgr": "Logi Options+"])
+        let (emptied, leftover) = try build(Json.emit(Json.removingEntry(written, path: path)))
+        XCTAssertEqual(leftover, [])
+        XCTAssertEqual(emptied.reversedWheels, [:], "removed is unticked")
+    }
+
     // MARK: - Appearance
 
     /// The accent setting retired with Ceramic: Lodestar is International

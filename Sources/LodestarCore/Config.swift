@@ -165,6 +165,10 @@ public struct Config {
     /// clusters. Only the finger column reads it; the hand column is the
     /// windows' class and never moves.
     public var fingerMap = FingerMap()
+    /// `mice.reversed-wheels`: the sources whose scrolls are turned over,
+    /// by id (`WheelSource`), each with the name it is listed by, so a
+    /// mouse that is unplugged still shows.
+    public var reversedWheels: [String: String] = [:]
     public var coachEnabled = true
     /// The walk: a cue at a stopping point after `standAfterMinutes` of
     /// unbroken work.
@@ -526,6 +530,13 @@ public struct Config {
                     continue
                 }
                 config.fingerMap.keyboards[id, default: [:]][key] = placement
+            }
+        }
+        for (id, name) in file.mice.reversedWheels {
+            if WheelSource.isValid(id) {
+                config.reversedWheels[id] = name
+            } else {
+                problems.append("mice.reversed-wheels.\(id): a mouse's id as the Reversed wheels page shows it, or app:<bundle id>")
             }
         }
         config.webHandleClicks = file.web.clicks.enabled

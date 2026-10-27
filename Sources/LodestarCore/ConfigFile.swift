@@ -40,6 +40,7 @@ public struct ConfigFile: Sendable, Equatable {
     public var appearance = Appearance()
     public var draft = Draft()
     public var health = Health()
+    public var mice = Mice()
 
     public init() {}
 
@@ -140,6 +141,10 @@ public struct ConfigFile: Sendable, Equatable {
         public var hand: String?
         public var keyboards: [String: [String: String]] = [:]
     }
+
+    public struct Mice: Sendable, Equatable {
+        public var reversedWheels: [String: String] = [:]
+    }
 }
 
 /// One switch per gesture, by verb name. `false` frees the verb's keys to the
@@ -212,6 +217,7 @@ extension ConfigFile {
         Field("draft", \.draft, draftSection, doc: "The draft: lode . speaks, lode ⇧. revises.")
         Field("health", \.health, healthSection,
               doc: "About you, for the health record. Local, optional, never sent.")
+        Field("mice", \.mice, miceSection, doc: "The mice you use.")
     }
     .normalizing(
         // A `null` has always meant "nothing here": the default file of an
@@ -441,6 +447,15 @@ extension ConfigFile {
               doc: "Moved to the health record, sealed. A hand written here is moved there at launch and taken out of this file.")
         Field("keyboards", \.keyboards, keyboardKeys,
               doc: "Keyboard id (vendor:product:hash, as the Keyboards page shows it) → the keys a split or custom board moves. Letters keep their columns everywhere and are never here.")
+    }
+    .readingNullAsEmpty()
+}
+
+extension ConfigFile {
+    private static let miceSection = section(Mice.self, default: Mice()) {
+        Field("reversed-wheels", \.reversedWheels,
+              .lossyDictionary(of: .string(), valueDoc: "The name it is listed by on the Reversed wheels page."),
+              doc: "Source → name. Each source listed has its wheel scrolling opposite to the Mac's setting, and nothing else is turned: a mouse by its id (vendor:product:hash, as the Reversed wheels page shows it), or an app that posts a mouse's scrolls as app:<bundle id>. The trackpad is never touched.")
     }
     .readingNullAsEmpty()
 }

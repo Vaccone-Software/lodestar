@@ -20,6 +20,9 @@ final class ControlSocketTests: XCTestCase {
 
     override func tearDown() {
         socket?.stop()
+        if let path {
+            unlink(ControlSocket.ownerRecordPath(for: path.path))
+        }
         socket = nil
         super.tearDown()
     }

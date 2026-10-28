@@ -1046,8 +1046,7 @@ final class HealthMonitor {
             let system = AX.systemWide()
             var focused: CFTypeRef?
             guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-                  let element = focused else { return }
-            let axElement = element as! AXUIElement
+                  let element = focused, let axElement = AX.element(element) else { return }
             AXUIElementSetMessagingTimeout(axElement, 0.1)
             var role: CFTypeRef?
             guard AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &role) == .success,

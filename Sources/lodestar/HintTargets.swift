@@ -154,14 +154,8 @@ enum HintTargets {
                     let array = values as? [CFTypeRef], array.count == 4 else { return false }
 
                 var frame: CGRect?
-                if CFGetTypeID(array[1]) == AXValueGetTypeID(),
-                   CFGetTypeID(array[2]) == AXValueGetTypeID() {
-                    var point = CGPoint.zero
-                    var size = CGSize.zero
-                    if AXValueGetValue(array[1] as! AXValue, .cgPoint, &point),
-                       AXValueGetValue(array[2] as! AXValue, .cgSize, &size) {
-                        frame = CGRect(origin: point, size: size)
-                    }
+                if let point = AX.point(array[1]), let size = AX.size(array[2]) {
+                    frame = CGRect(origin: point, size: size)
                 }
                 // The pruning that makes the budget go to what is visible.
                 if let frame, frame.width > 1, frame.height > 1,

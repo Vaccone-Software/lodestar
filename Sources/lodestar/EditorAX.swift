@@ -145,9 +145,7 @@ enum EditorAX {
 
     static func selectedRange(_ element: AXUIElement) -> NSRange? {
         guard let raw = AX.copy(element, kAXSelectedTextRangeAttribute as String),
-              CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
-        var range = CFRange()
-        guard AXValueGetValue(raw as! AXValue, .cfRange, &range) else { return nil }
+              let range = AX.range(raw) else { return nil }
         return NSRange(location: range.location, length: range.length)
     }
 
@@ -177,9 +175,7 @@ enum EditorAX {
         var out: CFTypeRef?
         guard AXUIElementCopyParameterizedAttributeValue(
                 element, kAXBoundsForRangeParameterizedAttribute as CFString, parameter, &out) == .success,
-              let raw = out, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
-        var rect = CGRect.zero
-        guard AXValueGetValue(raw as! AXValue, .cgRect, &rect), rect.width > 0, rect.height > 0 else { return nil }
+              let raw = out, let rect = AX.rect(raw), rect.width > 0, rect.height > 0 else { return nil }
         return rect
     }
 

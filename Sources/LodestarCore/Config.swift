@@ -98,7 +98,8 @@ public struct Config {
     /// Search template; %s is replaced with the encoded query (appended if absent).
     public var webSearchURL = "https://search.brave.com/search?q=%s"
     public var webLinks: [WebLink] = []
-    /// Substring pattern → canonical profile reference; longest match wins.
+    /// Pattern → canonical profile reference; longest match wins. A host
+    /// pattern matches whole labels, a query pattern whole words.
     public var webRoutes: [String: String] = [:]
     /// Whether Lodestar is standing as the http handler and routing clicked
     /// links. Not a switch you are meant to find and flip: the menu-bar flow

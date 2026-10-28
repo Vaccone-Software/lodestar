@@ -73,7 +73,9 @@ final class Actions {
             if self.parking.isParked(id), let window = self.model.windows[id],
                window.isAlive {
                 if self.parking.unpark(window) {
-                    self.store.setParked(self.parking.snapshot())
+                    // Accepted, not necessarily moved. A refusal puts the
+                    // frame back and `onRevision` writes it again.
+                    self.store.setParked(self.parking.records())
                     Log.info("unpark", ["window": id, "via": "external focus"])
                     unparked = true
                 }
@@ -102,13 +104,54 @@ final class Actions {
             guard let self else { return }
             self.layout.remove(id)
             self.parking.forget(id)
-            self.store.setParked(self.parking.snapshot())
+            self.store.setParked(self.parking.records())
         }
-        layout.onChange = { [weak self] in
+        let persistParks = { [weak self] in
             guard let self else { return }
-            self.store.setParked(self.parking.snapshot())
+            self.store.setParked(self.parking.records())
         }
-        parking.adopt(store.parkedSpots)
+        layout.onChange = persistParks
+        // A queued unpark drops the record before the move, and the save
+        // above can land in that window. The refusal puts the frame back;
+        // this is the save that keeps it.
+        parking.onRevision = persistParks
+        model.onTracked = { [weak self] _ in self?.recoverStranded() }
+        rescueParkedWindows()
+    }
+
+    /// Take back the parks this login still owns, and the ones an earlier
+    /// login left in the corner.
+    func rescueParkedWindows() {
+        store.takeOverEarlierParks()
+        parking.adopt(store.parkedRecords)
+        recoverStranded()
+    }
+
+    /// Hand a stranded frame to a window that is still a sliver, then ask
+    /// it to move. A refusal keeps the frame on the books under the new
+    /// id, so the next focus or quit can try again.
+    private func recoverStranded() {
+        let stranded = store.strandedParks
+        guard !stranded.isEmpty else { return }
+        let owned = Set(parking.snapshot().keys)
+        let candidates: [ParkingLot.Candidate] = model.windows.values.compactMap { window in
+            guard window.isAlive, !owned.contains(window.id) else { return nil }
+            return ParkingLot.Candidate(id: window.id, frame: window.frame, bundleID: window.bundleID,
+                                        appName: window.appName, title: window.title)
+        }
+        let matched = ParkingLot.reattach(stranded, onto: candidates, displays: parking.screenBounds)
+        guard !matched.isEmpty else { return }
+        var consumed: [ParkedWindow] = []
+        for (id, record) in matched {
+            guard let window = model.window(id), window.isAlive else { continue }
+            parking.adopt([id: record])
+            parking.unpark(window)
+            consumed.append(record)
+        }
+        guard !consumed.isEmpty else { return }
+        Log.info("park: restoring \(consumed.count) window\(consumed.count == 1 ? "" : "s") left in the corner by an earlier login")
+        store.consumeStranded(consumed)
+        store.setParked(parking.records())
     }
 
     // MARK: - Summoning
@@ -870,18 +913,22 @@ final class Actions {
     // MARK: - Parking
 
     func restoreAllParked() {
-        var count = 0
-        for (id, _) in parking.snapshot() {
+        // `unpark` on the lane answers once the write is queued, which is
+        // not the move. Count after the lane has landed and any refusal
+        // has put its frame back — otherwise a quit reports the windows
+        // restored and saves a map that no longer knows where they were.
+        var tried: [CGWindowID] = []
+        for id in parking.snapshot().keys {
             if let window = model.window(id), window.isAlive {
-                if parking.unpark(window) { count += 1 }
+                parking.unpark(window)
+                tried.append(id)
             } else {
                 parking.forget(id)
             }
         }
-        // The writes are queued; the exit that follows this must not
-        // outrun them.
         parking.waitForWrites()
-        store.setParked(parking.snapshot())
+        let count = tried.filter { !parking.isParked($0) }.count
+        store.setParked(parking.records())
         hud.flash("⤺ \(count) parked window\(count == 1 ? "" : "s") restored")
     }
 

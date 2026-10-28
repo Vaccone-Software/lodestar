@@ -335,11 +335,17 @@ extension PersistedState {
             out.latestBreath = latest
         }
 
-        // Parked windows are the ones of one boot: whichever side parked any
+        // Parked windows are the ones of one login: whichever side parked any
         // is the one that knows, and an empty map is not a statement.
         if !newer.parked.isEmpty {
             out.parked = newer.parked
             out.parkedSession = newer.parkedSession
+            out.parkedIdentity = newer.parkedIdentity
+        }
+        // A frame stranded by an earlier login is a fact the side that
+        // recorded it knows. An empty list is not a retraction.
+        if let stranded = newer.stranded, !stranded.isEmpty {
+            out.stranded = stranded
         }
 
         var usage = self.usage ?? [:]

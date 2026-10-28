@@ -44,14 +44,22 @@ public struct PersistedState: Codable, Sendable {
     public var breaths: [BreathRecord] = []
     public var latestBreath: String?
     public var parked: [UInt32: CGRect] = [:]
-    /// Which boot the parked window ids belong to.
+    /// Which login the parked window ids belong to.
     ///
     /// A `CGWindowID` is only meaningful within a login session (FINDINGS
-    /// §4), so after an unclean shutdown a recycled id could make an
-    /// unrelated window look parked — and the next quit would yank it to a
-    /// frame it never had. Parking is restored only when this matches the
-    /// running session.
+    /// §4). The window server reissues ids when the next login starts, so a
+    /// spot read back after that can name a different window — and the next
+    /// quit would move it to a frame it never had. Ids are adopted only when
+    /// this matches the running login. Frames from any other login wait in
+    /// `stranded` and are put back only onto a window still sitting in the
+    /// parking corner.
     public var parkedSession: String?
+    /// App and title for each parked id, so a later login can recognize the
+    /// window without trusting the id. Absent on files written before it.
+    public var parkedIdentity: [UInt32: ParkedIdentity]?
+    /// Frames from a login whose ids no longer name those windows, waiting
+    /// for the windows still sitting in the corner.
+    public var stranded: [ParkedWindow]?
     public var usage: [String: UsageRecord]?
     /// The walk's progress. Machine owned, so it lives here rather than in
     /// the config: nobody should have to edit a file to stop being shown a
@@ -497,20 +505,87 @@ public final class StateStore {
     /// half second, or to a stalled main thread that never runs the timer:
     /// the window stays in the sliver with nothing that knows where it came
     /// from. The file is small and written atomically.
-    public func setParked(_ spots: [CGWindowID: CGRect]) {
-        state.parked = Dictionary(uniqueKeysWithValues: spots.map { (UInt32($0.key), $0.value) })
-        state.parkedSession = Lodestar.bootSession
+    public func setParked(_ records: [CGWindowID: ParkedWindow]) {
+        state.parked = Dictionary(uniqueKeysWithValues: records.map { (UInt32($0.key), $0.value.frame) })
+        let identity = records.map { (UInt32($0.key), $0.value.identity) }
+        state.parkedIdentity = identity.isEmpty ? nil : Dictionary(uniqueKeysWithValues: identity)
+        state.parkedSession = Lodestar.loginSession
         save()
     }
 
-    /// Parked windows, but only the ones this boot could have parked.
+    public func setParked(_ spots: [CGWindowID: CGRect]) {
+        setParked(spots.mapValues { ParkedWindow(frame: $0, bundleID: nil, appName: "", title: "") })
+    }
+
+    /// Parked windows whose ids still name this login's windows.
+    public var parkedRecords: [CGWindowID: ParkedWindow] {
+        guard Lodestar.parksBelongToThisLogin(state.parkedSession) else { return [:] }
+        return Dictionary(uniqueKeysWithValues: state.parked.map { key, frame in
+            let name = state.parkedIdentity?[key]
+            let window = ParkedWindow(frame: frame, bundleID: name?.bundleID,
+                                      appName: name?.appName ?? "", title: name?.title ?? "")
+            return (CGWindowID(key), window)
+        })
+    }
+
+    /// The frames of `parkedRecords`.
     public var parkedSpots: [CGWindowID: CGRect] {
-        guard Lodestar.isCurrentBootSession(state.parkedSession) else {
-            if !state.parked.isEmpty {
-                Log.info("state: dropping \(state.parked.count) parked spots from an earlier session")
+        parkedRecords.mapValues(\.frame)
+    }
+
+    /// Frames saved by a login whose window ids must not be trusted.
+    public var strandedParks: [ParkedWindow] { state.stranded ?? [] }
+
+    /// Move a previous login's parks out of the id map.
+    ///
+    /// Ids from this login stay, and a boot-time stamp from an older build
+    /// is rewritten as this login so a logout cannot inherit it. Ids from
+    /// any other login are not adopted: the ones that name an app can be
+    /// matched to a window still in the corner, and the rest are dropped
+    /// rather than aimed at whatever window now holds the number.
+    public func takeOverEarlierParks() {
+        guard !state.parked.isEmpty else { return }
+        if Lodestar.parksBelongToThisLogin(state.parkedSession) {
+            if state.parkedSession != Lodestar.loginSession {
+                state.parkedSession = Lodestar.loginSession
+                save()
             }
-            return [:]
+            return
         }
-        return Dictionary(uniqueKeysWithValues: state.parked.map { (CGWindowID($0.key), $0.value) })
+        var recoverable: [ParkedWindow] = []
+        var forgotten = 0
+        for (key, frame) in state.parked {
+            let name = state.parkedIdentity?[key]
+            let window = ParkedWindow(frame: frame, bundleID: name?.bundleID,
+                                      appName: name?.appName ?? "", title: name?.title ?? "")
+            if window.isRecognizable { recoverable.append(window) } else { forgotten += 1 }
+        }
+        if forgotten > 0 {
+            Log.info("state: dropping \(forgotten) parked spots from an earlier login with nothing to recognize them by")
+        }
+        if !recoverable.isEmpty {
+            Log.info("state: \(recoverable.count) parked windows from an earlier login can be restored from their corners")
+            state.stranded = (state.stranded ?? []) + recoverable
+        }
+        state.parked = [:]
+        state.parkedIdentity = nil
+        state.parkedSession = Lodestar.loginSession
+        save()
+    }
+
+    /// One stranded frame has been handed to a live window.
+    public func consumeStranded(_ matched: [ParkedWindow]) {
+        guard var carried = state.stranded, !matched.isEmpty else { return }
+        for item in matched {
+            if let index = carried.firstIndex(of: item) { carried.remove(at: index) }
+        }
+        state.stranded = carried.isEmpty ? nil : carried
+        save()
+    }
+
+    /// Tests replay a file written by another login.
+    func noteParkingSession(_ session: String) {
+        state.parkedSession = session
+        save()
     }
 }

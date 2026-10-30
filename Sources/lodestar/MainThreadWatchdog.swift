@@ -97,9 +97,15 @@ final class MainThreadWatchdog {
     private let target: DispatchQueue
 
     private var thread: Thread?
-    private var running = false
     private let lock = NSLock()
     private var answeredAt: Instant?
+    /// Set by `start` and `stop` on the caller's thread, read by the
+    /// watchdog's own, so it is behind the lock like the answer.
+    private var isRunning = false
+    private var running: Bool {
+        get { lock.withLock { isRunning } }
+        set { lock.withLock { isRunning = newValue } }
+    }
 
     /// Asked every half second: a stall shorter than the gap between asks
     /// is caught only if it covers an ask, and the tap goes off in about

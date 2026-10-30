@@ -1437,6 +1437,19 @@ final class ClipboardStore {
     /// card seeded a moment ago is on disk before the door reads it.
     func flushIO() { io.sync {} }
 
+    /// Wait for the work every other queue has been given so far: a copy's
+    /// files read, a presence asked, a picture decoded. The tests' seam, so
+    /// a test that has to know nothing more is coming need not sleep to
+    /// find out. What each queue hands back to main is not run here.
+    func flushBackground() {
+        filing.sync(flags: .barrier) {}
+        checking.sync(flags: .barrier) {}
+        decoder.sync {}
+        counting.sync {}
+        ocr.sync {}
+        io.sync {}
+    }
+
     /// The thumbnails and the file answers of the clips are dropped here, on
     /// the main thread. Only the unlinking of their files goes to the io queue.
     private func removeFiles(of ids: [String], storages: [String]) {

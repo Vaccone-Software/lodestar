@@ -25,6 +25,16 @@ enum FileSense {
     /// A picture is 240 points at twice the pixels, as an image's thumbnail is.
     static let side = 480
 
+    /// How a read waits for its answer: until the group is done, for at most
+    /// the seconds it is given, and whether it was done. A seam for the
+    /// tests, which give a read the deadline they say it has and no other,
+    /// so a slow machine cannot make one overrun.
+    nonisolated(unsafe) static var wait: (DispatchGroup, TimeInterval) -> Bool = realWait
+
+    static func realWait(_ group: DispatchGroup, _ seconds: TimeInterval) -> Bool {
+        group.wait(timeout: .now() + seconds) == .success
+    }
+
     /// The system's thumbnail of a file, or nil. A seam for the tests, which
     /// stand in for QuickLook so a slow volume can be made to happen.
     nonisolated(unsafe) static var thumbnailer: (URL) -> CGImage? = quickLook
@@ -225,7 +235,7 @@ enum FileSense {
             slot.set(work())
             group.leave()
         }
-        return group.wait(timeout: .now() + seconds) == .success ? slot.value : nil
+        return wait(group, seconds) ? slot.value : nil
     }
 
     /// A value handed from one thread to another.

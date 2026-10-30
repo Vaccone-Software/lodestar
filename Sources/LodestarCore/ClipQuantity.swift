@@ -7,7 +7,7 @@ import Foundation
 /// become centimeters and miles kilometers, a height in centimeters becomes
 /// feet and inches.
 public struct ClipQuantity: Equatable {
-    public enum System: String, Equatable, CaseIterable {
+    public enum System: String, Equatable, CaseIterable, Sendable {
         case metric, imperial
 
         /// The system a region measures in: the United States (and the
@@ -79,7 +79,7 @@ public struct ClipQuantity: Equatable {
         return ClipQuantity(value: feet * 12 + inches, unit: UnitLength.inches, system: .imperial)
     }
 
-    private struct Entry {
+    private struct Entry: Sendable {
         let unit: Dimension
         let system: System
         /// Written after a space only: a letter that is also a word.

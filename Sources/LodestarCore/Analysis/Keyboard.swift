@@ -5,7 +5,7 @@ import Foundation
 /// (see `LatencyModel`), never assumed; the geometry only says which keys
 /// share a hand, a finger, a row.
 public enum Keyboard {
-    public struct Key: Equatable {
+    public struct Key: Equatable, Sendable {
         public let row: Int
         public let column: Double
         /// 0 left, 1 right.

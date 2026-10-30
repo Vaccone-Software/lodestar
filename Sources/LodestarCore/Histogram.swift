@@ -18,7 +18,7 @@ import Foundation
 /// purpose — two histograms can only be merged if they agree on their
 /// bins, and these must merge across pulses, across months, and across
 /// machines, for the life of the archive.
-public struct Histogram: Equatable {
+public struct Histogram: Equatable, Sendable {
     /// The first edge: eight milliseconds, comfortably under any real
     /// key press.
     public static let base = 0.008

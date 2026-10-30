@@ -17,7 +17,7 @@ import Foundation
 /// nothing yet — so the curriculum keeps its own small record, in the
 /// machine-owned state beside the walk's.
 public enum Curriculum {
-    public enum Lesson: String, CaseIterable, Codable, Equatable {
+    public enum Lesson: String, CaseIterable, Codable, Equatable, Sendable {
         case launcher, editor, inside, web, clipboard, sheet, draft, select, commands, scroll
     }
 
@@ -36,7 +36,7 @@ public enum Curriculum {
     /// The order lessons arrive in, the verb the record counts each under
     /// (nil when only the card's own signal can prove it), and the day
     /// after the record began that each becomes due.
-    public struct Entry {
+    public struct Entry: Sendable {
         public let lesson: Lesson
         public let verb: String?
         public let day: Int

@@ -8,7 +8,7 @@ public enum Clipboard {
     /// What a clip is made of. `plain` is what a bare label pastes; `native`
     /// is what ⇧label pastes — the richest thing the source app offered,
     /// whether that is RTF, HTML, or something only Figma understands.
-    public enum Kind: String, Codable, Equatable {
+    public enum Kind: String, Codable, Equatable, Sendable {
         case text
         case image
         /// A copy of files: every item is a file's address, and the card
@@ -26,7 +26,7 @@ public enum Clipboard {
         }
     }
 
-    public struct Clip: Codable, Equatable {
+    public struct Clip: Codable, Equatable, Sendable {
         public let id: String
         public let kind: Kind
         public let created: Date

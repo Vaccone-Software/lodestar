@@ -180,7 +180,7 @@ public enum ClipboardContent {
 // MARK: - The index
 
 /// A clip, and where its bytes are and what opens them.
-public struct ClipEntry: Codable, Equatable {
+public struct ClipEntry: Codable, Equatable, Sendable {
     public var clip: Clipboard.Clip
     /// The blob's (and the thumbnail's) file name.
     public var storage: String

@@ -21,7 +21,7 @@ extension Clipboard {
     public static let fileCardNames = 3
 
     /// What one file is, as it was when it was copied.
-    public struct FileFact: Codable, Equatable {
+    public struct FileFact: Codable, Equatable, Sendable {
         public var name: String
         /// The folder it sits in, by its own name, never the whole path.
         public var folder: String

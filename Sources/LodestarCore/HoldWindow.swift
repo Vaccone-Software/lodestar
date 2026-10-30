@@ -166,7 +166,7 @@ public struct HoldWindow: Equatable {
 
 /// Power sums to the fourth: the sufficient statistics for a mean, a
 /// spread, a skew and a kurtosis, mergeable forever.
-public struct Moments: Codable, Equatable {
+public struct Moments: Codable, Equatable, Sendable {
     public var n = 0
     public var sum = 0.0
     public var sumSq = 0.0
@@ -225,15 +225,15 @@ public struct Moments: Codable, Equatable {
 }
 
 /// One window's description, as it is written to the ring.
-public struct WindowStats: Codable, Equatable {
-    public struct Side: Codable, Equatable {
+public struct WindowStats: Codable, Equatable, Sendable {
+    public struct Side: Codable, Equatable, Sendable {
         public var hold = Moments()
         /// p25, p50, p75.
         public var q: [Double] = []
         public init() {}
     }
 
-    public struct Pair: Codable, Equatable {
+    public struct Pair: Codable, Equatable, Sendable {
         public var n = 0
         public var latency = Moments()
         public var flight = Moments()

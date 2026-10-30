@@ -23,7 +23,7 @@ import Foundation
 /// dB against the microphone's full scale, so it moves with the microphone
 /// and its distance: `mic` says which kind was listening, and a session
 /// that changed microphones says so.
-public struct VoiceStats: Codable, Equatable {
+public struct VoiceStats: Codable, Equatable, Sendable {
     /// Seconds of audio analysed.
     public var seconds: Double
     /// Seconds with sound above the session's own noise floor.

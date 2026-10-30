@@ -22,13 +22,13 @@ import Foundation
 public struct FingerMap: Equatable {
     /// A key that exists on both sides of a board and sends one code is
     /// `either`: the finger is known, the side is honestly not.
-    public enum Side: String, CaseIterable, Codable {
+    public enum Side: String, CaseIterable, Codable, Sendable {
         case left, right, either
 
         public var label: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
     }
 
-    public struct Placement: Equatable, Codable {
+    public struct Placement: Equatable, Codable, Sendable {
         public var side: Side
         public var finger: Keys.Finger
 

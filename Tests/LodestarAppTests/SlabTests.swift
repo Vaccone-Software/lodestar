@@ -10,7 +10,6 @@ import XCTest
 final class SlabTests: XCTestCase {
     override func tearDown() {
         GalleryLook.reset()
-        ActivePolicy.frameOverride = nil
         EyeComfortState.shared.set(enabled: false, level: 1)
     }
 
@@ -442,6 +441,7 @@ final class SlabTests: XCTestCase {
     }
 
     func testAChosenCardIsPressedToo() throws {
+        setOverride(\ActivePolicy.Type.frameOverride, to: Stage.screen)
         GalleryLook.day.apply()
         let strip = ClipboardStrip()
         let clip = Clipboard.Clip(id: "a", kind: .text, created: Date(), sourceBundleID: nil, sourceAppName: "Ghostty",

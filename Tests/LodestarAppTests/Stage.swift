@@ -283,6 +283,9 @@ final class Stage {
 
     init(voices: [Voice] = []) {
         _ = NSApplication.shared
+        // What the process had before the first stage stood on it, which the
+        // last one to go puts back (LeakGuard fails a test that leaves them).
+        if Self.live == nil { Self.before = (ActivePolicy.frameOverride, NSApplication.shared.appearance) }
         // The screen every scenario is laid out on, whatever machine runs
         // it: a runner's virtual display is narrower than a desk's. It sits
         // far off every real display, so the suite's panels are laid out
@@ -457,13 +460,15 @@ final class Stage {
     /// (`stage = Stage()`): the new one's init runs before the old one's
     /// deinit, which must then leave the new one's settings alone.
     private static var live: ObjectIdentifier?
+    private static var before: (frame: NSRect?, appearance: NSAppearance?)?
 
     deinit {
         // What this stage pointed at itself goes back: a later post through
         // the pointer would otherwise reach a stage that is gone.
-        if Self.live == ObjectIdentifier(self) {
+        let last = Self.live == ObjectIdentifier(self)
+        if last {
             Pointer.post = Pointer.postToSystem
-            ActivePolicy.frameOverride = nil
+            ActivePolicy.frameOverride = Self.before?.frame
             Self.live = nil
         }
         health.setEnabled(false)
@@ -481,6 +486,12 @@ final class Stage {
         // windows are its too, and it closes them all when it goes.
         if Self.live == nil || Self.live == ObjectIdentifier(self) {
             for window in NSApplication.shared.windows { window.close() }
+        }
+        // The look goes back after the windows are closed: a window that is
+        // gone does not answer a change of look.
+        if last, let before = Self.before {
+            NSApplication.shared.appearance = before.appearance
+            Self.before = nil
         }
         try? FileManager.default.removeItem(at: directory)
     }

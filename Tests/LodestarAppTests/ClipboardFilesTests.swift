@@ -30,13 +30,11 @@ final class ClipboardFilesTests: XCTestCase {
         store.prunesGoneFiles = false
         // Real QuickLook is another process's to answer in its own time; the
         // tests stand in for it, and the icon fallback is the real one.
-        FileSense.thumbnailer = { _ in Self.swatch() }
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in Self.swatch() })
     }
 
     override func tearDown() {
         FileSense.deadline = 2
-        FileSense.thumbnailer = FileSense.quickLook
-        FileSense.dataless = FileSense.isDataless
         store.close()
         try? FileManager.default.removeItem(at: directory)
     }
@@ -245,7 +243,7 @@ final class ClipboardFilesTests: XCTestCase {
     }
 
     func testAFileWithNoThumbnailIsDrawnAsItsIcon() throws {
-        FileSense.thumbnailer = { _ in nil }
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in nil })
         copy([try make("plain.txt")])
         let id = try XCTUnwrap(store.clips.first).id
         wait("the icon is kept as its picture") { self.store.thumbnail(for: id) != nil }
@@ -266,11 +264,11 @@ final class ClipboardFilesTests: XCTestCase {
         let release = DispatchSemaphore(value: 0)
         let answered = NSLock()
         var returned = false
-        FileSense.thumbnailer = { _ in
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in
             release.wait()
             answered.withLock { returned = true }
             return Self.swatch()
-        }
+        })
         addTeardownBlock { for _ in 0..<8 { release.signal() } }
         let url = try make("slow.txt")
         let began = Date()
@@ -287,9 +285,9 @@ final class ClipboardFilesTests: XCTestCase {
     /// drawn as its icon: asking it for its pages or its picture would
     /// fetch it from the network.
     func testAFileThatIsNotOnThisMacIsNeverOpenedForItsPagesOrItsPicture() throws {
-        FileSense.dataless = { _, _ in true }
+        setOverride(\FileSense.Type.dataless, to: { _, _ in true })
         var asked = 0
-        FileSense.thumbnailer = { _ in asked += 1; return Self.swatch() }
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in asked += 1; return Self.swatch() })
         let png = files.appendingPathComponent("evicted.png")
         try Stage.pngData(width: 40, height: 20).write(to: png)
         copy([png])
@@ -338,7 +336,7 @@ final class ClipboardFilesTests: XCTestCase {
     }
 
     func testAFileCardDeletedWhileItsFilesAreBeingReadLeavesNoPicturesBehind() throws {
-        FileSense.thumbnailer = { _ in Thread.sleep(forTimeInterval: 0.5); return Self.swatch() }
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in Thread.sleep(forTimeInterval: 0.5); return Self.swatch() })
         copy([try make("late.txt")])
         let id = try XCTUnwrap(store.clips.first).id
         let storage = try XCTUnwrap(store.storageName(of: id))

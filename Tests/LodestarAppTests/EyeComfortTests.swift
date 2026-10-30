@@ -13,7 +13,13 @@ final class EyeComfortTests: XCTestCase {
     private let newYork = Coordinate(latitude: 40.7128, longitude: -74.0060)
     private let eastern = TimeZone(identifier: "America/New_York")!
 
+    private var frame: NSRect?
+
     override func setUp() {
+        // The pill and the chip are laid out on the stand-in screen, not on
+        // whichever display the Mac has or the last test left.
+        frame = ActivePolicy.frameOverride
+        ActivePolicy.frameOverride = Stage.screen
         off()
         GalleryLook.day.apply()
     }
@@ -27,6 +33,7 @@ final class EyeComfortTests: XCTestCase {
         off()
         GalleryLook.reset()
         Accessibility.reset()
+        ActivePolicy.frameOverride = frame
     }
 
     private func off() { EyeComfortState.shared.set(enabled: false, level: 1) }

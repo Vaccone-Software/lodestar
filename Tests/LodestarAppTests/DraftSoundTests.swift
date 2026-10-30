@@ -9,9 +9,8 @@ final class DraftSoundTests: XCTestCase {
 
     override func setUp() {
         heard = []
-        Sounds.play = { [unowned self] cue in self.heard.append(cue) }
+        setOverride(\Sounds.Type.play, to: { [unowned self] cue in self.heard.append(cue) })
     }
-    override func tearDown() { Sounds.reset() }
 
     func testAliveMicrophonePlaysOnceAndTheLandingAnswersIt() {
         let stage = Stage()

@@ -38,9 +38,10 @@ struct GalleryShot {
 /// `shot.build`, which is always fresh.
 ///
 /// A built shot stands in a window that follows the application's look (a
-/// panel has none of its own), so one is kept and served only while its own
-/// look is the one in force, and Eye comfort is part of what it was built
-/// at: a sweep that does not set it builds a dimmed shot at full level.
+/// panel has none of its own); a kept one is given its look as its own, so
+/// that the application's turning does not reach it, and it is served only
+/// while its look is the one in force. Eye comfort is part of what it was
+/// built at: a sweep that does not set it builds a dimmed shot at full level.
 ///
 /// A shot built with a caret in it is a picture that cannot be drawn twice:
 /// a sweep that draws it brings its window in to hold the keys and puts it
@@ -73,9 +74,19 @@ enum GalleryBuilds {
         guard NSApplication.shared.appearance?.name == look.appearance else { return try shot.build(look) }
         let key = key(shot, look)
         if let entry = kept[key], entry.made.view.window != nil, entry.quiet || !drawing { return entry.made }
+        let before = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
         let made = try shot.build(look)
         let quiet = isQuiet(made)
-        if quiet || !drawing { kept[key] = Kept(made: made, quiet: quiet) }
+        if quiet || !drawing {
+            // A kept window is its look's, whichever look the application is in: left to
+            // follow the application, every turn of the look (and every test's end puts
+            // it back) would lay out and redraw all of them, a second or more each time
+            // with the whole gallery kept, and the next picture would be read before it landed.
+            for window in NSApplication.shared.windows where !before.contains(ObjectIdentifier(window)) && window.appearance == nil {
+                window.appearance = NSAppearance(named: look.appearance)
+            }
+            kept[key] = Kept(made: made, quiet: quiet)
+        }
         return made
     }
 

@@ -55,3 +55,5 @@ ci EditorRandomStateTests.*
 # shard cannot give that, so the desk must run these and CI may not. One per
 # component.
 ci MainThreadWatchdogTests.testARealStalledMainThreadIsSeenOnTheWatchdogsOwnThread
+ci EditorStallTests.testAStalledAppNeverHoldsTheMainThread
+ci ClipboardSearchTests.testSearchingAFullHistoryStaysInteractive

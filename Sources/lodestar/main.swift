@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let linkChip = LinkChip()
     private let presenting = Presenting()
     private let stand = StandCueController()
+    private let secureInput = SecureInputController()
     private let control = ControlSocket()
     private let settings = SettingsController()
     private let health = HealthMonitor(vault: AppDelegate.sealedVault)
@@ -676,6 +677,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         presenting.meetingInProgress = { [weak self] in self?.meetings.inProgress ?? false }
         wireStand()
+        wireSecureInput()
         // Suppression only gates what has not been drawn yet. A chip already
         // standing when the call starts has to be told to go, or the one
         // case this exists for — you join, and the suggestion from four
@@ -1537,6 +1539,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             hud.hide()
         }
         stand.start()
+    }
+
+    /// Secure input left on by an app at the back: a standing notice naming
+    /// it, since no gesture can arrive to be refused. See `SecureInputNotice`.
+    private func wireSecureInput() {
+        secureInput.showNotice = { [weak self] text, icon, onClick in
+            self?.hud.showNotice(text, icon: icon, onClick: onClick)
+        }
+        secureInput.hideNotice = { [weak self] in self?.hud.hide() }
+        secureInput.flash = { [weak self] text in self?.hud.flash(text) }
+        secureInput.noticeStanding = { [weak self] in self?.hud.owner == .notice }
+        secureInput.glassFree = { [weak self] in self?.hud.owner == SurfaceOwner.none }
+        secureInput.start()
     }
 
     @objc private func openSettingsWindow() {

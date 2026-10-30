@@ -20,6 +20,9 @@ public enum SurfaceOwner: Equatable, Sendable {
     case guide
     case flash
     case coach
+    /// A notice that stands while a condition lasts (secure input left on)
+    /// and goes when it ends, not at a key: under it no key arrives.
+    case notice
 }
 
 /// The handover rule, pure so the one thing that must never be forgotten

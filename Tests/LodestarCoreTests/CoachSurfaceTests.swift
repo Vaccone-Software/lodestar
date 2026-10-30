@@ -79,6 +79,7 @@ final class CoachSurfaceTests: XCTestCase {
 
     func testFlashOverChipDisplacesTheCoach() {
         XCTAssertTrue(Surface.displacesCoach(from: .coach, to: .flash))
+        XCTAssertTrue(Surface.displacesCoach(from: .coach, to: .notice), "a notice over a chip is a takeover too")
     }
 
     /// Redrawing the chip is not a takeover. The coach updates its own
@@ -90,8 +91,8 @@ final class CoachSurfaceTests: XCTestCase {
     /// Only the coach outlives the gesture that drew it, so only the coach
     /// is notified. A guide replaced by a guide is the same hand working.
     func testOnlyTheCoachIsDisplaced() {
-        for from: SurfaceOwner in [.none, .guide, .flash] {
-            for to: SurfaceOwner in [.none, .guide, .flash, .coach] {
+        for from: SurfaceOwner in [.none, .guide, .flash, .notice] {
+            for to: SurfaceOwner in [.none, .guide, .flash, .coach, .notice] {
                 XCTAssertFalse(Surface.displacesCoach(from: from, to: to),
                                "\(from) → \(to) is nobody's loss")
             }

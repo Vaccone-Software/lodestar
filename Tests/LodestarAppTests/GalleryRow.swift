@@ -229,7 +229,7 @@ enum GalleryRow {
                 settings.config = config
                 settings.renderForTesting(place: SettingsModel.placeIndex("Observations"))
                 return [settings]
-            }, settle: 0.05, where: { $0 is KeyablePanel }, frame: NSRect(x: 0, y: 0, width: 1000, height: 680))
+            }, settle: 0.05, where: { $0 is KeyablePanel }, frame: Stage.screen(1000, 680))
         }
     }
 

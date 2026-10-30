@@ -62,7 +62,7 @@ enum GalleryKeep {
     }
 
     static func strip(look: GalleryLook, _ show: @escaping (ClipboardStrip) -> Void) throws -> (NSView, [AnyObject]) {
-        try withPresentationFrame(NSRect(x: 0, y: 0, width: 1500, height: 820)) {
+        try withPresentationFrame(Stage.screen(1500, 820)) {
             try GalleryHost.surface(made: {
                 let strip = ClipboardStrip()
                 show(strip)

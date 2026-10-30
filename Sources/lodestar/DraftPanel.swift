@@ -507,7 +507,7 @@ final class DraftPanel {
     /// Nil for a range the panel is not showing.
     func screenRects(for ranges: [NSRange]) -> [CGRect?] {
         guard panel.isVisible, let layout = textView.layoutManager, let container = textView.textContainer,
-              let storage = textView.textStorage, let primary = NSScreen.screens.first else {
+              let storage = textView.textStorage, let primary = Screens.primary else {
             return ranges.map { _ in nil }
         }
         return ranges.map { range in
@@ -525,7 +525,7 @@ final class DraftPanel {
 
     /// The panel's frame in quartz screen coordinates.
     var quartzFrame: CGRect? {
-        guard panel.isVisible, let primary = NSScreen.screens.first else { return nil }
+        guard panel.isVisible, let primary = Screens.primary else { return nil }
         let frame = SoftShadow.inset(panel.frame)
         return CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
     }

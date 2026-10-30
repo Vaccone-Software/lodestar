@@ -29,7 +29,7 @@ final class EditorMarks: EditorMarksDrawing {
 
     /// Rects in quartz coordinates (top-left origin), over `window`.
     func show(_ rects: [CGRect], over window: CGRect) {
-        guard !rects.isEmpty, let primary = NSScreen.screens.first else { hide(); return }
+        guard !rects.isEmpty, let primary = Screens.primary else { hide(); return }
         if panel.isVisible, rects == shown, canvas.window == panel, panel.frame == appKit(window, primary) { return }
         shown = rects
         let frame = appKit(window, primary)
@@ -50,7 +50,7 @@ final class EditorMarks: EditorMarksDrawing {
         panel.orderOut(nil)
     }
 
-    private func appKit(_ quartz: CGRect, _ primary: NSScreen) -> NSRect {
+    private func appKit(_ quartz: CGRect, _ primary: Screens.Screen) -> NSRect {
         NSRect(x: quartz.minX, y: primary.frame.maxY - quartz.maxY, width: quartz.width, height: quartz.height)
     }
 

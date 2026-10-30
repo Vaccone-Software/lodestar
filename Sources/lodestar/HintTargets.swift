@@ -267,7 +267,7 @@ enum Pointer {
     /// Where the pointer rests now, in Quartz coordinates.
     static func location() -> CGPoint {
         let mouse = NSEvent.mouseLocation
-        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        let primaryHeight = Screens.primaryHeight
         return CGPoint(x: mouse.x, y: primaryHeight - mouse.y)
     }
 }

@@ -804,7 +804,7 @@ final class EditorHoverTests: XCTestCase {
         let m = mark("Their", "They're", x: 300)
         hover.show(m)
         let panel = try XCTUnwrap(hover.panel)
-        let height = try XCTUnwrap(NSScreen.screens.first).frame.maxY
+        let height = try XCTUnwrap(Screens.primary).frame.maxY
         // The glass's bottom edge, in the marks' top-left coordinates.
         let glassBottom = height - panel.paneFrame.minY
         XCTAssertLessThanOrEqual(glassBottom, m.rect.minY, "above the word, never over it")

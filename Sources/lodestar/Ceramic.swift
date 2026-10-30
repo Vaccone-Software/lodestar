@@ -201,11 +201,11 @@ enum Ceramic {
     /// display. Furniture pinned to the panel's bottom adds this so it
     /// stands above the Dock instead of on top of it.
     static func bottomInset(for frame: NSRect) -> CGFloat {
-        func overlap(_ screen: NSScreen) -> CGFloat {
+        func overlap(_ screen: Screens.Screen) -> CGFloat {
             let shared = screen.frame.intersection(frame)
             return shared.isNull || shared.isEmpty ? 0 : shared.width * shared.height
         }
-        guard let screen = NSScreen.screens.max(by: { overlap($0) < overlap($1) }) else { return 0 }
+        guard let screen = Screens.all.max(by: { overlap($0) < overlap($1) }) else { return 0 }
         return max(0, screen.visibleFrame.minY - frame.minY)
     }
 }

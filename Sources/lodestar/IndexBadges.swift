@@ -1,4 +1,5 @@
 import AppKit
+import LodestarCore
 
 /// Big numerals over each layout member while lode is held (peek):
 /// `lode 1…9` taught the same way peek teaches the graph. Static — they
@@ -9,7 +10,7 @@ final class IndexBadges {
     /// Frames arrive in Quartz coordinates (top-left origin).
     func show(_ items: [(index: Int, frame: CGRect)]) {
         hide()
-        guard let primary = NSScreen.screens.first else { return }
+        guard let primary = Screens.primary else { return }
         let primaryHeight = primary.frame.maxY
 
         for item in items.prefix(10) {

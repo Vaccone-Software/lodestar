@@ -122,8 +122,9 @@ public enum DurableFile {
     }
 }
 
-/// A value behind a lock, for the one-line shared tables this file needs.
-fileprivate final class Locked<Value>: @unchecked Sendable {
+/// A value behind a lock, for the shared tables a few files need. Nothing
+/// that calls out belongs in `withLock`.
+final class Locked<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var value: Value
     init(_ value: Value) { self.value = value }

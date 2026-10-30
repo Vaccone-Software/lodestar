@@ -7,6 +7,10 @@ import XCTest
 enum LeakRegistry {
     static let watched: [Watched] = LeakGuard.core
 
+    /// This bundle's logic tests draw nothing and read no setting, so there is
+    /// nothing of the Mac's to pin (the app tests' bundle pins its own).
+    static func pinEnvironment() {}
+
     /// The repository's frequency list, which `CommonWords` reads once and
     /// keeps, installed when the bundle loads (LeakGuard). No test installs or
     /// changes it, and the guard fails one that does.

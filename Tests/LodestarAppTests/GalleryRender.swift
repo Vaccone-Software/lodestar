@@ -23,7 +23,8 @@ struct GalleryLook: Equatable {
         BarTheme.accentColor = { BarTheme.internationalOrange }
     }
 
-    /// Back to the Mac's own look, and the main queue left quiet.
+    /// Back to the suite's own look (LeakRegistry.pinEnvironment: pinned when
+    /// the bundle loads, not the Mac's), and the main queue left quiet.
     ///
     /// The builds are kept for the process, and every one of them answers a
     /// change of look on the main queue's next turns: layout, redraws. Left
@@ -32,7 +33,7 @@ struct GalleryLook: Equatable {
     /// read the wait as a freeze (2026-10-25, four tests that night). It
     /// runs here instead, inside the class that caused it.
     static func reset() {
-        NSApplication.shared.appearance = nil
+        NSApplication.shared.appearance = LeakRegistry.suiteAppearance
         BarTheme.accentColor = { BarTheme.internationalOrange }
         Ceramic.followSystemAppearance()
         settleMain()

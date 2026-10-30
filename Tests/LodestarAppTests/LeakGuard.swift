@@ -107,6 +107,8 @@ enum LeakGuard {
         // lazily, from whichever test came first, are in place before any
         // test can run: a list read once, and latched, cannot be latched empty.
         LeakRegistry.installFixtures()
+        // And the process's settings are the suite's own, not the Mac's.
+        LeakRegistry.pinEnvironment()
         guard !installed, let method = class_getInstanceMethod(XCTestCase.self, #selector(XCTestCase.invokeTest)) else { return }
         installed = true
         typealias Invoke = @convention(c) (XCTestCase, Selector) -> Void

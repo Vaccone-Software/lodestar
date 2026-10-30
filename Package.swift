@@ -122,6 +122,6 @@ let package = Package(
         ], swiftSettings: [.enableExperimentalFeature("SymbolLinkageMarkers")]),
     ],
     // Tools 6.1 for the Crypto trait; the code stays in Swift 5 mode, as it
-    // was under tools 5.9.
+    // was under tools 5.9, except LodestarCore (its own swiftSettings).
     swiftLanguageModes: [.v5]
 )

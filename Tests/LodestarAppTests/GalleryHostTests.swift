@@ -93,4 +93,31 @@ final class GalleryHostTests: XCTestCase {
         XCTAssertTrue(GallerySweep.Hours.drawn.includes(full))
         XCTAssertTrue(GallerySweep.Hours.every.includes(evening))
     }
+
+    /// The memoised pixel is the pixel `colorAt` gives, converted as the sweeps
+    /// always converted it: the same sRGB components and alpha, at every point
+    /// of pictures that have edges, shadows, text and icons in them.
+    func testAMemoisedPixelIsTheOneColorAtGives() throws {
+        var compared = 0
+        for name in ["launcher-results-second-chosen", "keep-clips-newest-chosen", "settings-general"] {
+            let shot = try XCTUnwrap(GalleryShots.all.first { $0.surface + "-" + $0.state == name })
+            GalleryLook.day.apply()
+            let (view, keep) = try shot.built(in: .day)
+            let rep = GalleryRender.bitmap(of: view)
+            for y in stride(from: 0, to: rep.pixelsHigh, by: 3) {
+                for x in stride(from: 0, to: rep.pixelsWide, by: 3) {
+                    let direct = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+                    let memo = GalleryPixels.srgb(rep, x: x, y: y)
+                    XCTAssertEqual(memo?.redComponent, direct?.redComponent, "\(name) (\(x), \(y))")
+                    XCTAssertEqual(memo?.greenComponent, direct?.greenComponent)
+                    XCTAssertEqual(memo?.blueComponent, direct?.blueComponent)
+                    XCTAssertEqual(memo?.alphaComponent, direct?.alphaComponent)
+                    compared += 1
+                }
+            }
+            _ = keep
+        }
+        XCTAssertGreaterThan(compared, 100_000)
+        XCTAssertNil(GalleryPixels.srgb(GalleryRender.bitmap(of: NSView(frame: NSRect(x: 0, y: 0, width: 4, height: 4))), x: 99, y: 99))
+    }
 }

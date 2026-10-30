@@ -28,7 +28,7 @@ final class SlabTests: XCTestCase {
 
     private func pixel(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat) -> RGB? {
         let scale = CGFloat(rep.pixelsWide) / rep.size.width
-        guard let c = rep.colorAt(x: Int(x * scale), y: Int(y * scale))?.usingColorSpace(.sRGB), c.alphaComponent > 0.5 else { return nil }
+        guard let c = GalleryPixels.srgb(rep, x: Int(x * scale), y: Int(y * scale)), c.alphaComponent > 0.5 else { return nil }
         return RGB(red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent))
     }
 
@@ -255,7 +255,7 @@ final class SlabTests: XCTestCase {
         for py in Int(rect.minY * scale)..<Int(rect.maxY * scale) {
             var strongest = 0.0
             for px in Int(rect.minX * scale)..<Int(rect.maxX * scale) {
-                guard let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { continue }
+                guard let c = GalleryPixels.srgb(rep, x: px, y: py) else { continue }
                 let d = max(abs(Double(c.redComponent) - slab.red), abs(Double(c.greenComponent) - slab.green),
                             abs(Double(c.blueComponent) - slab.blue))
                 strongest = max(strongest, d)

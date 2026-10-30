@@ -147,3 +147,30 @@ enum GallerySweep {
         }
     }
 }
+
+/// A bitmap read pixel by pixel as the sRGB colour the sweeps measure.
+///
+/// `colorAt(x:y:)` makes a colour of every pixel and `usingColorSpace` converts
+/// it, and a rule that scans the ink of every word on every surface at the
+/// bitmap's own resolution does that a few million times: most of what a
+/// sweep that reads pixels costs. A picture is a few flat grounds and the
+/// edges between them, so the same four bytes come up again and again; the
+/// conversion is made once for each and the answer kept. The answer is the one
+/// `colorAt(x:y:)?.usingColorSpace(.sRGB)` gives for those bytes, nothing
+/// else (`GalleryHostTests` holds that).
+enum GalleryPixels {
+    private nonisolated(unsafe) static var converted: [UInt32: NSColor] = [:]
+
+    /// `rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)`.
+    static func srgb(_ rep: NSBitmapImageRep, x: Int, y: Int) -> NSColor? {
+        guard rep.bitsPerPixel == 32, !rep.isPlanar, rep.samplesPerPixel == 4, rep.bitsPerSample == 8,
+              (0..<rep.pixelsWide).contains(x), (0..<rep.pixelsHigh).contains(y),
+              let data = rep.bitmapData else { return rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) }
+        let at = data + y * rep.bytesPerRow + x * 4
+        let key = UInt32(at[0]) << 24 | UInt32(at[1]) << 16 | UInt32(at[2]) << 8 | UInt32(at[3])
+        if let known = converted[key] { return known }
+        guard let made = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return nil }
+        converted[key] = made
+        return made
+    }
+}

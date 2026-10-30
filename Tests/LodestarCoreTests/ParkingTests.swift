@@ -4,7 +4,8 @@ import XCTest
 /// Sliver parking, and the three ways it used to strand a window
 /// somewhere the user could not get it back from.
 final class ParkingTests: XCTestCase {
-    private final class Mover: WindowMoving {
+    // Unchecked: these tests run it inline, on the test thread alone.
+    private final class Mover: WindowMoving, @unchecked Sendable {
         var positions: [(id: CGWindowID, point: CGPoint)] = []
         var frames: [(id: CGWindowID, frame: CGRect)] = []
 

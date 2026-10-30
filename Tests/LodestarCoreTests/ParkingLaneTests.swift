@@ -6,7 +6,8 @@ import XCTest
 /// the gesture, the bookkeeping does not, and a refusal that comes back
 /// later undoes exactly the bookkeeping it belongs to.
 final class ParkingLaneTests: XCTestCase {
-    private final class Mover: WindowMoving {
+    // Unchecked: the lane writes it under `lock`, and the tests read it after the lane drains.
+    private final class Mover: WindowMoving, @unchecked Sendable {
         var positions: [(id: CGWindowID, point: CGPoint)] = []
         var frames: [(id: CGWindowID, frame: CGRect)] = []
         var refuse = false
@@ -91,16 +92,15 @@ final class ParkingLaneTests: XCTestCase {
         let lane = DispatchQueue(label: "test.moves")
         let layout = LayoutController(model: WindowModel(), parking: ParkingLot(moveQueue: lane),
                                       moveQueue: lane)
-        var order: [Int] = []
-        let lock = NSLock()
+        let order = Locked<[Int]>([])
         for step in 1...3 {
-            layout.onMoveLane { lock.lock(); order.append(step); lock.unlock() }
+            layout.onMoveLane { order.withLock { $0.append(step) } }
         }
         lane.sync {}
-        XCTAssertEqual(order, [1, 2, 3])
+        XCTAssertEqual(order.withLock { $0 }, [1, 2, 3])
         let inline = LayoutController(model: WindowModel(), parking: ParkingLot())
-        var ran = false
-        inline.onMoveLane { ran = true }
-        XCTAssertTrue(ran, "no lane: the work runs where it was asked")
+        let ran = Locked(false)
+        inline.onMoveLane { ran.withLock { $0 = true } }
+        XCTAssertTrue(ran.withLock { $0 }, "no lane: the work runs where it was asked")
     }
 }

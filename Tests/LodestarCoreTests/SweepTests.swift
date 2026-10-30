@@ -109,7 +109,8 @@ private final class SweepFakeWindows: WindowQuerying {
     }
 }
 
-private final class SweepFakeMover: WindowMoving {
+// Unchecked: these tests run it inline, on the test thread alone.
+private final class SweepFakeMover: WindowMoving, @unchecked Sendable {
     let model: SweepFakeWindows
     init(model: SweepFakeWindows) { self.model = model }
     func setFrame(_ window: WindowModel.Window, _ frame: CGRect) -> Bool {

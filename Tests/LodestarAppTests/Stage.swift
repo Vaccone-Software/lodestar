@@ -446,8 +446,17 @@ final class Stage {
         }
     }
 
-    /// The stand-in screen: 1920 by 1050, off every real display.
-    static let screen = NSRect(x: -40_000, y: -40_000, width: 1920, height: 1050)
+    /// The stand-in screen: 1920 by 1050, off every real display. It is the
+    /// one `Screens` answers with under a test run, so a surface that asks no
+    /// override for its screen is laid out here too.
+    static let screen = Screens.standIn
+
+    /// A display `width` by `height` that starts where the stand-in does: off
+    /// every real display, for a test that wants a smaller or larger screen
+    /// than the stand-in's own.
+    static func screen(_ width: CGFloat, _ height: CGFloat) -> NSRect {
+        NSRect(x: screen.minX, y: screen.minY, width: width, height: height)
+    }
 
     /// The stage that set the globals last. One stage can replace another
     /// (`stage = Stage()`): the new one's init runs before the old one's

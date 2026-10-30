@@ -629,7 +629,7 @@ final class SelectController {
         focusedFrame = frame
         self.appName = appName
         let mouse = NSEvent.mouseLocation
-        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        let primaryHeight = Screens.primaryHeight
         let read = Displays.display(containing: frame)?.bounds ?? frame
         pointerOnWindow = read.contains(CGPoint(x: mouse.x, y: primaryHeight - mouse.y))
         generation += 1

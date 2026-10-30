@@ -131,7 +131,7 @@ final class SelectOverlay {
         }
         clear()
         present(over: windowFrame)
-        guard let primary = NSScreen.screens.first else { return }
+        guard let primary = Screens.primary else { return }
         let primaryHeight = primary.frame.maxY
         let made = Self.compose(
             chips: chips, anchor: anchor, typed: typed, bounds: NSRect(origin: .zero, size: panel.frame.size),
@@ -241,7 +241,7 @@ final class SelectOverlay {
         defer { CATransaction.commit() }
         clear()
         present(over: windowFrame)
-        guard let primary = NSScreen.screens.first else { return }
+        guard let primary = Screens.primary else { return }
         let primaryHeight = primary.frame.maxY
         for rect in spans {
             let appKit = NSRect(x: rect.minX - panel.frame.minX,
@@ -268,7 +268,7 @@ final class SelectOverlay {
     }
 
     private func present(over windowFrame: CGRect) {
-        guard let primary = NSScreen.screens.first else { return }
+        guard let primary = Screens.primary else { return }
         let primaryHeight = primary.frame.maxY
         let appKit = NSRect(x: windowFrame.minX,
                             y: primaryHeight - windowFrame.maxY,

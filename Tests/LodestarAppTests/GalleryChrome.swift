@@ -14,7 +14,7 @@ enum GalleryChrome {
 
     static func pill(_ state: ModePill.State) throws -> (NSView, [AnyObject]) {
         var made: ModePill?
-        return try withPresentationFrame(NSRect(x: 0, y: 0, width: 1200, height: 800)) {
+        return try withPresentationFrame(Stage.screen(1200, 800)) {
             try GalleryHost.surface(made: {
                 made = ModePill()
                 made?.show(state)
@@ -32,7 +32,7 @@ enum GalleryChrome {
         // On the stand-in display, as every stage's: off every real one, so
         // the chip stands where the harness put it and not where a smaller
         // display would have moved it.
-        try withPresentationFrame(NSRect(x: Stage.screen.minX, y: Stage.screen.minY, width: 1200, height: 800)) {
+        try withPresentationFrame(Stage.screen(1200, 800)) {
             try GalleryHost.surface(made: { [MeetingController.preview(0, startingIn: offset, title: title)] },
                                     where: { $0 is KeyablePanel })
         }
@@ -41,14 +41,14 @@ enum GalleryChrome {
     // MARK: - The draft
 
     static func draft(_ variant: Int) throws -> (NSView, [AnyObject]) {
-        try withPresentationFrame(NSRect(x: 0, y: 0, width: 1600, height: 1000)) {
+        try withPresentationFrame(Stage.screen(1600, 1000)) {
             try GalleryHost.surface(made: { [DraftPanel.preview(variant)] }, settle: 0.2)
         }
     }
 
     /// The editor's lens: words marked in the accent, standing in normal mode.
     static func lens() throws -> (NSView, [AnyObject]) {
-        try withPresentationFrame(NSRect(x: 0, y: 0, width: 1600, height: 1000)) {
+        try withPresentationFrame(Stage.screen(1600, 1000)) {
             try GalleryHost.surface(made: {
                 let panel = DraftPanel()
                 let text = "The quick brown fox jumps over the lazy dog, definately twice."
@@ -70,7 +70,7 @@ enum GalleryChrome {
 
     private static func hud(_ show: @escaping (HUD) -> Void) throws -> (NSView, [AnyObject]) {
         var made: HUD?
-        return try withPresentationFrame(NSRect(x: 0, y: 0, width: 1400, height: 900)) {
+        return try withPresentationFrame(Stage.screen(1400, 900)) {
             try GalleryHost.surface(made: {
                 made = HUD()
                 show(made!)
@@ -139,7 +139,7 @@ enum GalleryChrome {
     // MARK: - Feedback and the walk
 
     static func feedback(_ index: Int) throws -> (NSView, [AnyObject]) {
-        try withPresentationFrame(NSRect(x: 0, y: 0, width: 1400, height: 900)) {
+        try withPresentationFrame(Stage.screen(1400, 900)) {
             try GalleryHost.surface(made: { [FeedbackController.preview(index)] }, settle: 0.4,
                                     where: { $0 is KeyablePanel })
         }
@@ -148,7 +148,7 @@ enum GalleryChrome {
     static func walk(_ index: Int) throws -> (NSView, [AnyObject]) {
         var config = Config()
         config.graph = Stage.graph()
-        return try withPresentationFrame(NSRect(x: 0, y: 0, width: 1400, height: 900)) {
+        return try withPresentationFrame(Stage.screen(1400, 900)) {
             try GalleryHost.surface(made: { [WalkController.preview(index, config: config)] }, settle: 0.4)
         }
     }

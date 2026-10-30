@@ -76,7 +76,7 @@ final class EditorHover: NSObject {
 
     static func systemPointer() -> CGPoint {
         let location = NSEvent.mouseLocation
-        let height = NSScreen.screens.first?.frame.maxY ?? 0
+        let height = Screens.primaryHeight
         return CGPoint(x: location.x, y: height - location.y)
     }
 
@@ -209,9 +209,9 @@ final class EditorHover: NSObject {
         // Just above the word, so the pointer resting on it is a few points
         // from every answer and the lines being written stay in sight;
         // below it when the screen ends first.
-        guard let primary = NSScreen.screens.first else { return }
+        guard let primary = Screens.primary else { return }
         let height = primary.frame.maxY
-        let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: mark.rect.midX, y: height - mark.rect.midY)) }
+        let screen = Screens.all.first { $0.frame.contains(NSPoint(x: mark.rect.midX, y: height - mark.rect.midY)) }
             ?? primary
         var top = (mark.rect.minY - Grid.close - size.height).rounded()
         if top < height - screen.visibleFrame.maxY { top = (mark.rect.maxY + Grid.close).rounded() }

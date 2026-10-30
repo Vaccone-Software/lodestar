@@ -306,9 +306,7 @@ final class ScrollController {
         if windowFrame.height > 10 { return windowFrame }
         // Cold entry, window still unknown: the screen under the pointer
         // is the honest stand-in, so half-page verbs still mean something.
-        if let screen = NSScreen.screens.first(where: {
-            NSMouseInRect(NSEvent.mouseLocation, $0.frame, false)
-        }) ?? NSScreen.main {
+        if let screen = Screens.screen(containing: NSEvent.mouseLocation) ?? Screens.main {
             return screen.visibleFrame
         }
         return windowFrame

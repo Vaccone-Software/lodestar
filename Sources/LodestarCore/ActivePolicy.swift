@@ -23,9 +23,8 @@ public enum ActivePolicy {
         set { state.withLock { $0.mode = newValue } }
     }
 
-    /// The active display as an NSScreen, for panel positioning
-    /// (AppKit coordinates). NSScreenNumber is the CGDirectDisplayID.
-    public static func appKitScreen(fallbackFrom layout: LayoutController?) -> NSScreen? {
+    /// The active display, for panel positioning (AppKit coordinates).
+    public static func appKitScreen(fallbackFrom layout: LayoutController?) -> Screens.Screen? {
         if mode == .pointer, let location = CGEvent(source: nil)?.location,
            let display = Displays.display(containing: CGRect(origin: location, size: CGSize(width: 1, height: 1))),
            let screen = screen(for: display.id) {
@@ -34,13 +33,11 @@ public enum ActivePolicy {
         if let display = layout?.activeDisplay(), let screen = screen(for: display.id) {
             return screen
         }
-        return NSScreen.main ?? NSScreen.screens.first
+        return Screens.main ?? Screens.primary
     }
 
-    public static func screen(for id: CGDirectDisplayID) -> NSScreen? {
-        NSScreen.screens.first {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == id
-        }
+    public static func screen(for id: CGDirectDisplayID) -> Screens.Screen? {
+        Screens.screen(for: id)
     }
 
     /// Shared by every panel: the visible frame to center on.
@@ -56,7 +53,7 @@ public enum ActivePolicy {
         if let cached = state.withLock({ $0.cachedPresentation }), now.timeIntervalSince(cached.at) < 0.25 {
             return cached.frame
         }
-        let frame = (appKitScreen(fallbackFrom: nil) ?? NSScreen.screens.first)?.visibleFrame
+        let frame = (appKitScreen(fallbackFrom: nil) ?? Screens.primary)?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         state.withLock { $0.cachedPresentation = (frame, now) }
         return frame

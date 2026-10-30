@@ -2339,7 +2339,7 @@ extension HotkeyEngine: EngineWorld {
     private func recordCaretCover() {
         guard let layout = strip.lastLayout else { return }
         let block = layout.places.values.reduce(layout.bar) { $0.union($1) }
-        let primary = NSScreen.screens.first?.frame.height ?? 0
+        let primary = Screens.primary?.frame.height ?? 0
         let read = caretCover
         DispatchQueue.global(qos: .utility).async {
             let verdict = read(block, primary)

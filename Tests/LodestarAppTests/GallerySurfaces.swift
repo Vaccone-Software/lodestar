@@ -305,9 +305,8 @@ enum GalleryHost {
     /// no longer (`settle`). A fixed beat was what this waited on once, and it
     /// was a guess at how long a desk took: on a runner half as fast it was
     /// over before the surface was made, and on a desk it was most of the
-    /// time. `beat` is accepted so the builders that still pass one need not
-    /// change; it is not waited for.
-    static func surface(made body: () -> [AnyObject], settle beat: TimeInterval = 0,
+    /// time.
+    static func surface(made body: () -> [AnyObject],
                         where match: (NSWindow) -> Bool = { _ in true },
                         frame: NSRect? = nil) throws -> (NSView, [AnyObject]) {
         DisplayScale.pin()

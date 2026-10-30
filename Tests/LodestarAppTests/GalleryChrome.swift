@@ -42,7 +42,7 @@ enum GalleryChrome {
 
     static func draft(_ variant: Int) throws -> (NSView, [AnyObject]) {
         try withPresentationFrame(Stage.screen(1600, 1000)) {
-            try GalleryHost.surface(made: { [DraftPanel.preview(variant)] }, settle: 0.2)
+            try GalleryHost.surface(made: { [DraftPanel.preview(variant)] })
         }
     }
 
@@ -62,7 +62,7 @@ enum GalleryChrome {
                 view.editorMarks = [marked]
                 panel.show(view)
                 return [panel]
-            }, settle: 0.2)
+            })
         }
     }
 
@@ -140,7 +140,7 @@ enum GalleryChrome {
 
     static func feedback(_ index: Int) throws -> (NSView, [AnyObject]) {
         try withPresentationFrame(Stage.screen(1400, 900)) {
-            try GalleryHost.surface(made: { [FeedbackController.preview(index)] }, settle: 0.4,
+            try GalleryHost.surface(made: { [FeedbackController.preview(index)] },
                                     where: { $0 is KeyablePanel })
         }
     }
@@ -149,7 +149,7 @@ enum GalleryChrome {
         var config = Config()
         config.graph = Stage.graph()
         return try withPresentationFrame(Stage.screen(1400, 900)) {
-            try GalleryHost.surface(made: { [WalkController.preview(index, config: config)] }, settle: 0.4)
+            try GalleryHost.surface(made: { [WalkController.preview(index, config: config)] })
         }
     }
 

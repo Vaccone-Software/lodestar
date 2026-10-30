@@ -47,3 +47,10 @@ ci OCRSenseTests.testTerminalStyleLightOnDarkReads
 # MLX needs a GPU, and a hosted runner's virtual machine has none.
 ci QwenEarTests.*
 ci EditorRandomStateTests.*
+
+# The timing lane (TimingLane.swift in each test target, the one place a test
+# learns where it runs). Anything with a delay is tested on a clock the test
+# owns, everywhere. What is left is a property that is about real time: how
+# long a real thread, queue or search really takes. A runner shared by every
+# shard cannot give that, so the desk must run these and CI may not. One per
+# component.

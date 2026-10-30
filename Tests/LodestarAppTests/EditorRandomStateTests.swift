@@ -1,4 +1,3 @@
-import Metal
 import MLX
 import XCTest
 @testable import lodestar
@@ -19,8 +18,7 @@ final class EditorRandomStateTests: XCTestCase {
         // process with it, silently, along with every test of its shard
         // that had not run yet. This measures Apple silicon's allocator;
         // it is not something a runner could tell us.
-        try XCTSkipIf(MTLCreateSystemDefaultDevice() == nil || ProcessInfo.processInfo.environment["CI"] != nil,
-                      "needs a GPU, which a hosted runner does not have")
+        try TimingLane.requireGPU()
         EditorModel.settleRandomState()
         let before = inUse()
         for _ in 0..<5_000 { _ = MLXRandom.globalState.next() }   // a load's worth, several times over

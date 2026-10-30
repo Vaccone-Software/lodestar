@@ -10,7 +10,7 @@ import Foundation
 /// recoverable from a day's rows. Which is why the record stays on the
 /// machine and any export is a consented step (DESIGN, the bouts
 /// paragraph).
-public struct KeyPress: Codable, Equatable {
+public struct KeyPress: Codable, Equatable, Sendable {
     public var down: Date
     /// Press to release, seconds. Nil when the release was never seen —
     /// the tap dropped it, or the press was still down when the tap
@@ -84,7 +84,7 @@ extension Keys {
     /// Which hand a physical position belongs to under touch typing. The
     /// keycodes are positions, so this survives Dvorak and Colemak; a
     /// split keyboard sends the same positions.
-    public enum Hand: UInt8, Codable, CaseIterable {
+    public enum Hand: UInt8, Codable, CaseIterable, Sendable {
         case other = 0
         case left = 1
         case right = 2
@@ -94,7 +94,7 @@ extension Keys {
 
     /// What kind of key a position is: enough to include or exclude a
     /// class, never enough to name a key.
-    public enum Kind: UInt8, Codable, CaseIterable {
+    public enum Kind: UInt8, Codable, CaseIterable, Sendable {
         case other = 0
         case letter = 1
         case digit = 2
@@ -127,7 +127,7 @@ extension Keys {
     /// ⌃ and ⇧ to the pinky, ⌥ to the ring finger, ⌘ to the thumb.
     /// Positions the convention does not cover (arrows, function keys)
     /// stay unknown rather than guessed.
-    public enum Finger: UInt8, Codable, CaseIterable {
+    public enum Finger: UInt8, Codable, CaseIterable, Sendable {
         case unknown = 0
         case thumb = 1
         case index = 2
@@ -138,7 +138,7 @@ extension Keys {
 
     /// The modifier keys, as a set: which were down when a key was
     /// struck, or which one a modifier's own record is.
-    public struct Modifiers: OptionSet, Codable, Equatable, Hashable {
+    public struct Modifiers: OptionSet, Codable, Equatable, Hashable, Sendable {
         public let rawValue: UInt8
         public init(rawValue: UInt8) { self.rawValue = rawValue }
         public static let command = Modifiers(rawValue: 1)

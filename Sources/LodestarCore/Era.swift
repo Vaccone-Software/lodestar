@@ -7,7 +7,7 @@ import Foundation
 /// from a log afterwards; this is the marker. One `era` event at boot
 /// when anything here differs from the last one written, and the
 /// monthly rollup keeps the set of builds it saw.
-public struct EraInfo: Codable, Equatable {
+public struct EraInfo: Codable, Equatable, Sendable {
     public var appVersion: String
     public var keySchema: Int
     public var pointerSchema: Int
@@ -118,7 +118,7 @@ public enum ReportInterval: Codable, Equatable, Sendable {
 
 /// One screen: what a pixel is, so a reach measured in points can be
 /// read in millimetres on any display it ran on.
-public struct DisplayInfo: Codable, Equatable {
+public struct DisplayInfo: Codable, Equatable, Sendable {
     public var width: Int
     public var height: Int
     public var scale: Double
@@ -140,7 +140,7 @@ public struct DisplayInfo: Codable, Equatable {
 /// swap does: the repeat delay and rate define what a repeated press is,
 /// the tracking speeds scale every delta into points, and the rest
 /// change which act a click or a scroll was.
-public struct InputSettings: Codable, Equatable {
+public struct InputSettings: Codable, Equatable, Sendable {
     public var keyRepeat: Double?
     public var initialKeyRepeat: Double?
     public var mouseScaling: Double?

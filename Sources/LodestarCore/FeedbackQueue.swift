@@ -273,7 +273,7 @@ public actor FeedbackQueue {
 
     private func deliver(_ outbox: Outbox<FeedbackEntry>, why: String) async {
         do {
-            let report = try await outbox.deliverPending { entry in try await self.attempt(entry) }
+            let report = try await outbox.deliverPending { @Sendable entry in try await self.attempt(entry) }
             if report.wasAlreadyRunning {
                 // A Send is attending to its note, and will see to the rest.
                 Log.info("feedback", ["run": why, "skipped": "busy", "pending": report.remaining])

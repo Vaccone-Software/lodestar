@@ -36,7 +36,7 @@ public enum Displays {
         allBounds().reduce(.null) { $0.union($1) }
     }
 
-    public struct DisplayInfo: Equatable {
+    public struct DisplayInfo: Equatable, Sendable {
         public let id: CGDirectDisplayID
         public let bounds: CGRect
     }

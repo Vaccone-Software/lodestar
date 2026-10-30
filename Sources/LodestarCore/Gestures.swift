@@ -5,7 +5,7 @@ import Foundation
 /// disables by key, so each name maps to the idle-state keys the verb
 /// owns and shifted variants ride along with their key.
 public enum Gestures {
-    public struct Verb {
+    public struct Verb: Sendable {
         public let name: String
         public let keys: [String]
         public let about: String

@@ -141,18 +141,18 @@ public enum ClipSecret {
 
     // MARK: - Known formats
 
-    struct Format {
+    struct Format: Sendable {
         let pattern: NSRegularExpression
         /// How much of a match is the format's own prefix, which stays.
-        let prefix: (String) -> Int
+        let prefix: @Sendable (String) -> Int
         /// A last word on the body, for prefixes a name could also start with.
-        let accepts: (String) -> Bool
+        let accepts: @Sendable (String) -> Bool
     }
 
     /// A key that starts with one of these is a key: the providers chose
     /// the prefixes so that scanners like this one could find them.
     private static let formats: [Format] = {
-        func format(_ prefixes: [String], body: String, accepts: @escaping (String) -> Bool = { _ in true }) -> Format {
+        func format(_ prefixes: [String], body: String, accepts: @escaping @Sendable (String) -> Bool = { _ in true }) -> Format {
             let alternation = prefixes.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
             let pattern = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_\-])(?:"# + alternation + ")" + body)
             return Format(pattern: pattern, prefix: { match in

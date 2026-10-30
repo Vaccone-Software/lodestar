@@ -1,6 +1,19 @@
 import ApplicationServices
 import CoreGraphics
 
+/// An accessibility element is an opaque, immutable handle: a reference to an
+/// object in another process, whose every question is a message to that
+/// process. The type is not marked `Sendable` by the SDK, and the model
+/// holds the same elements on main and on the per-app queues that read them
+/// (`WindowModel`), the layout's move lane and the observer's callbacks, so
+/// the conformance is stated here, once, rather than at each of those.
+///
+/// What this does not promise: that the other process answers promptly (see
+/// `setGlobalAXTimeout`) or that the element is still live. It promises that
+/// the handle itself, which has no state of ours to race on, may be passed
+/// between threads.
+extension AXUIElement: @retroactive @unchecked Sendable {}
+
 /// Thin, synchronous wrappers over the C Accessibility API.
 ///
 /// Known trap: every one of these calls blocks on the target app's event

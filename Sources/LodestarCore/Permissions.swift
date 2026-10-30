@@ -12,7 +12,9 @@ public enum Permissions {
     /// Like `isTrusted`, but asks macOS to show the grant prompt when not.
     @discardableResult
     public static func requestIfNeeded() -> Bool {
-        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        // The value of `kAXTrustedCheckOptionPrompt`, which the SDK declares as
+        // a mutable global and so cannot be read from concurrent code.
+        let key = "AXTrustedCheckOptionPrompt"
         return AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 

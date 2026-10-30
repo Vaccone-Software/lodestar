@@ -74,7 +74,7 @@ struct MigrationFailure: Error {
 
 /// What sealing one clip's files counted, merged into the report by the caller
 /// (clips are sealed on several threads at once).
-struct ImportStats {
+struct ImportStats: Sendable {
     var bytes: Int64 = 0
     var missing = 0
     var unreadable = 0
@@ -273,48 +273,54 @@ enum ClipboardMigration {
     /// Every clip, in parallel, in the order given. The first failure stops the rest.
     private static func importAll(_ clips: [Clipboard.Clip], from root: URL, into files: ClipboardFiles,
                                   report: inout MigrationReport, leave: inout Set<String>) throws -> [ClipEntry] {
-        let lock = NSLock()
-        var entries = [ClipEntry?](repeating: nil, count: clips.count)
-        var failure: Error?
-        var stats = ImportStats()
-        var done = 0
+        // What the workers share, all of it behind one lock.
+        struct Shared {
+            var entries: [ClipEntry?]
+            var failure: (any Error)?
+            var stats = ImportStats()
+            var done = 0
+            var next = 0
+        }
+        let shared = Locked(Shared(entries: [ClipEntry?](repeating: nil, count: clips.count)))
         let chunk = 16
         let chunks = (clips.count + chunk - 1) / chunk
-        var next = 0
         // Four at a time: a clip can be 20 MB, and each worker holds a few copies of it.
         DispatchQueue.concurrentPerform(iterations: min(4, max(1, chunks))) { _ in
             while true {
-                let index: Int? = lock.withLock {
-                    guard failure == nil, next < chunks else { return nil }
-                    defer { next += 1 }
-                    return next
+                let index: Int? = shared.withLock { state in
+                    guard state.failure == nil, state.next < chunks else { return nil }
+                    defer { state.next += 1 }
+                    return state.next
                 }
                 guard let index else { return }
                 var local = ImportStats()
                 for position in (index * chunk)..<min(clips.count, (index + 1) * chunk) {
                     do {
                         let entry = try importClip(clips[position], from: root, into: files, stats: &local)
-                        lock.withLock { entries[position] = entry }
+                        shared.withLock { $0.entries[position] = entry }
                     } catch {
-                        lock.withLock { failure = failure ?? error }
+                        shared.withLock { $0.failure = $0.failure ?? error }
                         return
                     }
                 }
-                lock.withLock {
-                    stats.add(local)
-                    done += min(clips.count, (index + 1) * chunk) - index * chunk
-                    if done / 1000 != (done - chunk) / 1000 {
-                        Log.info("clipboard: sealing the older history", ["done": done, "of": clips.count])
-                    }
+                // The line is written outside the lock: the log takes its own.
+                let progress: Int? = shared.withLock { state in
+                    state.stats.add(local)
+                    state.done += min(clips.count, (index + 1) * chunk) - index * chunk
+                    return state.done / 1000 != (state.done - chunk) / 1000 ? state.done : nil
+                }
+                if let progress {
+                    Log.info("clipboard: sealing the older history", ["done": progress, "of": clips.count])
                 }
             }
         }
-        if let failure { throw failure }
-        report.bytes += stats.bytes
-        report.missingFiles += stats.missing
-        report.unreadableFiles += stats.unreadable
-        leave.formUnion(stats.leave)
-        return entries.compactMap { $0 }
+        let result = shared.withLock { $0 }
+        if let failure = result.failure { throw failure }
+        report.bytes += result.stats.bytes
+        report.missingFiles += result.stats.missing
+        report.unreadableFiles += result.stats.unreadable
+        leave.formUnion(result.stats.leave)
+        return result.entries.compactMap { $0 }
     }
 
     /// Seal one clip's v1 files, and read them back. Throws when the sealed

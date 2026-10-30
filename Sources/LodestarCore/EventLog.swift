@@ -10,8 +10,8 @@ import StoicStore
 /// confound chain length with fluency, the raw signal was gone. Events keep
 /// the raw signal, so the views — and every model over them — can be
 /// rewritten and replayed against history instead of starting blind.
-public struct ObservationEvent: Codable, Equatable {
-    public enum Kind: String, Codable {
+public struct ObservationEvent: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
         /// A chain resolved: `chain` letters, `gaps` between its keys (index
         /// 0 is trigger→first letter), `peeked` if the map was up first.
         case chain
@@ -325,7 +325,11 @@ public struct ObservationEvent: Codable, Equatable {
 /// sealed only, `migrateLegacy` takes the plaintext files in, and with the
 /// key unavailable nothing is read, written, retired or deleted: events wait
 /// in memory (bounded) for the key.
-public final class EventLog {
+///
+/// Threads: `io` owns the buffer, the open journal and the counter (each is
+/// touched there only); `state` owns what callers on any thread read and
+/// write, the two settings and the pending flush.
+public final class EventLog: @unchecked Sendable {
     public static let defaultFile = Paths.data.appendingPathComponent("events.jsonl")
     /// The window handed to the recommendation pass: every generator's
     /// evidence joins live inside it, and a pass that decoded the whole
@@ -347,10 +351,16 @@ public final class EventLog {
     private let fileSystem: any FileSystem
     /// The ring's bound, in bytes: `Retention.behavioralBytes` for the
     /// real ring, and whatever a test needs to watch a month retire.
-    public var behavioralBound: Int64 = Retention.behavioralBytes
+    public var behavioralBound: Int64 {
+        get { state.withLock { _behavioralBound } }
+        set { state.withLock { _behavioralBound = newValue } }
+    }
     /// The behavioral ring stays out of backups, one file at a time. The
     /// health log is the part nothing can recompute, so it goes into them.
-    public var excludedFromBackup = true
+    public var excludedFromBackup: Bool {
+        get { state.withLock { _excludedFromBackup } }
+        set { state.withLock { _excludedFromBackup = newValue } }
+    }
     /// Owns `pending` and every touch of the files. Appends land here
     /// without waiting; the scheduled flush writes here without ever
     /// holding the main thread — the tap shares the main run loop, and a
@@ -359,8 +369,24 @@ public final class EventLog {
     /// through it, so callers keep their ordering guarantees.
     private let io = DispatchQueue(label: "lodestar.events", qos: .utility)
     private var pending: [ObservationEvent] = []
-    private var flushWork: DispatchWorkItem?
     private var droppedWhilePaused = 0
+
+    /// Read and written from any thread, so behind a lock of its own;
+    /// nothing is called while it is held.
+    private let state = NSLock()
+    private var _behavioralBound = Retention.behavioralBytes
+    private var _excludedFromBackup = true
+    private var flushWork: DispatchWorkItem?
+
+    /// Takes the scheduled flush, if there is one, off the books and
+    /// cancels it.
+    private func cancelScheduledFlush() {
+        state.withLock { () -> DispatchWorkItem? in
+            defer { flushWork = nil }
+            return flushWork
+        }?.cancel()
+    }
+
     /// The open month's journal, held between flushes. Touched on `io` only.
     private var live: LineJournal
 
@@ -395,16 +421,14 @@ public final class EventLog {
     /// Shutdown and tests want exactly this; the steady state never calls
     /// it — the scheduled flush stays off the calling thread entirely.
     public func flush() {
-        flushWork?.cancel()
-        flushWork = nil
+        cancelScheduledFlush()
         io.sync { self.flushLocked() }
     }
 
     /// The coalesced path: the write happens on `io`, and whoever
     /// scheduled it has long since moved on.
     public func flushSoon() {
-        flushWork?.cancel()
-        flushWork = nil
+        cancelScheduledFlush()
         io.async { self.flushLocked() }
     }
 
@@ -905,8 +929,7 @@ public final class EventLog {
     /// Delete the log: the live file, every shard, in either form. A
     /// person's explicit act; nothing here needs the key.
     public func clear() {
-        flushWork?.cancel()
-        flushWork = nil
+        cancelScheduledFlush()
         io.sync {
             pending = []
             live.close()
@@ -992,10 +1015,13 @@ public final class EventLog {
     }
 
     private func scheduleFlush() {
-        guard flushWork == nil else { return }
-        let work = DispatchWorkItem { [weak self] in self?.flushSoon() }
-        flushWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+        let work = state.withLock { () -> DispatchWorkItem? in
+            guard flushWork == nil else { return nil }
+            let item = DispatchWorkItem { [weak self] in self?.flushSoon() }
+            flushWork = item
+            return item
+        }
+        if let work { DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work) }
     }
 }
 

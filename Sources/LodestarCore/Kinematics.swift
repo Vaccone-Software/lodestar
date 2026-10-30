@@ -183,7 +183,7 @@ public struct Kinematics: Codable, Equatable {
 
 /// Reaches' profiles, folded: sums per quarter hour and per month, the
 /// way the pointer's other parts are kept.
-public struct KinMoments: Codable, Equatable {
+public struct KinMoments: Codable, Equatable, Sendable {
     public var n = 0
     public var secondsSum = 0.0
     public var rateSum = 0.0

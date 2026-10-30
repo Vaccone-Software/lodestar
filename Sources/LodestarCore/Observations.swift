@@ -14,7 +14,7 @@ import Foundation
 /// Everything here stays on this machine. The file records app names, graph
 /// letters, timings, and the hosts you open — never a window title, a URL
 /// path, a clipboard, or a typed query beyond its first two characters.
-public struct Observations: Codable, Equatable {
+public struct Observations: Codable, Equatable, Sendable {
     public static let currentVersion = 2
 
     /// A pause longer than this is not a recall event: chains wait
@@ -37,7 +37,7 @@ public struct Observations: Codable, Equatable {
     /// standard error forever, in constant space. Latencies go in as
     /// log-seconds — the scale where typing speed is additive and one
     /// interruption cannot drag an average.
-    public struct Moments: Codable, Equatable {
+    public struct Moments: Codable, Equatable, Sendable {
         public var n = 0
         public var sum = 0.0
         public var sumSq = 0.0
@@ -67,7 +67,7 @@ public struct Observations: Codable, Equatable {
     /// half-lives approximate the power-law forgetting kernel (ACT-R's
     /// base-level activation) without storing a single timestamp beyond the
     /// last touch.
-    public struct MultiScale: Codable, Equatable {
+    public struct MultiScale: Codable, Equatable, Sendable {
         public static let halfLives: [TimeInterval] = [86_400, 604_800, 6 * 604_800]
         public var values: [Double] = [0, 0, 0]
         public var at = Date.distantPast
@@ -100,7 +100,7 @@ public struct Observations: Codable, Equatable {
     /// Position matters because trigger→first-letter is recall while
     /// letter→letter is motor; the ordinal is the x-axis of the learning
     /// curve; the epoch scopes it to the binding that existed at the time.
-    public struct GapSample: Codable, Equatable {
+    public struct GapSample: Codable, Equatable, Sendable {
         /// log-seconds.
         public var log: Double
         /// 0 = trigger→first letter; n = the gap before letter n+1.
@@ -123,7 +123,7 @@ public struct Observations: Codable, Equatable {
         }
     }
 
-    public struct AddressRecord: Codable, Equatable {
+    public struct AddressRecord: Codable, Equatable, Sendable {
         public var completions = 0
         public var abandons = 0
         public var wrongKeys = 0
@@ -186,7 +186,7 @@ public struct Observations: Codable, Equatable {
         }
     }
 
-    public struct AppRecord: Codable, Equatable {
+    public struct AppRecord: Codable, Equatable, Sendable {
         public var graph = 0
         public var searcher = 0
         public var breath = 0
@@ -222,7 +222,7 @@ public struct Observations: Codable, Equatable {
     /// multi-scale usage for recency, running moments for costs — because
     /// the recommendation engine prices everything else from exactly these
     /// shapes and select must not be the register it cannot reason about.
-    public struct SelectRecord: Codable, Equatable {
+    public struct SelectRecord: Codable, Equatable, Sendable {
         public var completed = 0
         public var abandoned = 0
         public var ocr = 0
@@ -249,7 +249,7 @@ public struct Observations: Codable, Equatable {
         public init() {}
     }
 
-    public struct HostRecord: Codable, Equatable {
+    public struct HostRecord: Codable, Equatable, Sendable {
         public var count = 0
         /// Profile key → times it landed there.
         public var profiles: [String: Int] = [:]
@@ -275,7 +275,7 @@ public struct Observations: Codable, Equatable {
     /// then answered — accepted by the tap, declined outright, or adopted
     /// by hand later. This record is what lets the coach remember "no",
     /// pace itself, and eventually be scored against what it predicted.
-    public struct LedgerEntry: Codable, Equatable {
+    public struct LedgerEntry: Codable, Equatable, Sendable {
         /// kind:target — one entry per recommendation identity.
         public var id: String
         public var kind: String
@@ -335,7 +335,7 @@ public struct Observations: Codable, Equatable {
     /// ⌘K retarget, a settings change — read off the epoch log the way a
     /// coach accept's redirect is read off the ledger. The universal
     /// redirect: no road to a binding change may change a gesture cold.
-    public struct Redirect: Codable, Equatable {
+    public struct Redirect: Codable, Equatable, Sendable {
         /// The new chain's key.
         public var chain: String
         /// The week the move was seen, for the same cutoff every

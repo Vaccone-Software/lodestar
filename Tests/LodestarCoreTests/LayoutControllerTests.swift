@@ -25,7 +25,8 @@ private final class FakeWindows: WindowQuerying {
     }
 }
 
-private final class FakeMover: WindowMoving {
+// Unchecked: these tests run it inline, on the test thread alone.
+private final class FakeMover: WindowMoving, @unchecked Sendable {
     let model: FakeWindows
     var frameSets: [(id: CGWindowID, frame: CGRect)] = []
     var positionSets: [(id: CGWindowID, point: CGPoint)] = []

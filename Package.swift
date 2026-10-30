@@ -52,6 +52,11 @@ let package = Package(
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicSealedKeychain", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
+        ], swiftSettings: [
+            // Swift 6 language mode for Core alone: its data races are
+            // compile errors. Every other target is still Swift 5 (see
+            // swiftLanguageModes below) and moves when it is clean.
+            .swiftLanguageMode(.v6),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a
         // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core
@@ -117,6 +122,6 @@ let package = Package(
         ], swiftSettings: [.enableExperimentalFeature("SymbolLinkageMarkers")]),
     ],
     // Tools 6.1 for the Crypto trait; the code stays in Swift 5 mode, as it
-    // was under tools 5.9.
+    // was under tools 5.9, except LodestarCore (its own swiftSettings).
     swiftLanguageModes: [.v5]
 )

@@ -76,7 +76,7 @@ public enum Lodestar {
 /// pure Data transforms so they are testable without a filesystem.
 public enum StateMigrations {
     /// version → transform lifting that version to the next.
-    static var steps: [Int: (inout [String: Any]) -> Void] = [:]
+    static let steps: [Int: @Sendable (inout [String: Any]) -> Void] = [:]
 
     /// Lift raw state JSON to the current version. Returns the data
     /// unchanged when it is already current or unreadable (the caller's

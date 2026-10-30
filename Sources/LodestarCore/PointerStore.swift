@@ -29,7 +29,10 @@ import StoicStore
 /// What the deltas are has not been measured against the device: they
 /// are the integer movement fields of each event, which may already carry
 /// the system's acceleration (DESIGN, the pointer).
-public final class PointerStore {
+///
+/// Threads: `lock` guards the buffer, the drop count and the install's
+/// name (any thread appends); `queue` owns `writer` and every file.
+public final class PointerStore: @unchecked Sendable {
     public static let version: UInt16 = 2
     public static let recordSize = 16
     public static let sampleSize = 6
@@ -39,7 +42,7 @@ public final class PointerStore {
     static let prefix = "pointer"
 
     /// Who pressed the button.
-    public enum Source: UInt8, Codable, Equatable {
+    public enum Source: UInt8, Codable, Equatable, Sendable {
         case unknown = 0
         /// A hand, by the event's provenance.
         case human = 1
@@ -50,13 +53,13 @@ public final class PointerStore {
     }
 
     /// What the button was on.
-    public enum DeviceKind: UInt8, Codable, Equatable {
+    public enum DeviceKind: UInt8, Codable, Equatable, Sendable {
         case unknown = 0
         case trackpad = 1
         case mouse = 2
     }
 
-    public struct Sample: Equatable {
+    public struct Sample: Equatable, Sendable {
         /// Seconds since the previous sample, or since the reach's start
         /// for the first.
         public var dt: Double
@@ -69,7 +72,7 @@ public final class PointerStore {
         }
     }
 
-    public enum Record: Equatable {
+    public enum Record: Equatable, Sendable {
         case reach(start: Date, screen: Int, samples: [Sample], end: Date)
         /// Motion that pressed nothing: it rested, or a button was held
         /// (`held`, a drag).

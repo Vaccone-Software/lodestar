@@ -3,7 +3,7 @@ import CoreGraphics
 /// The one gate through which lodestar moves windows. Production goes to
 /// AX; tests substitute a recorder so layout logic is exercised without a
 /// window server.
-public protocol WindowMoving: AnyObject {
+public protocol WindowMoving: AnyObject, Sendable {
     @discardableResult func setFrame(_ window: WindowModel.Window, _ frame: CGRect) -> Bool
     @discardableResult func setPosition(_ window: WindowModel.Window, _ point: CGPoint) -> Bool
     func raise(_ window: WindowModel.Window)
@@ -31,16 +31,16 @@ public final class AXMover: WindowMoving {
 
 /// Displays as layout logic sees them — injectable so tests can plug and
 /// unplug monitors at will.
-public struct DisplayOracle {
-    public var ordered: () -> [Displays.DisplayInfo]
-    public var visibleFrame: (CGRect) -> CGRect
-    public var displayContaining: (CGRect) -> Displays.DisplayInfo?
-    public var uuid: (CGDirectDisplayID) -> String?
+public struct DisplayOracle: Sendable {
+    public var ordered: @Sendable () -> [Displays.DisplayInfo]
+    public var visibleFrame: @Sendable (CGRect) -> CGRect
+    public var displayContaining: @Sendable (CGRect) -> Displays.DisplayInfo?
+    public var uuid: @Sendable (CGDirectDisplayID) -> String?
 
-    public init(ordered: @escaping () -> [Displays.DisplayInfo],
-                visibleFrame: @escaping (CGRect) -> CGRect,
-                displayContaining: @escaping (CGRect) -> Displays.DisplayInfo?,
-                uuid: @escaping (CGDirectDisplayID) -> String?) {
+    public init(ordered: @escaping @Sendable () -> [Displays.DisplayInfo],
+                visibleFrame: @escaping @Sendable (CGRect) -> CGRect,
+                displayContaining: @escaping @Sendable (CGRect) -> Displays.DisplayInfo?,
+                uuid: @escaping @Sendable (CGDirectDisplayID) -> String?) {
         self.ordered = ordered
         self.visibleFrame = visibleFrame
         self.displayContaining = displayContaining

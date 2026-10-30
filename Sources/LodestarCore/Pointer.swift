@@ -249,7 +249,7 @@ public struct PointerTracker: Equatable {
 /// clicks, the shape the click pulse carries per app and quarter hour
 /// and the rollup keeps per app and month. Seconds and points, never a
 /// position.
-public struct PointerMoments: Codable, Equatable {
+public struct PointerMoments: Codable, Equatable, Sendable {
     /// Presses that closed a measured reach.
     public var n = 0
     public var travelSum = 0.0

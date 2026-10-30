@@ -193,13 +193,11 @@ final class EditorRig {
     /// Another beat on the same field.
     func beat() { controller.receive(source.field) }
 
-    /// Spin the main queue until `condition` holds, or fail after a bound
-    /// of wall time: the fakes answer on a real queue.
-    /// How long the fakes' answers are waited for. A hosted runner is a
-    /// shared virtual machine with every shard running on it, and the
-    /// editor's work (a spell check over twenty thousand characters, on a
-    /// debug build) took past three seconds there.
-    static let patience: TimeInterval = ProcessInfo.processInfo.environment["CI"] != nil ? 20 : 3
+    /// Spin the main queue until `condition` holds: the fakes answer on a
+    /// real queue, and what is waited for is the answer, whenever it comes.
+    /// The minute is a hang guard and no bound on how long the editor may
+    /// take; it is the same on every machine.
+    static let patience: TimeInterval = 60
 
     func settle(_ what: String = "condition", within seconds: TimeInterval = EditorRig.patience,
                 file: StaticString = #filePath, line: UInt = #line, until condition: () -> Bool) {
@@ -596,7 +594,11 @@ final class EditorPrivacyTests: XCTestCase {
 final class EditorStallTests: XCTestCase {
     /// An app that stops answering accessibility costs the editor a beat
     /// and the main thread nothing: every call is on the editor's queue.
-    func testAStalledAppNeverHoldsTheMainThread() {
+    ///
+    /// The property is how long main was held against how long the app
+    /// stalled, so it is measured on a real clock and runs at the desk.
+    func testAStalledAppNeverHoldsTheMainThread() throws {
+        try TimingLane.require()
         let rig = EditorRig()
         rig.type("We need to recieve them.")          // the spell checker's first-use cost, paid here
         rig.settle("the mark") { rig.controller.lensMarks.count == 1 }

@@ -12,10 +12,17 @@ final class EyeComfortTests: XCTestCase {
 
     private let newYork = Coordinate(latitude: 40.7128, longitude: -74.0060)
     private let eastern = TimeZone(identifier: "America/New_York")!
+    /// Every wait here is on this clock, a whole number of seconds from a
+    /// round start, so a window ends exactly when the test says it does.
+    private let clock = VirtualClock(start: Date(timeIntervalSinceReferenceDate: 800_000_000))
 
     override func setUp() {
         off()
         GalleryLook.day.apply()
+        // The hand's last key is process-wide: another test's, on the wall's
+        // time, must not be a key in this clock's future.
+        Attention.key(at: .distantPast)
+        drive(EyeComfortController.shared)
     }
 
     override func tearDown() {
@@ -24,9 +31,48 @@ final class EyeComfortTests: XCTestCase {
         controller.now = Date.init
         controller.zone = { .current }
         controller.place = EyeComfortController.estimatedPlace
+        controller.every = EyeComfortController.timer
         off()
         GalleryLook.reset()
         Accessibility.reset()
+        Attention.key(at: .distantPast)
+    }
+
+    /// The level's five minute step on the test's clock.
+    private func drive(_ controller: EyeComfortController) {
+        let clock = self.clock
+        controller.every = { seconds, work in
+            var next: DispatchWorkItem?
+            var stopped = false
+            func schedule() {
+                let item = DispatchWorkItem {
+                    work()
+                    if !stopped { schedule() }
+                }
+                next = item
+                clock.clock.after(seconds, item)
+            }
+            schedule()
+            return { stopped = true; next?.cancel() }
+        }
+    }
+
+    /// A surface's count of how long it has been left alone, on the test's
+    /// clock: it recedes when the clock gets there, and not before.
+    private func drive(_ recess: Recess) {
+        let clock = self.clock
+        recess.now = { clock.now }
+        recess.after = { seconds, work in
+            let item = DispatchWorkItem(block: work)
+            clock.clock.after(seconds, item)
+            return { item.cancel() }
+        }
+    }
+
+    /// The observers that answer a notification hop to the main queue: turn
+    /// it until they have, a turn at a time and not a second at a time.
+    private func turn(until done: @autoclosure () -> Bool) {
+        for _ in 0..<1000 where !done() { Stage.pump() }
     }
 
     private func off() { EyeComfortState.shared.set(enabled: false, level: 1) }
@@ -49,8 +95,6 @@ final class EyeComfortTests: XCTestCase {
     }
 
     private func contrast(_ a: RGB, _ b: RGB) -> Double { Readability.contrast(a.luminance, b.luminance) }
-
-    private func spin(_ seconds: TimeInterval = 0.08) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
     // MARK: - One place
 
@@ -111,6 +155,7 @@ final class EyeComfortTests: XCTestCase {
         XCTAssertEqual(BarTheme.palette, Palette.clay)
         // Nothing recedes: a pill left alone keeps its inks.
         let pill = ModePill()
+        drive(pill.recess)
         pill.recess.idle = 0
         pill.show(.init(mode: .scroll, app: "Notes", icon: nil, listening: false, text: nil))
         pill.recess.idled()
@@ -196,21 +241,35 @@ final class EyeComfortTests: XCTestCase {
         XCTAssertEqual(controller.watchingEvery, 300, "a step every five minutes")
         XCTAssertEqual(EyeComfortState.shared.level, 1)
 
+        // The step itself: the evening comes, and the level follows at the
+        // next five minute mark and not before.
+        instant = night()
+        clock.advance(by: 299)
+        XCTAssertEqual(EyeComfortState.shared.level, 1, "four minutes and 59 seconds in")
+        clock.advance(by: 1)
+        XCTAssertEqual(EyeComfortState.shared.level, 0.8, accuracy: 0.001, "at the five minute mark")
+        instant = noon()
+        clock.advance(by: 300)
+        XCTAssertEqual(EyeComfortState.shared.level, 1, "and the next")
+
         instant = night()
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
-        spin()
+        turn(until: EyeComfortState.shared.level != 1)
         XCTAssertEqual(EyeComfortState.shared.level, 0.8, accuracy: 0.001, "on waking")
 
         instant = noon()
         NotificationCenter.default.post(name: .NSSystemClockDidChange, object: nil)
-        spin()
+        turn(until: EyeComfortState.shared.level == 1)
         XCTAssertEqual(EyeComfortState.shared.level, 1, "on a clock change")
 
         instant = night()
+        NotificationCenter.default.post(name: .NSSystemClockDidChange, object: nil)
+        turn(until: EyeComfortState.shared.level != 1)
+        XCTAssertEqual(EyeComfortState.shared.level, 0.8, accuracy: 0.001, "night in New York again")
         tz = TimeZone(identifier: "Asia/Tokyo")!
         place = Coordinate(latitude: 35.68, longitude: 139.65)
         NotificationCenter.default.post(name: .NSSystemTimeZoneDidChange, object: nil)
-        spin()
+        turn(until: EyeComfortState.shared.level == 1)
         XCTAssertEqual(EyeComfortState.shared.level, 1, "on a zone change: it is the next morning there")
     }
 
@@ -295,6 +354,7 @@ final class EyeComfortTests: XCTestCase {
                 look.apply()
                 on(level)
                 let pill = ModePill()
+                drive(pill.recess)
                 pill.recess.idle = 0
                 pill.show(scroll)
                 let full = BarTheme.steps(for: NSAppearance(named: look.appearance)!)
@@ -334,13 +394,14 @@ final class EyeComfortTests: XCTestCase {
     func testAKeyBringsTheRecededPillBackAndAHoverDoesToo() {
         on(0.88)
         let pill = ModePill()
+        drive(pill.recess)
         pill.recess.idle = 0
         pill.show(scroll)
         pill.recess.idled()
         XCTAssertTrue(pill.recess.receded)
-        pill.recess.idle = 60  // so the count that starts again does not run out inside the test
-        Attention.key()
-        spin()
+        pill.recess.idle = 60  // so the count that starts again is a minute long
+        Attention.key(at: clock.now)
+        turn(until: !pill.recess.receded)
         XCTAssertFalse(pill.recess.receded, "a key anywhere Lodestar listens")
 
         pill.recess.idle = 0
@@ -356,29 +417,29 @@ final class EyeComfortTests: XCTestCase {
         pill.hide()
     }
 
-    /// A surface left alone does recede by itself: the count runs, a key
-    /// pressed meanwhile starts it again, and the switch turning off brings
-    /// it back.
+    /// A surface left alone does recede by itself, after twenty seconds and
+    /// not before: the count runs, a key pressed meanwhile starts it again,
+    /// and the switch turning off brings it back.
     func testALeftAlonePillRecedesByItselfUnlessAKeyWasPressed() {
         on(0.88)
         let pill = ModePill()
-        // The count is driven, not waited for: `idled()` is what its timer
-        // calls, and what it decides is read off the clock against `idle`,
-        // so a window is as long as `idle` says (a wall clock with 30 ms to
-        // spare failed on a runner twice as slow as a desk).
-        pill.recess.idle = 60
+        drive(pill.recess)
         pill.show(scroll)
-        // A key at some moment inside the window puts the count back...
-        Attention.key(at: Date())
-        pill.recess.idled()
+        clock.advance(by: 19)
+        XCTAssertFalse(pill.recess.receded, "19 seconds alone")
+        // A key at some moment inside the window puts the count back: the
+        // window that ends at 20 s finds the key one second old...
+        Attention.key(at: clock.now)
+        clock.advance(by: 1)
         XCTAssertFalse(pill.recess.receded, "a key inside the window puts the count back")
-        // ...and with nothing since for the whole window, it recedes.
-        pill.recess.idle = 0
-        pill.recess.idled()
-        XCTAssertTrue(pill.recess.receded, "left alone for the whole window")
+        // ...and the count that starts again is the rest of that key's twenty seconds.
+        clock.advance(by: 18)
+        XCTAssertFalse(pill.recess.receded, "38 seconds in, 19 after the key")
+        clock.advance(by: 1)
+        XCTAssertTrue(pill.recess.receded, "left alone for twenty seconds after the key")
         EyeComfortState.shared.set(enabled: false, level: 1)
         NotificationCenter.default.post(name: .eyeComfortDidChange, object: nil)
-        spin()
+        turn(until: !pill.recess.receded)
         XCTAssertFalse(pill.recess.receded, "off puts it back at once")
         pill.hide()
     }
@@ -387,6 +448,7 @@ final class EyeComfortTests: XCTestCase {
         on(0.88)
         Accessibility.increaseContrast = { true }
         let pill = ModePill()
+        drive(pill.recess)
         pill.recess.idle = 0
         pill.show(scroll)
         pill.recess.idled()
@@ -402,6 +464,9 @@ final class EyeComfortTests: XCTestCase {
         // chip that has to wait for the run loop.
         let controller = MeetingController.staged(startingIn: 4 * 60)
         defer { controller.unstage() }
+        // The chip was shown, and its count begun, on the wall: begin it again on the test's clock.
+        drive(controller.recess)
+        controller.recess.touch()
         let root = controller.chipRoot
         XCTAssertEqual(controller.chipWords.first(where: { $0 == "Product sync" }), "Product sync")
         let full = BarTheme.palette

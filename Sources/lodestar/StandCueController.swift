@@ -21,10 +21,12 @@ final class StandCueController {
     var lastKeyAt: () -> Date = { .distantPast }
     var show: (_ sentence: String, _ detail: String, _ share: Double) -> Void = { _, _, _ in }
     var hide: (_ sentence: String) -> Void = { _ in }
-    /// The clock and the timer the controller reads, replaced by the tests.
-    var now: () -> Date = Date.init
-    var after: (_ seconds: TimeInterval, _ work: DispatchWorkItem) -> Void = { seconds, work in
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    /// The clock and the delay the controller reads, a test's own in the harness.
+    private let clock: Clock
+    private var now: () -> Date { clock.now }
+
+    init(clock: Clock = .live) {
+        self.clock = clock
     }
 
     private var cue = StandCue()
@@ -143,7 +145,7 @@ final class StandCueController {
             self.present(given)
         }
         settle = work
-        after(3, work)
+        clock.after(3, work)
     }
 
     /// The threshold follows the setting; a change starts the count over.

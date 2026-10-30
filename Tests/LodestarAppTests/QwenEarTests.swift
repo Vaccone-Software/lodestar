@@ -1,4 +1,3 @@
-import Metal
 import MLX
 import MLXNN
 import XCTest
@@ -11,8 +10,7 @@ final class QwenEarTests: XCTestCase {
     private func requireGPU() throws {
         // MLX runs on the GPU, and a hosted runner's virtual machine has
         // none: the first evaluation would take the whole shard down.
-        try XCTSkipIf(MTLCreateSystemDefaultDevice() == nil || ProcessInfo.processInfo.environment["CI"] != nil,
-                      "needs a GPU, which a hosted runner does not have")
+        try TimingLane.requireGPU()
     }
 
     // MARK: - Front end

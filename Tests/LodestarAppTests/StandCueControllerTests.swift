@@ -16,9 +16,9 @@ final class StandCueControllerTests: XCTestCase {
     private var enabled = true
 
     private func controller() -> StandCueController {
-        let stand = StandCueController()
-        stand.now = { [unowned self] in self.time }
-        stand.after = { [unowned self] _, work in self.settles.append(work) }
+        let stand = StandCueController(clock: Clock(
+            now: { [unowned self] in self.time },
+            after: { [unowned self] _, work in self.settles.append(work) }))
         stand.lastKeyAt = { [unowned self] in self.lastKey }
         stand.quiet = { [unowned self] in self.quiet }
         stand.draftOpen = { [unowned self] in self.draftOpen }
@@ -49,13 +49,6 @@ final class StandCueControllerTests: XCTestCase {
         for work in pending { work.perform() }
     }
 
-    private func drainMain() {
-        let drained = expectation(description: "main queue drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        // As long as a slow runner needs: the wait ends the moment main drains.
-        wait(for: [drained], timeout: 15)
-    }
-
     func testAnAppSwitchAfterThirtyMinutesShowsTheCue() {
         let stand = controller()
         stand.activated(pid: 101)
@@ -75,7 +68,7 @@ final class StandCueControllerTests: XCTestCase {
         time = time.addingTimeInterval(5)
         stand.keyPressed()
         XCTAssertEqual(hidden, [], "hiding is window work and must not run inside the tap")
-        drainMain()
+        Stage.pump()
         XCTAssertEqual(hidden, ["Thirty minutes without a break"])
     }
 

@@ -84,6 +84,12 @@ final class MainThreadWatchdog {
     /// the same. Injectable, so the decisions are tested without waiting.
     private let clock: AnyClock
     typealias Instant = AnyClock.Instant
+    /// How the watchdog's own thread waits between looks: the thread
+    /// sleeps. The clock above cannot be waited on from here (its sleep is
+    /// async, and this thread must not depend on the cooperative pool it
+    /// exists to outlive), so a test that owns the time replaces this with
+    /// a wait of its own, and the watchdog then looks exactly when it says.
+    private let pause: (TimeInterval) -> Void
     /// The queue asked: main, in the app. A test asks a queue it holds
     /// itself, because XCTest's main thread is not always free to answer
     /// inside a test, and a hold it did not make read as a ten second
@@ -99,8 +105,11 @@ final class MainThreadWatchdog {
     /// is caught only if it covers an ask, and the tap goes off in about
     /// a second.
     init(interval: TimeInterval = 0.5, ceiling: TimeInterval = 8, launchCeiling: TimeInterval = 60,
-         lateThreshold: TimeInterval = 1, clock: AnyClock = .suspending, target: DispatchQueue = .main) {
+         lateThreshold: TimeInterval = 1, clock: AnyClock = .suspending,
+         pause: @escaping (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+         target: DispatchQueue = .main) {
         self.clock = clock
+        self.pause = pause
         self.target = target
         self.interval = interval
         self.ceiling = ceiling
@@ -143,6 +152,9 @@ final class MainThreadWatchdog {
         return asked.duration(to: now) >= limit ? .stalled : .waiting
     }
 
+    /// How often a pending ask is looked at again.
+    static let step: TimeInterval = 0.05
+
     private func loop() {
         var limit = launchCeiling
         var launching = true
@@ -161,7 +173,7 @@ final class MainThreadWatchdog {
             // a prompt answer costs no more than the interval.
             var verdict = Verdict.waiting
             while running, verdict == .waiting {
-                Thread.sleep(forTimeInterval: 0.05)
+                pause(Self.step)
                 lock.lock()
                 let answer = answeredAt
                 lock.unlock()
@@ -180,7 +192,7 @@ final class MainThreadWatchdog {
             }
             limit = ceiling
             launching = false
-            Thread.sleep(forTimeInterval: interval)
+            pause(interval)
         }
     }
 }

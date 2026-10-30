@@ -62,7 +62,8 @@ struct Watched {
 }
 
 /// Fails the test that leaves a watched static changed, and puts it back so
-/// the next test does not inherit the leak.
+/// the next test does not inherit the leak. It fails a test that put a window
+/// on a real display too (OffScreenGuard).
 ///
 /// It wraps `XCTestCase.invokeTest`, which runs a test's `setUp`, the test,
 /// its teardown blocks and `tearDown`, so the check comes after every way a
@@ -109,13 +110,17 @@ enum LeakGuard {
         LeakRegistry.installFixtures()
         // And the process's settings are the suite's own, not the Mac's.
         LeakRegistry.pinEnvironment()
+        OffScreenGuard.watch()
         guard !installed, let method = class_getInstanceMethod(XCTestCase.self, #selector(XCTestCase.invokeTest)) else { return }
         installed = true
         typealias Invoke = @convention(c) (XCTestCase, Selector) -> Void
         let original = unsafeBitCast(method_getImplementation(method), to: Invoke.self)
         let block: @convention(block) (XCTestCase) -> Void = { test in
+            OffScreenGuard.begin()
             let leaks = leaks { original(test, #selector(XCTestCase.invokeTest)) }
-            for leak in leaks {
+            // A window on a real display is as much a leak as a static: it is
+            // the person at the desk who sees it (OffScreenGuard).
+            for leak in leaks + OffScreenGuard.violations() {
                 test.record(XCTIssue(type: .assertionFailure, compactDescription: leak,
                                      sourceCodeContext: XCTSourceCodeContext(location: XCTSourceCodeLocation(
                                         filePath: #filePath, lineNumber: #line))))

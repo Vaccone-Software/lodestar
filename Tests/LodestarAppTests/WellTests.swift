@@ -297,6 +297,9 @@ final class WellTests: XCTestCase {
                 if !text.holdsCaret { wrong.append("\(name): the text does not hold the caret") }
                 if mark.layer?.animationKeys() != nil { wrong.append("\(name): the caret is animated") }
             }
+            // The caret was taken to be looked at. It is given back, so that the picture every
+            // later sweep is served is the one that was built, with no caret in it.
+            picture.root.window?.makeFirstResponder(nil)
         }
         GallerySweep.expectNone(wrong, "every field is a well with the one caret")
         for surface in ["launcher", "ask", "commands", "settings", "feedback"] {

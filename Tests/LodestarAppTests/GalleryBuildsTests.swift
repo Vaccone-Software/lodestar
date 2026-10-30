@@ -81,6 +81,32 @@ final class GalleryBuildsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(seenCaret, 2, "and enough with a caret in them")
     }
 
+    /// A sweep that takes the caret to look at it gives it back, and the build
+    /// every later sweep is served is as it was: the same views, the same pixels.
+    func testACaretTakenForLookingAndGivenBackLeavesTheBuildAsItWas() throws {
+        func editable(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.isEditable, !field.isHidden, field.window != nil { return field }
+            for sub in view.subviews { if let found = editable(in: sub) { return found } }
+            return nil
+        }
+        var checked = 0
+        for picture in GallerySweep.pictures(looks: [.day], drawing: true, where: { $0.level == 1 && !$0.receded }) {
+            guard GalleryBuilds.isQuiet((picture.root, picture.keep)), let field = editable(in: picture.root),
+                  let window = field.window else { continue }
+            let drawn = pixels(picture.root)
+            let before = GalleryHost.appearance(of: [window])
+            XCTAssertTrue(window.makeFirstResponder(field), "\(picture.name) takes the caret")
+            GalleryHost.settle(window)
+            window.makeFirstResponder(nil)
+            GalleryHost.settle(window)
+            XCTAssertEqual(GalleryHost.appearance(of: [window]), before, "\(picture.name) stands as it was built")
+            XCTAssertEqual(pixels(picture.root), drawn, "\(picture.name) draws as it was built")
+            checked += 1
+            if checked == 6 { break }
+        }
+        XCTAssertGreaterThanOrEqual(checked, 3, "enough of the surfaces with a field in them were tried")
+    }
+
     /// A shot is kept for the look in force and the Eye comfort it was built at, and no other.
     func testABuildIsKeptOnlyForTheLookAndTheComfortItWasBuiltAt() throws {
         let shot = try XCTUnwrap(GalleryShots.all.first { $0.surface == "foundation" && $0.looks == GalleryLook.all })

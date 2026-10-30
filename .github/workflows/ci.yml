@@ -5,6 +5,21 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token. Nothing here writes to the repository: checkout reads
+# it, and the caches and artifacts are reached through the runner's own
+# cache token, not GITHUB_TOKEN's scopes.
+permissions:
+  contents: read
+
+# A pull request's older run is stopped when it is pushed to again: nobody
+# reads its verdict. A push to main is never stopped, and never waits behind
+# another (a group that only queues keeps one pending run and drops the
+# rest), so every main commit gets a complete verdict: its own run id is
+# its group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     # Stoic needs Swift 6.4 and the macOS 27 SDK: the runner Stoic's own CI
@@ -24,9 +39,14 @@ jobs:
         # MLX compiles its GPU kernels with `metal`, a separate download
         # since Xcode 26; a runner image may not carry it. Xcode 27 ships a
         # `metal` stub that `xcrun -f` finds, so ask for the component itself.
+        #
+        # The download is the one network step outside the build, and a
+        # blip in it has turned a run red before: three tries, 15 s then 30 s
+        # apart (scripts/retry.sh). Nothing else is retried, and no test is.
         run: |
+          source scripts/retry.sh
           xcodebuild -showComponent MetalToolchain 2>/dev/null | grep -q "Status: installed" \
-            || xcodebuild -downloadComponent MetalToolchain
+            || RELEASE_TRIES=3 RELEASE_RETRY_DELAY=15 retry xcodebuild -downloadComponent MetalToolchain
 
       - name: Toolchain
         id: toolchain
@@ -122,7 +142,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-shards
+          name: test-shards-${{ github.run_attempt }}
           path: |
             .build/test-shards/*.hang.txt
             .build/test-shards/*.log

@@ -208,6 +208,18 @@ final class EditorRig {
         }
     }
 
+    /// `settle` for what only a beat brings home: the model's answer lands on
+    /// its own time, and the marks it makes are placed by the next beat that
+    /// finds it, so a beat is given on every turn until the condition holds.
+    func settleBeating(_ what: String = "condition", within seconds: TimeInterval = EditorRig.patience,
+                       file: StaticString = #filePath, line: UInt = #line, until condition: () -> Bool) {
+        settle(what, within: seconds, file: file, line: line) {
+            if condition() { return true }
+            beat()
+            return false
+        }
+    }
+
     /// The queue's work done and its hops home run.
     func drain() {
         queue.sync {}
@@ -409,15 +421,14 @@ final class EditorControllerTests: XCTestCase {
         XCTAssertEqual(rig.reader.asked.count, 1, "no answer reads as the sentence unchanged")
     }
 
-    func testAModelAnswerBecomesAMarkAndAFix() {
+    func testAModelAnswerBecomesAMarkAndAFix() throws {
         let rig = EditorRig()
         rig.reader.answer("Their going to push it.", "They're going to push it.")
         rig.type("Their going to push it.")
         rig.settle("the answer") { rig.reader.asked.count == 1 }
         rig.drain()
-        rig.beat()
-        rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
-        let mark = rig.controller.lensMarks[0]
+        rig.settleBeating("the mark") { rig.controller.lensMarks.count == 1 }
+        let mark = try XCTUnwrap(rig.controller.lensMarks.first, "the answer became a mark")
         XCTAssertEqual(mark.issue.shown, "They're")
         var done: Bool?
         rig.controller.fix(mark) { done = $0 }

@@ -193,8 +193,8 @@ enum GalleryHost {
     }
 
     /// What can be seen of `windows` and everything in them: where each
-    /// stands, and for each view its kind, its place, whether it shows, the words
-    /// and the picture it holds and whether its layer has drawn. Two readings
+    /// stands, and for each view its kind, its place, whether it shows, and the
+    /// words and the picture it holds. Two readings
     /// that are the same are two turns of the loop that had nothing left to land,
     /// and two windows that read the same are the same surface.
     static func appearance(of windows: [NSWindow]) -> Int {
@@ -219,7 +219,6 @@ enum GalleryHost {
             } else if let text = view as? NSTextView {
                 hasher.combine(text.string)
             }
-            hasher.combine(view.layer?.contents != nil)
             view.subviews.forEach(visit)
         }
         for window in windows {

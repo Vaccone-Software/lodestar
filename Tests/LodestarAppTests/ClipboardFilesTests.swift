@@ -91,6 +91,11 @@ final class ClipboardFilesTests: XCTestCase {
     }
 
     override func tearDown() {
+        // A read still waiting on its deadline outlives its test and would
+        // take the next test's thumbnailer and clock for its own: run every
+        // deadline out and let the store's queues finish before anything is reset.
+        deadlines.advance(by: 1_000_000)
+        store.flushBackground()
         FileSense.wait = FileSense.realWait
         FileSense.deadline = 2
         FileSense.thumbnailer = FileSense.quickLook

@@ -3,128 +3,188 @@ import StoicTesting
 import XCTest
 @testable import lodestar
 
-/// A main thread that answers is left alone; one that does not is
-/// reported inside the ceiling, on the watchdog's own thread.
-final class MainThreadWatchdogTests: XCTestCase {
-    func testAStalledMainThreadIsReportedInsideTheCeiling() {
-        // No launch allowance here: under a loaded run the first ping can
-        // miss the 0.2 s it is given, and a 60 s allowance then swallowed
-        // the stall this test is about. The launch has its own test.
-        let watchdog = MainThreadWatchdog(interval: 0.1, ceiling: 0.3, launchCeiling: 0.3)
-        let stalled = expectation(description: "stall reported")
-        stalled.assertForOverFulfill = false
-        watchdog.onStall = { _ in stalled.fulfill() }
-        watchdog.start()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
-        // Hold the main thread well past the ceiling: the watchdog's thread
-        // runs at utility and, with the suite's shards all running, can be
-        // scheduled late — a 0.6 s hold was sometimes over before it looked.
-        // The expectation is fulfilled from the watchdog's thread while we
-        // sleep, and the watchdog is stopped only once it has.
-        Thread.sleep(forTimeInterval: 1.5)
-        wait(for: [stalled], timeout: 3)
-        watchdog.stop()
+/// The watchdog on time the test owns.
+///
+/// It keeps two times, so the rig has two clocks. `wall` is what its own
+/// thread sleeps on, set through `pause`; `counted` is what an ask is
+/// measured against. Each tick moves the thread to its next wake and
+/// waits for it to be back asleep, so everything it did in between has
+/// happened and the next look is at an exact moment: no sleeping, and no
+/// tolerance. Main is a queue the rig holds, which answers the instant it
+/// is let go, whatever else the machine is doing.
+private final class WatchdogRig {
+    let wall = TestClock()
+    let counted = TestClock()
+    let target = DispatchQueue(label: "watchdog-test.main")
+    private(set) var held = false
+
+    private let lock = NSLock()
+    private var stalled: [TimeInterval] = []
+    private var late: [(seconds: TimeInterval, launch: Bool)] = []
+    private var logged = 0
+    var stalls: [TimeInterval] { lock.withLock { stalled } }
+    var lates: [(seconds: TimeInterval, launch: Bool)] { lock.withLock { late } }
+    var logs: Int { lock.withLock { logged } }
+
+    private var watchdog: MainThreadWatchdog?
+
+    /// The watchdog's sleep, on the wall clock.
+    private func pause(_ seconds: TimeInterval) {
+        let woke = DispatchSemaphore(value: 0)
+        let wall = wall
+        Task.detached {
+            try? await wall.sleep(for: .milliseconds(Int((seconds * 1000).rounded())))
+            woke.signal()
+        }
+        woke.wait()
     }
 
-    func testAResponsiveMainThreadIsLeftAlone() {
-        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 0.3)
-        var stalls = 0
-        watchdog.onStall = { _ in stalls += 1 }
+    /// A watchdog on the rig's clocks, started and waited for until its
+    /// thread has made its first ask and gone to sleep on it.
+    @discardableResult
+    func start(interval: TimeInterval = 0.1, ceiling: TimeInterval, launchCeiling: TimeInterval? = nil,
+               lateThreshold: TimeInterval = 1, response: MainThreadWatchdog.Response? = nil) async -> MainThreadWatchdog {
+        let watchdog = MainThreadWatchdog(interval: interval, ceiling: ceiling, launchCeiling: launchCeiling ?? ceiling,
+                                          lateThreshold: lateThreshold, clock: counted.erased,
+                                          pause: { [unowned self] in pause($0) }, target: target)
+        if let response {
+            watchdog.response = response
+            watchdog.onLogged = { [unowned self] in lock.withLock { logged += 1 } }
+        } else {
+            watchdog.onStall = { [unowned self] seconds in lock.withLock { stalled.append(seconds) } }
+        }
+        watchdog.onLate = { [unowned self] seconds, launch in lock.withLock { late.append((seconds, launch)) } }
+        self.watchdog = watchdog
         watchdog.start()
-        // Keep answering for longer than several intervals.
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.6))
-        watchdog.stop()
-        XCTAssertEqual(stalls, 0)
+        await wall.waitForSleepers(timeout: .seconds(60))
+        return watchdog
+    }
+
+    /// Main stops answering: asks queue up behind it.
+    func hold() {
+        precondition(!held)
+        target.suspend()
+        held = true
+    }
+
+    /// Main answers everything waiting, at the moment it is let go.
+    func release() {
+        precondition(held)
+        target.resume()
+        held = false
+        target.sync {}
+    }
+
+    /// The watchdog's thread moves to its next wake, `counted` moving as far
+    /// as `wall` does unless it is told it did not.
+    func tick(counting: Bool = true) async {
+        if !held { target.sync {} }   // the answer to the last ask is in, and was given at the ask's own moment
+        let mark = wall.totalSleeps
+        let next = wall.pendingDeadlines[0]
+        if counting { await counted.advance(by: wall.now.duration(to: next)) }
+        await wall.advanceToNextDeadline()
+        await wall.waitForSleepers(newerThan: mark, timeout: .seconds(60))
+    }
+
+    func tick(_ count: Int, counting: Bool = true) async {
+        for _ in 0..<count { await tick(counting: counting) }
+    }
+
+    /// Done: nothing held, and the thread let out of its last sleep to see
+    /// it is stopped.
+    func finish() async {
+        watchdog?.stop()
+        if held { release() }
+        await wall.advance(by: .seconds(60))
+    }
+}
+
+/// A main thread that answers is left alone; one that does not is
+/// reported at the ceiling, on the watchdog's own thread. Time is the
+/// test's: the one test of a real stall is at the end, and runs at the desk.
+final class MainThreadWatchdogTests: XCTestCase {
+    func testAStalledMainThreadIsReportedAtTheCeilingAndNotBefore() async {
+        let rig = WatchdogRig()
+        rig.hold()
+        await rig.start(ceiling: 0.3)
+        await rig.tick(5)
+        XCTAssertEqual(rig.stalls, [], "0.25 s of silence is inside the ceiling")
+        await rig.tick()
+        XCTAssertEqual(rig.stalls, [0.3], "0.3 s of it is the ceiling")
+        await rig.finish()
+    }
+
+    func testAResponsiveMainThreadIsLeftAlone() async {
+        let rig = WatchdogRig()
+        await rig.start(interval: 0.05, ceiling: 0.3)
+        await rig.tick(120)   // six seconds, a few hundred asks
+        XCTAssertEqual(rig.stalls, [])
+        XCTAssertEqual(rig.lates.count, 0)
+        await rig.finish()
     }
 
     /// Launch holds main from the first ping until it returns, and a slow
     /// launch is not a hang: it gets the launch allowance, and the
     /// ordinary ceiling holds from the next ping on.
-    func testASlowLaunchIsNotAStallButALaterStallIs() {
-        // Holds are long against the ceilings, and the stall is waited for
-        // with main still held: the watchdog's utility thread is scheduled
-        // late when the suite's shards all run, and a short hold could end
-        // before it looked.
-        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 0.3, launchCeiling: 3)
-        let lock = NSLock()
-        var stalls = 0
-        watchdog.onStall = { _ in lock.withLock { stalls += 1 } }
-        watchdog.start()
-        Thread.sleep(forTimeInterval: 1.0)  // the launch: past the ceiling, inside the allowance
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
-        XCTAssertEqual(lock.withLock { stalls }, 0, "a slow launch is left alone")
-        let held = Date()                   // after launch: a real stall, held until it is seen
-        while lock.withLock({ stalls }) == 0, Date().timeIntervalSince(held) < 4 {
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        watchdog.stop()
-        XCTAssertGreaterThan(lock.withLock { stalls }, 0, "the ordinary ceiling is back")
+    func testASlowLaunchIsNotAStallButALaterStallIs() async {
+        let rig = WatchdogRig()
+        rig.hold()   // from before the first ask: the launch
+        await rig.start(interval: 0.05, ceiling: 0.3, launchCeiling: 3)
+        await rig.tick(20)    // the launch: a second, past the ceiling and inside the allowance
+        XCTAssertEqual(rig.stalls, [], "a slow launch is left alone")
+        rig.release()
+        await rig.tick()      // the answer is judged; the ceiling is the ordinary one from here
+        rig.hold()            // after launch: a real stall, from the next ask
+        await rig.tick()      // the interval passes and the ask is made
+        await rig.tick(5)
+        XCTAssertEqual(rig.stalls, [], "0.25 s into it")
+        await rig.tick()
+        XCTAssertEqual(rig.stalls, [0.3], "the ordinary ceiling is back")
+        await rig.finish()
     }
 
     /// An answer late enough to cost the key tap, short of the ceiling, is
     /// written down with how late it was, and the launch's is told apart.
-    ///
-    /// The watchdog asks a queue this test holds, not main: XCTest's main
-    /// thread is not always free to answer inside a test, and twice in CI
-    /// an ask went unanswered for ten seconds while the test ran the run
-    /// loop, which read as a freeze. Holding a queue is exact: it answers
-    /// the moment it is resumed, whatever else the machine is doing.
-    func testALateAnswerIsReportedWithItsLength() {
-        let target = DispatchQueue(label: "watchdog-test.main")
-        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 10, launchCeiling: 10, lateThreshold: 0.2,
-                                          target: target)
-        let lock = NSLock()
-        var late: [(seconds: TimeInterval, launch: Bool)] = []
-        var stalls = 0
-        watchdog.onLate = { seconds, launch in lock.withLock { late.append((seconds, launch)) } }
-        watchdog.onStall = { _ in lock.withLock { stalls += 1 } }
-        // Each report is waited for, not slept for: the watchdog's utility
-        // thread can be scheduled late when the suite's shards all run.
-        func waitFor(within seconds: TimeInterval, _ done: () -> Bool) {
-            let deadline = Date(timeIntervalSinceNow: seconds)
-            while !done(), Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
-        }
-        func hitch(_ seen: [(seconds: TimeInterval, launch: Bool)]) -> (seconds: TimeInterval, launch: Bool)? {
-            seen.first { !$0.launch && $0.seconds >= 0.3 }
-        }
+    func testALateAnswerIsReportedWithItsLength() async {
+        let rig = WatchdogRig()
         // A slow launch: held from before the first ask, long against the
         // 0.2 s threshold and short of the allowance.
-        target.suspend()
-        watchdog.start()
-        Thread.sleep(forTimeInterval: 0.6)
-        target.resume()
-        waitFor(within: 5) { !lock.withLock { late }.isEmpty }
-        // A hitch while running, held until an ask has been waiting on it
-        // for longer than the 0.3 s asserted below.
-        waitFor(within: 1) { false }
-        target.suspend()
-        Thread.sleep(forTimeInterval: 0.8)
-        target.resume()
-        waitFor(within: 5) { hitch(lock.withLock { late }) != nil }
-        watchdog.stop()
-        let seen = lock.withLock { late }
-        XCTAssertEqual(lock.withLock { stalls }, 0, "late is not frozen")
-        XCTAssertEqual(seen.first?.launch, true, "the launch's own")
-        XCTAssertEqual(seen.filter(\.launch).count, 1, "and only the launch's")
-        XCTAssertNotNil(hitch(seen), "then one while running, with how long it held: \(seen)")
+        rig.hold()
+        await rig.start(interval: 0.05, ceiling: 10, lateThreshold: 0.2)
+        await rig.tick(12)
+        rig.release()
+        await rig.tick()
+        XCTAssertEqual(rig.lates.map(\.seconds), [0.6])
+        XCTAssertEqual(rig.lates.map(\.launch), [true], "the launch's own")
+        // A hitch while running: one ask waits 0.8 s for its answer.
+        rig.hold()
+        await rig.tick()
+        await rig.tick(16)
+        rig.release()
+        await rig.tick()
+        XCTAssertEqual(rig.lates.map(\.seconds), [0.6, 0.8], "then one while running, with how long it held")
+        XCTAssertEqual(rig.lates.map(\.launch), [true, false], "and only the launch's is the launch's")
+        XCTAssertEqual(rig.stalls, [], "late is not frozen")
+        await rig.finish()
     }
 
-    /// Main kept turning answers in milliseconds, so nothing is written
-    /// down. The threshold is half a second, against a window three times
-    /// that: at 0.2 s one answer on CI's slowest runners crossed it with
-    /// main doing nothing but turning (2026-10-25).
-    func testAnOnTimeAnswerSaysNothing() {
-        let watchdog = MainThreadWatchdog(interval: 0.05, ceiling: 2, launchCeiling: 2, lateThreshold: 0.5)
-        let lock = NSLock()
-        var late = 0
-        watchdog.onLate = { _, _ in lock.withLock { late += 1 } }
-        // The default stall is abort(): on a loaded runner main can be
-        // starved past this ceiling, and that took the whole shard with it.
-        watchdog.onStall = { _ in }
-        watchdog.start()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.5))
-        watchdog.stop()
-        XCTAssertEqual(lock.withLock { late }, 0)
+    /// The threshold is where an answer starts to be written down: just
+    /// under it says nothing.
+    func testAnAnswerUnderTheThresholdSaysNothing() async {
+        let rig = WatchdogRig()
+        rig.hold()
+        await rig.start(interval: 0.05, ceiling: 2, lateThreshold: 0.5)
+        await rig.tick(9)
+        rig.release()
+        await rig.tick()
+        XCTAssertEqual(rig.lates.count, 0, "0.45 s is on time")
+        rig.hold()
+        await rig.tick()
+        await rig.tick(10)
+        rig.release()
+        await rig.tick()
+        XCTAssertEqual(rig.lates.map(\.seconds), [0.5], "0.5 s is the threshold")
+        await rig.finish()
     }
 
     // MARK: - The clock
@@ -152,73 +212,66 @@ final class MainThreadWatchdogTests: XCTestCase {
 
     /// A Mac that sleeps with a ping outstanding wakes to hours of wall
     /// time and none on the clock that stands still while it sleeps. The
-    /// wall time here is a real 90 ms against a 30 ms ceiling; the clock
+    /// wall here moves a quarter second against a 30 ms ceiling; the clock
     /// does not move, so it is not a stall.
-    func testWallTimeThatTheClockDidNotCountIsNotAStall() {
-        let clock = TestClock()
-        let watchdog = MainThreadWatchdog(interval: 0.02, ceiling: 0.03, launchCeiling: 0.03,
-                                          lateThreshold: 0.02, clock: clock.erased)
-        let lock = NSLock()
-        var stalls = 0, lates = 0
-        watchdog.onStall = { _ in lock.withLock { stalls += 1 } }
-        watchdog.onLate = { _, _ in lock.withLock { lates += 1 } }
-        watchdog.start()
-        Thread.sleep(forTimeInterval: 0.09)             // main unanswering, the way sleep leaves it
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.03))
-        watchdog.stop()
-        XCTAssertEqual(lock.withLock { stalls }, 0)
-        XCTAssertEqual(lock.withLock { lates }, 0)
+    func testWallTimeThatTheClockDidNotCountIsNotAStall() async {
+        let rig = WatchdogRig()
+        rig.hold()                                // main unanswering, the way sleep leaves it
+        await rig.start(interval: 0.02, ceiling: 0.03, lateThreshold: 0.02)
+        await rig.tick(5, counting: false)
+        rig.release()
+        await rig.tick(counting: false)
+        XCTAssertEqual(rig.stalls, [])
+        XCTAssertEqual(rig.lates.count, 0)
+        await rig.finish()
     }
 
-    /// And the other way: time the clock counts is a stall, however little
-    /// wall time passed. Main is held on a semaphore until the stall is
-    /// reported, while the clock is advanced from outside.
-    func testTimeTheClockCountedIsAStall() {
-        let clock = TestClock()
-        let watchdog = MainThreadWatchdog(interval: 0.02, ceiling: 8, launchCeiling: 8, clock: clock.erased)
-        let reported = DispatchSemaphore(value: 0)
-        watchdog.onStall = { _ in reported.signal() }
-        watchdog.start()
-        let stop = Flag()
-        Task.detached {
-            while !stop.isSet {
-                await clock.advance(by: .seconds(9))
-                try? await Task.sleep(for: .milliseconds(5))
-            }
-        }
-        let result = reported.wait(timeout: .now() + 3)   // main blocked, not answering
-        stop.set()
-        watchdog.stop()
-        XCTAssertEqual(result, .success, "a clock that moved past the ceiling is a stall")
+    /// And the other way: time the clock counted is a stall, however little
+    /// wall time passed.
+    func testTimeTheClockCountedIsAStall() async {
+        let rig = WatchdogRig()
+        rig.hold()
+        await rig.start(interval: 0.02, ceiling: 8)
+        await rig.counted.advance(by: .seconds(9))
+        await rig.tick(counting: false)           // one look, a few milliseconds of wall
+        XCTAssertEqual(rig.stalls, [8], "a clock that moved past the ceiling is a stall")
+        await rig.finish()
     }
 
     /// Safe mode: the stall is written down and the process lives. (If the
     /// default response aborted, this test would take the shard with it.)
-    func testSafeModeLogsAStallInsteadOfAborting() {
-        let clock = TestClock()
-        let watchdog = MainThreadWatchdog(interval: 0.02, ceiling: 8, launchCeiling: 8, clock: clock.erased)
-        XCTAssertEqual(watchdog.response, .abort, "the default is still a crash")
-        watchdog.response = .logOnly
-        let logged = DispatchSemaphore(value: 0)
-        watchdog.onLogged = { logged.signal() }
-        watchdog.start()
-        let stop = Flag()
-        Task.detached {
-            while !stop.isSet {
-                await clock.advance(by: .seconds(9))
-                try? await Task.sleep(for: .milliseconds(5))
-            }
-        }
-        let result = logged.wait(timeout: .now() + 3)
-        stop.set()
-        watchdog.stop()
-        XCTAssertEqual(result, .success)
+    func testSafeModeLogsAStallInsteadOfAborting() async {
+        let rig = WatchdogRig()
+        XCTAssertEqual(MainThreadWatchdog().response, .abort, "the default is still a crash")
+        rig.hold()
+        await rig.start(interval: 0.02, ceiling: 8, response: .logOnly)
+        await rig.counted.advance(by: .seconds(9))
+        await rig.tick(counting: false)
+        XCTAssertEqual(rig.logs, 1)
+        await rig.finish()
     }
-}
 
-private final class Flag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-    var isSet: Bool { lock.withLock { value } }
-    func set() { lock.withLock { value = true } }
+    // MARK: - Real time
+
+    /// The one test of a real stall: a real thread on the real clock sees
+    /// the real main thread held, on its own thread, inside the ceiling.
+    /// Nothing else here needs a wall, and a runner shared by every shard
+    /// cannot say when its utility thread will run, so it is the desk's.
+    func testARealStalledMainThreadIsSeenOnTheWatchdogsOwnThread() throws {
+        try TimingLane.require()
+        // No launch allowance: the launch has its own test.
+        let watchdog = MainThreadWatchdog(interval: 0.1, ceiling: 0.3, launchCeiling: 0.3)
+        let stalled = expectation(description: "stall reported")
+        stalled.assertForOverFulfill = false
+        watchdog.onStall = { _ in stalled.fulfill() }
+        watchdog.start()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        // Hold the main thread well past the ceiling: the watchdog's thread
+        // runs at utility and, with the suite's shards all running, can be
+        // scheduled late. The expectation is fulfilled from the watchdog's
+        // thread while main sleeps, and the watchdog is stopped only once it has.
+        Thread.sleep(forTimeInterval: 1.5)
+        wait(for: [stalled], timeout: 3)
+        watchdog.stop()
+    }
 }

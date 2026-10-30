@@ -54,3 +54,4 @@ ci EditorRandomStateTests.*
 # long a real thread, queue or search really takes. A runner shared by every
 # shard cannot give that, so the desk must run these and CI may not. One per
 # component.
+ci MainThreadWatchdogTests.testARealStalledMainThreadIsSeenOnTheWatchdogsOwnThread

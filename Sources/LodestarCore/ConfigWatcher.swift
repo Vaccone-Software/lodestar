@@ -9,6 +9,13 @@ struct MainQueueOnly<T>: @unchecked Sendable {
     let value: T
 }
 
+/// An object held weakly, for a box like `MainQueueOnly` to carry to another
+/// thread and back to main: `MainQueueOnly(value: WeakRef(self))`.
+struct WeakRef<T: AnyObject> {
+    weak var object: T?
+    init(_ object: T) { self.object = object }
+}
+
 /// Tells the app that the config arrived from outside, once per arrival.
 ///
 /// The directory is watched by the store (`watch(debounce:)`: an editor that

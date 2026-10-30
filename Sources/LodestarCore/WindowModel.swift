@@ -92,7 +92,7 @@ public final class WindowModel {
         }
     }
 
-    public struct Window {
+    public struct Window: Sendable {
         public let id: CGWindowID
         public let element: AXUIElement
         public let pid: pid_t
@@ -184,6 +184,24 @@ public final class WindowModel {
         return queue
     }
 
+    /// A reading taken on an app's queue and what main does with it. `read`
+    /// runs on the queue, where waiting on the app is allowed, and returns
+    /// what it found; `apply` runs on main with the model and that answer,
+    /// and not at all once the model is gone. The model itself never leaves
+    /// main: the queue holds it weakly, in a box that only hands it back.
+    private func read<Found: Sendable>(on pid: pid_t, _ read: @escaping @Sendable () -> Found,
+                                       apply: @escaping (WindowModel, Found) -> Void) {
+        let model = MainQueueOnly(value: WeakRef(self))
+        let applying = MainQueueOnly(value: apply)
+        queue(for: pid).async {
+            let found = read()
+            DispatchQueue.main.async {
+                guard let model = model.value.object else { return }
+                applying.value(model, found)
+            }
+        }
+    }
+
     public func start() {
         // The initial scan is discovery, not creation — onCreated stays
         // quiet so nothing treats the existing world as newly arrived. It
@@ -195,28 +213,32 @@ public final class WindowModel {
             attach(AppInfo(app), seeding: true)
         }
         let center = NSWorkspace.shared.notificationCenter
+        // The three observers below run on the main queue, which is where
+        // the model lives: the box carries it there weakly, as `[weak self]`
+        // did.
+        let model = MainQueueOnly(value: WeakRef(self))
         workspaceTokens.append(center.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main
-        ) { [weak self] note in
+        ) { note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   app.activationPolicy == .regular else { return }
             // A freshly launched app needs a moment to stand up its AX tree.
             let info = AppInfo(app)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                self?.attach(info, seeding: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                model.value.object?.attach(info, seeding: false)
             }
         })
         workspaceTokens.append(center.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] note in
+        ) { note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            self?.detach(app.processIdentifier)
+            model.value.object?.detach(app.processIdentifier)
         })
         workspaceTokens.append(center.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] note in
+        ) { note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            self?.syncFocus(of: app)
+            model.value.object?.syncFocus(of: app)
         })
         if let frontmost = NSWorkspace.shared.frontmostApplication {
             syncFocus(of: frontmost)
@@ -377,19 +399,17 @@ public final class WindowModel {
         var remaining = pids.count
         let reader = self.reader
         for pid in pids {
-            queue(for: pid).async { [weak self] in
-                let read: [(CGWindowID, AXUIElement, Reading?)] = (reader.windows(of: pid) ?? []).compactMap {
+            read(on: pid, { () -> [(CGWindowID, AXUIElement, Reading?)] in
+                (reader.windows(of: pid) ?? []).compactMap {
                     guard let id = reader.windowID(of: $0) else { return nil }
                     return (id, $0, reader.reading(of: $0))
                 }
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    if let app = self.appLookup(pid) {
-                        for (id, element, reading) in read { self.adopt(id: id, element: element, app: app, reading: reading) }
-                    }
-                    remaining -= 1
-                    if remaining == 0 { completion() }
+            }) { model, found in
+                if let app = model.appLookup(pid) {
+                    for (id, element, reading) in found { model.adopt(id: id, element: element, app: app, reading: reading) }
                 }
+                remaining -= 1
+                if remaining == 0 { completion() }
             }
         }
     }
@@ -428,18 +448,16 @@ public final class WindowModel {
     private func attach(_ app: AppInfo, seeding: Bool) {
         let observer = observer(for: app)
         let reader = self.reader
-        queue(for: app.pid).async { [weak self] in
+        read(on: app.pid, {
             if let observer {
                 let appElement = AXUIElementCreateApplication(app.pid)
                 observer.watch(kAXWindowCreatedNotification, on: appElement)
                 observer.watch(kAXFocusedWindowChangedNotification, on: appElement)
             }
-            let elements = reader.windows(of: app.pid) ?? []
-            DispatchQueue.main.async {
-                guard let self else { return }
-                for element in elements { self.track(element: element, app: app, seeding: seeding) }
-                if seeding { self.seedFinished(app) }
-            }
+            return reader.windows(of: app.pid) ?? []
+        }) { model, elements in
+            for element in elements { model.track(element: element, app: app, seeding: seeding) }
+            if seeding { model.seedFinished(app) }
         }
     }
 
@@ -534,18 +552,17 @@ public final class WindowModel {
         }
         pendingTracks[key] = then.map { [$0] } ?? []
         let reader = self.reader
-        queue(for: app.pid).async { [weak self] in
+        read(on: app.pid, { () -> (CGWindowID?, Reading?) in
             let id = reader.windowID(of: element)
-            let reading = id == nil ? nil : reader.reading(of: element)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                let waiting = self.pendingTracks.removeValue(forKey: key) ?? []
-                // Destroyed while it was being read: it never existed here.
-                if self.destroyedWhilePending.remove(key) != nil { return }
-                guard let id, let tracked = self.record(id: id, element: element, app: app,
-                                                        reading: reading, seeding: seeding) else { return }
-                for callback in waiting { callback(tracked) }
-            }
+            return (id, id == nil ? nil : reader.reading(of: element))
+        }) { model, found in
+            let (id, reading) = found
+            let waiting = model.pendingTracks.removeValue(forKey: key) ?? []
+            // Destroyed while it was being read: it never existed here.
+            if model.destroyedWhilePending.remove(key) != nil { return }
+            guard let id, let tracked = model.record(id: id, element: element, app: app,
+                                                     reading: reading, seeding: seeding) else { return }
+            for callback in waiting { callback(tracked) }
         }
     }
 
@@ -668,17 +685,14 @@ public final class WindowModel {
         let reader = self.reader
         focusSerial += 1
         let serial = focusSerial
-        queue(for: info.pid).async { [weak self] in
-            let focused = reader.focusedWindow(of: info.pid)
-            DispatchQueue.main.async {
-                guard let self, let focused else { return }
-                self.track(element: focused, app: info) { [weak self] id in
-                    // Still the app in front, and still the latest word on
-                    // focus, when the answer lands.
-                    guard let self, serial == self.focusSerial,
-                          self.frontmostPid() == info.pid else { return }
-                    self.setFocus(id)
-                }
+        read(on: info.pid, { reader.focusedWindow(of: info.pid) }) { model, focused in
+            guard let focused else { return }
+            model.track(element: focused, app: info) { [weak model] id in
+                // Still the app in front, and still the latest word on
+                // focus, when the answer lands.
+                guard let model, serial == model.focusSerial,
+                      model.frontmostPid() == info.pid else { return }
+                model.setFocus(id)
             }
         }
     }
@@ -724,14 +738,11 @@ public final class WindowModel {
         case kAXTitleChangedNotification:
             guard let id = idByElement[ElementKey(element: element)] else { return }
             let reader = self.reader
-            queue(for: pid).async { [weak self] in
-                let title = reader.title(of: element)
-                DispatchQueue.main.async {
-                    guard let self, var w = self.windows[id], w.isAlive else { return }
-                    if let title { w.title = title }
-                    self.windows[id] = w
-                    self.onTitleChanged?(id)
-                }
+            read(on: pid, { reader.title(of: element) }) { model, title in
+                guard var w = model.windows[id], w.isAlive else { return }
+                if let title { w.title = title }
+                model.windows[id] = w
+                model.onTitleChanged?(id)
             }
         case kAXMovedNotification, kAXResizedNotification:
             guard let id = idByElement[ElementKey(element: element)] else { return }
@@ -754,17 +765,13 @@ public final class WindowModel {
     private func readFrame(_ id: CGWindowID, element: AXUIElement, pid: pid_t) {
         pendingFrames[id] = false
         let reader = self.reader
-        queue(for: pid).async { [weak self] in
-            let frame = reader.frame(of: element)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                let dirty = self.pendingFrames.removeValue(forKey: id) ?? false
-                if let frame, var w = self.windows[id], w.isAlive {
-                    w.frame = frame
-                    self.windows[id] = w
-                }
-                if dirty, self.windows[id]?.isAlive == true { self.readFrame(id, element: element, pid: pid) }
+        read(on: pid, { reader.frame(of: element) }) { model, frame in
+            let dirty = model.pendingFrames.removeValue(forKey: id) ?? false
+            if let frame, var w = model.windows[id], w.isAlive {
+                w.frame = frame
+                model.windows[id] = w
             }
+            if dirty, model.windows[id]?.isAlive == true { model.readFrame(id, element: element, pid: pid) }
         }
     }
 

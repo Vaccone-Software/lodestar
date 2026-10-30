@@ -264,46 +264,41 @@ final class WellTests: XCTestCase {
     func testEveryEditableTextViewOnEverySurfaceIsAWellWithTheOneCaret() throws {
         var found: [String] = [], wrong: [String] = []
         var surfaces = Set<String>()
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                let name = shot.name(in: look)
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                var fields: [NSView] = []
-                walk(root) { view in
-                    if let field = view as? NSTextField, field.isEditable { fields.append(field) }
-                    if let text = view as? NSTextView, text.isEditable, !text.isFieldEditor { fields.append(text) }
+        for picture in GallerySweep.pictures(drawing: true, where: { $0.level == 1 && !$0.receded }) {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            let name = shot.name(in: look)
+            var fields: [NSView] = []
+            walk(root) { view in
+                if let field = view as? NSTextField, field.isEditable { fields.append(field) }
+                if let text = view as? NSTextView, text.isEditable, !text.isFieldEditor { fields.append(text) }
+            }
+            for field in fields {
+                found.append(name)
+                surfaces.insert(shot.surface)
+                if !isInWell(field, root: root) { wrong.append("\(name): \(type(of: field)) is not in a well") }
+                if let text = field as? NSTextField {
+                    if text.isBezeled || text.isBordered { wrong.append("\(name): \(type(of: field)) draws a bezel") }
+                    if text.focusRingType != .none { wrong.append("\(name): \(type(of: field)) draws a focus ring") }
+                    if !(text.cell is InputCell) { wrong.append("\(name): \(type(of: field)) is not edited in the one editor") }
+                } else if (field as? NSTextView)?.focusRingType != NSFocusRingType.none {
+                    wrong.append("\(name): \(type(of: field)) draws a focus ring")
                 }
-                for field in fields {
-                    found.append(name)
-                    surfaces.insert(shot.surface)
-                    if !isInWell(field, root: root) { wrong.append("\(name): \(type(of: field)) is not in a well") }
-                    if let text = field as? NSTextField {
-                        if text.isBezeled || text.isBordered { wrong.append("\(name): \(type(of: field)) draws a bezel") }
-                        if text.focusRingType != .none { wrong.append("\(name): \(type(of: field)) draws a focus ring") }
-                        if !(text.cell is InputCell) { wrong.append("\(name): \(type(of: field)) is not edited in the one editor") }
-                    } else if (field as? NSTextView)?.focusRingType != NSFocusRingType.none {
-                        wrong.append("\(name): \(type(of: field)) draws a focus ring")
-                    }
-                    guard let window = field.window, window.makeFirstResponder(field) else {
-                        wrong.append("\(name): \(type(of: field)) cannot take the caret")
-                        continue
-                    }
-                    guard let text = editor(of: field) else {
-                        wrong.append("\(name): \(type(of: field)) has no WellText to hold the caret")
-                        continue
-                    }
-                    let mark = text.caret
-                    if text.insertionPointColor != .clear { wrong.append("\(name): the system's caret is not clear") }
-                    if mark.frame.width != BarTheme.caretWidth { wrong.append("\(name): the caret is \(mark.frame.width) wide") }
-                    if !text.holdsCaret { wrong.append("\(name): the text does not hold the caret") }
-                    if mark.layer?.animationKeys() != nil { wrong.append("\(name): the caret is animated") }
+                guard let window = field.window, window.makeFirstResponder(field) else {
+                    wrong.append("\(name): \(type(of: field)) cannot take the caret")
+                    continue
                 }
-                _ = keep
+                guard let text = editor(of: field) else {
+                    wrong.append("\(name): \(type(of: field)) has no WellText to hold the caret")
+                    continue
+                }
+                let mark = text.caret
+                if text.insertionPointColor != .clear { wrong.append("\(name): the system's caret is not clear") }
+                if mark.frame.width != BarTheme.caretWidth { wrong.append("\(name): the caret is \(mark.frame.width) wide") }
+                if !text.holdsCaret { wrong.append("\(name): the text does not hold the caret") }
+                if mark.layer?.animationKeys() != nil { wrong.append("\(name): the caret is animated") }
             }
         }
-        XCTAssertEqual(wrong, [], "every field is a well with the one caret")
+        GallerySweep.expectNone(wrong, "every field is a well with the one caret")
         for surface in ["launcher", "ask", "commands", "settings", "feedback"] {
             XCTAssertTrue(surfaces.contains(surface), "a field was found on \(surface): \(surfaces.sorted())")
         }
@@ -320,40 +315,36 @@ final class WellTests: XCTestCase {
         XCTAssertEqual(BarTheme.bandRadius, 12.4, accuracy: 0.01)
         XCTAssertEqual(BarTheme.bandHeight, BarTheme.fieldHeight + BarTheme.bandInset * 2)
         var wells = 0, bands = 0
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                let name = shot.name(in: look)
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                walk(root) { view in
-                    if let well = view as? WellView, well.holdsField {
-                        wells += 1
-                        XCTAssertEqual(well.cornerRadius, BarTheme.controlRadius, accuracy: 0.0001,
-                                       "\(name): an input well rounds at 8.4, not \(well.cornerRadius)")
-                    }
-                    if view is WellField {
-                        wells += 1
-                        XCTAssertEqual(view.frame.height, BarTheme.fieldHeight, "\(name): a field is 32 tall")
-                    }
+        for picture in GallerySweep.pictures(where: { $0.level == 1 && !$0.receded }) {
+            let shot = picture.shot, look = picture.look, root = picture.root, keep = picture.keep
+            let name = shot.name(in: look)
+            walk(root) { view in
+                if let well = view as? WellView, well.holdsField {
+                    wells += 1
+                    XCTAssertEqual(well.cornerRadius, BarTheme.controlRadius, accuracy: 0.0001,
+                                   "\(name): an input well rounds at 8.4, not \(well.cornerRadius)")
                 }
-                for strip in keep.compactMap({ $0 as? ClipboardStrip }) {
-                    for (plate, field) in [strip.shownBand].compactMap({ $0 }) {
-                        bands += 1
-                        let surface = try XCTUnwrap(plate as? ObjectSurface, "\(name): a band is a surface")
-                        XCTAssertEqual(surface.radius, BarTheme.bandRadius, accuracy: 0.0001,
-                                       "\(name): a field band rounds at 12.4, not a capsule")
-                        XCTAssertEqual(field.frame.height, BarTheme.fieldHeight, "\(name): the band's field is 32 tall")
-                        XCTAssertEqual(field.frame.minX, BarTheme.bandInset, "\(name): 4 inside the band")
-                        XCTAssertEqual(plate.bounds.width - field.frame.maxX, BarTheme.bandInset)
-                        XCTAssertEqual(field.frame.minY, BarTheme.bandInset)
-                        XCTAssertEqual(field.cornerRadius, BarTheme.controlRadius, accuracy: 0.0001)
-                        XCTAssertEqual(plate.frame.height, BarTheme.bandHeight, "\(name): the band is its field and its inset")
-                    }
-                    if let list = strip.shownSourceField {
-                        XCTAssertEqual(list.frame.height, BarTheme.fieldHeight, "\(name): the sources' filter is a field, 32 tall")
-                        XCTAssertEqual(list.cornerRadius, BarTheme.controlRadius, accuracy: 0.0001)
-                    }
+                if view is WellField {
+                    wells += 1
+                    XCTAssertEqual(view.frame.height, BarTheme.fieldHeight, "\(name): a field is 32 tall")
+                }
+            }
+            for strip in keep.compactMap({ $0 as? ClipboardStrip }) {
+                for (plate, field) in [strip.shownBand].compactMap({ $0 }) {
+                    bands += 1
+                    let surface = try XCTUnwrap(plate as? ObjectSurface, "\(name): a band is a surface")
+                    XCTAssertEqual(surface.radius, BarTheme.bandRadius, accuracy: 0.0001,
+                                   "\(name): a field band rounds at 12.4, not a capsule")
+                    XCTAssertEqual(field.frame.height, BarTheme.fieldHeight, "\(name): the band's field is 32 tall")
+                    XCTAssertEqual(field.frame.minX, BarTheme.bandInset, "\(name): 4 inside the band")
+                    XCTAssertEqual(plate.bounds.width - field.frame.maxX, BarTheme.bandInset)
+                    XCTAssertEqual(field.frame.minY, BarTheme.bandInset)
+                    XCTAssertEqual(field.cornerRadius, BarTheme.controlRadius, accuracy: 0.0001)
+                    XCTAssertEqual(plate.frame.height, BarTheme.bandHeight, "\(name): the band is its field and its inset")
+                }
+                if let list = strip.shownSourceField {
+                    XCTAssertEqual(list.frame.height, BarTheme.fieldHeight, "\(name): the sources' filter is a field, 32 tall")
+                    XCTAssertEqual(list.cornerRadius, BarTheme.controlRadius, accuracy: 0.0001)
                 }
             }
         }

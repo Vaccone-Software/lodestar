@@ -44,7 +44,7 @@ enum GalleryBars {
             model.receiveForTesting(kAXWindowCreatedNotification, element: GalleryReader.element(Int32(index)), pid: pid)
         }
         let deadline = Date().addingTimeInterval(3)
-        while model.windows.count < titles.count, Date() < deadline { GalleryHost.settle(0.02) }
+        while model.windows.count < titles.count, Date() < deadline { GalleryHost.drain() }
         let world = GalleryWorld(model: model)
         var made: SearcherController?
         let (view, keep) = try GalleryHost.surface(made: {

@@ -31,19 +31,31 @@ struct GalleryShot {
 /// The pictures a sweep reads, each built once for the process.
 ///
 /// A sweep walks every shot in both looks, and a dozen of them do: building
-/// a shot stages a real panel and lets the run loop settle (a tenth of a
-/// second and more), so the same hundred and fifty shots were built twenty
-/// times over, and a CI runner half as fast as a desk ran those test classes
-/// past any shard's time. A sweep that only reads (measures, walks, draws)
-/// takes its shot from here; one that changes the surface it is given builds
-/// it itself with `shot.build`, which is always fresh.
+/// a shot stages a real panel and lets it land, so the same hundred and fifty
+/// shots were built twenty times over, and a CI runner half as fast as a desk
+/// ran those test classes past any shard's time. A sweep takes its shot from
+/// here; one that changes the surface it is given builds it itself with
+/// `shot.build`, which is always fresh.
 ///
 /// A built shot stands in a window that follows the application's look (a
 /// panel has none of its own), so one is kept and served only while its own
 /// look is the one in force, and Eye comfort is part of what it was built
 /// at: a sweep that does not set it builds a dimmed shot at full level.
+///
+/// A shot built with a caret in it is a picture that cannot be drawn twice:
+/// a sweep that draws it brings its window in to hold the keys and puts it
+/// away, which ends the editing the shot was built in, so the next draw is
+/// not the one a fresh build gives. Such a shot is kept for the sweeps that
+/// only read its views (`drawing: false`, the default) and built afresh for
+/// the sweeps that draw it or change it, and those fresh builds are not kept.
 enum GalleryBuilds {
-    private nonisolated(unsafe) static var kept: [String: (view: NSView, keep: [AnyObject])] = [:]
+    private struct Kept {
+        let made: (view: NSView, keep: [AnyObject])
+        /// Built with no caret in it: nothing a sweep does to it changes the next draw.
+        let quiet: Bool
+    }
+
+    private nonisolated(unsafe) static var kept: [String: Kept] = [:]
 
     static func key(_ shot: GalleryShot, _ look: GalleryLook) -> String {
         let eye = EyeComfortState.shared
@@ -52,22 +64,23 @@ enum GalleryBuilds {
 
     /// The shot built for `look`, which is in force: this process's one build
     /// of it at the Eye comfort now set, made now if there is none.
-    static func built(_ shot: GalleryShot, in look: GalleryLook) throws -> (view: NSView, keep: [AnyObject]) {
+    /// `drawing`: the sweep draws it or changes it, which a shot with a caret
+    /// in it does not survive (see above).
+    static func built(_ shot: GalleryShot, in look: GalleryLook,
+                      drawing: Bool = false) throws -> (view: NSView, keep: [AnyObject]) {
         // A look that is not in force would be built on a ground it is not
         // drawn on, and kept for one that is.
         guard NSApplication.shared.appearance?.name == look.appearance else { return try shot.build(look) }
         let key = key(shot, look)
-        if let made = kept[key], made.view.window != nil { return made }
+        if let entry = kept[key], entry.made.view.window != nil, entry.quiet || !drawing { return entry.made }
         let made = try shot.build(look)
-        if isQuiet(made) { kept[key] = made }
+        let quiet = isQuiet(made)
+        if quiet || !drawing { kept[key] = Kept(made: made, quiet: quiet) }
         return made
     }
 
-    /// Whether a built shot is a picture that stays as it was built. One with
-    /// a caret in it is not: a sweep that draws it brings its window in to hold
-    /// the keys and puts it away, which ends the editing the shot was built in,
-    /// so the next draw is not the one a fresh build gives. Those are built
-    /// afresh each time.
+    /// Whether a built shot is a picture that stays as it was built: one with
+    /// no caret in it.
     static func isQuiet(_ made: (view: NSView, keep: [AnyObject])) -> Bool {
         let windows = [made.view.window] + made.keep.map { $0 as? NSWindow }
         return !windows.contains { $0?.firstResponder is NSText }
@@ -78,9 +91,9 @@ enum GalleryBuilds {
 }
 
 extension GalleryShot {
-    /// This shot as a read-only sweep takes it: built once per process.
-    func built(in look: GalleryLook) throws -> (view: NSView, keep: [AnyObject]) {
-        try GalleryBuilds.built(self, in: look)
+    /// This shot as a sweep takes it: built once per process.
+    func built(in look: GalleryLook, drawing: Bool = false) throws -> (view: NSView, keep: [AnyObject]) {
+        try GalleryBuilds.built(self, in: look, drawing: drawing)
     }
 }
 
@@ -154,33 +167,137 @@ enum GalleryHost {
         return NSApplication.shared.windows.filter { !before.contains(ObjectIdentifier($0)) }
     }
 
-    /// Let the run loop turn for a beat: what a surface defers to the next
-    /// turn (a staged preview, a settled layout) lands.
+    /// The main run loop has nothing left to do: every block queued on the main
+    /// queue has run, and every block those queued, and so on, until two passes
+    /// in a row find nothing waiting. `limit` is a guard against a hang and never
+    /// a wait; nothing here sleeps.
     ///
-    /// Everything already queued on the main queue runs first, however long
-    /// that takes, and then the beat is turned in full. A beat alone is a
-    /// time the run loop is given, not work it is made to do: a turn that goes
-    /// to other work (a look changing across every window the process still
-    /// holds, which is more of them with each test that ran before) can use it
-    /// up and leave a staged surface for after the beat, so that the picture
-    /// is taken of a window that is not made yet, in a full run and never alone.
-    static func settle(_ seconds: TimeInterval = 0.12) {
-        var drained = false
-        DispatchQueue.main.async { drained = true }
-        let deadline = Date().addingTimeInterval(30)
-        while !drained, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
-        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    /// Each pass handles what is ready and returns at once, so a surface that
+    /// stages itself over any number of turns (a preview's `async`, a layout
+    /// that asks for another) is done in as many passes as it took, not in
+    /// the time someone guessed.
+    static func drain(limit: TimeInterval = 30) {
+        let deadline = Date().addingTimeInterval(limit)
+        var idle = 0
+        while idle < 2, Date() < deadline {
+            idle = CFRunLoopRunInMode(.defaultMode, 0, true) == .handledSource ? 0 : idle + 1
+        }
+    }
+
+    /// `view` and its window laid out now, as the next frame would lay them
+    /// out, so that what a rule reads is where the surface puts it and not
+    /// where it stood before the last turn of the loop.
+    static func layOut(_ view: NSView) {
+        view.window?.contentView?.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+    }
+
+    /// What can be seen of `windows` and everything in them: where each
+    /// stands, and for each view its kind, its place, whether it shows, the words
+    /// and the picture it holds and whether its layer has drawn. Two readings
+    /// that are the same are two turns of the loop that had nothing left to land,
+    /// and two windows that read the same are the same surface.
+    static func appearance(of windows: [NSWindow]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(windows.count)
+        func visit(_ view: NSView) {
+            // The system's own caret indicator comes and goes with the key window,
+            // and is no part of what a surface shows.
+            if String(describing: type(of: view)).hasPrefix("NSTextInsertionIndicator")
+                || String(describing: type(of: view)).hasPrefix("NSTextIndicatorOverlay") { return }
+            hasher.combine(ObjectIdentifier(type(of: view)))
+            hasher.combine(view.frame.origin.x)
+            hasher.combine(view.frame.origin.y)
+            hasher.combine(view.frame.size.width)
+            hasher.combine(view.frame.size.height)
+            hasher.combine(view.isHidden)
+            if let field = view as? NSTextField {
+                hasher.combine(field.attributedStringValue.string)
+                hasher.combine(field.font?.fontName)
+            } else if let image = view as? NSImageView {
+                hasher.combine(image.image != nil)
+            } else if let text = view as? NSTextView {
+                hasher.combine(text.string)
+            }
+            hasher.combine(view.layer?.contents != nil)
+            view.subviews.forEach(visit)
+        }
+        for window in windows {
+            hasher.combine(window.frame.origin.x)
+            hasher.combine(window.frame.origin.y)
+            hasher.combine(window.frame.size.width)
+            hasher.combine(window.frame.size.height)
+            window.contentView.map(visit)
+        }
+        return hasher.finalize()
+    }
+
+    /// Turn the loop until `windows` stop changing: the main queue is drained,
+    /// they are laid out and drawn, and that is repeated until `rounds` in a row
+    /// leave them exactly as the round before did. Nothing in it waits for a
+    /// time to pass; a surface that has landed is done in as many turns as it
+    /// took to land. `limit` only keeps a hang from holding the run for ever,
+    /// and a surface still changing at the limit is settled as it stands.
+    ///
+    /// `windows` is asked again each round, because a surface may make its
+    /// window on a later turn than the one that asked for it.
+    ///
+    /// `landed` is for what the loop cannot see coming: work a surface has handed
+    /// to a task or a queue, which lands on a turn nothing has yet asked for. A
+    /// surface that says it is still waiting is waited for, however still it looks.
+    @discardableResult
+    static func settle(_ windows: () -> [NSWindow], landed: () -> Bool = { true }, rounds: Int = 3,
+                       limit: TimeInterval = 10) -> Bool {
+        let deadline = Date().addingTimeInterval(limit)
+        var last = appearance(of: windows())
+        var quiet = 0
+        while quiet < rounds {
+            guard Date() < deadline else { return false }
+            drain(limit: max(0.1, deadline.timeIntervalSinceNow))
+            let now = windows()
+            for window in now {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+            }
+            let seen = appearance(of: now)
+            quiet = seen == last && landed() ? quiet + 1 : 0
+            last = seen
+        }
+        return true
+    }
+
+    /// Whether what a surface was built from has nothing in flight. Feedback
+    /// hands its note to a task when it is sent, and is a different surface
+    /// (saved, or thanked) when the answer comes back.
+    static func landed(_ kept: [AnyObject]) -> Bool {
+        !kept.contains { ($0 as? FeedbackController)?.isSending == true }
+    }
+
+    /// The same for the windows of `views`, which a test has changed (its look,
+    /// its words) and now reads.
+    @discardableResult
+    static func settle(_ views: NSView...) -> Bool {
+        settle({ views.compactMap(\.window) })
+    }
+
+    /// The same for `windows` themselves.
+    @discardableResult
+    static func settle(_ windows: NSWindow...) -> Bool {
+        settle({ windows })
     }
 
     /// The window `body` made that stands for the surface: the biggest, put
     /// away at once so nothing reaches the screen.
     ///
     /// A surface stages itself on a later turn (a preview's `async`), so the
-    /// window is waited for, not assumed: the beat is turned, and then more
-    /// of them until a window that matches has been made and has a size, up
-    /// to ten seconds. On a runner half as fast as a desk the beat alone was
-    /// over before the surface was made.
-    static func surface(made body: () -> [AnyObject], settle beat: TimeInterval = 0.12,
+    /// window is waited for, not assumed: the loop is turned until a window
+    /// that matches has been made and has a size and stands as it will, and
+    /// no longer (`settle`). A fixed beat was what this waited on once, and it
+    /// was a guess at how long a desk took: on a runner half as fast it was
+    /// over before the surface was made, and on a desk it was most of the
+    /// time. `beat` is accepted so the builders that still pass one need not
+    /// change; it is not waited for.
+    static func surface(made body: () -> [AnyObject], settle beat: TimeInterval = 0,
                         where match: (NSWindow) -> Bool = { _ in true },
                         frame: NSRect? = nil) throws -> (NSView, [AnyObject]) {
         DisplayScale.pin()
@@ -190,9 +307,11 @@ enum GalleryHost {
             match(window) && window.frame.width > 0 && window.frame.height > 0 && window.contentView != nil
         }
         let kept = body()
-        settle(beat)
+        // Until a window is there to settle, the loop is turned for it, to the
+        // same limit.
         let deadline = Date().addingTimeInterval(10)
-        while !made().contains(where: drawn), Date() < deadline { settle(0.05) }
+        while !made().contains(where: drawn), Date() < deadline { drain(limit: 10) }
+        settle(made, landed: { landed(kept) })
         let windows = made()
         windows.forEach { $0.orderOut(nil) }
         let panel = try XCTUnwrap(windows.filter(match).max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height },

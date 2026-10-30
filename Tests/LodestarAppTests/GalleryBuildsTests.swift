@@ -35,26 +35,36 @@ final class GalleryBuildsTests: XCTestCase {
 
     /// A shot kept through the other look's turn, and served again, draws as a
     /// shot built just now does, in both looks, for panels and for sheets; one
-    /// with a caret in it is not kept, and is built again.
+    /// with a caret in it is served to a sweep that only reads it and built
+    /// again for one that draws it.
     func testAKeptBuildDrawsAsAFreshOneDoes() throws {
         let surfaces = ["launcher", "keep", "settings", "foundation", "pill", "meeting"]
-        var seen = 0
+        var seen = 0, seenCaret = 0
         for surface in surfaces {
             guard let shot = GalleryShots.all.first(where: { $0.surface == surface && $0.level == 1 && !$0.receded && $0.looks == GalleryLook.all })
             else { continue }
             for look in GalleryLook.all {
                 look.apply()
                 guard let first = try? shot.built(in: look) else { continue }
-                let before = pixels(first.view)
+                // One with a caret in it is not drawn: drawing it ends the editing it was built in.
+                let before = GalleryBuilds.isQuiet(first) ? pixels(first.view) : nil
                 // The other look's turn, with this one kept through it.
                 for other in GalleryLook.all where other != look { other.apply() }
                 look.apply()
                 let again = try shot.built(in: look)
+                XCTAssertTrue(again.view === first.view, "\(shot.name(in: look)) is served, not built again")
                 if !GalleryBuilds.isQuiet(first) {
-                    XCTAssertFalse(again.view === first.view, "\(shot.name(in: look)) has a caret in it: built again, not served")
+                    let drawn = try shot.built(in: look, drawing: true)
+                    XCTAssertFalse(drawn.view === first.view, "\(shot.name(in: look)) has a caret in it: built again for a sweep that draws it")
+                    XCTAssertTrue(try shot.built(in: look).view === first.view, "and the fresh build is not what readers are served")
+                    // What a reader is served is what a fresh build is: the same kinds of view, in the
+                    // same places, holding the same words (drawing it would end the editing, so it is not drawn).
+                    XCTAssertEqual(GalleryHost.appearance(of: [again.view.window].compactMap { $0 }),
+                                   GalleryHost.appearance(of: [drawn.view.window].compactMap { $0 }),
+                                   "\(shot.name(in: look)) is served as a fresh build stands")
+                    seenCaret += 1
                     continue
                 }
-                XCTAssertTrue(again.view === first.view, "\(shot.name(in: look)) is served, not built again")
                 let fresh = try shot.build(look)
                 let another = try shot.build(look)
                 // A picture with something alive in it (an icon read on a later
@@ -68,6 +78,7 @@ final class GalleryBuildsTests: XCTestCase {
             }
         }
         XCTAssertGreaterThanOrEqual(seen, 6, "enough of the shots were compared")
+        XCTAssertGreaterThanOrEqual(seenCaret, 2, "and enough with a caret in them")
     }
 
     /// A shot is kept for the look in force and the Eye comfort it was built at, and no other.

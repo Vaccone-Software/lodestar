@@ -45,18 +45,14 @@ final class TextInkTests: XCTestCase {
     func testNoWordOnAnySurfaceIsInTheSystemsGrey() throws {
         var offenders: [String] = []
         var checked = 0
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) {
-                // The colour sheets and the type sheet paint by drawing, not by fields.
-                guard let (view, keep) = try? shot.built(in: look) else { continue }
-                checked += 1
-                let words = greyWords(in: view)
-                if !words.isEmpty { offenders.append("\(shot.name(in: look)): \(Set(words).sorted().prefix(4))") }
-                _ = keep
-            }
+        for picture in GallerySweep.pictures() {
+            let shot = picture.shot, look = picture.look, view = picture.root
+            // The colour sheets and the type sheet paint by drawing, not by fields.
+            checked += 1
+            let words = greyWords(in: view)
+            if !words.isEmpty { offenders.append("\(shot.name(in: look)): \(Set(words).sorted().prefix(4))") }
         }
         XCTAssertGreaterThan(checked, 100, "the gallery's surfaces were built")
-        XCTAssertEqual(offenders, [], "set the ink: BarTheme.label, or a textColor from the theme")
+        GallerySweep.expectNone(offenders, "no word is in the system's grey: set the ink, BarTheme.label, or a textColor from the theme")
     }
 }

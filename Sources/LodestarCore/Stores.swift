@@ -202,7 +202,12 @@ public final class StateStore {
 
     // MARK: Opening off the main thread
 
-    private let opened = Mutex<StateFiles.Opened?>(nil)
+    /// Where the background read leaves its answer for main to take. A class
+    /// of its own so that the read can hold it without holding the store.
+    private final class OpenedSlot: Sendable {
+        let answer = Mutex<StateFiles.Opened?>(nil)
+    }
+    private let opened = OpenedSlot()
     private let openingGroup = DispatchGroup()
     private var opening = false
 
@@ -213,11 +218,16 @@ public final class StateStore {
         opening = true
         openingGroup.enter()
         let files = files
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let slot = opened
+        let group = openingGroup
+        // The store itself goes back to main only: the box says so, and holds
+        // it weakly, as the closure always did.
+        let store = MainQueueOnly(value: WeakRef(self))
+        DispatchQueue.global(qos: .userInitiated).async {
             let result = files.open()
-            self?.opened.withLock { $0 = result }
-            self?.openingGroup.leave()
-            DispatchQueue.main.async { self?.adoptOpened() }
+            slot.answer.withLock { $0 = result }
+            group.leave()
+            DispatchQueue.main.async { store.value.object?.adoptOpened() }
         }
     }
 
@@ -234,7 +244,7 @@ public final class StateStore {
     }
 
     private func adoptOpened() {
-        guard let result = opened.withLock({ taken -> StateFiles.Opened? in defer { taken = nil }; return taken }) else { return }
+        guard let result = opened.answer.withLock({ taken -> StateFiles.Opened? in defer { taken = nil }; return taken }) else { return }
         opening = false
         adopt(result)
     }

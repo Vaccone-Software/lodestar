@@ -38,6 +38,9 @@ public enum OffTap {
     /// — a mode re-entered, a mode left — carry their own generation check
     /// inside `work`; this makes no attempt to guess at staleness.
     public static func run(_ work: @escaping () -> Void) {
-        DispatchQueue.main.async(execute: work)
+        // `work` is the caller's, runs on main and only there: it crosses to
+        // the main queue inside a box that says so.
+        let onMain = MainQueueOnly(value: work)
+        DispatchQueue.main.async { onMain.value() }
     }
 }

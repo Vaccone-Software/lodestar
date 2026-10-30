@@ -452,8 +452,9 @@ public final class LayoutController {
             guard let self, self.retileGenerations[display] == generation else { return }
             for id in members { self.model.refreshFrame(id) }
             self.settle(placed, on: display, generation: generation)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                self?.correctivePass(on: display, generation: generation)
+            let controller = MainQueueOnly(value: WeakRef(self))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                controller.value.object?.correctivePass(on: display, generation: generation)
             }
         }
     }
@@ -487,7 +488,7 @@ public final class LayoutController {
     /// write queued ahead of it, on the lane's own thread — inline when
     /// there is no lane. A raise or an un-minimize made this way waits
     /// behind the moves it follows instead of blocking the keyboard.
-    public func onMoveLane(_ work: @escaping () -> Void) {
+    public func onMoveLane(_ work: @escaping @Sendable () -> Void) {
         guard let moveQueue else { return work() }
         moveQueue.async(execute: work)
     }
@@ -505,13 +506,17 @@ public final class LayoutController {
             completion()
             return
         }
-        moveQueue.async { [mover, onMoves] in
+        // The two callbacks are the controller's, used on main only: they
+        // cross to the lane and back inside a box that says so.
+        let report = MainQueueOnly(value: onMoves)
+        let done = MainQueueOnly(value: completion)
+        moveQueue.async { [mover] in
             let began = Date()
             for (window, frame) in moves { mover.setFrame(window, frame) }
             let took = Date().timeIntervalSince(began)
             DispatchQueue.main.async {
-                onMoves?(took, moves.count)
-                completion()
+                report.value?(took, moves.count)
+                done.value()
             }
         }
     }
@@ -526,9 +531,10 @@ public final class LayoutController {
             completion()
             return
         }
+        let done = MainQueueOnly(value: completion)
         moveQueue.async { [mover] in
             for (window, point) in positions { mover.setPosition(window, point) }
-            DispatchQueue.main.async(execute: completion)
+            DispatchQueue.main.async { done.value() }
         }
     }
 

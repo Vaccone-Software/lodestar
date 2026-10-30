@@ -69,10 +69,13 @@ public final class ParkingLot {
     /// One write on the lane. Inline it answers honestly; queued it
     /// answers "queued" and reports a refusal on the main thread later,
     /// which is the only shape a write off the tap can have.
-    private func write(_ work: @escaping () -> Bool, onFailure: @escaping () -> Void) -> Bool {
+    private func write(_ work: @escaping @Sendable () -> Bool, onFailure: @escaping () -> Void) -> Bool {
         guard let moveQueue else { return work() }
+        // `onFailure` is the lot's own bookkeeping, used on main only: it
+        // crosses to the lane and back inside a box that says so.
+        let failed = MainQueueOnly(value: onFailure)
         moveQueue.async {
-            if !work() { DispatchQueue.main.async(execute: onFailure) }
+            if !work() { DispatchQueue.main.async { failed.value() } }
         }
         return true
     }

@@ -381,25 +381,62 @@ final class EyeComfortLooksTests: XCTestCase {
     /// lit fill 3 to 1 on its pane and key, the letter on it 4.5, and the
     /// other look's marks on this look's slab.
     func testEveryFloorHoldsAtEveryLevelInBothLooks() {
-        for level in levels {
-            for (name, full, otherFull) in looks {
-                let look = resolved(full, level), other = resolved(otherFull, level)
-                let surfaces: [(String, Readability.RGB)] = [("pane", look.pane), ("key", look.key), ("ground", look.ground), ("well", look.well)]
-                for (surface, ground) in surfaces {
-                    XCTAssertGreaterThanOrEqual(contrast(look.ink, ground), 7, "\(name) ink on \(surface) at \(level)")
-                    XCTAssertGreaterThanOrEqual(contrast(look.quietInk, ground), 4.5, "\(name) quiet ink on \(surface) at \(level)")
-                }
-                XCTAssertGreaterThanOrEqual(contrast(look.orange, look.pane), 4.5, "\(name) orange as text at \(level)")
-                XCTAssertGreaterThanOrEqual(contrast(look.orange, look.key), 3, "\(name) a lit fill on a key at \(level)")
-                XCTAssertGreaterThanOrEqual(contrast(look.orange, look.well), 3, "\(name) a lit fill on a well at \(level)")
-                XCTAssertGreaterThanOrEqual(contrast(look.letterOnOrange, look.orange), 4.5, "\(name) letter on the orange at \(level)")
-                XCTAssertGreaterThanOrEqual(contrast(look.ink, look.key), 7, "\(name) key letter at \(level)")
-                // The other look's marks on this look's slab.
-                XCTAssertGreaterThanOrEqual(contrast(other.ink, look.slab), 7, "\(name): other ink on the slab at \(level)")
-                XCTAssertGreaterThanOrEqual(contrast(other.quietInk, look.slab), 4.5, "\(name): other quiet ink on the slab at \(level)")
-                XCTAssertGreaterThanOrEqual(contrast(other.orange, look.slab), 3, "\(name): other orange on the slab at \(level)")
+        for level in levels { assertFloors(at: level, "level \(level)") }
+    }
+
+    /// The floors for one level, in both looks.
+    private func assertFloors(at level: Double, _ when: String) {
+        for (name, full, otherFull) in looks {
+            let look = resolved(full, level), other = resolved(otherFull, level)
+            let surfaces: [(String, Readability.RGB)] = [("pane", look.pane), ("key", look.key), ("ground", look.ground), ("well", look.well)]
+            for (surface, ground) in surfaces {
+                XCTAssertGreaterThanOrEqual(contrast(look.ink, ground), 7, "\(name) ink on \(surface) at \(when)")
+                XCTAssertGreaterThanOrEqual(contrast(look.quietInk, ground), 4.5, "\(name) quiet ink on \(surface) at \(when)")
+            }
+            XCTAssertGreaterThanOrEqual(contrast(look.orange, look.pane), 4.5, "\(name) orange as text at \(when)")
+            XCTAssertGreaterThanOrEqual(contrast(look.orange, look.key), 3, "\(name) a lit fill on a key at \(when)")
+            XCTAssertGreaterThanOrEqual(contrast(look.orange, look.well), 3, "\(name) a lit fill on a well at \(when)")
+            XCTAssertGreaterThanOrEqual(contrast(look.letterOnOrange, look.orange), 4.5, "\(name) letter on the orange at \(when)")
+            XCTAssertGreaterThanOrEqual(contrast(look.ink, look.key), 7, "\(name) key letter at \(when)")
+            // The other look's marks on this look's slab.
+            XCTAssertGreaterThanOrEqual(contrast(other.ink, look.slab), 7, "\(name): other ink on the slab at \(when)")
+            XCTAssertGreaterThanOrEqual(contrast(other.quietInk, look.slab), 4.5, "\(name): other quiet ink on the slab at \(when)")
+            XCTAssertGreaterThanOrEqual(contrast(other.orange, look.slab), 3, "\(name): other orange on the slab at \(when)")
+            // No step of a look is a grey: each leans warm, at every hour.
+            for (step, colour) in [("ink", look.ink), ("quiet ink", look.quietInk), ("pane", look.pane), ("key", look.key),
+                                   ("ground", look.ground), ("slab", look.slab), ("orange", look.orange)] {
+                let channels = [colour.red, colour.green, colour.blue]
+                XCTAssertGreaterThanOrEqual(channels.max()! - channels.min()!, 0.004, "\(name) \(step) is a grey at \(when)")
             }
         }
+    }
+
+    /// The same floors by the clock: every hour of the day on the solstices
+    /// and the equinoxes, in a mid-latitude city, one in the polar fallback
+    /// and one on the equator, so each hour's colour is held as arithmetic.
+    /// What the design sweeps over the gallery draw for real is the full level and
+    /// bedtime; every hour between is these.
+    func testEveryHourOfTheDayHoldsTheFloorsInBothLooks() {
+        let places: [(String, Coordinate)] = [
+            ("America/New_York", Coordinate(latitude: 40.7128, longitude: -74.0060)),
+            ("Europe/Oslo", Coordinate(latitude: 69.6492, longitude: 18.9553)),
+            ("Asia/Singapore", Coordinate(latitude: 1.3521, longitude: 103.8198)),
+        ]
+        var levelsSeen: [Double] = []
+        for (id, place) in places {
+            let zone = tzNamed(id)
+            for (month, day) in [(3, 20), (6, 21), (9, 22), (12, 21)] {
+                for hour in 0..<24 {
+                    let level = EyeComfort.level(at: wallDate(2026, month, day, hour, 0, in: zone), place: place, zone: zone)
+                    levelsSeen.append(level)
+                    assertFloors(at: level, "\(id) \(month)/\(day) \(hour):00")
+                }
+            }
+        }
+        XCTAssertEqual(levelsSeen.count, 3 * 4 * 24)
+        XCTAssertEqual(levelsSeen.max(), EyeComfort.full, "a day hour is full")
+        XCTAssertEqual(levelsSeen.min() ?? 1, EyeComfort.bedtime, accuracy: 1e-9, "and a night hour is the deepest")
+        XCTAssertGreaterThan(Set(levelsSeen.map { ($0 * 1000).rounded() }).count, 6, "and some are between")
     }
 
     /// The deepest by day: what the contract measures, and that the quiet

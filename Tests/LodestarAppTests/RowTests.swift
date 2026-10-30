@@ -39,149 +39,143 @@ final class RowTests: XCTestCase {
     func testEveryListLineOnEverySurfaceIsOneOfTheFourRows() throws {
         var wrong: [String] = []
         var counts = ["rows": 0, "lines": 0, "settings": 0, "legends": 0, "details": 0]
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                // The sheets paint by drawing, and the row sheet is held on its own.
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                root.layoutSubtreeIfNeeded()
-                let name = shot.name(in: look)
-                var settingTitles: [CGFloat] = [], letters: [CGFloat] = []
+        for picture in GallerySweep.pictures(where: { $0.level == 1 && !$0.receded }) {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            // The sheets paint by drawing, and the row sheet is held on its own.
+            let name = shot.name(in: look)
+            var settingTitles: [CGFloat] = [], letters: [CGFloat] = []
 
-                walk(root) { view in
-                    guard !view.isHidden, view.bounds.width > 0 else { return }
+            walk(root) { view in
+                guard !view.isHidden, view.bounds.width > 0 else { return }
 
-                    // Only four kinds of view hold a list line: none lays out a row of its own.
-                    if view is SlabRow, !(view is ListRow), !(view is ListLine), !(view is LandingStep) {
-                        wrong.append("\(name): a \(type(of: view)) is a slab row that is none of the four")
+                // Only four kinds of view hold a list line: none lays out a row of its own.
+                if view is SlabRow, !(view is ListRow), !(view is ListLine), !(view is LandingStep) {
+                    wrong.append("\(name): a \(type(of: view)) is a slab row that is none of the four")
+                }
+
+                if let row = view as? ListRow {
+                    counts["rows", default: 0] += 1
+                    let frame = root.convert(row.bounds, from: row)
+                    let title = rect(of: row.title, in: root)
+                    let expected = row.detail.isHidden ? BarTheme.rowHeight : BarTheme.detailRowHeight
+                    if !row.detail.isHidden { counts["details", default: 0] += 1 }
+                    if abs(row.frame.height - expected) > 0.5 { wrong.append("\(name): a row is \(row.frame.height), not \(expected)") }
+                    // Words and icons 12 inside; 12 from the lead to the words.
+                    if let lead = row.lead {
+                        let leadRect = rect(of: lead, in: root)
+                        if abs(leadRect.minX - frame.minX - Grid.part) > 0.5 { wrong.append("\(name): a row's icon is \(leadRect.minX - frame.minX) in") }
+                        if abs(title.minX - leadRect.maxX - Grid.part) > 0.5 { wrong.append("\(name): a row's words are \(title.minX - leadRect.maxX) from its icon") }
+                        if abs(leadRect.midY - title.midY) > 0.5 { wrong.append("\(name): a row's icon is off its title's line") }
+                        let size = leadRect.height
+                        if ![BarTheme.appIconSize, BarTheme.titleIconSize].contains(size) { wrong.append("\(name): a row's icon is \(size)") }
+                    } else if abs(title.minX - frame.minX - Grid.part) > 0.5 {
+                        wrong.append("\(name): a row's words are \(title.minX - frame.minX) in")
                     }
-
-                    if let row = view as? ListRow {
-                        counts["rows", default: 0] += 1
-                        let frame = root.convert(row.bounds, from: row)
-                        let title = rect(of: row.title, in: root)
-                        let expected = row.detail.isHidden ? BarTheme.rowHeight : BarTheme.detailRowHeight
-                        if !row.detail.isHidden { counts["details", default: 0] += 1 }
-                        if abs(row.frame.height - expected) > 0.5 { wrong.append("\(name): a row is \(row.frame.height), not \(expected)") }
-                        // Words and icons 12 inside; 12 from the lead to the words.
-                        if let lead = row.lead {
-                            let leadRect = rect(of: lead, in: root)
-                            if abs(leadRect.minX - frame.minX - Grid.part) > 0.5 { wrong.append("\(name): a row's icon is \(leadRect.minX - frame.minX) in") }
-                            if abs(title.minX - leadRect.maxX - Grid.part) > 0.5 { wrong.append("\(name): a row's words are \(title.minX - leadRect.maxX) from its icon") }
-                            if abs(leadRect.midY - title.midY) > 0.5 { wrong.append("\(name): a row's icon is off its title's line") }
-                            let size = leadRect.height
-                            if ![BarTheme.appIconSize, BarTheme.titleIconSize].contains(size) { wrong.append("\(name): a row's icon is \(size)") }
-                        } else if abs(title.minX - frame.minX - Grid.part) > 0.5 {
-                            wrong.append("\(name): a row's words are \(title.minX - frame.minX) in")
+                    if !row.detail.isHidden {
+                        let detail = rect(of: row.detail, in: root)
+                        if abs((title.minY - detail.maxY) - BarTheme.detailGap) > 1.5 {
+                            wrong.append("\(name): a row's detail is \(title.minY - detail.maxY) under its title")
                         }
-                        if !row.detail.isHidden {
-                            let detail = rect(of: row.detail, in: root)
-                            if abs((title.minY - detail.maxY) - BarTheme.detailGap) > 1.5 {
-                                wrong.append("\(name): a row's detail is \(title.minY - detail.maxY) under its title")
-                            }
-                            if abs(detail.minX - title.minX) > 0.5 { wrong.append("\(name): a row's detail is not under its title") }
-                        }
-                        // Trailing parts: 8 apart, the last 12 from the edge, each on the first line's centre.
-                        let parts = visibleParts(row.trailing)
-                        for (part, next) in zip(parts, parts.dropFirst()) {
-                            let gap = rect(of: next, in: root).minX - rect(of: part, in: root).maxX
-                            if abs(gap - Grid.close) > 0.5 { wrong.append("\(name): a row's trailing parts are \(gap) apart") }
-                        }
-                        if let last = parts.last, abs(frame.maxX - rect(of: last, in: root).maxX - Grid.part) > 0.5 {
-                            wrong.append("\(name): a row's last key is \(frame.maxX - rect(of: last, in: root).maxX) from its edge")
-                        }
-                        for part in parts {
-                            let mid = rect(of: part, in: root).midY
-                            if abs(mid - title.midY) > 0.5 { wrong.append("\(name): a row's \(type(of: part)) \(mid) is off the title's first line \(title.midY)") }
-                        }
-                        // The acting key is last.
-                        if let litAt = parts.firstIndex(where: lit), litAt != parts.count - 1 {
-                            wrong.append("\(name): a row's lit key is not its last part")
-                        }
-                        // Rows in a pane stand 2 apart, so a slab's side never touches the next row.
-                        if let pane = row.superview {
-                            let below = pane.subviews.compactMap { $0 as? ListRow }
-                                .filter { !$0.isHidden && $0.frame.maxY <= row.frame.minY + 0.5 }
-                                .max { $0.frame.maxY < $1.frame.maxY }
-                            if let below, abs((row.frame.minY - below.frame.maxY) - BarTheme.rowGap) > 0.5 {
-                                wrong.append("\(name): rows are \(row.frame.minY - below.frame.maxY) apart, not 2")
-                            }
-                        }
+                        if abs(detail.minX - title.minX) > 0.5 { wrong.append("\(name): a row's detail is not under its title") }
                     }
-
-                    if let line = view as? ListLine {
-                        counts["lines", default: 0] += 1
-                        let frame = root.convert(line.bounds, from: line)
-                        if abs(line.frame.height - BarTheme.lineHeight) > 0.5 { wrong.append("\(name): a line is \(line.frame.height), not 32") }
-                        let label = rect(of: line.label, in: root)
-                        let lead = line.subviews.first { $0 !== line.label && $0 !== line.trailing && !($0 is NSStackView && $0 === line.trailing) }
-                        if let lead, !(lead.isHidden) {
-                            let leadRect = rect(of: lead, in: root)
-                            if abs(leadRect.minX - frame.minX - line.padding) > 0.5 { wrong.append("\(name): a line's lead is \(leadRect.minX - frame.minX) in") }
-                            if abs(label.minX - leadRect.maxX - Grid.part) > 0.5 { wrong.append("\(name): a line's words are \(label.minX - leadRect.maxX) from its lead") }
-                        } else if abs(label.minX - frame.minX - line.padding) > 0.5 {
-                            wrong.append("\(name): a line's words are \(label.minX - frame.minX) in")
-                        }
-                        // The words and the trailing parts share the line's centre.
-                        for part in visibleParts(line.trailing) {
-                            if abs(rect(of: part, in: root).midY - label.midY) > 0.5 { wrong.append("\(name): a line's \(type(of: part)) is off its words' line") }
-                        }
-                        let parts = visibleParts(line.trailing)
-                        for (part, next) in zip(parts, parts.dropFirst()) {
-                            let gap = rect(of: next, in: root).minX - rect(of: part, in: root).maxX
-                            if abs(gap - Grid.close) > 0.5 { wrong.append("\(name): a line's trailing parts are \(gap) apart") }
-                        }
-                        // A chosen line's slab rounds at the menu's radius less its inset.
-                        if line.padding == Grid.part, abs(line.radius - BarTheme.lineRadius) > 0.001 {
-                            wrong.append("\(name): a line rounds at \(line.radius), not \(BarTheme.lineRadius)")
-                        }
-                        // Lines touch: the next line in the same menu starts where this one ends.
-                        if let menu = line.superview {
-                            let below = menu.subviews.compactMap { $0 as? ListLine }
-                                .filter { !$0.isHidden && $0.frame.maxY <= line.frame.minY + 0.5 }
-                                .max { $0.frame.maxY < $1.frame.maxY }
-                            if let below, line.superview === below.superview {
-                                let gap = line.frame.minY - below.frame.maxY
-                                if abs(gap) > 0.5, abs(gap - Grid.close * 2) > 0.5 { wrong.append("\(name): lines are \(gap) apart") }
-                            }
-                        }
+                    // Trailing parts: 8 apart, the last 12 from the edge, each on the first line's centre.
+                    let parts = visibleParts(row.trailing)
+                    for (part, next) in zip(parts, parts.dropFirst()) {
+                        let gap = rect(of: next, in: root).minX - rect(of: part, in: root).maxX
+                        if abs(gap - Grid.close) > 0.5 { wrong.append("\(name): a row's trailing parts are \(gap) apart") }
                     }
-
-                    if view.identifier?.rawValue == "settings.row", let line = view.subviews.first {
-                        counts["settings", default: 0] += 1
-                        if view.frame.height < BarTheme.settingMinimumHeight - 0.5 {
-                            wrong.append("\(name): a setting is \(view.frame.height), under 48")
-                        }
-                        var title: NSTextField?
-                        walk(line) { if title == nil, let field = $0 as? NSTextField, field.typeStyle?.role == .label { title = field } }
-                        if let title { settingTitles.append(rect(of: title, in: root).minX.rounded()) }
-                        if let key = line.subviews.compactMap({ $0 as? Key }).first, !key.isHidden {
-                            letters.append(rect(of: key, in: root).minX.rounded())
-                            if abs(key.frame.minX - Grid.part) > 0.5 { wrong.append("\(name): a setting's letter is \(key.frame.minX) in") }
-                        }
+                    if let last = parts.last, abs(frame.maxX - rect(of: last, in: root).maxX - Grid.part) > 0.5 {
+                        wrong.append("\(name): a row's last key is \(frame.maxX - rect(of: last, in: root).maxX) from its edge")
                     }
-
-                    if let legend = view as? LegendRow {
-                        counts["legends", default: 0] += 1
-                        if abs(legend.frame.height - BarTheme.legendHeight) > 0.5 { wrong.append("\(name): a legend is \(legend.frame.height), not 24") }
-                        let parts = visibleParts(legend.line)
-                        // Keys first, then the words 8 after them.
-                        for (index, part) in parts.enumerated() where part is KeyWords && index > 0 {
-                            let before = parts[index - 1]
-                            guard before is Keycaps.CapGroup || before is KeyStrokes else { continue }
-                            let gap = rect(of: part, in: root).minX - rect(of: before, in: root).maxX
-                            if abs(gap - Grid.close) > 0.5 { wrong.append("\(name): a legend's words are \(gap) after its keys") }
+                    for part in parts {
+                        let mid = rect(of: part, in: root).midY
+                        if abs(mid - title.midY) > 0.5 { wrong.append("\(name): a row's \(type(of: part)) \(mid) is off the title's first line \(title.midY)") }
+                    }
+                    // The acting key is last.
+                    if let litAt = parts.firstIndex(where: lit), litAt != parts.count - 1 {
+                        wrong.append("\(name): a row's lit key is not its last part")
+                    }
+                    // Rows in a pane stand 2 apart, so a slab's side never touches the next row.
+                    if let pane = row.superview {
+                        let below = pane.subviews.compactMap { $0 as? ListRow }
+                            .filter { !$0.isHidden && $0.frame.maxY <= row.frame.minY + 0.5 }
+                            .max { $0.frame.maxY < $1.frame.maxY }
+                        if let below, abs((row.frame.minY - below.frame.maxY) - BarTheme.rowGap) > 0.5 {
+                            wrong.append("\(name): rows are \(row.frame.minY - below.frame.maxY) apart, not 2")
                         }
                     }
                 }
-                // A place's letters are one column: the titles all start together.
-                if Set(settingTitles).count > 1 { wrong.append("\(name): the titles start at \(Set(settingTitles).sorted())") }
-                if Set(letters).count > 1 { wrong.append("\(name): the letters stand at \(Set(letters).sorted())") }
-                _ = keep
+
+                if let line = view as? ListLine {
+                    counts["lines", default: 0] += 1
+                    let frame = root.convert(line.bounds, from: line)
+                    if abs(line.frame.height - BarTheme.lineHeight) > 0.5 { wrong.append("\(name): a line is \(line.frame.height), not 32") }
+                    let label = rect(of: line.label, in: root)
+                    let lead = line.subviews.first { $0 !== line.label && $0 !== line.trailing && !($0 is NSStackView && $0 === line.trailing) }
+                    if let lead, !(lead.isHidden) {
+                        let leadRect = rect(of: lead, in: root)
+                        if abs(leadRect.minX - frame.minX - line.padding) > 0.5 { wrong.append("\(name): a line's lead is \(leadRect.minX - frame.minX) in") }
+                        if abs(label.minX - leadRect.maxX - Grid.part) > 0.5 { wrong.append("\(name): a line's words are \(label.minX - leadRect.maxX) from its lead") }
+                    } else if abs(label.minX - frame.minX - line.padding) > 0.5 {
+                        wrong.append("\(name): a line's words are \(label.minX - frame.minX) in")
+                    }
+                    // The words and the trailing parts share the line's centre.
+                    for part in visibleParts(line.trailing) {
+                        if abs(rect(of: part, in: root).midY - label.midY) > 0.5 { wrong.append("\(name): a line's \(type(of: part)) is off its words' line") }
+                    }
+                    let parts = visibleParts(line.trailing)
+                    for (part, next) in zip(parts, parts.dropFirst()) {
+                        let gap = rect(of: next, in: root).minX - rect(of: part, in: root).maxX
+                        if abs(gap - Grid.close) > 0.5 { wrong.append("\(name): a line's trailing parts are \(gap) apart") }
+                    }
+                    // A chosen line's slab rounds at the menu's radius less its inset.
+                    if line.padding == Grid.part, abs(line.radius - BarTheme.lineRadius) > 0.001 {
+                        wrong.append("\(name): a line rounds at \(line.radius), not \(BarTheme.lineRadius)")
+                    }
+                    // Lines touch: the next line in the same menu starts where this one ends.
+                    if let menu = line.superview {
+                        let below = menu.subviews.compactMap { $0 as? ListLine }
+                            .filter { !$0.isHidden && $0.frame.maxY <= line.frame.minY + 0.5 }
+                            .max { $0.frame.maxY < $1.frame.maxY }
+                        if let below, line.superview === below.superview {
+                            let gap = line.frame.minY - below.frame.maxY
+                            if abs(gap) > 0.5, abs(gap - Grid.close * 2) > 0.5 { wrong.append("\(name): lines are \(gap) apart") }
+                        }
+                    }
+                }
+
+                if view.identifier?.rawValue == "settings.row", let line = view.subviews.first {
+                    counts["settings", default: 0] += 1
+                    if view.frame.height < BarTheme.settingMinimumHeight - 0.5 {
+                        wrong.append("\(name): a setting is \(view.frame.height), under 48")
+                    }
+                    var title: NSTextField?
+                    walk(line) { if title == nil, let field = $0 as? NSTextField, field.typeStyle?.role == .label { title = field } }
+                    if let title { settingTitles.append(rect(of: title, in: root).minX.rounded()) }
+                    if let key = line.subviews.compactMap({ $0 as? Key }).first, !key.isHidden {
+                        letters.append(rect(of: key, in: root).minX.rounded())
+                        if abs(key.frame.minX - Grid.part) > 0.5 { wrong.append("\(name): a setting's letter is \(key.frame.minX) in") }
+                    }
+                }
+
+                if let legend = view as? LegendRow {
+                    counts["legends", default: 0] += 1
+                    if abs(legend.frame.height - BarTheme.legendHeight) > 0.5 { wrong.append("\(name): a legend is \(legend.frame.height), not 24") }
+                    let parts = visibleParts(legend.line)
+                    // Keys first, then the words 8 after them.
+                    for (index, part) in parts.enumerated() where part is KeyWords && index > 0 {
+                        let before = parts[index - 1]
+                        guard before is Keycaps.CapGroup || before is KeyStrokes else { continue }
+                        let gap = rect(of: part, in: root).minX - rect(of: before, in: root).maxX
+                        if abs(gap - Grid.close) > 0.5 { wrong.append("\(name): a legend's words are \(gap) after its keys") }
+                    }
+                }
             }
+            // A place's letters are one column: the titles all start together.
+            if Set(settingTitles).count > 1 { wrong.append("\(name): the titles start at \(Set(settingTitles).sorted())") }
+            if Set(letters).count > 1 { wrong.append("\(name): the letters stand at \(Set(letters).sorted())") }
         }
-        XCTAssertEqual(Array(Set(wrong)).sorted(), [])
+        GallerySweep.expectNone(wrong, "every list line is one of the four rows")
         XCTAssertGreaterThan(counts["rows"] ?? 0, 30, "rows were looked at")
         XCTAssertGreaterThan(counts["details"] ?? 0, 5, "rows with a line beneath were looked at")
         XCTAssertGreaterThan(counts["lines"] ?? 0, 20, "lines were looked at")
@@ -206,22 +200,17 @@ extension RowTests {
             if field.lineBreakMode != .byTruncatingTail { wrong.append("\(surface): \(what) \"\(field.stringValue.prefix(24))\" is \(field.lineBreakMode.rawValue), not tail") }
             if field.maximumNumberOfLines > 1 { wrong.append("\(surface): \(what) \"\(field.stringValue.prefix(24))\" takes several lines") }
         }
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                let name = shot.name(in: look)
-                walk(root) { view in
-                    if let row = view as? ListRow {
-                        checkName(row.title, "a row's title", name)
-                        checkName(row.detail, "a row's detail", name)
-                    }
-                    if let line = view as? ListLine { checkName(line.label, "a line's words", name) }
-                    // A record is a sentence: it wraps within its column, held by its own tests.
-                    if let words = view as? KeyWords, words.column == nil { checkName(words.label, "the words beside a key", name) }
+        for picture in GallerySweep.pictures(where: { $0.level == 1 && !$0.receded }) {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            let name = shot.name(in: look)
+            walk(root) { view in
+                if let row = view as? ListRow {
+                    checkName(row.title, "a row's title", name)
+                    checkName(row.detail, "a row's detail", name)
                 }
-                _ = keep
+                if let line = view as? ListLine { checkName(line.label, "a line's words", name) }
+                // A record is a sentence: it wraps within its column, held by its own tests.
+                if let words = view as? KeyWords, words.column == nil { checkName(words.label, "the words beside a key", name) }
             }
         }
         // Settings: every title is a name, every detail, problem and readout a sentence.
@@ -252,7 +241,7 @@ extension RowTests {
                 }
             }
         }
-        XCTAssertEqual(Array(Set(wrong)).sorted(), [])
+        GallerySweep.expectNone(wrong, "a name is cut at its tail and a sentence wraps")
         XCTAssertGreaterThan(counts["names"] ?? 0, 100, "names were looked at")
         XCTAssertGreaterThan(counts["sentences"] ?? 0, 30, "sentences were looked at")
     }

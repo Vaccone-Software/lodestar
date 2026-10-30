@@ -800,35 +800,30 @@ final class DesignDriftTests: XCTestCase {
             if layer.opacity < 1 { report("\(path) layer at \(layer.opacity)") }
             for (index, sub) in (layer.sublayers ?? []).enumerated() { walkLayers(sub, "\(path)/\(index)", report) }
         }
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                let name = shot.name(in: look)
-                func visit(_ view: NSView) {
-                    if !view.isHidden {
-                        checked += 1
-                        if view.alphaValue < 1 { found.append("\(name): \(type(of: view)) at \(view.alphaValue)") }
-                        if let layer = view.layer, layer.opacity < 1 { found.append("\(name): \(type(of: view)) layer at \(layer.opacity)") }
-                        // The layers a view draws with itself (a switch's track and knob, a key's
-                        // face and side), not its subviews' layers, which are visited as views;
-                        // and not the system's own scroll bars, which the Mac shows and hides.
-                        if let layer = view.layer, !(view is NSScrollView), !(view is NSScroller) {
-                            let theirs = Set(view.subviews.compactMap(\.layer).map(ObjectIdentifier.init))
-                            for sub in layer.sublayers ?? [] where !theirs.contains(ObjectIdentifier(sub)) {
-                                walkLayers(sub, "\(name): \(type(of: view))") { found.append($0) }
-                            }
+        for picture in GallerySweep.pictures(where: { $0.level == 1 && !$0.receded }) {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            let name = shot.name(in: look)
+            func visit(_ view: NSView) {
+                if !view.isHidden {
+                    checked += 1
+                    if view.alphaValue < 1 { found.append("\(name): \(type(of: view)) at \(view.alphaValue)") }
+                    if let layer = view.layer, layer.opacity < 1 { found.append("\(name): \(type(of: view)) layer at \(layer.opacity)") }
+                    // The layers a view draws with itself (a switch's track and knob, a key's
+                    // face and side), not its subviews' layers, which are visited as views;
+                    // and not the system's own scroll bars, which the Mac shows and hides.
+                    if let layer = view.layer, !(view is NSScrollView), !(view is NSScroller) {
+                        let theirs = Set(view.subviews.compactMap(\.layer).map(ObjectIdentifier.init))
+                        for sub in layer.sublayers ?? [] where !theirs.contains(ObjectIdentifier(sub)) {
+                            walkLayers(sub, "\(name): \(type(of: view))") { found.append($0) }
                         }
                     }
-                    view.subviews.forEach(visit)
                 }
-                visit(root)
-                _ = keep
+                view.subviews.forEach(visit)
             }
+            visit(root)
         }
         XCTAssertGreaterThan(checked, 10_000, "every view of every surface was looked at")
-        XCTAssertEqual(Array(Set(found)).sorted(), [], "nothing is drawn translucent: opaque, in the quiet ink")
+        GallerySweep.expectNone(found, "nothing is drawn translucent: opaque, in the quiet ink")
     }
 
     /// The dot is drawn, 7 across (`RowDot`), never a glyph set in a font.
@@ -866,19 +861,15 @@ final class DesignDriftTests: XCTestCase {
             XCTAssertFalse(hit, "the guard flags what draws the dot: \(sample)")
         }
         // And on every surface: no field holds a dot glyph.
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                func visit(_ view: NSView) {
-                    if let field = view as? NSTextField, field.stringValue.range(of: "[●⬤⏺◉⚫]", options: .regularExpression) != nil {
-                        found.append("\(shot.name(in: look)): a field says \"\(field.stringValue)\"")
-                    }
-                    view.subviews.forEach(visit)
+        for picture in GallerySweep.pictures(where: { $0.level == 1 && !$0.receded }) {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            func visit(_ view: NSView) {
+                if let field = view as? NSTextField, field.stringValue.range(of: "[●⬤⏺◉⚫]", options: .regularExpression) != nil {
+                    found.append("\(shot.name(in: look)): a field says \"\(field.stringValue)\"")
                 }
-                visit(root)
-                _ = keep
+                view.subviews.forEach(visit)
             }
+            visit(root)
         }
         XCTAssertEqual(found, [])
     }

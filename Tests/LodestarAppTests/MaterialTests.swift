@@ -96,29 +96,26 @@ final class MaterialTests: XCTestCase {
     /// corners, is opaque, so nothing of the desktop shows through the ceramic.
     func testNoPanelLetsTheDesktopThrough() throws {
         var checked = 0
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) && shot.surface != "foundation" {
-                guard let (view, keep) = try? shot.built(in: look), let host = view as? ShadowHostView else { continue }
-                _ = keep
-                let rep = GalleryRender.bitmap(of: host)
-                let scale = CGFloat(rep.pixelsWide) / rep.size.width
-                let pane = host.bounds.insetBy(dx: SoftShadow.margin, dy: SoftShadow.margin)
-                    .insetBy(dx: BarTheme.surfaceRadius, dy: BarTheme.surfaceRadius)
-                guard pane.width > 0, pane.height > 0 else { continue }
-                var clear: [String] = []
-                for fx in stride(from: 0.0, through: 1.0, by: 0.1) {
-                    for fy in stride(from: 0.0, through: 1.0, by: 0.1) {
-                        let point = CGPoint(x: pane.minX + pane.width * fx, y: pane.minY + pane.height * fy)
-                        let x = Int(point.x * scale), y = Int((rep.size.height - point.y) * scale)
-                        guard (0..<rep.pixelsWide).contains(x), (0..<rep.pixelsHigh).contains(y),
-                              let color = rep.colorAt(x: x, y: y) else { continue }
-                        if color.alphaComponent < 0.999 { clear.append("\(point)") }
-                    }
+        for picture in GallerySweep.pictures(drawing: true, where: { $0.surface != "foundation" }) {
+            let shot = picture.shot, look = picture.look
+            guard let host = picture.root as? ShadowHostView else { continue }
+            let rep = GalleryRender.bitmap(of: host)
+            let scale = CGFloat(rep.pixelsWide) / rep.size.width
+            let pane = host.bounds.insetBy(dx: SoftShadow.margin, dy: SoftShadow.margin)
+                .insetBy(dx: BarTheme.surfaceRadius, dy: BarTheme.surfaceRadius)
+            guard pane.width > 0, pane.height > 0 else { continue }
+            var clear: [String] = []
+            for fx in stride(from: 0.0, through: 1.0, by: 0.1) {
+                for fy in stride(from: 0.0, through: 1.0, by: 0.1) {
+                    let point = CGPoint(x: pane.minX + pane.width * fx, y: pane.minY + pane.height * fy)
+                    let x = Int(point.x * scale), y = Int((rep.size.height - point.y) * scale)
+                    guard (0..<rep.pixelsWide).contains(x), (0..<rep.pixelsHigh).contains(y),
+                          let color = rep.colorAt(x: x, y: y) else { continue }
+                    if color.alphaComponent < 0.999 { clear.append("\(point)") }
                 }
-                XCTAssertEqual(clear, [], "\(shot.name(in: look)) is opaque inside its pane")
-                checked += 1
             }
+            XCTAssertEqual(clear, [], "\(shot.name(in: look)) is opaque inside its pane")
+            checked += 1
         }
         XCTAssertGreaterThan(checked, 20, "the panels of the gallery were looked at")
     }
@@ -176,73 +173,67 @@ final class MaterialTests: XCTestCase {
         var counts = ["keys": 0, "quiet keys": 0, "buttons": 0, "popups": 0, "switches": 0, "rows": 0, "cards": 0,
                       "wells": 0, "chips": 0, "tiles": 0]
         var wrong: [String] = []
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                _ = keep
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                root.layoutSubtreeIfNeeded()
-                let name = shot.name(in: look)
-                walk(root) { view in
-                    guard !view.isHidden else { return }
-                    func expect(_ role: Ceramic.Depth, as kind: String) {
-                        guard let depth = view as? CeramicDepth else {
-                            wrong.append("\(name): a \(kind) (\(type(of: view))) does not say its depth")
-                            return
-                        }
-                        switch (role, depth.depth) {
-                        case (.standsUp, .standsUp(let side)):
-                            if depth.drawnSide < Ceramic.Side.pressed - 0.01 || depth.drawnSide > Ceramic.Side.large + 0.01 {
-                                wrong.append("\(name): a \(kind) shows a side of \(depth.drawnSide)")
-                            }
-                            if abs(depth.drawnSide - side) > 0.01 { wrong.append("\(name): a \(kind) draws \(depth.drawnSide) of \(side)") }
-                        case (.sinks, .sinks), (.flat, .flat):
-                            if depth.drawnSide != 0 { wrong.append("\(name): a \(kind) has a side of \(depth.drawnSide)") }
-                        case (.outlined, .outlined(let side)):
-                            // A quiet key is not pressable, so it does not stand up, but it is
-                            // the shape of a key that does: its side is drawn in full, in the
-                            // hairline's tone (the key tests hold the tone).
-                            if abs(depth.drawnSide - side) > 0.01 { wrong.append("\(name): a \(kind) draws \(depth.drawnSide) of \(side)") }
-                            if side < Ceramic.Side.control - 0.01 || side > Ceramic.Side.large + 0.01 {
-                                wrong.append("\(name): a \(kind) shows a side of \(side)")
-                            }
-                        default:
-                            wrong.append("\(name): a \(kind) is \(depth.depth), not \(role)")
-                        }
+        for picture in GallerySweep.pictures() {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            let name = shot.name(in: look)
+            walk(root) { view in
+                guard !view.isHidden else { return }
+                func expect(_ role: Ceramic.Depth, as kind: String) {
+                    guard let depth = view as? CeramicDepth else {
+                        wrong.append("\(name): a \(kind) (\(type(of: view))) does not say its depth")
+                        return
                     }
-                    if let key = view as? Key {
-                        if key.quiet && !key.lit { counts["quiet keys", default: 0] += 1; expect(.outlined(side: 0), as: "quiet key") }
-                        else { counts["keys", default: 0] += 1; expect(.standsUp(side: 0), as: "key") }
-                    } else if view is RoomButton {
-                        counts["buttons", default: 0] += 1
-                        expect(.standsUp(side: 0), as: "button")
-                    } else if view is NSPopUpButton {
-                        counts["popups", default: 0] += 1
-                        expect(.standsUp(side: 0), as: "popup")
-                    } else if view is AccentSwitch {
-                        counts["switches", default: 0] += 1
-                        expect(.standsUp(side: 0), as: "switch's knob")
-                    } else if let row = view as? SlabRow {
-                        counts["rows", default: 0] += 1
-                        expect(row.chosen ? .standsUp(side: 0) : .flat, as: "row")
-                    } else if let pane = view as? CeramicPane, pane.side > 0 {
-                        counts["cards", default: 0] += 1
-                        expect(.standsUp(side: 0), as: "card")
-                    } else if view is WellView || view is WellField {
-                        counts["wells", default: 0] += 1
-                        expect(.sinks, as: "well")
-                    } else if view is FlatChip {
-                        counts["chips", default: 0] += 1
-                        expect(.flat, as: "chip")
-                    } else if String(describing: type(of: view)) == "TileColumn" {
-                        counts["tiles", default: 0] += 1
-                        expect(.standsUp(side: 0), as: "tile")
+                    switch (role, depth.depth) {
+                    case (.standsUp, .standsUp(let side)):
+                        if depth.drawnSide < Ceramic.Side.pressed - 0.01 || depth.drawnSide > Ceramic.Side.large + 0.01 {
+                            wrong.append("\(name): a \(kind) shows a side of \(depth.drawnSide)")
+                        }
+                        if abs(depth.drawnSide - side) > 0.01 { wrong.append("\(name): a \(kind) draws \(depth.drawnSide) of \(side)") }
+                    case (.sinks, .sinks), (.flat, .flat):
+                        if depth.drawnSide != 0 { wrong.append("\(name): a \(kind) has a side of \(depth.drawnSide)") }
+                    case (.outlined, .outlined(let side)):
+                        // A quiet key is not pressable, so it does not stand up, but it is
+                        // the shape of a key that does: its side is drawn in full, in the
+                        // hairline's tone (the key tests hold the tone).
+                        if abs(depth.drawnSide - side) > 0.01 { wrong.append("\(name): a \(kind) draws \(depth.drawnSide) of \(side)") }
+                        if side < Ceramic.Side.control - 0.01 || side > Ceramic.Side.large + 0.01 {
+                            wrong.append("\(name): a \(kind) shows a side of \(side)")
+                        }
+                    default:
+                        wrong.append("\(name): a \(kind) is \(depth.depth), not \(role)")
                     }
+                }
+                if let key = view as? Key {
+                    if key.quiet && !key.lit { counts["quiet keys", default: 0] += 1; expect(.outlined(side: 0), as: "quiet key") }
+                    else { counts["keys", default: 0] += 1; expect(.standsUp(side: 0), as: "key") }
+                } else if view is RoomButton {
+                    counts["buttons", default: 0] += 1
+                    expect(.standsUp(side: 0), as: "button")
+                } else if view is NSPopUpButton {
+                    counts["popups", default: 0] += 1
+                    expect(.standsUp(side: 0), as: "popup")
+                } else if view is AccentSwitch {
+                    counts["switches", default: 0] += 1
+                    expect(.standsUp(side: 0), as: "switch's knob")
+                } else if let row = view as? SlabRow {
+                    counts["rows", default: 0] += 1
+                    expect(row.chosen ? .standsUp(side: 0) : .flat, as: "row")
+                } else if let pane = view as? CeramicPane, pane.side > 0 {
+                    counts["cards", default: 0] += 1
+                    expect(.standsUp(side: 0), as: "card")
+                } else if view is WellView || view is WellField {
+                    counts["wells", default: 0] += 1
+                    expect(.sinks, as: "well")
+                } else if view is FlatChip {
+                    counts["chips", default: 0] += 1
+                    expect(.flat, as: "chip")
+                } else if String(describing: type(of: view)) == "TileColumn" {
+                    counts["tiles", default: 0] += 1
+                    expect(.standsUp(side: 0), as: "tile")
                 }
             }
         }
-        XCTAssertEqual(Array(Set(wrong)).sorted(), [], "depth follows role")
+        GallerySweep.expectNone(wrong, "depth follows role")
         for (kind, count) in counts where kind != "tiles" {
             XCTAssertGreaterThan(count, 0, "\(kind) were looked at")
         }
@@ -255,20 +246,16 @@ final class MaterialTests: XCTestCase {
     /// builds is one of Lodestar's.
     func testEveryPressableControlOfTheGalleryDeclaresItsDepth() throws {
         var undeclared: [String] = []
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                _ = keep
-                walk(root) { view in
-                    // A borderless link or a hit-target button over a tile is not a drawn thing.
-                    guard let button = view as? NSButton, !(view is HandButton), !(view is CeramicDepth),
-                          !button.isHidden, button.title != "" || button.image != nil else { return }
-                    undeclared.append("\(shot.name(in: look)): \(type(of: button))")
-                }
+        for picture in GallerySweep.pictures() {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            walk(root) { view in
+                // A borderless link or a hit-target button over a tile is not a drawn thing.
+                guard let button = view as? NSButton, !(view is HandButton), !(view is CeramicDepth),
+                      !button.isHidden, button.title != "" || button.image != nil else { return }
+                undeclared.append("\(shot.name(in: look)): \(type(of: button))")
             }
         }
-        XCTAssertEqual(Array(Set(undeclared)).sorted(), [], "a button is a RoomButton, a key, a popup or a switch")
+        GallerySweep.expectNone(undeclared, "a button is a RoomButton, a key, a popup or a switch")
     }
 
     // MARK: - Pressing (the side's rule)

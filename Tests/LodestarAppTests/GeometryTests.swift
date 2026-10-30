@@ -299,132 +299,125 @@ final class GeometryTests: XCTestCase {
         var outside: [String] = [], shadows: [String] = [], keys: [String] = [], empty: [String] = []
         var rows: [String] = [], targets: [String] = [], words: [String] = [], checked = 0
         var counts = ["key columns": 0, "empty": 0, "settings rows": 0, "word controls": 0, "raised rows": 0, "targets": 0]
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                // The sheets paint by drawing; the rules are for what is laid out.
-                if shot.surface == "foundation" { continue }
-                checked += 1
-                let name = shot.name(in: look)
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                root.layoutSubtreeIfNeeded()
-                let bounds = root.bounds.insetBy(dx: -0.5, dy: -0.5)
+        // The sheets paint by drawing; the rules are for what is laid out.
+        for picture in GallerySweep.pictures(where: { $0.surface != "foundation" }) {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            checked += 1
+            let name = shot.name(in: look)
+            let bounds = root.bounds.insetBy(dx: -0.5, dy: -0.5)
 
-                // Nothing hangs outside its parent, and nothing's shadow or lip
-                // reaches past the surface it stands in.
-                walk(root) { view in
-                    guard view !== root, !view.isHidden, let parent = view.superview else { return }
-                    if isInsideScroller(view) || hangsByDesign(view) || hangsByDesign(parent) { return }
-                    if parent.bounds.isEmpty || String(describing: type(of: view)).contains("KeyboardFocus") { return }
-                    // A label's frame is wider than the line it draws by its cell's padding;
-                    // what must stay inside is what it aligns.
-                    let inParent = view.alignmentRect(forFrame: view.frame)
-                    if !parent.bounds.insetBy(dx: -0.5, dy: -0.5).contains(inParent), inParent.width > 0, inParent.height > 0 {
-                        outside.append("\(name): \(type(of: view)) \(inParent.integral) leaves \(type(of: parent)) \(parent.bounds.integral)")
-                    }
-                    // Nothing inside a surface casts a shadow of its own: a key
-                    // stands on a side, and a picture carries its shadow in it.
-                    if let layer = view.layer, layer.shadowOpacity > 0, layer.shadowRadius <= 8 {
-                        shadows.append("\(name): \(type(of: view)) casts a shadow")
-                    }
+            // Nothing hangs outside its parent, and nothing's shadow or lip
+            // reaches past the surface it stands in.
+            walk(root) { view in
+                guard view !== root, !view.isHidden, let parent = view.superview else { return }
+                if isInsideScroller(view) || hangsByDesign(view) || hangsByDesign(parent) { return }
+                if parent.bounds.isEmpty || String(describing: type(of: view)).contains("KeyboardFocus") { return }
+                // A label's frame is wider than the line it draws by its cell's padding;
+                // what must stay inside is what it aligns.
+                let inParent = view.alignmentRect(forFrame: view.frame)
+                if !parent.bounds.insetBy(dx: -0.5, dy: -0.5).contains(inParent), inParent.width > 0, inParent.height > 0 {
+                    outside.append("\(name): \(type(of: view)) \(inParent.integral) leaves \(type(of: parent)) \(parent.bounds.integral)")
                 }
-
-                // A key is as wide as its legend needs and no wider, square at
-                // the least: nothing stretches it.
-                walk(root) { view in
-                    guard let key = view as? Key, !key.isHidden else { return }
-                    counts["key columns", default: 0] += 1
-                    if key.frame.width > key.width + 0.5 {
-                        keys.append("\(name): key \"\(key.legend)\" is \(key.frame.width) wide, its legend needs \(key.width)")
-                    }
+                // Nothing inside a surface casts a shadow of its own: a key
+                // stands on a side, and a picture carries its shadow in it.
+                if let layer = view.layer, layer.shadowOpacity > 0, layer.shadowRadius <= 8 {
+                    shadows.append("\(name): \(type(of: view)) casts a shadow")
                 }
+            }
 
-                // A column with nothing in it takes no space.
-                walk(root) { view in
-                    guard let stack = view as? NSStackView, !stack.isHidden, !isInsideScroller(stack) else { return }
-                    let shown = stack.arrangedSubviews.filter { !$0.isHidden }
-                    counts["empty", default: 0] += shown.isEmpty ? 1 : 0
-                    if shown.isEmpty, stack.frame.width * stack.frame.height > 0.5 {
-                        empty.append("\(name): an empty stack is \(stack.frame.integral)")
-                    }
+            // A key is as wide as its legend needs and no wider, square at
+            // the least: nothing stretches it.
+            walk(root) { view in
+                guard let key = view as? Key, !key.isHidden else { return }
+                counts["key columns", default: 0] += 1
+                if key.frame.width > key.width + 0.5 {
+                    keys.append("\(name): key \"\(key.legend)\" is \(key.frame.width) wide, its legend needs \(key.width)")
                 }
+            }
 
-                // A row's leading key or icon, its title and its trailing
-                // control share the centre of the title's first line.
-                walk(root) { view in
-                    if view.identifier?.rawValue == "settings.row", let line = view.subviews.first {
-                        var title: NSTextField?
-                        walk(line) { if title == nil, let field = $0 as? NSTextField, field.typeStyle?.role == .label { title = field } }
-                        guard let title else { return }
-                        counts["settings rows", default: 0] += 1
-                        let centre = frame(of: title, in: root).midY
-                        for part in line.subviews where part.superview === line && !(part is NSStackView && part.subviews.contains { $0 === title.superview }) {
-                            guard !part.isHidden else { continue }
-                            let first = (part as? NSStackView)?.arrangedSubviews.first ?? part
-                            let mid = lineCentre(of: first, in: root)
-                            if abs(mid - centre) > 0.5 {
-                                rows.append("\(name): \(type(of: part)) \(mid) is off the title's \(centre)")
-                            }
-                        }
-                    }
-                    if view is SlabRow, !(view is SlabRow && String(describing: type(of: view)).contains("Landing")) {
-                        var title: NSTextField?
-                        walk(view) { if title == nil, let field = $0 as? NSTextField, field.typeStyle?.role == .title, !field.isHidden { title = field } }
-                        guard let title else { return }
-                        counts["raised rows", default: 0] += 1
-                        let centre = frame(of: title, in: root).midY
-                        walk(view) { part in
-                            guard !part.isHidden, part is Key || (part is NSImageView && !(part.superview is NSTextField)) else { return }
-                            if part is NSImageView, part.superview?.superview is Key { return }
-                            let mid = lineCentre(of: part, in: root)
-                            if abs(mid - centre) > 0.5 {
-                                rows.append("\(name): \(type(of: part)) \(mid) is off the title's \(centre)")
-                            }
+            // A column with nothing in it takes no space.
+            walk(root) { view in
+                guard let stack = view as? NSStackView, !stack.isHidden, !isInsideScroller(stack) else { return }
+                let shown = stack.arrangedSubviews.filter { !$0.isHidden }
+                counts["empty", default: 0] += shown.isEmpty ? 1 : 0
+                if shown.isEmpty, stack.frame.width * stack.frame.height > 0.5 {
+                    empty.append("\(name): an empty stack is \(stack.frame.integral)")
+                }
+            }
+
+            // A row's leading key or icon, its title and its trailing
+            // control share the centre of the title's first line.
+            walk(root) { view in
+                if view.identifier?.rawValue == "settings.row", let line = view.subviews.first {
+                    var title: NSTextField?
+                    walk(line) { if title == nil, let field = $0 as? NSTextField, field.typeStyle?.role == .label { title = field } }
+                    guard let title else { return }
+                    counts["settings rows", default: 0] += 1
+                    let centre = frame(of: title, in: root).midY
+                    for part in line.subviews where part.superview === line && !(part is NSStackView && part.subviews.contains { $0 === title.superview }) {
+                        guard !part.isHidden else { continue }
+                        let first = (part as? NSStackView)?.arrangedSubviews.first ?? part
+                        let mid = lineCentre(of: first, in: root)
+                        if abs(mid - centre) > 0.5 {
+                            rows.append("\(name): \(type(of: part)) \(mid) is off the title's \(centre)")
                         }
                     }
                 }
-
-                // A control that holds words pads 12 at its sides, and a popup's
-                // chevron stands 8 from its words.
-                walk(root) { view in
-                    if let popup = view as? NSPopUpButton, !popup.isHidden, popup.bounds.width > 0,
-                       let cell = popup.cell as? NSPopUpButtonCell {
-                        counts["word controls", default: 0] += 1
-                        let title = cell.titleRect(forBounds: popup.bounds)
-                        if abs(title.minX - BarTheme.wordPadding) > 0.5 {
-                            words.append("\(name): a popup's words start \(title.minX) in")
-                        }
-                        let chevron = popup.subviews.compactMap { $0 as? NSImageView }.first
-                        if let chevron {
-                            if abs((popup.bounds.width - chevron.frame.maxX) - BarTheme.wordPadding) > 0.5 {
-                                words.append("\(name): a popup's chevron is \(popup.bounds.width - chevron.frame.maxX) from the border")
-                            }
-                            if chevron.frame.minX - title.maxX < BarTheme.chevronGap - 0.5 {
-                                words.append("\(name): a popup's chevron is \(chevron.frame.minX - title.maxX) from its words")
-                            }
-                        }
-                    }
-                    if let button = view as? RoomButton, !button.isHidden, button.bounds.width > 0 {
-                        counts["word controls", default: 0] += 1
-                        let room = button.bounds.width - button.attributedTitle.size().width
-                        if room < BarTheme.wordPadding * 2 - 0.5 {
-                            words.append("\(name): a button pads \(room / 2) at its sides")
+                if view is SlabRow, !(view is SlabRow && String(describing: type(of: view)).contains("Landing")) {
+                    var title: NSTextField?
+                    walk(view) { if title == nil, let field = $0 as? NSTextField, field.typeStyle?.role == .title, !field.isHidden { title = field } }
+                    guard let title else { return }
+                    counts["raised rows", default: 0] += 1
+                    let centre = frame(of: title, in: root).midY
+                    walk(view) { part in
+                        guard !part.isHidden, part is Key || (part is NSImageView && !(part.superview is NSTextField)) else { return }
+                        if part is NSImageView, part.superview?.superview is Key { return }
+                        let mid = lineCentre(of: part, in: root)
+                        if abs(mid - centre) > 0.5 {
+                            rows.append("\(name): \(type(of: part)) \(mid) is off the title's \(centre)")
                         }
                     }
                 }
+            }
 
-                // Anything clickable is at least 24 by 24.
-                walk(root) { view in
-                    guard let control = view as? NSControl, !(control is NSTextField), !(control is NSImageView), !control.isHidden,
-                          !isInsideScroller(control) else { return }
-                    let size = control.frame.size
-                    counts["targets", default: 0] += 1
-                    if size.width < BarTheme.minTarget - 0.5 || size.height < BarTheme.minTarget - 0.5 {
-                        targets.append("\(name): \(type(of: control)) is \(size)")
+            // A control that holds words pads 12 at its sides, and a popup's
+            // chevron stands 8 from its words.
+            walk(root) { view in
+                if let popup = view as? NSPopUpButton, !popup.isHidden, popup.bounds.width > 0,
+                   let cell = popup.cell as? NSPopUpButtonCell {
+                    counts["word controls", default: 0] += 1
+                    let title = cell.titleRect(forBounds: popup.bounds)
+                    if abs(title.minX - BarTheme.wordPadding) > 0.5 {
+                        words.append("\(name): a popup's words start \(title.minX) in")
+                    }
+                    let chevron = popup.subviews.compactMap { $0 as? NSImageView }.first
+                    if let chevron {
+                        if abs((popup.bounds.width - chevron.frame.maxX) - BarTheme.wordPadding) > 0.5 {
+                            words.append("\(name): a popup's chevron is \(popup.bounds.width - chevron.frame.maxX) from the border")
+                        }
+                        if chevron.frame.minX - title.maxX < BarTheme.chevronGap - 0.5 {
+                            words.append("\(name): a popup's chevron is \(chevron.frame.minX - title.maxX) from its words")
+                        }
                     }
                 }
-                _ = keep
+                if let button = view as? RoomButton, !button.isHidden, button.bounds.width > 0 {
+                    counts["word controls", default: 0] += 1
+                    let room = button.bounds.width - button.attributedTitle.size().width
+                    if room < BarTheme.wordPadding * 2 - 0.5 {
+                        words.append("\(name): a button pads \(room / 2) at its sides")
+                    }
+                }
+            }
+
+            // Anything clickable is at least 24 by 24.
+            walk(root) { view in
+                guard let control = view as? NSControl, !(control is NSTextField), !(control is NSImageView), !control.isHidden,
+                      !isInsideScroller(control) else { return }
+                let size = control.frame.size
+                counts["targets", default: 0] += 1
+                if size.width < BarTheme.minTarget - 0.5 || size.height < BarTheme.minTarget - 0.5 {
+                    targets.append("\(name): \(type(of: control)) is \(size)")
+                }
             }
         }
         XCTAssertGreaterThan(checked, 100, "the gallery's surfaces were built")
@@ -432,14 +425,14 @@ final class GeometryTests: XCTestCase {
         XCTAssertGreaterThan(counts["settings rows"] ?? 0, 50, "settings rows were looked at")
         XCTAssertGreaterThan(counts["raised rows"] ?? 0, 10, "the bars' rows were looked at")
         XCTAssertGreaterThan(counts["targets"] ?? 0, 20, "clickable things were looked at")
-        XCTAssertEqual(Array(Set(outside)).sorted(), [], "a view reserves the room for what it holds")
-        XCTAssertEqual(Array(Set(shadows)).sorted(), [], "a key has a side and a picture its own shadow; nothing in a surface casts one")
-        XCTAssertEqual(Array(Set(keys)).sorted(), [], "a column of keys is as wide as its widest")
-        XCTAssertEqual(Array(Set(empty)).sorted(), [], "a column with nothing in it takes no space")
-        XCTAssertEqual(Array(Set(rows)).sorted(), [], "a row's parts share the title's first line")
+        GallerySweep.expectNone(outside, "a view reserves the room for what it holds")
+        GallerySweep.expectNone(shadows, "a key has a side and a picture its own shadow; nothing in a surface casts one")
+        GallerySweep.expectNone(keys, "a column of keys is as wide as its widest")
+        GallerySweep.expectNone(empty, "a column with nothing in it takes no space")
+        GallerySweep.expectNone(rows, "a row's parts share the title's first line")
         XCTAssertGreaterThan(counts["word controls"] ?? 0, 10, "popups and buttons were looked at")
-        XCTAssertEqual(Array(Set(words)).sorted(), [], "a control that holds words pads 12")
-        XCTAssertEqual(Array(Set(targets)).sorted(), [], "anything clickable is 24 by 24 at least")
+        GallerySweep.expectNone(words, "a control that holds words pads 12")
+        GallerySweep.expectNone(targets, "anything clickable is 24 by 24 at least")
     }
 
     /// Nested things round at the outer radius less their inset: the launcher's

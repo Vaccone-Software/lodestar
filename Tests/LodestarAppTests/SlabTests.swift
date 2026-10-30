@@ -28,7 +28,7 @@ final class SlabTests: XCTestCase {
 
     private func pixel(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat) -> RGB? {
         let scale = CGFloat(rep.pixelsWide) / rep.size.width
-        guard let c = rep.colorAt(x: Int(x * scale), y: Int(y * scale))?.usingColorSpace(.sRGB), c.alphaComponent > 0.5 else { return nil }
+        guard let c = GalleryPixels.srgb(rep, x: Int(x * scale), y: Int(y * scale)), c.alphaComponent > 0.5 else { return nil }
         return RGB(red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent))
     }
 
@@ -127,123 +127,114 @@ final class SlabTests: XCTestCase {
     func testEveryChosenThingIsTheSlabAndMeetsTheFloorsInBothLooksAtEveryHour() throws {
         var checkedSurfaces = Set<String>(), words = 0, slabCount = 0, litKeys = 0
         var wrong: [String] = []
-        for look in GalleryLook.all {
-            look.apply()
+        for picture in GallerySweep.pictures(eyeComfort: true, drawing: true) {
+            let shot = picture.shot, look = picture.look, root = picture.root
             let night = look == .night
-            for shot in GalleryShots.all where shot.looks.contains(look) {
-                EyeComfortState.shared.set(enabled: shot.level < 1 || shot.receded, level: shot.level)
-                defer { EyeComfortState.shared.set(enabled: false, level: 1) }
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                GalleryHost.settle(0.02)
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                root.layoutSubtreeIfNeeded()
-                let name = shot.name(in: look)
-                let found = slabs(in: root)
-                if let expected = expectedSlabs(shot) {
-                    if found.count != expected { wrong.append("\(name): \(found.count) slabs, expected \(expected)") }
+            let name = shot.name(in: look)
+            let found = slabs(in: root)
+            if let expected = expectedSlabs(shot) {
+                if found.count != expected { wrong.append("\(name): \(found.count) slabs, expected \(expected)") }
+            }
+            if shot.surface != "foundation" && found.count > 1 { wrong.append("\(name): one slab per surface, found \(found.count)") }
+            guard !found.isEmpty else { continue }
+            let rep = GalleryRender.bitmap(of: root)
+            let host = steps(night: night), inside = steps(night: !night)
+            let hostOnly = stepSet(host).filter { colour in !stepSet(inside).contains { near($0, colour, 0.004) } }
+            let innerSet = stepSet(inside)
+            for slab in found {
+                slabCount += 1
+                checkedSurfaces.insert(shot.surface)
+                let frame = rendered(slab, in: root)
+                let depth = slab as? CeramicDepth
+                let side = depth?.drawnSide ?? (slab as? ObjectSurface)?.pane?.side ?? 0
+                // The face is the slab step of the look around it; the side is 4 points, inside the frame.
+                do {
+                    let x = frame.minX + 3, y = frame.minY + (frame.height - side) / 2
+                    if let face = pixel(rep, x: x, y: y) {
+                        if !near(face, host.slab) { wrong.append("\(name): the face of \(type(of: slab)) is not the slab step") }
+                    } else { wrong.append("\(name): no face under \(type(of: slab))") }
+                    XCTAssertEqual(side, (slab as? SlabRow)?.pressed == true ? Ceramic.Side.pressed : Ceramic.Side.row,
+                                   "\(name): a slab stands on 4 points, 1 pressed")
+                    // Down the middle of the bottom straight, the side shows 4 points, and nothing below the frame.
+                    let sx = frame.midX
+                    var shownSide = 0.0
+                    var yy = frame.maxY - 0.25
+                    while yy > frame.minY, let p = pixel(rep, x: sx, y: yy), near(p, host.slabSide, 0.02) {
+                        shownSide += 0.5
+                        yy -= 0.5
+                    }
+                    if abs(shownSide - side) > 0.6 && !(slab is ObjectSurface) {
+                        wrong.append("\(name): the side shows \(shownSide) points, not \(side)")
+                    }
+                    if let below = pixel(rep, x: frame.minX + frame.width / 2, y: frame.maxY + 1.5), near(below, host.slabSide, 0.02) {
+                        wrong.append("\(name): the side hangs below its frame")
+                    }
                 }
-                if shot.surface != "foundation" && found.count > 1 { wrong.append("\(name): one slab per surface, found \(found.count)") }
-                guard !found.isEmpty else { _ = keep; continue }
-                let rep = GalleryRender.bitmap(of: root)
-                let host = steps(night: night), inside = steps(night: !night)
-                let hostOnly = stepSet(host).filter { colour in !stepSet(inside).contains { near($0, colour, 0.004) } }
-                let innerSet = stepSet(inside)
-                for slab in found {
-                    slabCount += 1
-                    checkedSurfaces.insert(shot.surface)
-                    let frame = rendered(slab, in: root)
-                    let depth = slab as? CeramicDepth
-                    let side = depth?.drawnSide ?? (slab as? ObjectSurface)?.pane?.side ?? 0
-                    // The face is the slab step of the look around it; the side is 4 points, inside the frame.
-                    do {
-                        let x = frame.minX + 3, y = frame.minY + (frame.height - side) / 2
-                        if let face = pixel(rep, x: x, y: y) {
-                            if !near(face, host.slab) { wrong.append("\(name): the face of \(type(of: slab)) is not the slab step") }
-                        } else { wrong.append("\(name): no face under \(type(of: slab))") }
-                        XCTAssertEqual(side, (slab as? SlabRow)?.pressed == true ? Ceramic.Side.pressed : Ceramic.Side.row,
-                                       "\(name): a slab stands on 4 points, 1 pressed")
-                        // Down the middle of the bottom straight, the side shows 4 points, and nothing below the frame.
-                        let sx = frame.midX
-                        var shownSide = 0.0
-                        var yy = frame.maxY - 0.25
-                        while yy > frame.minY, let p = pixel(rep, x: sx, y: yy), near(p, host.slabSide, 0.02) {
-                            shownSide += 0.5
-                            yy -= 0.5
-                        }
-                        if abs(shownSide - side) > 0.6 && !(slab is ObjectSurface) {
-                            wrong.append("\(name): the side shows \(shownSide) points, not \(side)")
-                        }
-                        if let below = pixel(rep, x: frame.minX + frame.width / 2, y: frame.maxY + 1.5), near(below, host.slabSide, 0.02) {
-                            wrong.append("\(name): the side hangs below its frame")
+                let held = content(of: slab)
+                // Everything inside is in the other look.
+                walk(held) { view in
+                    guard self.shown(view, below: held), !self.isContent(view), !self.isInsideContent(view, below: held) else { return }
+                    if view !== held, BarTheme.isNight(view.effectiveAppearance) == night, !(view is PictureView) {
+                        if !(slab is LandingStep && view === slab) {
+                            wrong.append("\(name): a \(type(of: view)) inside the slab is in the surrounding look")
                         }
                     }
-                    let held = content(of: slab)
-                    // Everything inside is in the other look.
-                    walk(held) { view in
-                        guard self.shown(view, below: held), !self.isContent(view), !self.isInsideContent(view, below: held) else { return }
-                        if view !== held, BarTheme.isNight(view.effectiveAppearance) == night, !(view is PictureView) {
-                            if !(slab is LandingStep && view === slab) {
-                                wrong.append("\(name): a \(type(of: view)) inside the slab is in the surrounding look")
+                    if let field = view as? NSTextField, !field.stringValue.isEmpty {
+                        if let ink = self.rgb(Ceramic.resolved(field.textColor ?? NSColor.clear, in: field)) {
+                            if hostOnly.contains(where: { self.near($0, ink, 0.004) }) {
+                                wrong.append("\(name): \"\(field.stringValue.prefix(20))\" keeps the surrounding look's ink")
                             }
-                        }
-                        if let field = view as? NSTextField, !field.stringValue.isEmpty {
-                            if let ink = self.rgb(Ceramic.resolved(field.textColor ?? NSColor.clear, in: field)) {
-                                if hostOnly.contains(where: { self.near($0, ink, 0.004) }) {
-                                    wrong.append("\(name): \"\(field.stringValue.prefix(20))\" keeps the surrounding look's ink")
-                                }
-                                let floor: Double? = self.near(ink, inside.ink, 0.004) ? EyeComfort.inkFloor
-                                    : (self.near(ink, inside.quietInk, 0.004) ? EyeComfort.quietInkFloor : nil)
-                                if let floor, !field.isEditable {
-                                    let area = self.rendered(field, in: root)
-                                    var best = 1.0
-                                    var py = area.minY
-                                    while py < area.maxY {
-                                        var px = area.minX
-                                        while px < area.maxX {
-                                            if let p = self.pixel(rep, x: px, y: py) { best = max(best, self.contrast(p, host.slab)) }
-                                            px += 0.5
-                                        }
-                                        py += 0.5
+                            let floor: Double? = self.near(ink, inside.ink, 0.004) ? EyeComfort.inkFloor
+                                : (self.near(ink, inside.quietInk, 0.004) ? EyeComfort.quietInkFloor : nil)
+                            if let floor, !field.isEditable {
+                                let area = self.rendered(field, in: root)
+                                var best = 1.0
+                                var py = area.minY
+                                while py < area.maxY {
+                                    var px = area.minX
+                                    while px < area.maxX {
+                                        if let p = self.pixel(rep, x: px, y: py) { best = max(best, self.contrast(p, host.slab)) }
+                                        px += 0.5
                                     }
-                                    words += 1
-                                    if best < floor { wrong.append("\(name): \"\(field.stringValue.prefix(20))\" reaches \(String(format: "%.2f", best)), under \(floor)") }
+                                    py += 0.5
                                 }
+                                words += 1
+                                if best < floor { wrong.append("\(name): \"\(field.stringValue.prefix(20))\" reaches \(String(format: "%.2f", best)), under \(floor)") }
                             }
-                        }
-                        // No colour of the look around survives in a layer.
-                        func inspect(_ layer: CALayer) {
-                            var colours = [layer.backgroundColor, layer.borderColor]
-                            if let shape = layer as? CAShapeLayer { colours += [shape.fillColor, shape.strokeColor] }
-                            for case let colour? in colours {
-                                if let c = self.rgb(colour), hostOnly.contains(where: { self.near($0, c, 0.004) }),
-                                   !innerSet.contains(where: { self.near($0, c, 0.004) }) {
-                                    wrong.append("\(name): a \(type(of: view)) layer keeps the surrounding look's colour")
-                                }
-                            }
-                        }
-                        if let layer = view.layer {
-                            inspect(layer)
-                            for sub in layer.sublayers ?? [] where !(sub.delegate is NSView) { inspect(sub) }
                         }
                     }
-                    // One lit key, and it is the one that acts, or none.
-                    var lit: [Key] = []
-                    walk(held) { if let key = $0 as? Key, key.lit, self.shown(key, below: held) { lit.append(key) } }
-                    litKeys += lit.count
-                    if lit.count > 1 { wrong.append("\(name): \(lit.count) lit keys on one slab: \(lit.map(\.legend))") }
-                    if let key = lit.first {
-                        if !(slab is ObjectSurface) && !["⏎", "lode"].contains(key.legend) {
-                            wrong.append("\(name): the lit key is \(key.legend), which does not act")
+                    // No colour of the look around survives in a layer.
+                    func inspect(_ layer: CALayer) {
+                        var colours = [layer.backgroundColor, layer.borderColor]
+                        if let shape = layer as? CAShapeLayer { colours += [shape.fillColor, shape.strokeColor] }
+                        for case let colour? in colours {
+                            if let c = self.rgb(colour), hostOnly.contains(where: { self.near($0, c, 0.004) }),
+                               !innerSet.contains(where: { self.near($0, c, 0.004) }) {
+                                wrong.append("\(name): a \(type(of: view)) layer keeps the surrounding look's colour")
+                            }
                         }
-                        if let face = self.rgb(key.standing.faceColor), !self.near(face, inside.orange, 0.004) {
-                            wrong.append("\(name): the lit key is not the slab look's orange")
-                        }
+                    }
+                    if let layer = view.layer {
+                        inspect(layer)
+                        for sub in layer.sublayers ?? [] where !(sub.delegate is NSView) { inspect(sub) }
                     }
                 }
-                _ = keep
+                // One lit key, and it is the one that acts, or none.
+                var lit: [Key] = []
+                walk(held) { if let key = $0 as? Key, key.lit, self.shown(key, below: held) { lit.append(key) } }
+                litKeys += lit.count
+                if lit.count > 1 { wrong.append("\(name): \(lit.count) lit keys on one slab: \(lit.map(\.legend))") }
+                if let key = lit.first {
+                    if !(slab is ObjectSurface) && !["⏎", "lode"].contains(key.legend) {
+                        wrong.append("\(name): the lit key is \(key.legend), which does not act")
+                    }
+                    if let face = self.rgb(key.standing.faceColor), !self.near(face, inside.orange, 0.004) {
+                        wrong.append("\(name): the lit key is not the slab look's orange")
+                    }
+                }
             }
         }
-        XCTAssertEqual(Array(Set(wrong)).sorted(), [], "the slab, in both looks, at every hour")
+        GallerySweep.expectNone(wrong, "the chosen thing is the slab, in both looks, at every hour")
         for surface in ["launcher", "ask", "commands", "keep", "coach", "walk", "settings", "choice", "inputmenu", "foundation"] {
             XCTAssertTrue(checkedSurfaces.contains(surface), "\(surface) shows a chosen thing in the gallery")
         }
@@ -264,7 +255,7 @@ final class SlabTests: XCTestCase {
         for py in Int(rect.minY * scale)..<Int(rect.maxY * scale) {
             var strongest = 0.0
             for px in Int(rect.minX * scale)..<Int(rect.maxX * scale) {
-                guard let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { continue }
+                guard let c = GalleryPixels.srgb(rep, x: px, y: py) else { continue }
                 let d = max(abs(Double(c.redComponent) - slab.red), abs(Double(c.greenComponent) - slab.green),
                             abs(Double(c.blueComponent) - slab.blue))
                 strongest = max(strongest, d)
@@ -284,67 +275,60 @@ final class SlabTests: XCTestCase {
         var wrong: [String] = []
         var measured = 0
         var surfaces = Set<String>()
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 && !shot.receded {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                GalleryHost.settle(0.02)
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                root.layoutSubtreeIfNeeded()
-                let slabsHere = slabs(in: root).filter { $0 is SlabRow }
-                guard !slabsHere.isEmpty else { _ = keep; continue }
-                let rep = GalleryRender.bitmap(of: root)
-                let host = steps(night: look == .night)
-                for slab in slabsHere {
-                    let frame = rendered(slab, in: root)
-                    let side = (slab as? CeramicDepth)?.drawnSide ?? 0
-                    // The face: the frame less the side beneath it.
-                    // A pressed face lies lower by what its side gave up.
-                    let reserved = (slab as? SlabRow)?.reservedTop ?? 0
-                    let face = NSRect(x: frame.minX, y: frame.minY + reserved + (Slab.side - side), width: frame.width,
-                                      height: frame.height - Slab.side - reserved)
-                    var fields: [NSTextField] = []
-                    walk(content(of: slab)) { view in
-                        if let f = view as? NSTextField, !f.stringValue.isEmpty, self.shown(f, below: content(of: slab)),
-                           !f.isEditable, !self.isContent(f) {
-                            fields.append(f)
-                        }
-                    }
-                    // Words stacked in lines are centred as a block, not each on its own.
-                    let areas = fields.map { rendered($0, in: root) }.filter { face.intersects($0) }
-                    let stacked = areas.enumerated().contains { one in
-                        areas.enumerated().contains { other in
-                            other.offset != one.offset && abs(other.element.midY - one.element.midY) > 6
-                                && other.element.minX < one.element.maxX && other.element.maxX > one.element.minX
-                        }
-                    }
-                    guard !stacked else { continue }
-                    for (index, area) in areas.enumerated() {
-                        let field = fields[index]
-                        guard area.height < (field.font?.boundingRectForFont.height ?? 40) * 1.6,
-                              let font = field.font,
-                              let span = inkSpan(in: area, of: rep, over: host.slab) else { continue }
-                        // Where the ink's bottom stands below the baseline, from the glyphs themselves.
-                        let line = CTLineCreateWithAttributedString(NSAttributedString(string: field.stringValue,
-                                                                                       attributes: [.font: font]))
-                        let glyphs = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-                        let baseline = span.bottom + glyphs.minY
-                        let band = baseline - font.capHeight / 2
-                        let off = band - face.midY
-                        measured += 1
-                        surfaces.insert(shot.surface)
-                        // The largest words of a row are centred to the half point; a smaller word
-                        // beside them stands on the same middle of its box, a point at most off.
-                        let largest = fields.map { $0.font?.pointSize ?? 0 }.max() ?? 0
-                        if abs(off) > ((font.pointSize >= largest) ? 0.5 : 1.0) {
-                            wrong.append("\(shot.name(in: look)): \"\(field.stringValue.prefix(24))\" is \(String(format: "%.2f", off)) points off the face's middle")
-                        }
+        for picture in GallerySweep.pictures(drawing: true, where: { $0.level == 1 && !$0.receded }) {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            let slabsHere = slabs(in: root).filter { $0 is SlabRow }
+            guard !slabsHere.isEmpty else { continue }
+            let rep = GalleryRender.bitmap(of: root)
+            let host = steps(night: look == .night)
+            for slab in slabsHere {
+                let frame = rendered(slab, in: root)
+                let side = (slab as? CeramicDepth)?.drawnSide ?? 0
+                // The face: the frame less the side beneath it.
+                // A pressed face lies lower by what its side gave up.
+                let reserved = (slab as? SlabRow)?.reservedTop ?? 0
+                let face = NSRect(x: frame.minX, y: frame.minY + reserved + (Slab.side - side), width: frame.width,
+                                  height: frame.height - Slab.side - reserved)
+                var fields: [NSTextField] = []
+                walk(content(of: slab)) { view in
+                    if let f = view as? NSTextField, !f.stringValue.isEmpty, self.shown(f, below: content(of: slab)),
+                       !f.isEditable, !self.isContent(f) {
+                        fields.append(f)
                     }
                 }
-                _ = keep
+                // Words stacked in lines are centred as a block, not each on its own.
+                let areas = fields.map { rendered($0, in: root) }.filter { face.intersects($0) }
+                let stacked = areas.enumerated().contains { one in
+                    areas.enumerated().contains { other in
+                        other.offset != one.offset && abs(other.element.midY - one.element.midY) > 6
+                            && other.element.minX < one.element.maxX && other.element.maxX > one.element.minX
+                    }
+                }
+                guard !stacked else { continue }
+                for (index, area) in areas.enumerated() {
+                    let field = fields[index]
+                    guard area.height < (field.font?.boundingRectForFont.height ?? 40) * 1.6,
+                          let font = field.font,
+                          let span = inkSpan(in: area, of: rep, over: host.slab) else { continue }
+                    // Where the ink's bottom stands below the baseline, from the glyphs themselves.
+                    let line = CTLineCreateWithAttributedString(NSAttributedString(string: field.stringValue,
+                                                                                   attributes: [.font: font]))
+                    let glyphs = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+                    let baseline = span.bottom + glyphs.minY
+                    let band = baseline - font.capHeight / 2
+                    let off = band - face.midY
+                    measured += 1
+                    surfaces.insert(shot.surface)
+                    // The largest words of a row are centred to the half point; a smaller word
+                    // beside them stands on the same middle of its box, a point at most off.
+                    let largest = fields.map { $0.font?.pointSize ?? 0 }.max() ?? 0
+                    if abs(off) > ((font.pointSize >= largest) ? 0.5 : 1.0) {
+                        wrong.append("\(shot.name(in: look)): \"\(field.stringValue.prefix(24))\" is \(String(format: "%.2f", off)) points off the face's middle")
+                    }
+                }
             }
         }
-        XCTAssertEqual(wrong, [], "single lines of words are centred on the face")
+        GallerySweep.expectNone(wrong, "a single line of words is centred on the face")
         XCTAssertGreaterThan(measured, 25, "words were measured")
         for surface in ["launcher", "ask", "choice", "inputmenu", "coach", "settings", "keep"] {
             XCTAssertTrue(surfaces.contains(surface), "\(surface)'s words were measured")
@@ -561,7 +545,7 @@ final class SlabTests: XCTestCase {
         let (row, window) = chosenRow()
         XCTAssertEqual(row.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
         window.appearance = NSAppearance(named: .darkAqua)
-        GalleryHost.settle(0.02)
+        GalleryHost.settle(row)
         XCTAssertEqual(row.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]), .aqua, "a night window's slab holds the day")
         XCTAssertEqual(rgb(row.faceColor).map { near($0, Palette.night.slab) }, true, "and its face is the night's slab step")
     }

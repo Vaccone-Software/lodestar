@@ -489,43 +489,38 @@ final class KeyTests: XCTestCase {
         var wrong: [String] = []
         var seen = 0
         func walk(_ view: NSView, _ visit: (NSView) -> Void) { visit(view); view.subviews.forEach { walk($0, visit) } }
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) && shot.level == 1 {
-                guard let (root, keep) = try? shot.built(in: look) else { continue }
-                root.window?.contentView?.layoutSubtreeIfNeeded()
-                let name = shot.name(in: look)
-                walk(root) { view in
-                    if let key = view as? Key, !key.isHidden {
-                        seen += 1
-                        let legend = key.legend
-                        if legend.range(of: #"\p{L} \p{L}"#, options: .regularExpression) != nil, legend.count < 4 {
-                            wrong.append("\(name): the key \"\(legend)\" spaces its letters")
-                        }
-                        if key.frame.width < key.size.height - 0.01 { wrong.append("\(name): \"\(legend)\" is narrower than tall") }
-                        if key.frame.width > key.width + 0.5 { wrong.append("\(name): \"\(legend)\" is wider than its legend") }
-                        // Only a hint holds several bare letters in one key; a sequence
-                        // anywhere else is a key a keystroke.
-                        let named: Set<String> = ["esc", "tab", "space", "lode", "fn", "return", "delete"]
-                        if legend.count > 1, legend.allSatisfy({ $0.isLetter && $0.isLowercase }),
-                           !named.contains(legend), !key.overContent {
-                            wrong.append("\(name): the key \"\(legend)\" is a sequence in one key; only a hint may be")
-                        }
-                        if ["lode"].contains(legend), let parent = key.superview {
-                            let twins = parent.subviews.compactMap { $0 as? Key }.filter { $0.legend == legend }
-                            if twins.count > 1 { wrong.append("\(name): two \"\(legend)\" keys side by side, a double tap is ×2") }
-                        }
-                    } else if view.layer?.cornerRadius == BarTheme.controlRadius, !view.isHidden,
-                              view.frame.height == KeySize.standard.height || view.frame.height == KeySize.large.height,
-                              !(view is RoomButton), !(view is FlatChip), !(view is NSPopUpButton),
-                              !(view is WellView), !(view is WellField), !(view.superview is Key) {
-                        wrong.append("\(name): a key-shaped \(type(of: view)) that is not a Key")
+        for picture in GallerySweep.pictures(where: { $0.level == 1 }) {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            let name = shot.name(in: look)
+            walk(root) { view in
+                if let key = view as? Key, !key.isHidden {
+                    seen += 1
+                    let legend = key.legend
+                    if legend.range(of: #"\p{L} \p{L}"#, options: .regularExpression) != nil, legend.count < 4 {
+                        wrong.append("\(name): the key \"\(legend)\" spaces its letters")
                     }
+                    if key.frame.width < key.size.height - 0.01 { wrong.append("\(name): \"\(legend)\" is narrower than tall") }
+                    if key.frame.width > key.width + 0.5 { wrong.append("\(name): \"\(legend)\" is wider than its legend") }
+                    // Only a hint holds several bare letters in one key; a sequence
+                    // anywhere else is a key a keystroke.
+                    let named: Set<String> = ["esc", "tab", "space", "lode", "fn", "return", "delete"]
+                    if legend.count > 1, legend.allSatisfy({ $0.isLetter && $0.isLowercase }),
+                       !named.contains(legend), !key.overContent {
+                        wrong.append("\(name): the key \"\(legend)\" is a sequence in one key; only a hint may be")
+                    }
+                    if ["lode"].contains(legend), let parent = key.superview {
+                        let twins = parent.subviews.compactMap { $0 as? Key }.filter { $0.legend == legend }
+                        if twins.count > 1 { wrong.append("\(name): two \"\(legend)\" keys side by side, a double tap is ×2") }
+                    }
+                } else if view.layer?.cornerRadius == BarTheme.controlRadius, !view.isHidden,
+                          view.frame.height == KeySize.standard.height || view.frame.height == KeySize.large.height,
+                          !(view is RoomButton), !(view is FlatChip), !(view is NSPopUpButton),
+                          !(view is WellView), !(view is WellField), !(view.superview is Key) {
+                    wrong.append("\(name): a key-shaped \(type(of: view)) that is not a Key")
                 }
-                _ = keep
             }
         }
         XCTAssertGreaterThan(seen, 300, "the surfaces were looked at")
-        XCTAssertEqual(Array(Set(wrong)).sorted(), [])
+        GallerySweep.expectNone(wrong, "every key follows the contract")
     }
 }

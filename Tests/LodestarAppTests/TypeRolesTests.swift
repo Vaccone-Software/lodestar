@@ -132,8 +132,6 @@ final class TypeRolesTests: XCTestCase {
         ]
     }
 
-    private func settle() { GalleryHost.settle(0.05) }
-
     private func allViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(allViews) }
 
     /// A surface on screen when the Mac turns dark: its window takes the
@@ -148,12 +146,12 @@ final class TypeRolesTests: XCTestCase {
             window.isReleasedWhenClosed = false
             window.contentView = content
             window.appearance = NSAppearance(named: .aqua)
-            settle()
+            GalleryHost.settle(window)
             for item in items {
                 XCTAssertEqual(item.font(), role.font(night: false), "\(role.rawValue) \(item.name) by day")
             }
             window.appearance = NSAppearance(named: .darkAqua)
-            settle()
+            GalleryHost.settle(window)
             for item in items {
                 let font = item.font()
                 XCTAssertEqual(font, role.font(night: true), "\(role.rawValue) \(item.name) after the look changed")
@@ -161,7 +159,7 @@ final class TypeRolesTests: XCTestCase {
                                "\(role.rawValue) \(item.name) is one step heavier")
             }
             window.appearance = NSAppearance(named: .aqua)
-            settle()
+            GalleryHost.settle(window)
             for item in items {
                 XCTAssertEqual(item.font(), role.font(night: false), "\(role.rawValue) \(item.name) back by day")
             }
@@ -180,10 +178,10 @@ final class TypeRolesTests: XCTestCase {
         let window = NSWindow(contentRect: content.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = content
-        settle()
+        GalleryHost.settle(window)
         for item in items { XCTAssertEqual(item.font(), role.font(night: false), "\(item.name) by day") }
         GalleryLook.night.apply()
-        settle()
+        GalleryHost.settle(window)
         for item in items { XCTAssertEqual(item.font(), role.font(night: true), "\(item.name) when the Mac turned") }
         window.close()
     }
@@ -216,7 +214,7 @@ final class TypeRolesTests: XCTestCase {
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        settle()
+        GalleryHost.settle { [window, panel.textView.window].compactMap { $0 } }
         func markFont() -> NSFont? {
             (allViews(mark).compactMap { $0 as? Key }.first)?.legendFont
         }
@@ -225,7 +223,7 @@ final class TypeRolesTests: XCTestCase {
                        BarTheme.Role.control.font(night: false))
 
         GalleryLook.night.apply()
-        settle()
+        GalleryHost.settle { [window, panel.textView.window].compactMap { $0 } }
         XCTAssertEqual(fonts().plain, BarTheme.Role.draft.font(night: true), "the draft's text")
         XCTAssertEqual(fonts().marked, BarTheme.Role.draftMarked.font(night: true), "its lit letters")
         XCTAssertEqual(markFont(), BarTheme.Role.largeFigure.font(night: true), "a key mark")
@@ -240,11 +238,9 @@ final class TypeRolesTests: XCTestCase {
     /// than the room's title, a row's title is the label role, a group's
     /// header the heading, and a value (a popup's, a status word) is control.
     func testASettingsPageIsLabelsInMediumUnderOneRoomTitle() throws {
-        GalleryLook.day.apply()
         var seen: Set<BarTheme.Role> = []
-        for shot in GalleryShots.all where shot.surface == "settings" && shot.looks.contains(.day) {
-            let (view, keep) = try shot.built(in: .day)
-            GalleryHost.settle(0.02)
+        for picture in GallerySweep.pictures(looks: [.day], where: { $0.surface == "settings" }) {
+            let shot = picture.shot, view = picture.root
             for word in words(in: view) {
                 for style in word.styles.compactMap({ $0 }) {
                     seen.insert(style.role)
@@ -253,7 +249,6 @@ final class TypeRolesTests: XCTestCase {
                     XCTAssertNotEqual(style.role, .emphasis, "\(shot.name(in: .day)): a row is a label, not an emphasis")
                 }
             }
-            _ = keep
         }
         for role in [BarTheme.Role.label, .heading, .control, .roomTitle] {
             XCTAssertTrue(seen.contains(role), "Settings draws \(role.rawValue)")
@@ -267,12 +262,11 @@ final class TypeRolesTests: XCTestCase {
     /// A bar's field is the field role at 23; a field inside a room (Settings'
     /// search and the values you type, Feedback's note and email) is body.
     func testABarsFieldIs23AndARoomsFieldIsBody() throws {
-        GalleryLook.day.apply()
         var bars = 0, rooms = 0
-        for shot in GalleryShots.all where shot.looks.contains(.day)
-            && ["launcher", "ask", "commands", "settings", "feedback"].contains(shot.surface) {
-            let (view, keep) = try shot.built(in: .day)
-            GalleryHost.settle(0.02)
+        for picture in GallerySweep.pictures(looks: [.day], where: {
+            ["launcher", "ask", "commands", "settings", "feedback"].contains($0.surface)
+        }) {
+            let shot = picture.shot, view = picture.root
             for field in allViews(view).compactMap({ $0 as? NSTextField }) where field.isEditable {
                 guard let role = field.typeStyle?.role else { continue }
                 if shot.surface == "settings" || shot.surface == "feedback" {
@@ -283,7 +277,6 @@ final class TypeRolesTests: XCTestCase {
                     XCTAssertEqual(role, .field, "\(shot.name(in: .day)): a bar's field")
                 }
             }
-            _ = keep
         }
         XCTAssertGreaterThan(bars, 0)
         XCTAssertGreaterThan(rooms, 0)
@@ -291,10 +284,8 @@ final class TypeRolesTests: XCTestCase {
 
     /// Hierarchy is never letter-spacing: no text on any surface is tracked.
     func testNoTextOnAnySurfaceIsTracked() throws {
-        GalleryLook.day.apply()
-        for shot in GalleryShots.all where shot.looks.contains(.day) {
-            let (view, keep) = try shot.built(in: .day)
-            GalleryHost.settle(0.02)
+        for picture in GallerySweep.pictures(looks: [.day]) {
+            let shot = picture.shot, view = picture.root
             for field in allViews(view).compactMap({ $0 as? NSTextField }) where field.attributedStringValue.length > 0 {
                 var tracked = false
                 let text = field.attributedStringValue
@@ -303,7 +294,6 @@ final class TypeRolesTests: XCTestCase {
                 }
                 XCTAssertFalse(tracked, "\(shot.name(in: .day)): \"\(text.string.prefix(20))\" is tracked")
             }
-            _ = keep
         }
     }
 
@@ -388,15 +378,9 @@ final class TypeRolesTests: XCTestCase {
 
     /// A surface as the gallery builds it, in each look, with every word
     /// it holds.
-    private func surfaces(_ body: (GalleryShot, GalleryLook, [Word], NSAppearance) -> Void) throws {
-        for look in GalleryLook.all {
-            look.apply()
-            for shot in GalleryShots.all where shot.looks.contains(look) {
-                let (view, keep) = try shot.built(in: look)
-                GalleryHost.settle(0.02)
-                body(shot, look, words(in: view), view.effectiveAppearance)
-                _ = keep
-            }
+    private func surfaces(_ body: (GalleryShot, GalleryLook, [Word], NSAppearance) -> Void) {
+        for picture in GallerySweep.pictures() {
+            body(picture.shot, picture.look, words(in: picture.root), picture.root.effectiveAppearance)
         }
     }
 
@@ -405,7 +389,7 @@ final class TypeRolesTests: XCTestCase {
     /// one step heavier at night, at the same size.
     func testEveryWordOnEverySurfaceIsARoleInTheLookItIsDrawnIn() throws {
         var unnamed: [String] = [], wrong: [String] = []
-        try surfaces { shot, look, words, appearance in
+        surfaces { shot, look, words, appearance in
             for word in words {
                 let name = "\(shot.name(in: look)): \(word.kind) \"\(word.text.prefix(30))\""
                 if word.styles.isEmpty || word.styles.contains(where: { $0 == nil }) {
@@ -421,8 +405,8 @@ final class TypeRolesTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(unnamed, [], "every word names a role")
-        XCTAssertEqual(wrong, [], "and is drawn in it, in the look it is in")
+        GallerySweep.expectNone(unnamed, "every word names a role")
+        GallerySweep.expectNone(wrong, "every word is drawn in its role, in the look it is in")
     }
 
     /// A number that changes in place is set in tabular figures: the
@@ -431,7 +415,7 @@ final class TypeRolesTests: XCTestCase {
     /// (the 1 to 4 on a card), which is a key and never changes in place.
     func testANumberThatChangesInPlaceIsInTabularFigures() throws {
         var loose: [String] = [], seen = 0
-        try surfaces { shot, look, words, _ in
+        surfaces { shot, look, words, _ in
             for word in words where !word.editable {
                 let text = word.text.trimmingCharacters(in: .whitespaces)
                 guard text.contains(where: \.isNumber), text.allSatisfy({ $0.isNumber || $0 == ":" || $0 == "," }),
@@ -445,7 +429,7 @@ final class TypeRolesTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(seen, 0, "the surfaces draw numbers")
-        XCTAssertEqual(loose, [], "tabular figures: setRole(_, tabular: true), or a figure role")
+        GallerySweep.expectNone(loose, "a number that changes in place is tabular: setRole(_, tabular: true), or a figure role")
     }
 
     /// The three the contract names, each built and read: the peek, the

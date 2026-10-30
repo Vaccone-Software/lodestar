@@ -1,4 +1,5 @@
 import AppKit
+import Synchronization
 
 /// Where is "here"? The single answer every surface consults — layouts
 /// place there, panels present there. Pointer by default; keyboard focus
@@ -9,7 +10,18 @@ public enum ActivePolicy {
         case focus
     }
 
-    public static var mode: Mode = .pointer
+    /// The setting is written from main (config load) and read wherever a
+    /// panel or a layout asks where "here" is, so both live behind one lock.
+    private struct State {
+        var mode: Mode = .pointer
+        var cachedPresentation: (frame: NSRect, at: Date)?
+    }
+    private static let state = Mutex(State())
+
+    public static var mode: Mode {
+        get { state.withLock { $0.mode } }
+        set { state.withLock { $0.mode = newValue } }
+    }
 
     /// The active display as an NSScreen, for panel positioning
     /// (AppKit coordinates). NSScreenNumber is the CGDirectDisplayID.
@@ -41,12 +53,12 @@ public enum ActivePolicy {
     public static var presentationFrame: NSRect {
         if let frameOverride { return frameOverride }
         let now = Date()
-        if let cached = cachedPresentation, now.timeIntervalSince(cached.at) < 0.25 {
+        if let cached = state.withLock({ $0.cachedPresentation }), now.timeIntervalSince(cached.at) < 0.25 {
             return cached.frame
         }
         let frame = (appKitScreen(fallbackFrom: nil) ?? NSScreen.screens.first)?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        cachedPresentation = (frame, now)
+        state.withLock { $0.cachedPresentation = (frame, now) }
         return frame
     }
 
@@ -55,7 +67,8 @@ public enum ActivePolicy {
     /// all read off the display, and a test that ran on the developer's
     /// 1920-wide screen failed on a CI runner's narrower virtual one for
     /// three days, on the oldest clip's card being off the strip.
+    ///
+    /// Unlocked on purpose: only tests set it, on main, before the panel that
+    /// reads it exists.
     nonisolated(unsafe) public static var frameOverride: NSRect?
-
-    private static var cachedPresentation: (frame: NSRect, at: Date)?
 }

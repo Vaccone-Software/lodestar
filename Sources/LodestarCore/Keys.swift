@@ -1,4 +1,5 @@
 import CoreGraphics
+import Synchronization
 
 /// The key-name table: what each physical key should be called. Three
 /// layers, each overlaying the last — the classic kVK_ANSI_* position
@@ -30,31 +31,47 @@ public enum Keys {
     public static let characterCodes: Set<Int64> =
         Set(ansi.filter { $0.value.count == 1 }.keys)
 
+    /// The live tables. Written from main (boot, a config reload, an input
+    /// source change) and read by the tap, the scroll guard at 120Hz and
+    /// the stores' queues, so they sit behind one lock, and a rebuild
+    /// swaps `names` and `codes` together: a reader never sees the one
+    /// from before a rebuild with the other from after it. Nothing inside
+    /// the lock reads back into `Keys`.
+    private struct Tables {
+        var names: [Int64: String] = Keys.ansi
+        var codes: [String: Int64] = Keys.reverse(Keys.ansi)
+        var layout: [Int64: String] = [:]
+        var overrides: [Int64: String] = [:]
+    }
+    private static let tables = Mutex(Tables())
+
     /// The live table.
-    public private(set) static var names: [Int64: String] = ansi
+    public static var names: [Int64: String] { tables.withLock { $0.names } }
 
     /// Reverse lookup, cached — the scroll dead-man guard reads it at 120Hz.
-    public private(set) static var codes: [String: Int64] = reverse(ansi)
-
-    private static var layout: [Int64: String] = [:]
-    private static var overrides: [Int64: String] = [:]
+    public static var codes: [String: Int64] { tables.withLock { $0.codes } }
 
     /// Overlay config overrides (reload-safe: always rebuilds from the floor).
     public static func apply(overrides: [Int64: String]) {
-        self.overrides = overrides
-        rebuild()
+        tables.withLock {
+            $0.overrides = overrides
+            rebuild(&$0)
+        }
     }
 
     /// Overlay the active layout's characters, as `layoutOverlay` vetted
     /// them. Installed at boot and again whenever the input source changes.
     public static func apply(layout: [Int64: String]) {
-        self.layout = layout
-        rebuild()
+        tables.withLock {
+            $0.layout = layout
+            rebuild(&$0)
+        }
     }
 
-    private static func rebuild() {
-        names = ansi
-            .merging(layout) { _, adopted in adopted }
+    private static func rebuild(_ t: inout Tables) {
+        let overrides = t.overrides
+        let names = ansi
+            .merging(t.layout) { _, adopted in adopted }
             .merging(overrides) { _, override in override }
         var reversed = reverse(names)
         // An override that renames a keycode onto a name the built-in
@@ -66,7 +83,8 @@ public enum Keys {
         for (code, name) in overrides.sorted(by: { $0.key > $1.key }) where names[code] == name {
             reversed[name] = code
         }
-        codes = reversed
+        t.names = names
+        t.codes = reversed
     }
 
     /// The layout's character table, vetted for coherence. `translated`

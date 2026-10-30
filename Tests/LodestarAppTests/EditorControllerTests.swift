@@ -902,7 +902,7 @@ final class EditorHoverTests: XCTestCase {
         XCTAssertFalse(shown.contains { $0.contains("→") }, "no headline restating the change: \(shown)")
     }
 
-    func testLeavingTheWordAndTheCardClosesIt() {
+    func testLeavingTheWordAndTheCardClosesIt() throws {
         let m = mark("Their", "They're", x: 100)
         let clock = VirtualClock()
         let hover = EditorHover(clock: clock.clock)
@@ -913,8 +913,11 @@ final class EditorHoverTests: XCTestCase {
         hover.moved()
         clock.advance(by: EditorHover.dwell + 0.05)
         XCTAssertEqual(hover.shown, m)
-        // Up onto the card, which stands just above the word: it stays.
-        point = CGPoint(x: 140, y: 280)
+        // Up onto the card, which stands just above the word: it stays. The
+        // card is kept inside the screen it is on, which is the stand-in
+        // display under a test, so the pointer goes to where the card is.
+        let card = try XCTUnwrap(hover.panel).paneFrame
+        point = CGPoint(x: card.midX, y: Screens.primaryHeight - card.midY)
         hover.moved()
         clock.advance(by: 1)
         XCTAssertEqual(hover.shown, m, "the way to the card does not close it")

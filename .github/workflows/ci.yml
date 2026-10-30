@@ -37,6 +37,10 @@ jobs:
       - name: The test script's own rules
         run: ./scripts/test-sh-selftest.sh
 
+      # The desk lanes' reader (races, coverage, the guard) on fixtures.
+      - name: The desk lanes' own rules
+        run: ./scripts/desk-lanes-selftest.sh
+
       - name: Xcode 27
         # Stoic needs Swift 6.4; the image's default Xcode may be older.
         run: sudo xcode-select -s /Applications/Xcode_27.0.app && swift --version

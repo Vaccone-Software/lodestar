@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  A TEMPLATE for the weekly desk lanes (scripts/desk-lanes.sh). Nothing in the
+  repository installs it, loads it or reads it: the schedule is the owner's to
+  approve. To use it, copy it to ~/Library/LaunchAgents, change every
+  /Users/YOU path below (launchd does not expand ~ or $HOME), make the log
+  folder (mkdir -p ~/Library/Logs/Lodestar/desk-lanes) and load it; the
+  commands are in the header of scripts/desk-lanes.sh, with the way to take it
+  out again.
+
+  Sundays at 03:00, when the desk is idle: the lanes take the screen, play
+  sound and hold several cores for about half an hour. launchd does not wake a
+  sleeping Mac for an agent; the run happens at the next wake, which may not be
+  night. To keep the Mac up for it, schedule a wake a few minutes before
+  (sudo pmset repeat wakeorpoweron U 02:55:00); caffeinate below keeps it awake
+  while the lanes run.
+
+  Accessibility, Microphone and Screen Recording belong to the program that
+  asks, and a launchd job has none: the live tests that need Accessibility will
+  say "not run: not trusted for accessibility" in the report. To run them with
+  an app that has the grant (Terminal, say), replace the ProgramArguments with
+
+      /usr/bin/open -a Terminal /Users/YOU/Developer/lodestar/scripts/desk-lanes.sh
+
+  and Terminal runs the script in a window (set the profile to close the window
+  when the shell exits); the report is the same, but launchd then cannot see
+  the exit status.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vaccone.lodestar.desk-lanes</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-i</string>
+        <string>/bin/bash</string>
+        <string>/Users/YOU/Developer/lodestar/scripts/desk-lanes.sh</string>
+        <string>all</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOU/Developer/lodestar</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>0</integer>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/YOU/Library/Logs/Lodestar/desk-lanes/launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOU/Library/Logs/Lodestar/desk-lanes/launchd.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

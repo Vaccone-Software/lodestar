@@ -52,8 +52,22 @@ final class Recess {
     var wakesOnKey: () -> Bool = { true }
     /// How long it is left alone before it recedes.
     var idle: TimeInterval = Receding.idleSeconds
+    /// The clock the count reads and the delay it waits on, replaced by the
+    /// tests. The app's are the wall and a run loop timer, which is allowed
+    /// the tolerance that lets the system coalesce it; `after` hands back
+    /// what stops the wait.
+    var now: () -> Date = Date.init
+    var after: (_ seconds: TimeInterval, _ work: @escaping () -> Void) -> () -> Void = Recess.timer
 
-    private var timer: Timer?
+    private static func timer(_ seconds: TimeInterval, _ work: @escaping () -> Void) -> () -> Void {
+        let fire = Timer(timeInterval: max(0.01, seconds), repeats: false) { _ in work() }
+        fire.tolerance = min(1, seconds / 10)
+        RunLoop.main.add(fire, forMode: .common)
+        return { fire.invalidate() }
+    }
+
+    /// Stops the wait that is running, when one is.
+    private var cancel: (() -> Void)?
     private var standing = false
     private var touchedAt = Date.distantPast
     private var observers: [NSObjectProtocol] = []
@@ -70,7 +84,7 @@ final class Recess {
     }
 
     deinit {
-        timer?.invalidate()
+        cancel?()
         if receded { Recess.recededCount -= 1 }
         for token in observers { NotificationCenter.default.removeObserver(token) }
     }
@@ -83,13 +97,13 @@ final class Recess {
     /// count begins again.
     func touch() {
         standing = true
-        touchedAt = Date()
+        touchedAt = now()
         // A pointer moving over the surface touches it a hundred times a
         // second: the count already running reads the time of the last touch
         // when it fires, so only a surface that was quiet starts a new one.
         let wasReceded = receded
         restore()
-        if wasReceded || timer == nil { arm(after: idle) }
+        if wasReceded || cancel == nil { arm(after: idle) }
     }
 
     /// The surface is up and meant to be quiet from the first frame (the
@@ -98,8 +112,7 @@ final class Recess {
     /// it back, and the count then begins as for any surface.
     func recedeAtOnce() {
         standing = true
-        timer?.invalidate()
-        timer = nil
+        disarm()
         guard allowed, mayRecede(), !receded else { return }
         receded = true
         onChange?()
@@ -116,8 +129,7 @@ final class Recess {
     /// The surface is gone: full ink for the next time it stands, no count.
     func stop() {
         standing = false
-        timer?.invalidate()
-        timer = nil
+        disarm()
         restore()
     }
 
@@ -128,22 +140,23 @@ final class Recess {
     }
 
     private func arm(after seconds: TimeInterval) {
-        timer?.invalidate()
-        timer = nil
+        disarm()
         guard standing, allowed else { return }
-        let fire = Timer(timeInterval: max(0.01, seconds), repeats: false) { [weak self] _ in self?.idled() }
-        fire.tolerance = min(1, seconds / 10)
-        RunLoop.main.add(fire, forMode: .common)
-        timer = fire
+        cancel = after(seconds) { [weak self] in self?.idled() }
+    }
+
+    private func disarm() {
+        cancel?()
+        cancel = nil
     }
 
     /// Left alone for the whole window: recede, unless the surface is asking
     /// for the hand or a key was pressed meanwhile.
     func idled() {
-        timer = nil
+        cancel = nil
         guard standing, allowed, mayRecede(), !receded else { return }
         let last = max(touchedAt, Attention.lastKey)
-        let waited = Date().timeIntervalSince(last)
+        let waited = now().timeIntervalSince(last)
         if waited < idle - 0.001 {
             arm(after: idle - waited)
             return
@@ -154,10 +167,9 @@ final class Recess {
 
     private func settingsChanged() {
         if !allowed {
-            timer?.invalidate()
-            timer = nil
+            disarm()
             restore()
-        } else if standing, timer == nil, !receded {
+        } else if standing, cancel == nil, !receded {
             arm(after: idle)
         }
     }

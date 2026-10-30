@@ -73,10 +73,22 @@ final class EyeComfortController {
     var zone: () -> TimeZone = { .current }
     var place: (TimeZone) -> Coordinate = EyeComfortController.estimatedPlace
 
+    /// The step's repeating timer, and what stops it. The app's is a run loop
+    /// timer, allowed the tolerance that lets the system coalesce it; a test
+    /// turns its own clock instead.
+    var every: (_ seconds: TimeInterval, _ work: @escaping () -> Void) -> () -> Void = EyeComfortController.timer
+
+    static func timer(_ seconds: TimeInterval, _ work: @escaping () -> Void) -> () -> Void {
+        let tick = Timer(timeInterval: seconds, repeats: true) { _ in work() }
+        tick.tolerance = 30
+        RunLoop.main.add(tick, forMode: .common)
+        return { tick.invalidate() }
+    }
+
     private(set) var enabled = false
-    private var timer: Timer?
+    private var stopTimer: (() -> Void)?
     /// The beat it is stepping at, or nil when nothing is watching.
-    var watchingEvery: TimeInterval? { timer?.timeInterval }
+    private(set) var watchingEvery: TimeInterval?
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
 
     /// Turn it on or off, with the config. Off puts everything back as it
@@ -103,11 +115,9 @@ final class EyeComfortController {
     // MARK: - Watching
 
     private func startWatching() {
-        guard timer == nil else { return }
-        let tick = Timer(timeInterval: EyeComfort.beat, repeats: true) { [weak self] _ in self?.reevaluate() }
-        tick.tolerance = 30
-        RunLoop.main.add(tick, forMode: .common)
-        timer = tick
+        guard stopTimer == nil else { return }
+        stopTimer = every(EyeComfort.beat) { [weak self] in self?.reevaluate() }
+        watchingEvery = EyeComfort.beat
         let own = NotificationCenter.default, workspace = NSWorkspace.shared.notificationCenter
         func watch(_ center: NotificationCenter, _ name: Notification.Name, _ before: @escaping () -> Void = {}) {
             observers.append((center, center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -124,8 +134,9 @@ final class EyeComfortController {
     }
 
     private func stopWatching() {
-        timer?.invalidate()
-        timer = nil
+        stopTimer?()
+        stopTimer = nil
+        watchingEvery = nil
         for (center, token) in observers { center.removeObserver(token) }
         observers = []
     }

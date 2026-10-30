@@ -54,17 +54,15 @@ final class LeakGuardTests: XCTestCase {
         XCTAssertEqual(LeakGuard.leaks { BarTheme.accentColor = { BarTheme.internationalOrange } }, [])
     }
 
-    /// The pronunciation dictionary is read from the repository once, by the
-    /// first stage that needs it, and kept for the process.
-    func testAFixtureMayBeInstalledOnceButNotChanged() {
-        let first = URL(fileURLWithPath: "/fixture/one.txt"), second = URL(fileURLWithPath: "/fixture/two.txt")
-        withOverride(\CommonWords.Type.frequentListURL, to: nil) {
-            XCTAssertEqual(LeakGuard.leaks { CommonWords.frequentListURL = first }, [], "nothing to a fixture")
-            XCTAssertEqual(CommonWords.frequentListURL, first, "and it stays")
-            let changed = LeakGuard.leaks { CommonWords.frequentListURL = second }
-            XCTAssertEqual(changed.count, 1, "a fixture to another is a leak")
-            XCTAssertEqual(CommonWords.frequentListURL, first, "put back")
-        }
+    /// The word lists are installed when the bundle loads, so no test is the
+    /// first to need them, and a test that changes one has leaked it.
+    func testTheWordListsAreInstalledBeforeAnyTestAndAreWatchedLikeAnyOther() throws {
+        let installed = try XCTUnwrap(CommonWords.frequentListURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installed.path), installed.path)
+        XCTAssertNotNil(DictationLexicon.given)
+        let leaks = LeakGuard.leaks { CommonWords.frequentListURL = URL(fileURLWithPath: "/elsewhere.txt") }
+        XCTAssertEqual(leaks.count, 1)
+        XCTAssertEqual(CommonWords.frequentListURL, installed, "put back")
     }
 
     /// A closure answers nothing a test could read off it, so these four are
@@ -72,6 +70,7 @@ final class LeakGuardTests: XCTestCase {
     /// rest are set through `setOverride`, which puts them back.
     func testNoTestAssignsAStaticTheGuardCannotWatchExceptThroughAnOverride() throws {
         let unwatched = ["Pointer.post", "Sounds.play", "FileSense.thumbnailer", "FileSense.dataless"]
+        let patterns = try unwatched.map { ($0, try NSRegularExpression(pattern: "(?<![A-Za-z0-9_.])\($0)\\s*=[^=]")) }
         let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let exempt: Set<String> = ["Stage.swift", "Overrides.swift", "LeakRegistry.swift", "LeakGuardTests.swift"]
         var offenders: [String] = []
@@ -79,7 +78,8 @@ final class LeakGuardTests: XCTestCase {
             guard url.pathExtension == "swift", !exempt.contains(url.lastPathComponent) else { continue }
             let lines = try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
             for (number, line) in lines.enumerated() where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
-                for name in unwatched where line.range(of: "(?<![A-Za-z0-9_.])\(name)\\s*=[^=]", options: .regularExpression) != nil {
+                for (name, assignment) in patterns where line.contains(name)
+                    && assignment.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil {
                     offenders.append("\(url.lastPathComponent):\(number + 1) assigns \(name)")
                 }
             }

@@ -53,21 +53,11 @@ struct Watched {
                        same: { answer($0) == answer($1) }, shown: answer)
     }
 
-    /// A fixture a test installs once for the whole process, such as the
-    /// pronunciation dictionary, which is read from the repository the first
-    /// time a stage needs it and never changes. Going from nothing to a
-    /// fixture is not a leak; going from one to anything else is.
-    static func fixture<Owner, Value: AnyObject>(_ name: String, _ keyPath: ReferenceWritableKeyPath<Owner.Type, Value?>) -> Watched {
+    /// A static holding an object, compared by identity.
+    static func object<Owner, Value: AnyObject>(_ name: String, _ keyPath: ReferenceWritableKeyPath<Owner.Type, Value?>) -> Watched {
         let owner = Owner.self
         return Watched(name, read: { owner[keyPath: keyPath] }, write: { owner[keyPath: keyPath] = $0 },
-                       same: { $0 == nil || $0 === $1 }, shown: { $0.map { "\(type(of: $0))" } ?? "none" })
-    }
-
-    /// The same, for a fixture that compares by value.
-    static func fixture<Owner, Value: Equatable>(_ name: String, _ keyPath: ReferenceWritableKeyPath<Owner.Type, Value?>) -> Watched {
-        let owner = Owner.self
-        return Watched(name, read: { owner[keyPath: keyPath] }, write: { owner[keyPath: keyPath] = $0 },
-                       same: { $0 == nil || $0 == $1 })
+                       same: { $0 === $1 }, shown: { $0.map { "\(type(of: $0))" } ?? "none" })
     }
 }
 
@@ -95,7 +85,7 @@ enum LeakGuard {
         .value("Log.fileEnabled", \Log.Type.fileEnabled),
         .closure("Log.listener", \Log.Type.listener) { $0 == nil ? "none" : "a listener" },
         .value("ControlSocket.probeWait", \ControlSocket.Type.probeWait),
-        .fixture("CommonWords.frequentListURL", \CommonWords.Type.frequentListURL),
+        .value("CommonWords.frequentListURL", \CommonWords.Type.frequentListURL),
     ]
 
     /// The leaks `body` made, as one line each, each put back.
@@ -113,6 +103,10 @@ enum LeakGuard {
     nonisolated(unsafe) private(set) static var installed = false
 
     fileprivate static func install() {
+        // The fixtures the stage and the dictation tests used to install
+        // lazily, from whichever test came first, are in place before any
+        // test can run: a list read once, and latched, cannot be latched empty.
+        LeakRegistry.installFixtures()
         guard !installed, let method = class_getInstanceMethod(XCTestCase.self, #selector(XCTestCase.invokeTest)) else { return }
         installed = true
         typealias Invoke = @convention(c) (XCTestCase, Selector) -> Void

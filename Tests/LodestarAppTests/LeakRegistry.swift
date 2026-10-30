@@ -20,12 +20,24 @@ enum LeakRegistry {
         .value("ClipboardStore.foldDelay", \ClipboardStore.Type.foldDelay),
         .value("ClipboardStore.prunePeriod", \ClipboardStore.Type.prunePeriod),
         .value("ClipboardController.presenceDeadline", \ClipboardController.Type.presenceDeadline),
-        .fixture("DictationLexicon.given", \DictationLexicon.Type.given),
+        .object("DictationLexicon.given", \DictationLexicon.Type.given),
         Watched("NSApplication.appearance", read: { NSApp?.appearance?.name.rawValue },
                 write: { NSApp?.appearance = $0.flatMap { NSAppearance(named: NSAppearance.Name($0)) } }, same: ==),
         Watched("EyeComfortState", read: { EyeComfortState.shared.enabled ? EyeComfortState.shared.level : nil },
                 write: { EyeComfortState.shared.set(enabled: $0 != nil, level: $0 ?? 1) }, same: ==),
     ]
+
+    /// The repository's word lists, installed when the bundle loads (LeakGuard):
+    /// the pronunciation dictionary the stage's matcher reads, and the
+    /// frequency list `CommonWords` reads once and keeps. No test installs or
+    /// changes them, and the guard fails one that does.
+    static func installFixtures() {
+        let packaging = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("packaging")
+        CommonWords.frequentListURL = packaging.appendingPathComponent("common-words.txt")
+        DictationLexicon.given = (try? String(contentsOf: packaging.appendingPathComponent("cmudict.dict"), encoding: .utf8))
+            .map { Pronouncer(cmu: $0) } ?? Pronouncer()
+    }
 
     /// A colour as the three numbers a person would compare, drawn in the
     /// look in force.

@@ -336,13 +336,6 @@ final class Stage {
         // The draft's matcher, built at once and from the repository's
         // dictionary, so a scenario's names are put back as the app's are.
         draft.buildMatcher = { build, done in done(build()) }
-        if DictationLexicon.given == nil {
-            let packaging = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-                .deletingLastPathComponent().appendingPathComponent("packaging")
-            CommonWords.frequentListURL = packaging.appendingPathComponent("common-words.txt")
-            DictationLexicon.given = (try? String(contentsOf: packaging.appendingPathComponent("cmudict.dict"),
-                                                  encoding: .utf8)).map { Pronouncer(cmu: $0) } ?? Pronouncer()
-        }
         appEditor = EditorController(source: editorSource, queue: DispatchQueue(label: "stage-editor"),
                                      proofreader: proofreader, drawing: FakeMarksDrawing(), hover: nil,
                                      clock: clock.clock, polls: false, modelReady: { $0.usesModel })

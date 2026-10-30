@@ -8,7 +8,6 @@ final class CorrectionsTests: XCTestCase {
     private static let packaging = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("packaging")
     private static let pronouncer: Pronouncer = {
-        CommonWords.frequentListURL = packaging.appendingPathComponent("common-words.txt")
         let text = (try? String(contentsOf: packaging.appendingPathComponent("cmudict.dict"), encoding: .utf8)) ?? ""
         return Pronouncer(cmu: text)
     }()

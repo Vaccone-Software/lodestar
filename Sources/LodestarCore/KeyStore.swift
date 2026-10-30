@@ -37,7 +37,10 @@ import StoicStore
 ///
 /// The day begins at four in the morning, as it does everywhere else in
 /// the instrument, so an evening that runs past midnight stays one day.
-public final class KeyStore {
+///
+/// Threads: `lock` guards the buffer, the drop count and the install's
+/// name (any thread appends); `queue` owns `writer` and every file.
+public final class KeyStore: @unchecked Sendable {
     public static let version: UInt16 = 2
     public static let recordSize = 24
     public static let legacyRecordSize = 16

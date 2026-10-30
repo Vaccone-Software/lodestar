@@ -1,0 +1,6 @@
+Test Suite 'Selected tests' started at 2026-10-25 14:38:00.000.
+Test Suite 'LodestarAppTests.xctest' started at 2026-10-25 14:38:00.001.
+Test Suite 'SlabTests' started at 2026-10-25 14:38:00.002.
+Test Case '-[LodestarAppTests.SlabTests testAThingThatPasses]' started.
+Test Case '-[LodestarAppTests.SlabTests testAThingThatPasses]' passed (0.100 seconds).
+Test Case '-[LodestarAppTests.SlabTests testKeepsChosenCardFollowsTheSelection]' started.

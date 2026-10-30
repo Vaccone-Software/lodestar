@@ -1,0 +1,13 @@
+Test Suite 'Selected tests' started at 2026-10-26 00:35:10.329.
+Test Suite 'LodestarAppTests.xctest' started at 2026-10-26 00:35:10.330.
+Test Suite 'RetirementTests' started at 2026-10-26 00:35:10.331.
+Test Case '-[LodestarAppTests.RetirementTests testAnEmptyWindowHasNoSurfaces]' started.
+Test Case '-[LodestarAppTests.RetirementTests testAnEmptyWindowHasNoSurfaces]' passed (0.009 seconds).
+Test Case '-[LodestarAppTests.RetirementTests testEachSurfaceCountsAndPricesItsAbandons]' started.
+Test Case '-[LodestarAppTests.RetirementTests testEachSurfaceCountsAndPricesItsAbandons]' passed (0.001 seconds).
+Test Suite 'RetirementTests' passed at 2026-10-26 00:35:10.340.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.010 (0.023) seconds
+Test Suite 'LodestarAppTests.xctest' passed at 2026-10-26 00:35:10.340.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.010 (0.023) seconds
+Test Suite 'Selected tests' passed at 2026-10-26 00:35:10.340.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.010 (0.023) seconds

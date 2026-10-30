@@ -31,6 +31,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # test.sh's own rules (the results file, the quarantine, a hang, a
+      # shard that ran nothing) against fixture logs: seconds, and nothing
+      # is built, so a broken gate is found before a build is waited for.
+      - name: The test script's own rules
+        run: ./scripts/test-sh-selftest.sh
+
       - name: Xcode 27
         # Stoic needs Swift 6.4; the image's default Xcode may be older.
         run: sudo xcode-select -s /Applications/Xcode_27.0.app && swift --version

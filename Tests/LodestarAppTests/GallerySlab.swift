@@ -107,16 +107,17 @@ enum GallerySlab {
     /// The draft's microphone menu with the pointer on the second row: the
     /// pointer chooses here, so the pointer moves the slab.
     static func inputMenu() throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = Stage.screen
-        return try GalleryHost.surface(made: {
-            let menu = InputMenu()
-            menu.present([.init(title: "System default", device: nil),
-                          .init(title: "MacBook Pro Microphone", device: "MacBook Pro Microphone"),
-                          .init(title: "CalDigit Thunderbolt 3 Audio", device: "CalDigit")],
-                         chosen: 0, beside: NSRect(x: 300, y: 300, width: 500, height: 260))
-            menu.slabRows[1].choose(true)
-            return [menu]
-        })
+        try withPresentationFrame(Stage.screen) {
+            try GalleryHost.surface(made: {
+                let menu = InputMenu()
+                menu.present([.init(title: "System default", device: nil),
+                              .init(title: "MacBook Pro Microphone", device: "MacBook Pro Microphone"),
+                              .init(title: "CalDigit Thunderbolt 3 Audio", device: "CalDigit")],
+                             chosen: 0, beside: NSRect(x: 300, y: 300, width: 500, height: 260))
+                menu.slabRows[1].choose(true)
+                return [menu]
+            })
+        }
     }
 
     static var shots: [GalleryShot] {

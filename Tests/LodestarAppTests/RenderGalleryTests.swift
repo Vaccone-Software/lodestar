@@ -11,7 +11,6 @@ import XCTest
 final class RenderGalleryTests: XCTestCase {
     override func tearDown() {
         GalleryLook.reset()
-        ActivePolicy.frameOverride = nil
         EyeComfortState.shared.set(enabled: false, level: 1)
     }
 

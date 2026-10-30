@@ -220,44 +220,47 @@ enum GalleryRow {
     /// Settings with the places that wait on another drawn quiet: the logbook and
     /// health off, "Exact keyboard" on and unavailable.
     static func waiting() throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = Stage.screen
-        return try GalleryHost.surface(made: {
-            let settings = GallerySettings.controller()
-            var config = settings.config
-            config.logbookEnabled = false
-            config.observationsHealth = false
-            settings.config = config
-            settings.renderForTesting(place: SettingsModel.placeIndex("Observations"))
-            return [settings]
-        }, settle: 0.05, where: { $0 is KeyablePanel }, frame: NSRect(x: 0, y: 0, width: 1000, height: 680))
+        try withPresentationFrame(Stage.screen) {
+            try GalleryHost.surface(made: {
+                let settings = GallerySettings.controller()
+                var config = settings.config
+                config.logbookEnabled = false
+                config.observationsHealth = false
+                settings.config = config
+                settings.renderForTesting(place: SettingsModel.placeIndex("Observations"))
+                return [settings]
+            }, settle: 0.05, where: { $0 is KeyablePanel }, frame: NSRect(x: 0, y: 0, width: 1000, height: 680))
+        }
     }
 
     /// The ⌘K card beside a row: actions with a chain and a long name.
     static func optionsCard(_ which: Int) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = Stage.screen
-        return try GalleryHost.surface(made: {
-            OptionsCard.preview(which) as [AnyObject]
-        })
+        try withPresentationFrame(Stage.screen) {
+            try GalleryHost.surface(made: {
+                OptionsCard.preview(which) as [AnyObject]
+            })
+        }
     }
 
     /// The cheat sheet, as `lode ?` opens it.
     static func cheatSheet() throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = Stage.screen
-        return try GalleryHost.surface(made: {
-            let sheet = CheatSheet()
-            sheet.toggle {
-                [CheatSheet.Section(header: "Windows", rows: [
-                    GuideRow(key: "lode", label: "Summon a chain"), GuideRow(keys: ["lode"], double: true, label: "Jump back"),
-                    GuideRow(key: "z o", label: "Fold the window"), GuideRow(key: "⌘K", label: "Options for the row"),
-                ]),
-                 CheatSheet.Section(header: "Write", rows: [
-                    GuideRow(key: "esc", label: "Leave"), GuideRow(key: "h j k l", label: "Move"),
-                    GuideRow(key: "d u", label: "Half-page down · up", dimmed: true),
-                    GuideRow(key: "/", label: "Aim at a word"),
-                ])]
-            }
-            return [sheet]
-        })
+        try withPresentationFrame(Stage.screen) {
+            try GalleryHost.surface(made: {
+                let sheet = CheatSheet()
+                sheet.toggle {
+                    [CheatSheet.Section(header: "Windows", rows: [
+                        GuideRow(key: "lode", label: "Summon a chain"), GuideRow(keys: ["lode"], double: true, label: "Jump back"),
+                        GuideRow(key: "z o", label: "Fold the window"), GuideRow(key: "⌘K", label: "Options for the row"),
+                    ]),
+                     CheatSheet.Section(header: "Write", rows: [
+                        GuideRow(key: "esc", label: "Leave"), GuideRow(key: "h j k l", label: "Move"),
+                        GuideRow(key: "d u", label: "Half-page down · up", dimmed: true),
+                        GuideRow(key: "/", label: "Aim at a word"),
+                    ])]
+                }
+                return [sheet]
+            })
+        }
     }
 
     static var shots: [GalleryShot] {

@@ -41,12 +41,13 @@ enum GallerySettings {
 
     /// The window as it stands once opened, which is the size Settings is.
     static func window(look: GalleryLook, _ stage: @escaping (SettingsController) -> Void) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = Stage.screen
-        return try GalleryHost.surface(made: {
-            let settings = controller()
-            stage(settings)
-            return [settings]
-        }, settle: 0.05, where: { $0 is KeyablePanel }, frame: NSRect(x: 0, y: 0, width: 1000, height: 680))
+        try withPresentationFrame(Stage.screen) {
+            try GalleryHost.surface(made: {
+                let settings = controller()
+                stage(settings)
+                return [settings]
+            }, settle: 0.05, where: { $0 is KeyablePanel }, frame: NSRect(x: 0, y: 0, width: 1000, height: 680))
+        }
     }
 
     static var shots: [GalleryShot] {

@@ -28,7 +28,10 @@ final class GalleryReader: WindowAXReader, @unchecked Sendable {
 enum GalleryBars {
     /// The launcher choosing among one app's windows.
     static func chooser(look: GalleryLook) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = Stage.screen
+        try withPresentationFrame(Stage.screen) { try chooserSurface(look: look) }
+    }
+
+    private static func chooserSurface(look: GalleryLook) throws -> (NSView, [AnyObject]) {
         let reader = GalleryReader()
         let titles = ["Pull requests · vaccone-software/lodestar", "Lodestar — Design languages",
                       "Inbox (3) — personal", "Settings"]
@@ -64,14 +67,14 @@ enum GalleryBars {
     }()
 
     static func ask(query: String) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = Stage.screen
-        return try GalleryHost.surface(made: {
-            [WebBarController.preview(query: query, config: askConfig)]
-        }, where: { $0 is KeyablePanel })
+        try withPresentationFrame(Stage.screen) {
+            try GalleryHost.surface(made: {
+                [WebBarController.preview(query: query, config: askConfig)]
+            }, where: { $0 is KeyablePanel })
+        }
     }
 
     static func commands(query: String, mixed: Bool) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = Stage.screen
         let dummy = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
         func item(_ path: [String], _ shortcut: String? = nil) -> MenuItems.Item {
             MenuItems.Item(element: dummy, path: path, shortcut: shortcut)
@@ -87,8 +90,10 @@ enum GalleryBars {
             rows.insert(Commands.Row(verb: menus[0].verb, title: "Paste history", crumb: "Keep", shortcut: nil,
                                      source: "system", searchKey: "Paste history"), at: 1)
         }
-        return try GalleryHost.surface(made: { [CommandsBarController.preview(query: query, rows: rows)] },
-                                       where: { $0 is KeyablePanel })
+        return try withPresentationFrame(Stage.screen) {
+            try GalleryHost.surface(made: { [CommandsBarController.preview(query: query, rows: rows)] },
+                                    where: { $0 is KeyablePanel })
+        }
     }
 
     static var shots: [GalleryShot] {

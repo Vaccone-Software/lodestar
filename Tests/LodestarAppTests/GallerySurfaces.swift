@@ -380,7 +380,10 @@ enum GalleryLauncher {
 
     /// The launcher as it stands for `query`, the `chosen`th row chosen.
     static func bar(query: String, chosen: Int, look: GalleryLook) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = Stage.screen
+        try withPresentationFrame(Stage.screen) { try barSurface(query: query, chosen: chosen) }
+    }
+
+    private static func barSurface(query: String, chosen: Int) throws -> (NSView, [AnyObject]) {
         let world = GalleryWorld()
         var made: SearcherController?
         let panels = GalleryHost.windows {

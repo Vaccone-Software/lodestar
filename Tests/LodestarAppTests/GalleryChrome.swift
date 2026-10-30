@@ -13,13 +13,14 @@ enum GalleryChrome {
     // MARK: - The pill
 
     static func pill(_ state: ModePill.State) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1200, height: 800)
         var made: ModePill?
-        return try GalleryHost.surface(made: {
-            made = ModePill()
-            made?.show(state)
-            return [made as Any as AnyObject]
-        })
+        return try withPresentationFrame(NSRect(x: 0, y: 0, width: 1200, height: 800)) {
+            try GalleryHost.surface(made: {
+                made = ModePill()
+                made?.show(state)
+                return [made as Any as AnyObject]
+            })
+        }
     }
 
     // MARK: - The meeting's chip
@@ -31,48 +32,51 @@ enum GalleryChrome {
         // On the stand-in display, as every stage's: off every real one, so
         // the chip stands where the harness put it and not where a smaller
         // display would have moved it.
-        ActivePolicy.frameOverride = NSRect(x: Stage.screen.minX, y: Stage.screen.minY, width: 1200, height: 800)
-        return try GalleryHost.surface(made: { [MeetingController.preview(0, startingIn: offset, title: title)] },
-                                       where: { $0 is KeyablePanel })
+        try withPresentationFrame(NSRect(x: Stage.screen.minX, y: Stage.screen.minY, width: 1200, height: 800)) {
+            try GalleryHost.surface(made: { [MeetingController.preview(0, startingIn: offset, title: title)] },
+                                    where: { $0 is KeyablePanel })
+        }
     }
 
     // MARK: - The draft
 
     static func draft(_ variant: Int) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1600, height: 1000)
-        return try GalleryHost.surface(made: { [DraftPanel.preview(variant)] }, settle: 0.2)
+        try withPresentationFrame(NSRect(x: 0, y: 0, width: 1600, height: 1000)) {
+            try GalleryHost.surface(made: { [DraftPanel.preview(variant)] }, settle: 0.2)
+        }
     }
 
     /// The editor's lens: words marked in the accent, standing in normal mode.
     static func lens() throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1600, height: 1000)
-        return try GalleryHost.surface(made: {
-            let panel = DraftPanel()
-            let text = "The quick brown fox jumps over the lazy dog, definately twice."
-            var buffer = Draft.Buffer(text: text, cursor: 10)
-            buffer.setCursor(10)
-            let marked = (text as NSString).range(of: "definately")
-            var view = DraftView(buffer: buffer, mode: .normal, editor: .normal, speech: nil,
-                                 inputs: [], systemInput: nil,
-                                 destination: ("Messages", icon("/System/Applications/Messages.app")), replacing: true,
-                                 style: .vim)
-            view.editorMarks = [marked]
-            panel.show(view)
-            return [panel]
-        }, settle: 0.2)
+        try withPresentationFrame(NSRect(x: 0, y: 0, width: 1600, height: 1000)) {
+            try GalleryHost.surface(made: {
+                let panel = DraftPanel()
+                let text = "The quick brown fox jumps over the lazy dog, definately twice."
+                var buffer = Draft.Buffer(text: text, cursor: 10)
+                buffer.setCursor(10)
+                let marked = (text as NSString).range(of: "definately")
+                var view = DraftView(buffer: buffer, mode: .normal, editor: .normal, speech: nil,
+                                     inputs: [], systemInput: nil,
+                                     destination: ("Messages", icon("/System/Applications/Messages.app")), replacing: true,
+                                     style: .vim)
+                view.editorMarks = [marked]
+                panel.show(view)
+                return [panel]
+            }, settle: 0.2)
+        }
     }
 
     // MARK: - The coach, notes and guides
 
     private static func hud(_ show: @escaping (HUD) -> Void) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1400, height: 900)
         var made: HUD?
-        let result = try GalleryHost.surface(made: {
-            made = HUD()
-            show(made!)
-            return [made as Any as AnyObject]
-        })
-        return result
+        return try withPresentationFrame(NSRect(x: 0, y: 0, width: 1400, height: 900)) {
+            try GalleryHost.surface(made: {
+                made = HUD()
+                show(made!)
+                return [made as Any as AnyObject]
+            })
+        }
     }
 
     static func coach(_ pair: Bool) throws -> (NSView, [AnyObject]) {
@@ -135,16 +139,18 @@ enum GalleryChrome {
     // MARK: - Feedback and the walk
 
     static func feedback(_ index: Int) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1400, height: 900)
-        return try GalleryHost.surface(made: { [FeedbackController.preview(index)] }, settle: 0.4,
-                                       where: { $0 is KeyablePanel })
+        try withPresentationFrame(NSRect(x: 0, y: 0, width: 1400, height: 900)) {
+            try GalleryHost.surface(made: { [FeedbackController.preview(index)] }, settle: 0.4,
+                                    where: { $0 is KeyablePanel })
+        }
     }
 
     static func walk(_ index: Int) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1400, height: 900)
         var config = Config()
         config.graph = Stage.graph()
-        return try GalleryHost.surface(made: { [WalkController.preview(index, config: config)] }, settle: 0.4)
+        return try withPresentationFrame(NSRect(x: 0, y: 0, width: 1400, height: 900)) {
+            try GalleryHost.surface(made: { [WalkController.preview(index, config: config)] }, settle: 0.4)
+        }
     }
 
     static var shots: [GalleryShot] {

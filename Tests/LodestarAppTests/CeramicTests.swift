@@ -415,6 +415,7 @@ final class AccessibilitySettingsTests: XCTestCase {
     }
 
     func testTheInsertBarWearsTheReadableAccent() {
+        setOverride(\ActivePolicy.Type.frameOverride, to: Stage.screen)
         BarTheme.accentColor = { BarTheme.ground }
         let panel = DraftPanel()
         defer { panel.hide() }

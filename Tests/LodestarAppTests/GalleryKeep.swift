@@ -62,12 +62,13 @@ enum GalleryKeep {
     }
 
     static func strip(look: GalleryLook, _ show: @escaping (ClipboardStrip) -> Void) throws -> (NSView, [AnyObject]) {
-        ActivePolicy.frameOverride = NSRect(x: 0, y: 0, width: 1500, height: 820)
-        return try GalleryHost.surface(made: {
-            let strip = ClipboardStrip()
-            show(strip)
-            return [strip]
-        })
+        try withPresentationFrame(NSRect(x: 0, y: 0, width: 1500, height: 820)) {
+            try GalleryHost.surface(made: {
+                let strip = ClipboardStrip()
+                show(strip)
+                return [strip]
+            })
+        }
     }
 
     static var shots: [GalleryShot] {

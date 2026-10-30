@@ -8,6 +8,13 @@ import XCTest
 /// and layers, the way the find lights are, because a state test cannot
 /// see a wash that vibrancy ate.
 final class ReadabilityTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        // The panels are laid out on the stand-in screen, not on whichever
+        // display the Mac has or the last test left.
+        setOverride(\ActivePolicy.Type.frameOverride, to: Stage.screen)
+    }
+
     private func view(_ text: String, cursor: Int, editor: Vim.Mode) -> DraftView {
         DraftView(buffer: Draft.Buffer(text: text, cursor: cursor), mode: editor == .insert ? .insert : .normal,
                   editor: editor, speech: nil, destination: ("Notes", nil), replacing: false, style: .vim)

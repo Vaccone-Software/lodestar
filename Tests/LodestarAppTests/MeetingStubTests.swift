@@ -8,7 +8,13 @@ import XCTest
 final class MeetingStubTests: XCTestCase {
     typealias RGB = Readability.RGB
 
+    private var frame: NSRect?
+
     override func setUp() {
+        // The chip is laid out on the stand-in screen, not on whichever
+        // display the Mac has or the last test left.
+        frame = ActivePolicy.frameOverride
+        ActivePolicy.frameOverride = Stage.screen
         EyeComfortState.shared.set(enabled: true, level: 1)
         GalleryLook.day.apply()
     }
@@ -17,6 +23,7 @@ final class MeetingStubTests: XCTestCase {
         EyeComfortState.shared.set(enabled: false, level: 1)
         GalleryLook.reset()
         Accessibility.reset()
+        ActivePolicy.frameOverride = frame
     }
 
     // MARK: - Model

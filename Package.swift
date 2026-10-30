@@ -101,7 +101,9 @@ let package = Package(
                         .product(name: "StoicApple", package: "stoic"),
                     ],
                     // The editor's accuracy fixture, read by path.
-                    exclude: ["Fixtures"]),
+                    exclude: ["Fixtures"],
+                    // For the leak guard's constructor (Overrides.swift).
+                    swiftSettings: [.enableExperimentalFeature("SymbolLinkageMarkers")]),
         // The scenario harness: the real engine, glass, and coach wired the
         // way the app wires them, driven by scripted keystrokes against a
         // world that never moves a window.
@@ -112,7 +114,7 @@ let package = Package(
             .product(name: "StoicDownloads", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
-        ]),
+        ], swiftSettings: [.enableExperimentalFeature("SymbolLinkageMarkers")]),
     ],
     // Tools 6.1 for the Crypto trait; the code stays in Swift 5 mode, as it
     // was under tools 5.9.

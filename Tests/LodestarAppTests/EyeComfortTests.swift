@@ -16,7 +16,13 @@ final class EyeComfortTests: XCTestCase {
     /// round start, so a window ends exactly when the test says it does.
     private let clock = VirtualClock(start: Date(timeIntervalSinceReferenceDate: 800_000_000))
 
+    private var frame: NSRect?
+
     override func setUp() {
+        // The pill and the chip are laid out on the stand-in screen, not on
+        // whichever display the Mac has or the last test left.
+        frame = ActivePolicy.frameOverride
+        ActivePolicy.frameOverride = Stage.screen
         off()
         GalleryLook.day.apply()
         // The hand's last key is process-wide: another test's, on the wall's
@@ -36,6 +42,7 @@ final class EyeComfortTests: XCTestCase {
         GalleryLook.reset()
         Accessibility.reset()
         Attention.key(at: .distantPast)
+        ActivePolicy.frameOverride = frame
     }
 
     /// The level's five minute step on the test's clock.

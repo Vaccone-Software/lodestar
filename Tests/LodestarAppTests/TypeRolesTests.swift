@@ -8,7 +8,6 @@ import XCTest
 final class TypeRolesTests: XCTestCase {
     override func tearDown() {
         GalleryLook.reset()
-        ActivePolicy.frameOverride = nil
     }
 
     private static let scale: Set<CGFloat> = [13, 16, 18, 23]
@@ -192,6 +191,7 @@ final class TypeRolesTests: XCTestCase {
     /// Real surfaces, built in the day and left on screen while the look
     /// turns: the draft's runs, the key marks, the pill, the room's button.
     func testRealSurfacesTakeNightsWeightWithoutBeingBuiltAgain() throws {
+        setOverride(\ActivePolicy.Type.frameOverride, to: Stage.screen)
         GalleryLook.day.apply()
         let panel = DraftPanel()
         defer { panel.hide() }

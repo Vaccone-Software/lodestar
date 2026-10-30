@@ -84,22 +84,22 @@ final class ClipboardFilesTests: XCTestCase {
         store.prunesGoneFiles = false
         // Real QuickLook is another process's to answer in its own time; the
         // tests stand in for it, and the icon fallback is the real one.
-        FileSense.thumbnailer = { _ in Self.swatch() }
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in Self.swatch() })
         // Every read of a file waits for its answer; the one test about a
         // deadline moves the clock itself.
-        FileSense.wait = { [deadlines] group, seconds in deadlines.wait(group, seconds) }
+        setOverride(\FileSense.Type.wait, to: { [deadlines] group, seconds in deadlines.wait(group, seconds) })
+        // A read still waiting on its deadline outlives its test and would
+        // take the next test's thumbnailer and clock for its own: every
+        // deadline is run out and the store's queues finish before the two
+        // above are put back. Teardown blocks run last in, first out.
+        addTeardownBlock { [deadlines, store] in
+            deadlines.advance(by: 1_000_000)
+            store?.flushBackground()
+        }
     }
 
     override func tearDown() {
-        // A read still waiting on its deadline outlives its test and would
-        // take the next test's thumbnailer and clock for its own: run every
-        // deadline out and let the store's queues finish before anything is reset.
-        deadlines.advance(by: 1_000_000)
-        store.flushBackground()
-        FileSense.wait = FileSense.realWait
         FileSense.deadline = 2
-        FileSense.thumbnailer = FileSense.quickLook
-        FileSense.dataless = FileSense.isDataless
         store.close()
         try? FileManager.default.removeItem(at: directory)
     }
@@ -321,7 +321,7 @@ final class ClipboardFilesTests: XCTestCase {
     }
 
     func testAFileWithNoThumbnailIsDrawnAsItsIcon() throws {
-        FileSense.thumbnailer = { _ in nil }
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in nil })
         copy([try make("plain.txt")])
         let id = try XCTUnwrap(store.clips.first).id
         wait("the icon is kept as its picture") { self.store.thumbnail(for: id) != nil }
@@ -342,12 +342,12 @@ final class ClipboardFilesTests: XCTestCase {
         let release = DispatchSemaphore(value: 0)
         let answered = NSLock()
         var returned = false
-        FileSense.thumbnailer = { _ in
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in
             began.signal()
             release.wait()
             answered.withLock { returned = true }
             return Self.swatch()
-        }
+        })
         addTeardownBlock { for _ in 0..<8 { release.signal() } }
         let url = try make("slow.txt")
         copy([url])
@@ -367,9 +367,9 @@ final class ClipboardFilesTests: XCTestCase {
     /// drawn as its icon: asking it for its pages or its picture would
     /// fetch it from the network.
     func testAFileThatIsNotOnThisMacIsNeverOpenedForItsPagesOrItsPicture() throws {
-        FileSense.dataless = { _, _ in true }
+        setOverride(\FileSense.Type.dataless, to: { _, _ in true })
         var asked = 0
-        FileSense.thumbnailer = { _ in asked += 1; return Self.swatch() }
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in asked += 1; return Self.swatch() })
         let png = files.appendingPathComponent("evicted.png")
         try Stage.pngData(width: 40, height: 20).write(to: png)
         copy([png])
@@ -420,11 +420,11 @@ final class ClipboardFilesTests: XCTestCase {
     func testAFileCardDeletedWhileItsFilesAreBeingReadLeavesNoPicturesBehind() throws {
         let began = DispatchSemaphore(value: 0)
         let late = DispatchSemaphore(value: 0)
-        FileSense.thumbnailer = { _ in
+        setOverride(\FileSense.Type.thumbnailer, to: { _ in
             began.signal()
             late.wait()
             return Self.swatch()
-        }
+        })
         addTeardownBlock { late.signal() }
         copy([try make("late.txt")])
         let id = try XCTUnwrap(store.clips.first).id

@@ -8,6 +8,8 @@ import LodestarCore
 /// accent already does. A literal in a surface fails the build with the
 /// file named, so the φ table and the type scale stay the only source.
 final class DesignDriftTests: XCTestCase {
+    override func tearDown() { GalleryLook.reset() }
+
     /// The theme's homes: the values live here and nowhere else.
     private static let homes: Set<String> = ["Ceramic.swift", "Key.swift", "Material.swift", "ModePill.swift", "Type.swift"]
 

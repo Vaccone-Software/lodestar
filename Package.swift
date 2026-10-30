@@ -53,13 +53,10 @@ let package = Package(
             .product(name: "StoicSealedKeychain", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
         ], swiftSettings: [
-            // Complete concurrency checking, Core alone for now: its data
-            // races are compile-time diagnostics, the rest of the package
-            // is still unchecked Swift 5.
-            .enableUpcomingFeature("StrictConcurrency"),
-            // Key path literals and methods are inferred Sendable (SE-0418),
-            // as they are in Swift 6 mode: Stoic's schema Fields ask for it.
-            .enableUpcomingFeature("InferSendableFromCaptures"),
+            // Swift 6 language mode for Core alone: its data races are
+            // compile errors. Every other target is still Swift 5 (see
+            // swiftLanguageModes below) and moves when it is clean.
+            .swiftLanguageMode(.v6),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a
         // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core

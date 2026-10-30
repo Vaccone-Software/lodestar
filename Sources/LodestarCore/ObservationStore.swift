@@ -1,6 +1,5 @@
 import Foundation
 import StoicStore
-import Synchronization
 
 /// Owns both halves of the observation system: the event log (the truth)
 /// and the aggregate view (the cache). Every semantic method builds one
@@ -32,7 +31,7 @@ public final class ObservationStore {
     /// (the key is unavailable): a save would write a fresh view over a sealed
     /// one never read, so none is made until `resume` has read it. A store
     /// that was never asked to load saves as it always did.
-    private let viewBlocked = Mutex(false)
+    private let viewBlocked = Locked(false)
     /// Events recorded while the view was blocked, applied to it once it is read.
     private var heldForView: [ObservationEvent] = []
     /// What the coach reads: how the hand moves between apps, windows and
@@ -88,6 +87,10 @@ public final class ObservationStore {
 
     /// Both logs, oldest first: the material health research reads.
     public func allEvents() -> [ObservationEvent] {
+        Self.allEvents(log, healthLog)
+    }
+
+    private static func allEvents(_ log: EventLog, _ healthLog: EventLog) -> [ObservationEvent] {
         (log.readAll() + healthLog.readAll()).sorted { $0.t < $1.t }
     }
 
@@ -597,8 +600,8 @@ public final class ObservationStore {
     /// crosses month ends.
     public func rollupSoon(now: Date = Date()) {
         guard enabled else { return }
-        saveQueue.async { [rollupFile, fileSystem, ring = vault.ring(.logbook)] in
-            let outcome = Rollup.roll(events: self.allEvents(), file: rollupFile, ring: ring,
+        saveQueue.async { [rollupFile, fileSystem, ring = vault.ring(.logbook), log, healthLog] in
+            let outcome = Rollup.roll(events: Self.allEvents(log, healthLog), file: rollupFile, ring: ring,
                                       fileSystem: fileSystem, now: now)
             if !outcome.added.isEmpty {
                 Log.info("rollup", ["archived": outcome.added.joined(separator: " ")])
@@ -719,7 +722,8 @@ public final class ObservationStore {
             // The snapshot is taken here on main; the encode and the disk
             // leave with it.
             let snapshot = self.observations
-            self.saveQueue.async { self.write(snapshot) }
+            let (view, blocked, file) = (self.viewFile, self.viewBlocked, self.file)
+            self.saveQueue.async { Self.write(snapshot, to: view, at: file, blocked: blocked) }
         }
         pendingSave = work
         // Longer than the state store's half second: nothing here is worth
@@ -731,6 +735,11 @@ public final class ObservationStore {
     /// main, where that flag lives. Nothing is written while the view is
     /// blocked (see `viewBlocked`), or while the key is unavailable.
     private func write(_ snapshot: Observations) {
+        Self.write(snapshot, to: viewFile, at: file, blocked: viewBlocked)
+    }
+
+    private static func write(_ snapshot: Observations, to viewFile: SealedValueFile, at file: URL,
+                              blocked viewBlocked: Locked<Bool>) {
         guard !viewBlocked.withLock({ $0 }) else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

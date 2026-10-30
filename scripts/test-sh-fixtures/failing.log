@@ -1,0 +1,23 @@
+Test Suite 'Selected tests' started at 2026-10-26 00:35:10.329.
+Test Suite 'LodestarAppTests.xctest' started at 2026-10-26 00:35:10.330.
+Test Suite 'MainThreadWatchdogTests' started at 2026-10-26 00:35:10.331.
+Test Case '-[LodestarAppTests.MainThreadWatchdogTests testALateAnswerIsReportedWithItsLength]' started.
+Test Case '-[LodestarAppTests.MainThreadWatchdogTests testALateAnswerIsReportedWithItsLength]' passed (3.043 seconds).
+Test Case '-[LodestarAppTests.MainThreadWatchdogTests testAnOnTimeAnswerSaysNothing]' started.
+/Users/runner/work/lodestar/lodestar/Tests/LodestarAppTests/MainThreadWatchdogTests.swift:123: error: -[LodestarAppTests.MainThreadWatchdogTests testAnOnTimeAnswerSaysNothing] : XCTAssertEqual failed: ("1") is not equal to ("0")
+Test Case '-[LodestarAppTests.MainThreadWatchdogTests testAnOnTimeAnswerSaysNothing]' failed (0.515 seconds).
+Test Case '-[LodestarAppTests.MainThreadWatchdogTests testAResponsiveMainThreadIsLeftAlone]' started.
+/Users/runner/work/lodestar/lodestar/Tests/LodestarAppTests/MainThreadWatchdogTests.swift:37: error: -[LodestarAppTests.MainThreadWatchdogTests testAResponsiveMainThreadIsLeftAlone] : XCTAssertEqual failed: ("4") is not equal to ("0")
+/Users/runner/work/lodestar/lodestar/Tests/LodestarAppTests/MainThreadWatchdogTests.swift:41: error: -[LodestarAppTests.MainThreadWatchdogTests testAResponsiveMainThreadIsLeftAlone] : XCTAssertTrue failed - the log says <b>nothing</b> & "quotes"
+Test Case '-[LodestarAppTests.MainThreadWatchdogTests testAResponsiveMainThreadIsLeftAlone]' failed (0.606 seconds).
+Test Case '-[LodestarAppTests.MainThreadWatchdogTests testTheVerdictFollowsTheClockReadings]' started.
+/Users/vac/Developer/lodestar/Tests/LodestarAppTests/EditorCostTests.swift:29: -[LodestarAppTests.MainThreadWatchdogTests testTheVerdictFollowsTheClockReadings] : Test skipped - LODESTAR_EDITOR_MEASURE=<seconds> measures the idle cost
+Test Case '-[LodestarAppTests.MainThreadWatchdogTests testTheVerdictFollowsTheClockReadings]' skipped (0.016 seconds).
+Test Case '-[LodestarAppTests.MainThreadWatchdogTests testSafeModeLogsAStallInsteadOfAborting]' started.
+a test's own output with no newline in itTest Case '-[LodestarAppTests.MainThreadWatchdogTests testSafeModeLogsAStallInsteadOfAborting]' passed (0.180 seconds).
+Test Suite 'MainThreadWatchdogTests' failed at 2026-10-26 00:35:14.700.
+	 Executed 5 tests, with 1 test skipped and 3 failures (0 unexpected) in 4.344 (4.346) seconds
+Test Suite 'LodestarAppTests.xctest' failed at 2026-10-26 00:35:14.700.
+	 Executed 5 tests, with 1 test skipped and 3 failures (0 unexpected) in 4.344 (4.346) seconds
+Test Suite 'Selected tests' failed at 2026-10-26 00:35:14.700.
+	 Executed 5 tests, with 1 test skipped and 3 failures (0 unexpected) in 4.344 (4.346) seconds

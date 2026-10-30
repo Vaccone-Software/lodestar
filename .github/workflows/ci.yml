@@ -5,6 +5,21 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token. Nothing here writes to the repository: checkout reads
+# it, and the caches and artifacts are reached through the runner's own
+# cache token, not GITHUB_TOKEN's scopes.
+permissions:
+  contents: read
+
+# A pull request's older run is stopped when it is pushed to again: nobody
+# reads its verdict. A push to main is never stopped, and never waits behind
+# another (a group that only queues keeps one pending run and drops the
+# rest), so every main commit gets a complete verdict: its own run id is
+# its group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     # Stoic needs Swift 6.4 and the macOS 27 SDK: the runner Stoic's own CI
@@ -15,7 +30,13 @@ jobs:
     # The margin is for a cold cache, which builds MLX from source.
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # test.sh's own rules (the results file, the quarantine, a hang, a
+      # shard that ran nothing) against fixture logs: seconds, and nothing
+      # is built, so a broken gate is found before a build is waited for.
+      - name: The test script's own rules
+        run: ./scripts/test-sh-selftest.sh
+
       - name: Xcode 27
         # Stoic needs Swift 6.4; the image's default Xcode may be older.
         run: sudo xcode-select -s /Applications/Xcode_27.0.app && swift --version
@@ -24,9 +45,14 @@ jobs:
         # MLX compiles its GPU kernels with `metal`, a separate download
         # since Xcode 26; a runner image may not carry it. Xcode 27 ships a
         # `metal` stub that `xcrun -f` finds, so ask for the component itself.
+        #
+        # The download is the one network step outside the build, and a
+        # blip in it has turned a run red before: three tries, 15 s then 30 s
+        # apart (scripts/retry.sh). Nothing else is retried, and no test is.
         run: |
+          source scripts/retry.sh
           xcodebuild -showComponent MetalToolchain 2>/dev/null | grep -q "Status: installed" \
-            || xcodebuild -downloadComponent MetalToolchain
+            || RELEASE_TRIES=3 RELEASE_RETRY_DELAY=15 retry xcodebuild -downloadComponent MetalToolchain
 
       - name: Toolchain
         id: toolchain
@@ -41,7 +67,7 @@ jobs:
       # the cache, so they always rebuild; a dependency bump misses the
       # exact key and starts from the nearest cache instead.
       - name: Restore the build
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .build
           key: spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
@@ -75,7 +101,7 @@ jobs:
       # fails here: the script checks the archive's SHA-256, and the replay
       # tests may not skip on CI (Tests/allowed-skips.txt).
       - name: Restore the datasets
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/lodestar-datasets
           key: datasets-${{ hashFiles('tools/health/fetch-datasets.sh') }}
@@ -116,13 +142,25 @@ jobs:
           TEST_SHARD_SECONDS: 600
         run: LODESTAR_DATASETS="$HOME/.cache/lodestar-datasets" ./scripts/test.sh
 
+      # One result per test, passes too, whatever the run did: what
+      # scripts/flake-history.sh counts failures from. The attempt is in the
+      # name because a re-run of the same run may not reuse its first name.
+      - name: The test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results-${{ github.run_attempt }}
+          path: .build/test-results/junit.xml
+          retention-days: 30
+          if-no-files-found: ignore
+
       # A shard that hangs is sampled to <shard>.hang.txt, and each shard's
       # log says which test it was in: both are what a red run is read from.
       - name: The shards' logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: test-shards
+          name: test-shards-${{ github.run_attempt }}
           path: |
             .build/test-shards/*.hang.txt
             .build/test-shards/*.log
@@ -135,7 +173,7 @@ jobs:
       # one per branch.
       - name: Save the build
         if: github.event_name == 'push' && success()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .build
           key: spm-${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}

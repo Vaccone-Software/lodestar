@@ -27,14 +27,32 @@
 # a shard whose log has not moved in TEST_SHARD_SECONDS (300; its stack is
 # sampled to .build/test-shards/<shard>.hang.txt), and a skip that
 # Tests/allowed-skips.txt does not allow.
+#
+# Every run, passes too, leaves .build/test-results/junit.xml: one testcase
+# per test with its seconds, and a failure or skip with its message, read
+# from the shards' logs by scripts/test-results.py. CI uploads it, and
+# scripts/flake-history.sh counts failures per test over the runs.
+#
+# A test in Tests/quarantine.txt still runs, but its failure does not fail
+# the run: it is printed at the foot of the summary and marked in the
+# results file. The file fails the run instead when an entry has expired,
+# is parked for more than 14 days, or names a test that is not in the list.
+# A quarantined test that hangs or kills its process is not excused: only
+# a failure the log records is. scripts/test-sh-selftest.sh checks these
+# rules against fixture logs, with nothing built.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 SHARDS=${TEST_SHARDS:-6}
 SHARD_SECONDS=${TEST_SHARD_SECONDS:-300}
 OUT=.build/test-shards
+RESULTS=.build/test-results
 TIMINGS=.build/test-timings.txt
 started=$(date +%s)
+# The last run's results are gone before anything else can fail: a build
+# restored from a cache, or a run that stops early, must not leave an old
+# file to be taken for this one's.
+rm -rf "$RESULTS"
 
 build_tests() { build=$(swift build --build-tests 2>&1); }
 built=1
@@ -77,6 +95,10 @@ swift test list --skip-build 2>/dev/null > "$OUT/tests.txt"
 expected=$(wc -l < "$OUT/tests.txt" | tr -d ' ')
 if [ "$expected" -eq 0 ]; then
     echo "✕ no tests found"
+    exit 1
+fi
+if ! python3 scripts/test-results.py quarantine Tests/quarantine.txt "$OUT/tests.txt" --today "$(date +%Y-%m-%d)"; then
+    echo "✕ Tests/quarantine.txt breaks its own rules (see its header)"
     exit 1
 fi
 
@@ -159,8 +181,12 @@ while :; do
     done
     sleep 0.5
 done
+# Each process's exit status is kept, not counted yet: a shard whose only
+# failures are quarantined exits non-zero too, and the log says which.
+statuses=()
 for index in "${!pids[@]}"; do
-    wait "${pids[$index]}" 2>/dev/null || failed=1
+    wait "${pids[$index]}" 2>/dev/null
+    statuses[$index]=$?
 done
 
 # A process that died mid-run (a crash, an abort, an exit) leaves the
@@ -175,6 +201,36 @@ for log in "${logs[@]}"; do
         failed=1
     fi
 done
+
+# The results file, and what the logs say of each test. A shard that
+# exited non-zero must have a failure to show for it: the quarantined ones
+# are excused, a non-zero exit with no failure in its log is not.
+mkdir -p "$RESULTS"
+quarantined=""
+if results=$(python3 scripts/test-results.py junit --out "$RESULTS/junit.xml" --quarantine Tests/quarantine.txt "${logs[@]}"); then
+    grep -E "^PROBLEM " <<<"$results" | sed 's/^PROBLEM /✕ /'
+    grep -qE "^PROBLEM " <<<"$results" && failed=1
+    quarantined=$(grep -E "^QUARANTINED " <<<"$results" | sed -E 's/^QUARANTINED //')
+    for index in "${!logs[@]}"; do
+        line=$(grep -F "LOG ${logs[$index]} " <<<"$results")
+        bad=$(sed -En 's/.* failed=([0-9]+) .*/\1/p' <<<"$line")
+        excused=$(sed -En 's/.* quarantined=([0-9]+)$/\1/p' <<<"$line")
+        if [ "${bad:-1}" -ne 0 ] || { [ "${statuses[$index]}" -ne 0 ] && [ "${excused:-0}" -eq 0 ]; }; then
+            failed=1
+        fi
+    done
+else
+    echo "✕ the results file could not be written"
+    failed=1
+fi
+
+# What a quarantine is costing, last in the output where it is read.
+quarantine_note() {
+    [ -n "$quarantined" ] || return 0
+    echo ""
+    echo "⚠ $(wc -l <<<"$quarantined" | tr -d ' ') quarantined test(s) failed. They do not fail the run, and each has a deadline in Tests/quarantine.txt:"
+    sed 's/^/    /' <<<"$quarantined"
+}
 
 executed=0
 for log in "${logs[@]}"; do
@@ -237,8 +293,17 @@ fi
 if [ "$failed" -ne 0 ]; then
     grep -hE "error: -\[|: error: |Fatal error|exited with|signal" "${logs[@]}" | grep -v "CoreData" | head -40
     rm -rf .build/test-shards-failed && cp -R "$OUT" .build/test-shards-failed
-    echo "✕ tests failed ($executed run, $(( $(date +%s) - started )) s; logs in $OUT)"
+    # By name, one line each: the error lines above are in the order the
+    # shards wrote them, and a test that never finished has none.
+    grep -E "^FAIL " <<<"${results:-}" | cut -c1-220 | sed 's/^FAIL /  failed: /'
+    quarantine_note
+    echo "✕ tests failed ($executed run, $(( $(date +%s) - started )) s; logs in $OUT, results in $RESULTS)"
     echo "  the same shards again: TEST_SHARD_PLAN=.build/test-shards-failed scripts/test.sh"
     exit 1
 fi
-echo "✓ $((executed - skipped)) tests passed, $skipped skipped as allowed, in $(( $(date +%s) - started )) s across $(( ${#logs[@]} )) processes"
+failing=0
+[ -n "$quarantined" ] && failing=$(wc -l <<<"$quarantined" | tr -d ' ')
+note=""
+[ "$failing" -gt 0 ] && note=", $failing failed in quarantine"
+echo "✓ $((executed - skipped - failing)) tests passed, $skipped skipped as allowed$note, in $(( $(date +%s) - started )) s across $(( ${#logs[@]} )) processes"
+quarantine_note

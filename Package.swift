@@ -57,6 +57,9 @@ let package = Package(
             // races are compile-time diagnostics, the rest of the package
             // is still unchecked Swift 5.
             .enableUpcomingFeature("StrictConcurrency"),
+            // Key path literals and methods are inferred Sendable (SE-0418),
+            // as they are in Swift 6 mode: Stoic's schema Fields ask for it.
+            .enableUpcomingFeature("InferSendableFromCaptures"),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a
         // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core

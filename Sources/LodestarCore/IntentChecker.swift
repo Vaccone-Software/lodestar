@@ -60,7 +60,7 @@ import Foundation
 /// Any added or substituted word rejects the output: the caller keeps the
 /// input.
 public enum IntentChecker {
-    public struct Verdict: Equatable {
+    public struct Verdict: Equatable, Sendable {
         public let ok: Bool
         /// Why it was rejected, empty when it was not.
         public let reason: String
@@ -69,7 +69,7 @@ public enum IntentChecker {
         public let listItems: Int
     }
 
-    public struct Edit: Equatable {
+    public struct Edit: Equatable, Sendable {
         public let kind: String
         public let words: [String]
     }

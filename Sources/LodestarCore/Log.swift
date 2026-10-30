@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Structured, rotating file log at ~/.local/share/lodestar/lodestar.log,
 /// mirrored to stdout. logfmt shape — `HH:mm:ss.SSS INFO summon target=Slack
@@ -17,7 +18,7 @@ public enum Log {
         return f
     }()
 
-    /// Everything that touches the appender runs here.
+    /// Everything that touches the appender runs under this lock.
     ///
     /// Most of the app logs on main, but the updater does not: its worker
     /// queue and the URLSession completion queue both call straight into
@@ -27,24 +28,42 @@ public enum Log {
     /// handle the other had just closed, which raises
     /// `NSFileHandleOperationException` and takes the process with it.
     ///
-    /// Synchronous, not async: a log line must still be on disk when a
-    /// crash follows it, which is exactly when the log matters most.
-    private static let io = DispatchQueue(label: "lodestar.log")
-    private static let appender = AppendingFile(url: file, maxBytes: UInt64(maxBytes), keptRotations: keptRotations)
+    /// Synchronous: a log line must still be on disk when a crash follows
+    /// it, which is exactly when the log matters most.
+    private static let appender = Mutex(
+        AppendingFile(url: file, maxBytes: UInt64(maxBytes), keptRotations: keptRotations))
+
+    /// What a line is written to, set at startup (a CLI verb owns stdout, a
+    /// test runner owns the file) and read by every thread that logs.
+    private struct Switches {
+        var stdoutEnabled = true
+        var fileEnabled = !TestRun.active
+    }
+    private static let switches = Mutex(Switches())
 
     /// Tests exercise the same classes; their log lines must never land in
     /// the user's live file. Under XCTest, stdout only.
     /// CLI commands print reports, not log streams.
-    public static var stdoutEnabled = true
+    public static var stdoutEnabled: Bool {
+        get { switches.withLock { $0.stdoutEnabled } }
+        set { switches.withLock { $0.stdoutEnabled = newValue } }
+    }
 
     /// Every line as written — for a test that reads what the app said,
     /// the editor's promise that no line carries the writer's words.
-    public static var listener: ((String) -> Void)?
+    ///
+    /// A test hook: set before the code under test runs and cleared after.
+    /// It runs on whichever thread logged, so what it touches is the
+    /// test's to guard.
+    nonisolated(unsafe) public static var listener: ((String) -> Void)?
 
     /// Off under any test runner. `swift test` says so in the environment;
     /// `xcrun xctest` run directly (scripts/test.sh's shards) does not, so
     /// the loaded XCTest framework is asked too — the app never links it.
-    public static var fileEnabled: Bool = !TestRun.active
+    public static var fileEnabled: Bool {
+        get { switches.withLock { $0.fileEnabled } }
+        set { switches.withLock { $0.fileEnabled = newValue } }
+    }
 
     public static func info(_ event: String, _ fields: KeyValuePairs<String, Any> = [:]) {
         write("INFO", event, Array(fields))
@@ -75,9 +94,10 @@ public enum Log {
         }
         line += "\n"
         listener?(line)
-        if stdoutEnabled { print(line, terminator: "") }
-        guard fileEnabled, let data = line.data(using: .utf8) else { return }
-        io.sync { appender.append(data) }
+        let (toStdout, toFile) = switches.withLock { ($0.stdoutEnabled, $0.fileEnabled) }
+        if toStdout { print(line, terminator: "") }
+        guard toFile, let data = line.data(using: .utf8) else { return }
+        appender.withLock { $0.append(data) }
     }
 
     private static func format(_ value: Any) -> String {

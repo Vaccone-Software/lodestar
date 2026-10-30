@@ -136,6 +136,18 @@ jobs:
           TEST_SHARD_SECONDS: 600
         run: LODESTAR_DATASETS="$HOME/.cache/lodestar-datasets" ./scripts/test.sh
 
+      # One result per test, passes too, whatever the run did: what
+      # scripts/flake-history.sh counts failures from. The attempt is in the
+      # name because a re-run of the same run may not reuse its first name.
+      - name: The test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results-${{ github.run_attempt }}
+          path: .build/test-results/junit.xml
+          retention-days: 30
+          if-no-files-found: ignore
+
       # A shard that hangs is sampled to <shard>.hang.txt, and each shard's
       # log says which test it was in: both are what a red run is read from.
       - name: The shards' logs

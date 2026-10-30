@@ -394,23 +394,26 @@ enum StripPreview {
             app.run()
         }
 
-        // 144: secure input left on, NOTICE=stuck|terminal|back: the standing
-        // notice naming the holder, or the flash when the keys come back.
+        // 144: secure input left on, NOTICE=stuck|terminal|back: the held
+        // key beside the holder, or lit when the keys come back (held up
+        // here, so it can be photographed).
         if variant == 144 {
-            let hud = HUD()
+            let notice = HeldKeyNotice(clock: Clock(now: { Date() }, after: { _, _ in }))
             let terminal = ProcessInfo.processInfo.environment["NOTICE"] == "terminal"
             let holder = terminal
                 ? SecureInputNotice.Holder(pid: 1, name: "Ghostty", bundleID: "com.mitchellh.ghostty")
                 : SecureInputNotice.Holder(pid: 1, name: "Brave Browser", bundleID: "com.brave.Browser")
-            if ProcessInfo.processInfo.environment["NOTICE"] == "back" {
-                hud.flash(SecureInputNotice.keysBack)
-            } else {
-                let icon = NSWorkspace.shared.urlForApplication(withBundleIdentifier: holder.bundleID ?? "")
-                    .map { NSWorkspace.shared.icon(forFile: $0.path) }
-                hud.showNotice(SecureInputNotice.fact(holder) + "\n" + SecureInputNotice.way(holder),
-                               icon: icon, onClick: {})
+            DispatchQueue.main.async {
+                if ProcessInfo.processInfo.environment["NOTICE"] == "back" {
+                    notice.show(holder, icon: nil, onClick: {})
+                    notice.keysBack()
+                } else {
+                    let icon = NSWorkspace.shared.urlForApplication(withBundleIdentifier: holder.bundleID ?? "")
+                        .map { NSWorkspace.shared.icon(forFile: $0.path) }
+                    notice.show(holder, icon: icon, onClick: {})
+                }
             }
-            app.run()
+            withExtendedLifetime(notice) { app.run() }
         }
 
         // 63: the link chip — what a clicked link leaves behind when an

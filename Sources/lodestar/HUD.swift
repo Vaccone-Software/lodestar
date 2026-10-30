@@ -103,8 +103,6 @@ final class HUD {
     /// their next key rather than for a time chosen for them, up to this.
     private var heldSince: Date?
     static let heldCeiling: TimeInterval = 60
-    /// What a click on a standing notice does.
-    private var noticeClick: (() -> Void)?
     /// The way line under the fact, for a test that reads it.
     private(set) var titleWay: String?
     /// The occupant this drawing is replacing — read by `present` to tell a
@@ -213,29 +211,6 @@ final class HUD {
         clock.after(seconds, work)
     }
 
-    /// A notice that stands until its caller takes it down: no timer and no
-    /// key, since what it reports (secure input left on) is that no key
-    /// arrives. The pointer still does, so a click on it answers `onClick`.
-    func showNotice(_ text: String, icon: NSImage? = nil, onClick: @escaping () -> Void) {
-        let (fact, way) = FlashLine.split(text)
-        handOver(to: .notice)
-        hideWork?.cancel()
-        hideWork = nil
-        heldSince = nil
-        showingFlash = false
-        let mark = FlashMark.parse(fact)
-        build(mark: mark.symbol, keys: [], text: mark.text, way: way, titleIcon: icon, rows: [], footer: nil)
-        noticeClick = onClick
-        content?.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(clickNotice)))
-        present()
-    }
-
-    /// A click on the standing notice; the tests call it directly.
-    @objc func clickNotice() {
-        guard owner == .notice else { return }
-        noticeClick?()
-    }
-
     /// A key from the hand: a flash that was waiting for it goes. Called off
     /// the tap, never inside it.
     func keyStruck() {
@@ -257,7 +232,6 @@ final class HUD {
     /// handover already recorded and stops, instead of recurring.
     private func handOver(to next: SurfaceOwner) {
         voiceTag = nil
-        noticeClick = nil
         let previous = owner
         cameFromCoach = previous == .coach
         owner = next
@@ -268,10 +242,8 @@ final class HUD {
         // stray press would move it while your hand was still typing. The
         // coach's chip is the opposite: it waits, it asks, and it is the
         // thing you might want out of the way.
-        // A notice takes the mouse too, for the one thing a click can do
-        // while no key arrives, but it stays where it was put.
         let offering = next == .coach
-        gate.enabled = offering || next == .notice
+        gate.enabled = offering
         panel.isMovable = offering
         panel.isMovableByWindowBackground = offering
         panel.acceptsMouseMovedEvents = offering

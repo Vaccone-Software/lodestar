@@ -68,16 +68,17 @@ final class SecureInputNoticeTests: XCTestCase {
         XCTAssertEqual(notice.sample(stuck(zoom)), .show(zoom))
     }
 
-    /// The flash grammar: a needs-you mark, the fact, the way on a second
-    /// line; no dashes, semicolons or closing period.
+    /// The line names the app from the hand's side; the way out, read aloud,
+    /// fits its kind. No dashes, semicolons or closing period.
     func testTheWordsNameTheAppAndTheWayOutForItsKind() {
-        XCTAssertEqual(SecureInputNotice.fact(brave), "⚠ Brave Browser is holding Secure Input")
+        XCTAssertEqual(SecureInputNotice.sentence(brave), "Brave Browser is holding your keys")
+        XCTAssertEqual(SecureInputNotice.keysBack, "Your keys are back")
         XCTAssertEqual(SecureInputNotice.way(brave),
                        "Lodestar hears no keys until you leave its password field or quit it")
         XCTAssertEqual(SecureInputNotice.way(ghostty),
                        "Lodestar hears no keys until you finish or cancel its password prompt",
                        "quitting a terminal takes its sessions with it")
-        for line in [SecureInputNotice.fact(brave), SecureInputNotice.way(brave), SecureInputNotice.way(ghostty),
+        for line in [SecureInputNotice.sentence(brave), SecureInputNotice.way(brave), SecureInputNotice.way(ghostty),
                      SecureInputNotice.keysBack] {
             XCTAssertFalse(line.contains("—") || line.contains(";") || line.hasSuffix("."), line)
         }

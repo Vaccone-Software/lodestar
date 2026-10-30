@@ -3,10 +3,10 @@ import Carbon
 import LodestarCore
 
 /// Secure input left on, in the app: samples it every two seconds, asks
-/// `SecureInputNotice` whether it is stuck, and keeps the notice on the
-/// glass while it is. A click on the notice brings the holder forward,
-/// where its password field is; with the holder in front the notice goes
-/// quiet, which is the right reading of a field you are now looking at.
+/// `SecureInputNotice` whether it is stuck, and keeps the held key up while
+/// it is. A click on it brings the holder forward, where its password
+/// field is; with the holder in front the notice goes quiet, which is the
+/// right reading of a field you are now looking at.
 ///
 /// Independent of health: the health monitor samples secure input for the
 /// record only while health is on, and a dead gesture needs explaining
@@ -14,14 +14,10 @@ import LodestarCore
 final class SecureInputController {
     /// One look at the machine; the tests replace it.
     var read: () -> SecureInputNotice.Sample = SecureInputProbe.sample
-    var showNotice: (_ text: String, _ icon: NSImage?, _ onClick: @escaping () -> Void) -> Void = { _, _, _ in }
-    var hideNotice: () -> Void = {}
-    var flash: (String) -> Void = { _ in }
-    /// Whether the notice is on the glass now. Another surface may have
-    /// taken the glass while secure input stayed stuck; the next sample
-    /// draws the notice again once the glass is free.
-    var noticeStanding: () -> Bool = { false }
-    var glassFree: () -> Bool = { true }
+    var show: (_ holder: SecureInputNotice.Holder, _ icon: NSImage?, _ onClick: @escaping () -> Void) -> Void = { _, _, _ in }
+    /// The notice goes; `keysBack` when secure input itself ended, so the
+    /// key lights before it leaves.
+    var hide: (_ keysBack: Bool) -> Void = { _ in }
     var icon: (Int32) -> NSImage? = { NSRunningApplication(processIdentifier: $0)?.icon }
     var bringForward: (Int32) -> Void = { pid in
         if let app = NSRunningApplication(processIdentifier: pid) { SystemEvents.activate(app) }
@@ -49,19 +45,13 @@ final class SecureInputController {
         switch notice.sample(read()) {
         case .show(let holder):
             Log.info("secure input", ["notice": "shown"])
-            draw(holder)
+            show(holder, icon(holder.pid)) { [weak self] in self?.bringForward(holder.pid) }
         case .hide(let keysBack):
             Log.info("secure input", ["notice": keysBack ? "ended" : "quiet"])
-            if noticeStanding() { hideNotice() }
-            if keysBack, glassFree() { flash(SecureInputNotice.keysBack) }
+            hide(keysBack)
         case .none:
-            if let holder = notice.showing, !noticeStanding(), glassFree() { draw(holder) }
+            break
         }
-    }
-
-    private func draw(_ holder: SecureInputNotice.Holder) {
-        let text = SecureInputNotice.fact(holder) + "\n" + SecureInputNotice.way(holder)
-        showNotice(text, icon(holder.pid)) { [weak self] in self?.bringForward(holder.pid) }
     }
 }
 

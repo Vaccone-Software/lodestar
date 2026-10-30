@@ -69,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let presenting = Presenting()
     private let stand = StandCueController()
     private let secureInput = SecureInputController()
+    private let heldKey = HeldKeyNotice()
     private let control = ControlSocket()
     private let settings = SettingsController()
     private let health = HealthMonitor(vault: AppDelegate.sealedVault)
@@ -1541,16 +1542,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         stand.start()
     }
 
-    /// Secure input left on by an app at the back: a standing notice naming
-    /// it, since no gesture can arrive to be refused. See `SecureInputNotice`.
+    /// Secure input left on by an app at the back: the held key, naming the
+    /// app, since no gesture can arrive to be refused. See `SecureInputNotice`.
+    /// It stands at the guide's home, so whatever the glass held there (a
+    /// chip that asks for a key no one can press now) goes for it.
     private func wireSecureInput() {
-        secureInput.showNotice = { [weak self] text, icon, onClick in
-            self?.hud.showNotice(text, icon: icon, onClick: onClick)
+        secureInput.show = { [weak self] holder, icon, onClick in
+            guard let self else { return }
+            if hud.owner != SurfaceOwner.none { hud.hide() }
+            heldKey.show(holder, icon: icon, onClick: onClick)
         }
-        secureInput.hideNotice = { [weak self] in self?.hud.hide() }
-        secureInput.flash = { [weak self] text in self?.hud.flash(text) }
-        secureInput.noticeStanding = { [weak self] in self?.hud.owner == .notice }
-        secureInput.glassFree = { [weak self] in self?.hud.owner == SurfaceOwner.none }
+        secureInput.hide = { [weak self] keysBack in
+            guard let self, heldKey.standing else { return }
+            if keysBack, hud.owner == SurfaceOwner.none { heldKey.keysBack() } else { heldKey.hide() }
+        }
         secureInput.start()
     }
 

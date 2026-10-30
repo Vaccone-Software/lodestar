@@ -88,9 +88,10 @@ public struct SecureInputNotice: Sendable {
         return .show(holder)
     }
 
-    /// The fact: who holds it, in the flash grammar (a needs-you mark).
-    public static func fact(_ holder: Holder) -> String {
-        "⚠ \(holder.name) is holding Secure Input"
+    /// The line beside the held key, from the hand's side: its keys, not
+    /// the system's name for the lock.
+    public static func sentence(_ holder: Holder) -> String {
+        "\(holder.name) is holding your keys"
     }
 
     /// The way forward, which depends on what kind of app is holding it. A
@@ -104,8 +105,8 @@ public struct SecureInputNotice: Sendable {
         return "Lodestar hears no keys until you leave its password field or quit it"
     }
 
-    /// The flash when secure input ends after a notice stood.
-    public static let keysBack = "✓ Lodestar hears your keys again"
+    /// The line beside the lit key when secure input ends after a notice stood.
+    public static let keysBack = "Your keys are back"
 
     static let terminals: Set<String> = [
         "com.mitchellh.ghostty", "com.apple.Terminal", "com.googlecode.iterm2",

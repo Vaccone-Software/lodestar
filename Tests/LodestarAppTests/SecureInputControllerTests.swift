@@ -2,58 +2,63 @@ import XCTest
 import LodestarCore
 @testable import lodestar
 
-/// The notice on the glass: drawn when secure input is stuck, drawn again
-/// when another surface let the glass go, taken down when it ends, and a
-/// click brings the holder forward.
+/// The held key: up when secure input is stuck, a click brings the holder
+/// forward, nothing the hand does takes it down, and when secure input
+/// ends the key is lit and the row leaves once that has been read.
 final class SecureInputControllerTests: XCTestCase {
     let brave = SecureInputNotice.Holder(pid: 2154, name: "Brave Browser", bundleID: "com.brave.Browser")
 
-    func testStuckSecureInputStandsOnTheGlassUntilItEnds() {
-        let hud = HUD()
+    func testStuckSecureInputHoldsTheKeyUntilItEndsAndThenLightsIt() {
+        var pending: [DispatchWorkItem] = []
+        let notice = HeldKeyNotice(clock: Clock(now: { Date() }, after: { _, work in pending.append(work) }))
         let controller = SecureInputController()
         var sample = SecureInputNotice.Sample(on: true, holder: brave, frontPID: 1377, screenLocked: false)
         var brought: [Int32] = []
         controller.read = { sample }
-        controller.icon = { _ in nil }
+        controller.icon = { _ in NSImage(size: NSSize(width: 36, height: 36)) }
         controller.bringForward = { brought.append($0) }
-        controller.showNotice = { text, icon, onClick in hud.showNotice(text, icon: icon, onClick: onClick) }
-        controller.hideNotice = { hud.hide() }
-        controller.flash = { hud.flash($0) }
-        controller.noticeStanding = { hud.owner == .notice }
-        controller.glassFree = { hud.owner == SurfaceOwner.none }
+        controller.show = { holder, icon, onClick in notice.show(holder, icon: icon, onClick: onClick) }
+        controller.hide = { keysBack in keysBack ? notice.keysBack() : notice.hide() }
 
         controller.tick()
-        XCTAssertEqual(hud.owner, SurfaceOwner.none, "one sample is not stuck yet")
+        XCTAssertFalse(notice.isUp, "one sample is not stuck yet")
         controller.tick()
-        XCTAssertEqual(hud.owner, .notice)
-        XCTAssertEqual(hud.titleSymbol, "exclamationmark.triangle")
-        XCTAssertEqual(hud.titleText, "Brave Browser is holding Secure Input")
-        XCTAssertEqual(hud.titleWay, "Lodestar hears no keys until you leave its password field or quit it")
+        XCTAssertTrue(notice.standing)
+        XCTAssertTrue(notice.holderShown)
+        XCTAssertEqual(notice.words, "Brave Browser is holding your keys")
+        XCTAssertEqual(notice.key?.legend, "lode")
+        XCTAssertEqual(notice.key?.state, .quiet, "the key no press can reach is drawn quiet")
 
-        hud.clickNotice()
+        notice.click()
         XCTAssertEqual(brought, [2154], "a click brings the holder forward")
-
-        // Another surface takes the glass and lets it go: the next sample
-        // draws the notice again.
-        hud.flash("⟲ Layout redone")
-        XCTAssertEqual(hud.owner, .flash)
-        hud.hide()
-        controller.tick()
-        XCTAssertEqual(hud.owner, .notice)
 
         sample = .init(on: false, holder: nil, frontPID: 1377, screenLocked: false)
         controller.tick()
-        XCTAssertEqual(hud.owner, .flash, "the notice goes and the keys-back flash takes its place")
-        XCTAssertEqual(hud.titleText, "Lodestar hears your keys again")
-        hud.hide()
+        XCTAssertTrue(notice.isUp)
+        XCTAssertFalse(notice.standing, "no longer asking")
+        XCTAssertFalse(notice.holderShown, "the holder goes with the hold")
+        XCTAssertEqual(notice.key?.state, .lit)
+        XCTAssertEqual(notice.words, "Your keys are back")
+        notice.click()
+        XCTAssertEqual(brought, [2154], "a click on the lit key brings nothing forward")
+
+        pending.forEach { $0.perform() }
+        XCTAssertFalse(notice.isUp, "it leaves once read")
     }
 
-    func testANoticeIsNotKeptUpByAKey() {
-        let hud = HUD()
-        hud.showNotice("⚠ Brave Browser is holding Secure Input\nLodestar hears no keys", onClick: {})
-        hud.keyStruck()
-        XCTAssertEqual(hud.owner, .notice, "it goes when secure input does, not at a key")
-        hud.hide()
-        XCTAssertEqual(hud.owner, SurfaceOwner.none)
+    func testBringingTheHolderForwardTakesItDownWithoutLighting() {
+        let notice = HeldKeyNotice()
+        let controller = SecureInputController()
+        var sample = SecureInputNotice.Sample(on: true, holder: brave, frontPID: 1377, screenLocked: false)
+        controller.read = { sample }
+        controller.icon = { _ in nil }
+        controller.show = { holder, icon, onClick in notice.show(holder, icon: icon, onClick: onClick) }
+        controller.hide = { keysBack in keysBack ? notice.keysBack() : notice.hide() }
+        controller.tick()
+        controller.tick()
+        XCTAssertTrue(notice.standing)
+        sample = .init(on: true, holder: brave, frontPID: brave.pid, screenLocked: false)
+        controller.tick()
+        XCTAssertFalse(notice.isUp, "the keys are not back, so the key does not light")
     }
 }

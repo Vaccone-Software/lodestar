@@ -249,20 +249,33 @@ def coverage(export_path, root):
     print(f"Coverage of Sources/ by the whole suite: {covered} of {total} lines, {percent(covered, total).strip()}"
           f" in {len(files)} files. A report, not a gate.\n")
 
-    # Never called: the functions of the risky areas with a count of zero.
+    # Never called: the functions with a count of zero, by file. Closures,
+    # default arguments and nested helpers are left out; a named function is
+    # what a person can write a test for.
     uncalled = OrderedDict()
     for fn in data.get("functions", []):
         if fn["count"] != 0 or not fn.get("filenames"):
             continue
-        for name in fn["filenames"][:1]:
-            real = os.path.realpath(name) if os.path.exists(name) else name
-            if real.startswith(prefix):
-                uncalled.setdefault(real[len(prefix) - len("Sources/"):], []).append(fn["name"])
+        name = fn["filenames"][0]
+        real = os.path.realpath(name) if os.path.exists(name) else name
+        if real.startswith(prefix):
+            uncalled.setdefault(real[len(prefix) - len("Sources/"):], []).append(fn["name"])
     readable = demangle(sorted({n for names in uncalled.values() for n in names}))
 
-    def short(name):
-        pretty = re.sub(r"^\S+\.", "", readable.get(name, name)) if False else readable.get(name, name)
-        return re.sub(r"\s+", " ", pretty)[:110]
+    def named(mangled):
+        """The function's name with its signature, or None for a closure,
+        a default argument or a helper nested in another function."""
+        shown = re.sub(r"\s+", " ", readable.get(mangled, mangled))
+        if re.match(r"(closure|implicit closure|default argument|variable initialization|key path)", shown) or " in " in shown:
+            return None
+        return shown[:120]
+
+    def base(shown):
+        """What the function is called, without its type, labels or arguments."""
+        return re.split(r"[ .]", shown.split("(")[0])[-1]
+
+    def uncalled_in(file_name):
+        return [n for n in (named(m) for m in uncalled.get(file_name, [])) if n]
 
     print("The areas the review names, by uncovered lines")
     print(f"{'area':<16}{'file':<46}{'lines':>6}{'uncovered':>10}{'covered':>9}")
@@ -273,20 +286,18 @@ def coverage(export_path, root):
         print(f"{area:<16}{'(' + str(len(members)) + ' files)':<46}{total_a:>6}{total_a - cov_a:>10}{percent(cov_a, total_a):>9}")
         for name, f in sorted(members, key=lambda m: m[1]["covered"] - m[1]["lines"]):
             print(f"{'':<16}{name:<46}{f['lines']:>6}{f['lines'] - f['covered']:>10}{percent(f['covered'], f['lines']):>9}")
+        # Functions never called: any in these files, and (for deletions and
+        # migrations) any file's functions named for the area.
+        hits = [(name, shown) for name, _ in members for shown in uncalled_in(name)]
         if rule["functions"]:
-            hits = []
-            for file_name, names in uncalled.items():
-                for n in names:
-                    shown = short(n)
-                    if re.search(rule["functions"], shown, re.I) or any(re.search(rule["files"], file_name) for _ in [0]):
-                        if re.search(rule["functions"], shown, re.I):
-                            hits.append((file_name, shown))
-            if hits:
-                print(f"{'':<16}never called, named for {area} (any file): {len(hits)}")
-                for file_name, shown in hits[:25]:
-                    print(f"{'':<18}{file_name}: {shown}")
-                if len(hits) > 25:
-                    print(f"{'':<18}and {len(hits) - 25} more in the full export")
+            seen = {name for name, _ in members}
+            hits += [(name, shown) for name in uncalled if name not in seen for shown in uncalled_in(name)
+                     if re.search(rule["functions"], base(shown), re.I)]
+        print(f"{'':<16}functions never called: {len(hits)}")
+        for name, shown in hits[:25]:
+            print(f"{'':<18}{name}: {shown}")
+        if len(hits) > 25:
+            print(f"{'':<18}and {len(hits) - 25} more")
     print("\nEvery file, least covered first (files with 20 or more lines)")
     print(f"{'file':<60}{'lines':>6}{'uncovered':>10}{'covered':>9}")
     for name, f in sorted(files.items(), key=lambda kv: (kv[1]["covered"] / kv[1]["lines"]) if kv[1]["lines"] else 1):
@@ -400,13 +411,18 @@ def summary(reports, today):
             lines.append(f"            {counts['pass']} passed, {counts['fail']} failed, {counts['not run']} not run")
         if status["state"] == "failed":
             failed_any = True
+        why = OrderedDict()
         for name, (verdict, note) in results.items():
             if verdict == "fail":
                 since = failing_since(reports, today, lane, name)
                 if since:
                     guard.append(f"  failing since {since}: {lane}: {name}: fix or delete")
             elif verdict == "not run" and lane == "live":
-                lines.append(f"            not run: {name}: {note}"[:200])
+                why.setdefault(note, []).append(name.split("/")[0].split(".")[0])
+        # Tests that could not run, a line to each reason.
+        for note, names in why.items():
+            shown = ", ".join(sorted(set(names))[:3]) + (" and more" if len(set(names)) > 3 else "")
+            lines.append(f"            not run, {len(names)}: {note[:90]} ({shown})")
     out = [f"Desk lanes, {today}", ""] + lines
     if guard:
         out += ["", "Failing run after run:"] + guard

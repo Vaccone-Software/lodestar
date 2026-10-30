@@ -24,9 +24,15 @@ struct GalleryPicture {
 /// rule finds wrong is reported under the surface that broke it, not as one
 /// line for the whole gallery.
 enum GallerySweep {
-    /// Which of Eye comfort's hours a sweep draws for real: every dimmed shot
-    /// the gallery takes (`.every`), or all but the evening's (`.drawn`: the
-    /// full level and bedtime, the deepest, where every floor is closest).
+    /// Which of Eye comfort's hours a sweep draws for real.
+    ///
+    /// The palette at an hour is arithmetic, and `EyeComfortLooksTests` holds
+    /// every floor of both looks at every hour of the day (and at every level
+    /// between); what a sweep reads off the glass needs one dimmed hour to see
+    /// the dimming reach it, and takes bedtime, the deepest, where every floor
+    /// is closest. So a sweep draws the full level and bedtime (`.drawn`, the
+    /// default) and not the evening's pictures, and one that wants those too
+    /// says `.every`.
     enum Hours {
         case drawn, every
 
@@ -50,7 +56,7 @@ enum GallerySweep {
     ///   caret in it is then built afresh instead of served (see `GalleryBuilds`).
     /// - A shot that cannot be built is a failure naming it, not a picture
     ///   quietly left out: a rule that never looked is not a rule.
-    static func pictures(looks: [GalleryLook] = GalleryLook.all, eyeComfort: Bool = false, hours: Hours = .every,
+    static func pictures(looks: [GalleryLook] = GalleryLook.all, eyeComfort: Bool = false, hours: Hours = .drawn,
                          drawing: Bool = false,
                          where include: @escaping (GalleryShot) -> Bool = { _ in true },
                          file: StaticString = #filePath, line: UInt = #line) -> AnySequence<GalleryPicture> {

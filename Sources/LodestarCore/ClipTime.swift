@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// A clip that is only a timestamp — a Unix time out of a log, an ISO date
 /// out of an API — is read as the moment it names: how long ago, as it is
@@ -82,14 +83,14 @@ public struct ClipTime: Equatable {
         return ClipTime(date: date, kind: .day)
     }
 
-    /// Made once: a formatter that is never changed after it is made can
-    /// be read from any thread.
-    private static let isoFractional: ISO8601DateFormatter = {
+    /// Made once and read under a lock: `ISO8601DateFormatter` is not
+    /// marked `Sendable`, and parsing runs wherever a clip is read.
+    private static let isoFractional: Mutex<ISO8601DateFormatter> = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
+        return Mutex(formatter)
     }()
-    private static let isoWhole = ISO8601DateFormatter()
+    private static let isoWhole = Mutex(ISO8601DateFormatter())
     private static func fixed(_ format: String, zone: TimeZone? = nil) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -108,7 +109,9 @@ public struct ClipTime: Equatable {
         guard b.count >= 16, b[4] == 0x2D, b[7] == 0x2D, b[10] == 0x54 || b[10] == 0x20, b[13] == 0x3A,
               digits(b[0..<4]), digits(b[11..<13]) else { return nil }
         let normalized = s.replacingOccurrences(of: " ", with: "T")
-        if let date = isoFractional.date(from: normalized) ?? isoWhole.date(from: normalized) { return date }
+        if let date = isoFractional.withLock({ $0.date(from: normalized) }) ?? isoWhole.withLock({ $0.date(from: normalized) }) {
+            return date
+        }
         for formatter in isoLocal {
             if let date = formatter.date(from: normalized) { return date }
         }

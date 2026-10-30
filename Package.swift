@@ -52,6 +52,11 @@ let package = Package(
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicSealedKeychain", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
+        ], swiftSettings: [
+            // Complete concurrency checking, Core alone for now: its data
+            // races are compile-time diagnostics, the rest of the package
+            // is still unchecked Swift 5.
+            .enableUpcomingFeature("StrictConcurrency"),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a
         // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core

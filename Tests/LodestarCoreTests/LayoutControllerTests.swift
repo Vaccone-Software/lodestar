@@ -356,11 +356,55 @@ final class LayoutControllerTests: XCTestCase {
         model.addWindow(10)
         model.addWindow(20)
         model.addWindow(30)
-        layout.adoptGroups([1: [10, 20], 2: [30]], orientation: .vertical)
+        layout.adoptGroups([1: [10, 20], 2: [30]], orientations: [1: .vertical, 2: .horizontal])
         XCTAssertEqual(layout.members(on: 1), [10, 20])
         XCTAssertEqual(layout.members(on: 2), [30])
         XCTAssertEqual(layout.orientation(on: 1), .vertical)
+        XCTAssertEqual(layout.orientation(on: 2), .horizontal, "each display its own direction")
         XCTAssertEqual(model.windows[30]!.frame, external)
+    }
+
+    // MARK: - Breath homes
+
+    private func member(frame: CGRect, display: String?) -> BreathMember {
+        BreathMember(windowID: 10, bundleID: nil, appName: "App", title: "", frame: frame, display: display)
+    }
+
+    func testAMemberGoesHomeToItsMonitorWhereverItNowStands() {
+        // The monitors swap sides: the external now stands left of the laptop.
+        displays.infos = [Displays.DisplayInfo(id: 2, bounds: CGRect(x: -1920, y: 0, width: 1920, height: 1080)),
+                          Displays.DisplayInfo(id: 1, bounds: main)]
+        let saved = member(frame: CGRect(x: 1700, y: 50, width: 800, height: 600), display: "uuid-ext")
+        XCTAssertEqual(layout.home(for: saved), 2, "by identity, not by where the frame now falls")
+    }
+
+    func testAMemberOfAnAbsentMonitorHasNoHome() {
+        displays.infos = [Displays.DisplayInfo(id: 1, bounds: main),
+                          Displays.DisplayInfo(id: 3, bounds: external)]
+        displays.uuids[3] = "uuid-other"
+        let saved = member(frame: CGRect(x: 1700, y: 50, width: 800, height: 600), display: "uuid-ext")
+        XCTAssertNil(layout.home(for: saved), "another monitor in the same place is not its home")
+    }
+
+    func testAnOlderBreathGoesByItsFrame() {
+        let saved = member(frame: CGRect(x: 1700, y: 50, width: 800, height: 600), display: nil)
+        XCTAssertEqual(layout.home(for: saved), 2)
+    }
+
+    func testABreathRestoresEachDisplaysDirection() {
+        let record = BreathRecord(path: "a", orientation: "horizontal", members: [],
+                                  orientations: ["uuid-main": "horizontal", "uuid-ext": "vertical"])
+        XCTAssertEqual(record.orientation(on: "uuid-ext"), .vertical)
+        XCTAssertEqual(record.orientation(on: "uuid-main"), .horizontal)
+        XCTAssertEqual(record.orientation(on: "uuid-gone"), .horizontal, "an unknown display takes the old one")
+    }
+
+    func testABreathSavedBefore055StillDecodes() throws {
+        let json = #"{"path":"a","orientation":"vertical","members":[{"windowID":7,"appName":"Mail","title":"Inbox","frame":[[0,0],[800,600]]}]}"#
+        let record = try JSONDecoder().decode(BreathRecord.self, from: Data(json.utf8))
+        XCTAssertNil(record.orientations)
+        XCTAssertNil(record.members.first?.display)
+        XCTAssertEqual(record.orientation(on: "uuid-ext"), .vertical, "one direction for every display, as before")
     }
 
     // MARK: - Docking

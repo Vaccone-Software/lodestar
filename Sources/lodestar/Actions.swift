@@ -743,7 +743,8 @@ final class Actions {
                 let orientation = self.layout.orientation(on: active.id)
                 self.store.setBreath(BreathRecord(path: path,
                                                   orientation: orientation.rawValue,
-                                                  members: members))
+                                                  members: members,
+                                                  orientations: self.breathOrientations()))
                 self.hud.flash("◎ Breath \(path) saved with "
                     + Self.spoken(apps))
             }
@@ -766,7 +767,8 @@ final class Actions {
             }
             let orientation = self.layout.activeDisplay()
                 .map { self.layout.orientation(on: $0.id) } ?? .horizontal
-            guard let built = record(members, orientation.rawValue) else { return }
+            guard var built = record(members, orientation.rawValue) else { return }
+            built.orientations = self.breathOrientations()
             self.store.setBreath(built)
             self.hud.flash(done(members.count))
         }
@@ -778,9 +780,26 @@ final class Actions {
             guard let w = model.window(id), w.isAlive else { return nil }
             return BreathMember(
                 windowID: UInt32(id), bundleID: w.bundleID,
-                appName: w.appName, title: w.title, frame: w.frame
+                appName: w.appName, title: w.title, frame: w.frame,
+                display: layout.display(of: id).flatMap(layout.uuid(of:))
             )
         }
+    }
+
+    /// Every laid-out display's direction, by hardware UUID: a breath
+    /// across two displays brings each back the way it was cut.
+    private func breathOrientations() -> [String: String] {
+        var orientations: [String: String] = [:]
+        for display in Displays.ordered() where !layout.members(on: display.id).isEmpty {
+            guard let uuid = layout.uuid(of: display.id) else { continue }
+            orientations[uuid] = layout.orientation(on: display.id).rawValue
+        }
+        return orientations
+    }
+
+    /// The direction a breath restores a display in.
+    private func orientation(of record: BreathRecord, on display: CGDirectDisplayID) -> Orientation {
+        record.orientation(on: layout.uuid(of: display))
     }
 
     private func restoreBreath(_ record: BreathRecord) {
@@ -803,23 +822,24 @@ final class Actions {
             }
         }
 
-        let orientation = Orientation(rawValue: record.orientation) ?? .horizontal
         for (_, id) in resolvedPairs { sessionClaimed.insert(id) }
         if !resolvedPairs.isEmpty {
             // The breath was used: say so, naming the whole layout, so
             // the count follows the combination and not the letter.
             observations?.breathRestored(path: record.path,
                                          apps: record.members.map(\.appName))
-            // Members go home: each restores to the display its stored frame
-            // was on; members of a since-unplugged display join the active one.
+            // Members go home: each restores to the monitor it stood on,
+            // in that monitor's direction; members of one not attached
+            // join the active display.
             let fallback = layout.activeDisplay()?.id ?? Displays.ordered().first?.id
             var groups: [CGDirectDisplayID: [CGWindowID]] = [:]
             for (member, id) in resolvedPairs {
-                let display = Displays.display(containing: member.frame)?.id ?? fallback
-                guard let display else { continue }
+                guard let display = layout.home(for: member) ?? fallback else { continue }
                 groups[display, default: []].append(id)
             }
-            layout.adoptGroups(groups, orientation: orientation)
+            layout.adoptGroups(groups, orientations: groups.keys.reduce(into: [:]) { orientations, display in
+                orientations[display] = orientation(of: record, on: display)
+            })
             for (_, id) in resolvedPairs.reversed() {
                 if let w = model.window(id) { AXWindow(element: w.element)?.raise() }
             }
@@ -832,7 +852,7 @@ final class Actions {
             hud.flash("◎ Breath \(record.path) is relaunching \(names)",
                       icon: missing.first.flatMap { icon(forAppNamed: $0.appName) })
             for (index, member) in missing.enumerated() {
-                relaunchIntoBreath(member, path: record.path, orientation: orientation,
+                relaunchIntoBreath(member, record: record,
                                    raiseOnArrival: resolvedPairs.isEmpty && index == 0)
             }
         }
@@ -842,8 +862,9 @@ final class Actions {
     /// be running. Launch it quietly, catch its window, and seat it in the
     /// breath's arrangement — the first member of an all-missing restore
     /// carries focus so the breath lands somewhere deliberate.
-    private func relaunchIntoBreath(_ member: BreathMember, path: String,
-                                    orientation: Orientation, raiseOnArrival: Bool) {
+    private func relaunchIntoBreath(_ member: BreathMember, record: BreathRecord,
+                                    raiseOnArrival: Bool) {
+        let path = record.path
         guard let entry = appIndex.entry(named: member.appName) else { return }
         expect(seconds: 15, matches: { [bundleID = member.bundleID, appName = member.appName] window in
             (bundleID != nil && window.bundleID == bundleID) || window.appName == appName
@@ -852,11 +873,10 @@ final class Actions {
             self.sessionClaimed.insert(window.id)
             self.store.rebindBreathMember(path: path, oldID: member.windowID,
                                           newID: UInt32(window.id), title: window.title)
-            let display = Displays.display(containing: member.frame)?.id
-                ?? self.layout.activeDisplay()?.id
+            let display = self.layout.home(for: member) ?? self.layout.activeDisplay()?.id
             if let display {
                 if self.layout.members(on: display).isEmpty {
-                    self.layout.setOrientation(orientation, on: display)
+                    self.layout.setOrientation(self.orientation(of: record, on: display), on: display)
                 }
                 self.layout.add(window.id, on: display)
             }

@@ -217,7 +217,8 @@ public final class LayoutController {
     /// and one undo step for all of it. Every display the restore touches
     /// is snapshotted together, including displays that only *lose* a
     /// member to it, so a single undo puts the whole world back.
-    public func adoptGroups(_ groups: [CGDirectDisplayID: [CGWindowID]], orientation: Orientation) {
+    public func adoptGroups(_ groups: [CGDirectDisplayID: [CGWindowID]],
+                            orientations: [CGDirectDisplayID: Orientation]) {
         let touched = Set(groups.keys)
             .union(groups.values.flatMap { $0 }.compactMap(display(of:)))
         recordUndo(touched.sorted())
@@ -227,13 +228,31 @@ public final class LayoutController {
             let incoming = Set(members)
             let previous = layout.members.filter { !incoming.contains($0) }
             layout.members = members
-            layout.orientation = orientation
+            if let orientation = orientations[display] { layout.orientation = orientation }
             layouts[display] = layout
             for id in members { parking.claim(id) }
             park(previous)
             retile(on: display)
         }
         onChange?()
+    }
+
+    // MARK: - Identity
+
+    /// A display's hardware UUID, which outlives its id across reconnects.
+    public func uuid(of display: CGDirectDisplayID) -> String? {
+        knownUUIDs[display] ?? displays.uuid(display)
+    }
+
+    /// Where a breath's member goes home: the monitor it stood on, found
+    /// by identity wherever it now stands in the arrangement. Nil when
+    /// that monitor is not attached: its old frame would name whichever
+    /// display now stands where it stood, a guess, and the caller's active
+    /// display is the honest one. A breath saved before 0.55 knows only
+    /// frames, so its members go by the display the frame falls on.
+    public func home(for member: BreathMember) -> CGDirectDisplayID? {
+        guard let uuid = member.display else { return displays.displayContaining(member.frame)?.id }
+        return displays.ordered().first { self.uuid(of: $0.id) == uuid }?.id
     }
 
     // MARK: - Docking

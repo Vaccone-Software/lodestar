@@ -9,14 +9,19 @@ public struct BreathMember: Codable, Sendable {
     public var appName: String
     public var title: String
     public var frame: CGRect
+    /// The display it stood on, by the monitor's hardware UUID: the frame
+    /// alone sends a window to the wrong monitor once the monitors are
+    /// rearranged. Nil in a breath saved before 0.55.
+    public var display: String?
 
     public init(windowID: UInt32, bundleID: String?, appName: String,
-                title: String, frame: CGRect) {
+                title: String, frame: CGRect, display: String? = nil) {
         self.windowID = windowID
         self.bundleID = bundleID
         self.appName = appName
         self.title = title
         self.frame = frame
+        self.display = display
     }
 }
 
@@ -24,11 +29,24 @@ public struct BreathRecord: Codable, Sendable {
     public var path: String
     public var orientation: String
     public var members: [BreathMember]
+    /// Each display's own direction, by hardware UUID. `orientation` is
+    /// the active display's, kept for a breath saved before 0.55, which
+    /// gave every display that one direction.
+    public var orientations: [String: String]?
 
-    public init(path: String, orientation: String, members: [BreathMember]) {
+    public init(path: String, orientation: String, members: [BreathMember],
+                orientations: [String: String]? = nil) {
         self.path = path
         self.orientation = orientation
         self.members = members
+        self.orientations = orientations
+    }
+
+    /// The direction to restore a display in: its own where the breath
+    /// remembers it, else the one direction an older breath kept.
+    public func orientation(on display: String?) -> Orientation {
+        let raw = display.flatMap { orientations?[$0] } ?? orientation
+        return Orientation(rawValue: raw) ?? .horizontal
     }
 }
 

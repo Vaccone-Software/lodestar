@@ -5,6 +5,13 @@ public enum Orientation: String, Codable, Sendable {
     case vertical
 
     public var flipped: Orientation { self == .horizontal ? .vertical : .horizontal }
+
+    /// The way a display divides before anyone flips it: along its long
+    /// side, so a monitor turned on end stacks its windows instead of
+    /// cutting them into columns too narrow to read.
+    public static func natural(for bounds: CGRect) -> Orientation {
+        bounds.height > bounds.width ? .vertical : .horizontal
+    }
 }
 
 public enum Tiling {

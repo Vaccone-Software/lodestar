@@ -500,6 +500,54 @@ final class LayoutControllerTests: XCTestCase {
         }
     }
 
+    // MARK: - Tall displays
+
+    private let portrait = CGRect(x: 3520, y: 0, width: 1080, height: 1920)
+
+    func testATallDisplayStacksItsFirstLayout() {
+        displays.infos.append(Displays.DisplayInfo(id: 3, bounds: portrait))
+        model.addWindow(10)
+        model.addWindow(20)
+        XCTAssertEqual(layout.orientation(on: 3), .vertical, "asked before anything stands there")
+        layout.replace(with: 10, on: 3)
+        layout.add(20, on: 3)
+        XCTAssertEqual(model.windows[10]!.frame, CGRect(x: 3520, y: 0, width: 1080, height: 960))
+        XCTAssertEqual(model.windows[20]!.frame, CGRect(x: 3520, y: 960, width: 1080, height: 960))
+        XCTAssertEqual(layout.orientation(on: 1), .horizontal, "a wide display still cuts columns")
+    }
+
+    func testAFlipOnATallDisplayCutsColumns() {
+        displays.infos.append(Displays.DisplayInfo(id: 3, bounds: portrait))
+        model.addWindow(10)
+        layout.replace(with: 10, on: 3)
+        layout.flipOrientation(on: 3)
+        XCTAssertEqual(layout.orientation(on: 3), .horizontal)
+    }
+
+    func testADisplayTurnedOnItsSideStacks() {
+        model.addWindow(10)
+        model.addWindow(20)
+        layout.replace(with: 10, on: 2)
+        layout.add(20, on: 2)
+        displays.infos = [Displays.DisplayInfo(id: 1, bounds: main),
+                          Displays.DisplayInfo(id: 2, bounds: CGRect(x: 1600, y: 0, width: 1080, height: 1920))]
+        layout.reconcileDisplays()
+        XCTAssertEqual(layout.orientation(on: 2), .vertical)
+        XCTAssertEqual(model.windows[20]!.frame, CGRect(x: 1600, y: 960, width: 1080, height: 960))
+    }
+
+    func testAChosenDirectionSurvivesTheTurn() {
+        model.addWindow(10)
+        model.addWindow(20)
+        layout.replace(with: 10, on: 2)
+        layout.add(20, on: 2)
+        layout.flipOrientation(on: 2)
+        displays.infos = [Displays.DisplayInfo(id: 1, bounds: main),
+                          Displays.DisplayInfo(id: 2, bounds: CGRect(x: 1600, y: 0, width: 1080, height: 1920))]
+        layout.reconcileDisplays()
+        XCTAssertEqual(layout.orientation(on: 2), .vertical, "the stack a hand chose stays a stack")
+    }
+
     func testACoalescedStepUndoesTheWholePhrase() {
         model.addWindow(10)
         model.addWindow(20)

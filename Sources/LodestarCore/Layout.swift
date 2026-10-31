@@ -115,13 +115,21 @@ public final class LayoutController {
     }
 
     public func orientation(on display: CGDirectDisplayID) -> Orientation {
-        layouts[display]?.orientation ?? .horizontal
+        (layouts[display] ?? fresh(display)).orientation
+    }
+
+    /// A display's first layout, divided along its long side.
+    private func fresh(_ display: CGDirectDisplayID) -> DisplayLayout {
+        guard let bounds = displays.ordered().first(where: { $0.id == display })?.bounds else {
+            return DisplayLayout()
+        }
+        return DisplayLayout(orientation: .natural(for: bounds))
     }
 
     /// Set a display's orientation without touching membership — a breath
     /// resurrecting onto an empty display carries its saved orientation.
     public func setOrientation(_ orientation: Orientation, on display: CGDirectDisplayID) {
-        var layout = layouts[display] ?? DisplayLayout()
+        var layout = layouts[display] ?? fresh(display)
         guard layout.orientation != orientation else { return }
         layout.orientation = orientation
         layouts[display] = layout
@@ -148,7 +156,7 @@ public final class LayoutController {
                         sweeping: [CGWindowID] = []) {
         recordUndo(touching: id, on: display, unparking: sweeping)
         detach(id)
-        var layout = layouts[display] ?? DisplayLayout()
+        var layout = layouts[display] ?? fresh(display)
         let previous = layout.members.filter { $0 != id }
         layout.members = [id]
         layouts[display] = layout
@@ -166,7 +174,7 @@ public final class LayoutController {
     /// takeover — the one summon whose meaning must never drift.
     @discardableResult
     public func add(_ id: CGWindowID, on display: CGDirectDisplayID) -> Bool {
-        var layout = layouts[display] ?? DisplayLayout()
+        var layout = layouts[display] ?? fresh(display)
         if layout.members.contains(id) {
             parking.claim(id)
             retile(on: display)
@@ -179,7 +187,7 @@ public final class LayoutController {
         parking.claim(id)
         recordUndo(touching: id, on: display)
         detach(id)
-        layout = layouts[display] ?? DisplayLayout()
+        layout = layouts[display] ?? fresh(display)
         layout.members.append(id)
         layouts[display] = layout
         retile(on: display)
@@ -198,7 +206,7 @@ public final class LayoutController {
 
     public func flipOrientation(on display: CGDirectDisplayID) {
         recordUndo(display)
-        var layout = layouts[display] ?? DisplayLayout()
+        var layout = layouts[display] ?? fresh(display)
         layout.orientation = layout.orientation.flipped
         layouts[display] = layout
         retile(on: display)
@@ -215,7 +223,7 @@ public final class LayoutController {
         recordUndo(touched.sorted())
         for (display, members) in groups {
             for id in members { detach(id) }
-            var layout = layouts[display] ?? DisplayLayout()
+            var layout = layouts[display] ?? fresh(display)
             let incoming = Set(members)
             let previous = layout.members.filter { !incoming.contains($0) }
             layout.members = members
@@ -286,10 +294,18 @@ public final class LayoutController {
 
         // A display that stayed but changed shape gets its cut redone.
         for info in live {
-            guard let layout = layouts[info.id], !layout.members.isEmpty else { continue }
+            guard var layout = layouts[info.id], !layout.members.isEmpty else { continue }
             let bounds = displays.visibleFrame(info.bounds)
             guard let tiled = tiledFrames[info.id], tiled != bounds else { continue }
-            Log.info("display-reshaped", ["display": info.id, "members": layout.members.count])
+            // A display turned on its side keeps dividing along its long
+            // side, unless a hand had already chosen the other way.
+            let was = Orientation.natural(for: tiled), now = Orientation.natural(for: bounds)
+            if was != now, layout.orientation == was {
+                layout.orientation = now
+                layouts[info.id] = layout
+            }
+            Log.info("display-reshaped", ["display": info.id, "members": layout.members.count,
+                                          "orientation": layout.orientation.rawValue])
             retile(on: info.id)
             onChange?()
         }
@@ -339,7 +355,7 @@ public final class LayoutController {
     }
 
     private func current(_ display: CGDirectDisplayID) -> Snapshot {
-        Snapshot(display: display, layout: layouts[display] ?? DisplayLayout())
+        Snapshot(display: display, layout: layouts[display] ?? fresh(display))
     }
 
     private func recordUndo(_ display: CGDirectDisplayID) {
@@ -608,7 +624,7 @@ public final class LayoutController {
             return false
         }
         recordUndo(display)
-        var layout = layouts[display] ?? DisplayLayout()
+        var layout = layouts[display] ?? fresh(display)
         layout.members = reordered
         layouts[display] = layout
         Log.info("reorder", ["display": display, "order": reordered])

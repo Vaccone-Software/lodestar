@@ -9,9 +9,18 @@ import Foundation
 /// the point; while the screen is locked, the login window holds it. Stuck
 /// is the other case: the holder has gone to the back and kept it, which
 /// Chromium does when a password field keeps its focus in a window you
-/// left. Two samples in a row say stuck before the notice comes, so a
-/// switch away from a password field that lets go a moment later says
-/// nothing.
+/// left. Two seconds of stuck samples come before the notice, so a switch
+/// away from a password field that lets go a moment later says nothing.
+///
+/// Who holds it is remembered, not asked again. The session names the
+/// holder truly only while the holder is in front: once it goes to the
+/// back, the session names whatever app came forward (measured on macOS
+/// 27 with an app that turned secure input on, hid, and kept it). So the
+/// holder is the app the session named in the first sample after secure
+/// input was off, when the app that turned it on is still the one in
+/// front, and it stays the holder until secure input ends. When secure
+/// input was already on at launch, or came on behind a locked screen,
+/// nobody is named until it has been off again.
 ///
 /// The notice names the app on the glass and nowhere else: the record
 /// says only that secure input was on (`BlindKind.secureInput`), never who
@@ -33,7 +42,9 @@ public struct SecureInputNotice: Sendable {
     /// One look at the machine.
     public struct Sample: Sendable {
         public let on: Bool
-        /// Nil when secure input is off, or on and its holder unknown.
+        /// The app the session names as holding secure input: the true
+        /// holder only while it is in front, and otherwise the app in
+        /// front. Nil when secure input is off, or the session names none.
         public let holder: Holder?
         public let frontPID: Int32?
         public let screenLocked: Bool
@@ -56,12 +67,19 @@ public struct SecureInputNotice: Sendable {
         case hide(keysBack: Bool)
     }
 
-    /// Stuck samples in a row before the notice comes. At the two-second
-    /// sampling interval, two to four seconds.
-    public static let samplesToShow = 2
+    /// Stuck samples in a row before the notice comes. At the half-second
+    /// sampling interval, two seconds.
+    public static let samplesToShow = 4
 
     /// The holder named on the glass now.
     public private(set) var showing: Holder?
+    /// The app that turned secure input on, as named in the first sample
+    /// after it was off. Nil while it is off, or when nobody saw it begin.
+    public private(set) var enabler: Holder?
+    /// Whether the last sample had secure input on. True before the first,
+    /// so secure input already on at launch is never put on whoever is in
+    /// front.
+    private var wasOn = true
     private var stuckPID: Int32?
     private var stuckRun = 0
     /// Lodestar's own pid: if Lodestar held secure input it would not be
@@ -73,7 +91,13 @@ public struct SecureInputNotice: Sendable {
     }
 
     public mutating func sample(_ sample: Sample) -> Change {
-        guard sample.on, !sample.screenLocked, let holder = sample.holder,
+        if !sample.on {
+            enabler = nil
+        } else if !wasOn, !sample.screenLocked {
+            enabler = sample.holder
+        }
+        wasOn = sample.on
+        guard sample.on, !sample.screenLocked, let holder = enabler,
               holder.pid != ownPID, holder.pid != sample.frontPID else {
             stuckPID = nil
             stuckRun = 0

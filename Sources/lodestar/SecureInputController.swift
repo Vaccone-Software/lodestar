@@ -2,7 +2,7 @@ import AppKit
 import Carbon
 import LodestarCore
 
-/// Secure input left on, in the app: samples it every two seconds, asks
+/// Secure input left on, in the app: samples it twice a second, asks
 /// `SecureInputNotice` whether it is stuck, and keeps the held key up while
 /// it is. A click on it brings the holder forward, where its password
 /// field is; with the holder in front the notice goes quiet, which is the
@@ -22,14 +22,16 @@ final class SecureInputController {
         if let app = NSRunningApplication(processIdentifier: pid) { SystemEvents.activate(app) }
     }
 
-    static let interval: TimeInterval = 2
+    /// Often enough to see secure input begin while the app that turned it
+    /// on is still in front, which is the one moment its name is true.
+    static let interval: TimeInterval = 0.5
     private var notice = SecureInputNotice(ownPID: ProcessInfo.processInfo.processIdentifier)
     private var timer: Timer?
 
     func start() {
         guard timer == nil else { return }
         let timer = Timer(timeInterval: Self.interval, repeats: true) { [weak self] _ in self?.tick() }
-        timer.tolerance = 0.2
+        timer.tolerance = 0.1
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
@@ -54,9 +56,10 @@ final class SecureInputController {
     }
 }
 
-/// The machine's side: whether secure input is on, who holds it, what is in
-/// front, and whether the screen is locked. The holder's pid is in the
-/// session dictionary, read only while secure input is on.
+/// The machine's side: whether secure input is on, who the session says
+/// holds it, what is in front, and whether the screen is locked. The
+/// session dictionary is read only while secure input is on, and its
+/// holder is true only while that app is in front (`SecureInputNotice`).
 enum SecureInputProbe {
     static func sample() -> SecureInputNotice.Sample {
         let front = NSWorkspace.shared.frontmostApplication?.processIdentifier

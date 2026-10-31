@@ -1027,17 +1027,31 @@ final class Actions {
     /// used to run inside the gesture and take the tap down with them
     /// (placements ran 17 ms at the median and 1.2 s at the worst, and
     /// the worst is what the tap's watchdog kept reviving). Activation is
-    /// AppKit's and stays on the main thread, after.
+    /// AppKit's and stays on the main thread, after. The frame is read on
+    /// the lane too, behind the moves, so the pointer follows the window
+    /// to where it now stands rather than where it stood.
     private func raise(_ window: WindowModel.Window) {
         layout.onMoveLane {
             let ax = AXWindow(element: window.element)
             ax?.makeMain()
             ax?.raise()
+            let frame = ax?.frame ?? window.frame
             DispatchQueue.main.async {
-                guard let app = NSRunningApplication(processIdentifier: window.pid) else { return }
-                SystemEvents.activate(app)
+                if let app = NSRunningApplication(processIdentifier: window.pid) {
+                    SystemEvents.activate(app)
+                }
+                Self.follow(window.id, to: frame)
             }
         }
+    }
+
+    /// The pointer crosses with the hand: see `PointerFollow`.
+    private static func follow(_ id: CGWindowID, to frame: CGRect) {
+        guard let pointer = CGEvent(source: nil)?.location,
+              let point = PointerFollow.destination(pointer: pointer, window: frame,
+                                                    displays: Displays.allBounds()) else { return }
+        Log.info("pointer-follow", ["window": id])
+        SystemEvents.warp(point)
     }
 
     private func bestAliveWindow(bundleID: String?, appName: String) -> WindowModel.Window? {

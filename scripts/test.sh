@@ -4,7 +4,7 @@
 # loops, timers, WindowServer — so overlapping it pays: about 50 s becomes
 # about 12 s on an M1 Max, with the same CPU.
 #
-#   scripts/test.sh              six app shards plus the core bundle
+#   scripts/test.sh              six app shards plus two core shards
 #   TEST_SHARDS=8 scripts/test.sh
 #   TEST_LIGHT=1 scripts/test.sh the suite as a Mac in Light runs it, without
 #                                touching the Mac's setting: the processes are
@@ -44,6 +44,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 SHARDS=${TEST_SHARDS:-6}
+CORE_SHARDS=${TEST_CORE_SHARDS:-2}
 SHARD_SECONDS=${TEST_SHARD_SECONDS:-300}
 OUT=.build/test-shards
 RESULTS=.build/test-results
@@ -103,14 +104,16 @@ if ! python3 scripts/test-results.py quarantine Tests/quarantine.txt "$OUT/tests
 fi
 
 # LPT: the slowest class first, each onto the lightest shard. The core
-# bundle is a few seconds in all, so it is one shard of its own.
+# bundle is shards of its own (TEST_CORE_SHARDS, two), balanced the same way:
+# its tests are mostly real time (scripts run, clocks turned), about two
+# minutes in all, which one shard made the longest in the run.
 if [ -n "${TEST_SHARD_PLAN:-}" ]; then
     cp "$TEST_SHARD_PLAN"/*.list "$OUT"/ || { echo "✕ no shard plan in $TEST_SHARD_PLAN"; exit 1; }
     echo "→ replaying the shard plan in $TEST_SHARD_PLAN"
 else
-python3 - "$OUT/tests.txt" "$TIMINGS" "$SHARDS" "$OUT" <<'PY'
+python3 - "$OUT/tests.txt" "$TIMINGS" "$SHARDS" "$OUT" "$CORE_SHARDS" <<'PY'
 import sys, heapq, os
-tests, timings, n, out = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
+tests, timings, n, out, cores = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], int(sys.argv[5])
 classes = sorted({line.strip().split("/")[0] for line in open(tests) if "/" in line})
 known = {}
 if os.path.exists(timings):
@@ -127,7 +130,15 @@ for c in sorted(app, key=lambda c: -known.get(c, 0.0)):
 for load, i, members in heap:
     if members:
         open(f"{out}/app{i}.list", "w").write(",".join(members))
-open(f"{out}/core.list", "w").write(",".join(core))
+heap = [(0.0, i, []) for i in range(cores)]
+for c in sorted(core, key=lambda c: -known.get(c, 0.0)):
+    load, i, members = heapq.heappop(heap)
+    members.append(c)
+    heapq.heappush(heap, (load + known.get(c, 0.5), i, members))
+for load, i, members in heap:
+    if members:
+        # The first is `core`, as it always was; the others are core1, core2.
+        open(f"{out}/core{i or ''}.list", "w").write(",".join(members))
 PY
 fi
 
@@ -138,10 +149,10 @@ xctest_args=()
 
 pids=()
 logs=()
-for list in "$OUT"/app*.list "$OUT/core.list"; do
+for list in "$OUT"/app*.list "$OUT"/core*.list; do
     name=$(basename "$list" .list)
     bundle="$APP_BUNDLE"
-    [ "$name" = core ] && bundle="$CORE_BUNDLE"
+    case "$name" in core*) bundle="$CORE_BUNDLE" ;; esac
     xcrun xctest ${xctest_args[@]+"${xctest_args[@]}"} -XCTest "$(cat "$list")" "$bundle" > "$OUT/$name.log" 2>&1 &
     pids+=($!)
     logs+=("$OUT/$name.log")

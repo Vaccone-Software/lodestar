@@ -533,6 +533,12 @@ enum GalleryLauncher {
             _ = searcher.control(try XCTUnwrap(field), textView: NSTextView(),
                                  doCommandBy: #selector(NSResponder.moveDown(_:)))
         }
+        // The bar stands as the next frame would lay it out. Left with its layout pending, it is
+        // laid out by whichever turn of the run loop comes first, and that is not always a turn
+        // of this build's own: making the next launcher key waits on the input method, and the
+        // loop it turns while it waits lays out every window with a layout owed, this one among
+        // them. A kept build whose rows move when another is made is not one a reader is served.
+        GalleryHost.settle(panel)
         return (try XCTUnwrap(panel.contentView), [searcher, world, panel])
     }
 

@@ -68,6 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let linkChip = LinkChip()
     private let presenting = Presenting()
     private let stand = StandCueController()
+    private let secureInput = SecureInputController()
+    private let heldKey = HeldKeyNotice()
     private let control = ControlSocket()
     private let settings = SettingsController()
     private let health = HealthMonitor(vault: AppDelegate.sealedVault)
@@ -676,6 +678,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         presenting.meetingInProgress = { [weak self] in self?.meetings.inProgress ?? false }
         wireStand()
+        wireSecureInput()
         // Suppression only gates what has not been drawn yet. A chip already
         // standing when the call starts has to be told to go, or the one
         // case this exists for — you join, and the suggestion from four
@@ -1537,6 +1540,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             hud.hide()
         }
         stand.start()
+    }
+
+    /// Secure input left on by an app at the back: the held key, naming the
+    /// app, since no gesture can arrive to be refused. See `SecureInputNotice`.
+    /// It stands at the guide's home, so whatever the glass held there (a
+    /// chip that asks for a key no one can press now) goes for it.
+    private func wireSecureInput() {
+        secureInput.show = { [weak self] holder, onClick in
+            guard let self else { return }
+            if hud.owner != SurfaceOwner.none { hud.hide() }
+            heldKey.show(holder, onClick: onClick)
+        }
+        secureInput.hide = { [weak self] keysBack in
+            guard let self, heldKey.standing else { return }
+            if keysBack, hud.owner == SurfaceOwner.none { heldKey.keysBack() } else { heldKey.hide() }
+        }
+        secureInput.start()
     }
 
     @objc private func openSettingsWindow() {

@@ -394,6 +394,26 @@ enum StripPreview {
             app.run()
         }
 
+        // 144: secure input left on, NOTICE=stuck|terminal|back: the held
+        // key beside the line naming the holder, or lit when the keys come back (held up
+        // here, so it can be photographed).
+        if variant == 144 {
+            let notice = HeldKeyNotice(clock: Clock(now: { Date() }, after: { _, _ in }))
+            let terminal = ProcessInfo.processInfo.environment["NOTICE"] == "terminal"
+            let holder = terminal
+                ? SecureInputNotice.Holder(pid: 1, name: "Ghostty", bundleID: "com.mitchellh.ghostty")
+                : SecureInputNotice.Holder(pid: 1, name: "Brave Browser", bundleID: "com.brave.Browser")
+            DispatchQueue.main.async {
+                if ProcessInfo.processInfo.environment["NOTICE"] == "back" {
+                    notice.show(holder, onClick: {})
+                    notice.keysBack()
+                } else {
+                    notice.show(holder, onClick: {})
+                }
+            }
+            withExtendedLifetime(notice) { app.run() }
+        }
+
         // 63: the link chip — what a clicked link leaves behind when an
         // arrangement was standing and the screen deliberately did not move.
         if variant == 63 {

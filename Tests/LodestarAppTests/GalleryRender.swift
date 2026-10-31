@@ -117,12 +117,7 @@ enum GalleryRender {
     static func bitmap(of view: NSView, scale: CGFloat = GalleryRender.scale) -> NSBitmapImageRep {
         let keyed = holdingKeys(view)
         defer { keyed?.release() }
-        // The compositor lays a pane's rim and edge over its content by
-        // position; this draws view by view, so they are brought to the front.
-        Ceramic.frontEdges(in: view)
-        view.window?.contentView?.layoutSubtreeIfNeeded()
-        view.layoutSubtreeIfNeeded()
-        view.displayIfNeeded()
+        prepare(view)
         let size = view.bounds.size
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((size.width * scale).rounded()),
                                    pixelsHigh: Int((size.height * scale).rounded()), bitsPerSample: 8,
@@ -130,6 +125,39 @@ enum GalleryRender {
                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         rep.size = size
         view.cacheDisplay(in: view.bounds, to: rep)
+        return rep
+    }
+
+    /// What drawing needs done first: the compositor lays a pane's rim and edge
+    /// over its content by position, and this draws view by view, so they are
+    /// brought to the front; and what is laid out is laid out.
+    private static func prepare(_ view: NSView) {
+        Ceramic.frontEdges(in: view)
+        view.window?.contentView?.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+    }
+
+    /// The part of the view inside `region` (in the view's own coordinates), drawn
+    /// as `bitmap(of:)` draws all of it: the same pixels, `scale` times its size,
+    /// for a rule that reads a few rows of a picture and not all of it.
+    ///
+    /// `keys`: whether a window that is typed in is brought in to hold the keys while it is drawn
+    /// (`holdingKeys`), so that its caret and selection are in the picture. Only one window in
+    /// the Mac has the keys, so a panel waits for them while any other process (a shard of
+    /// the suite, at the same time) holds them, up to three seconds a picture; a rule that
+    /// reads a slab, a face and the ink of words does not read a caret, and does not wait.
+    static func bitmap(of view: NSView, region: NSRect, scale: CGFloat = GalleryRender.scale,
+                       keys: Bool = true) -> NSBitmapImageRep {
+        let keyed = keys ? holdingKeys(view) : nil
+        defer { keyed?.release() }
+        prepare(view)
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int((region.width * scale).rounded()),
+                                   pixelsHigh: Int((region.height * scale).rounded()), bitsPerSample: 8,
+                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        rep.size = region.size
+        view.cacheDisplay(in: region, to: rep)
         return rep
     }
 

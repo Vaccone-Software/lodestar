@@ -174,3 +174,71 @@ enum GalleryPixels {
         return made
     }
 }
+
+/// The part of a picture a rule reads, drawn alone.
+///
+/// A rule that reads a slab's face and the words standing on it reads a few
+/// rows of a picture that is a window and the shadow round it, and drawing all
+/// of it (the shadow is blurred, at twice the points) was most of what such a
+/// sweep cost. The region is the rectangles the rule says it reads, a little
+/// round them, drawn by the same pass as the whole picture, so each pixel in
+/// it is the pixel the whole picture has there, bar the odd one a level of 255
+/// off (four in nine million, `GalleryHostTests`). Every pixel the slab rules
+/// read, three million of them in the gallery, was held against the whole
+/// picture's, drawn with the keys, when this was written: none differed. A
+/// region is drawn without the keys (`keys: false`): the rules read no caret,
+/// and only one window in the Mac has the keys, so a panel waited for them,
+/// up to three seconds, while another process held them.
+/// A pixel asked for outside the region, in the picture, is a failure naming
+/// it, never a quiet nothing: what a rule did not say it reads, it cannot miss.
+///
+/// Coordinates are the picture's: points counted from its top, as the rules
+/// write them, and pixels counted the same way at `GalleryRender.scale`.
+struct GalleryRegion {
+    let rep: NSBitmapImageRep
+    let name: String
+    /// Pixels to a point, as the whole picture has them (`width` over the view's width).
+    let scale: CGFloat
+    /// The region's first column and row, in the picture's pixels.
+    let left: Int
+    let top: Int
+    /// The picture's size in pixels, as drawn whole.
+    let width: Int
+    let height: Int
+
+    /// `view` drawn over `rects` (points, from the top of the view) and `margin` round them.
+    /// A view whose size is not a whole number of pixels at the picture's scale is drawn
+    /// at a scale of its own, which a part of it does not share: it is drawn whole.
+    static func render(_ view: NSView, covering rects: [NSRect], margin: CGFloat = 2, keys: Bool = false,
+                       name: String) -> GalleryRegion {
+        let scale = GalleryRender.scale
+        let size = view.bounds.size
+        var box = rects.first ?? NSRect(x: 0, y: 0, width: 1, height: 1)
+        for rect in rects.dropFirst() { box = box.union(rect) }
+        box = box.insetBy(dx: -margin, dy: -margin).intersection(NSRect(origin: .zero, size: size))
+        if abs(size.width * scale - (size.width * scale).rounded()) > 1e-6
+            || abs(size.height * scale - (size.height * scale).rounded()) > 1e-6 {
+            let whole = GalleryRender.bitmap(of: view)
+            return GalleryRegion(rep: whole, name: name, scale: CGFloat(whole.pixelsWide) / size.width, left: 0, top: 0,
+                                 width: whole.pixelsWide, height: whole.pixelsHigh)
+        }
+        let minX = box.minX.rounded(.down), minY = box.minY.rounded(.down)
+        let maxX = box.maxX.rounded(.up), maxY = box.maxY.rounded(.up)
+        let region = NSRect(x: minX, y: view.isFlipped ? minY : size.height - maxY, width: max(1, maxX - minX),
+                            height: max(1, maxY - minY))
+        return GalleryRegion(rep: GalleryRender.bitmap(of: view, region: region, scale: scale, keys: keys), name: name, scale: scale,
+                             left: Int(minX * scale), top: Int(minY * scale),
+                             width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()))
+    }
+
+    /// The sRGB colour of the picture's pixel (`x`, `y`): what `GalleryPixels.srgb` gives on the whole bitmap.
+    func srgb(x: Int, y: Int, file: StaticString = #filePath, line: UInt = #line) -> NSColor? {
+        guard (0..<width).contains(x), (0..<height).contains(y) else { return nil }
+        let column = x - left, row = y - top
+        guard (0..<rep.pixelsWide).contains(column), (0..<rep.pixelsHigh).contains(row) else {
+            XCTFail("\(name): pixel (\(x), \(y)) was read outside the region drawn for the rule", file: file, line: line)
+            return nil
+        }
+        return GalleryPixels.srgb(rep, x: column, y: row)
+    }
+}

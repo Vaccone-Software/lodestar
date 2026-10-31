@@ -120,4 +120,50 @@ final class GalleryHostTests: XCTestCase {
         XCTAssertGreaterThan(compared, 100_000)
         XCTAssertNil(GalleryPixels.srgb(GalleryRender.bitmap(of: NSView(frame: NSRect(x: 0, y: 0, width: 4, height: 4))), x: 99, y: 99))
     }
+
+    /// A region drawn alone has the pixels the whole picture has there, for panels, sheets and
+    /// pictures with a caret in them: all of them, bar the odd one a level of 255 off.
+    func testARegionHasTheWholePicturesPixels() throws {
+        var compared = 0, off = 0, pictures = 0
+        var worst: CGFloat = 0
+        for picture in GallerySweep.pictures(looks: [.day], drawing: true, where: { $0.level == 1 && !$0.receded }) {
+            pictures += 1
+            guard pictures % 6 == 0 else { continue }
+            let root = picture.root, size = root.bounds.size
+            let whole = GalleryRender.bitmap(of: root)
+            let rects = [NSRect(x: size.width * 0.3, y: size.height * 0.4, width: size.width * 0.35, height: size.height * 0.12),
+                         NSRect(x: 5, y: 7, width: 40, height: 9)]
+            let region = GalleryRegion.render(root, covering: rects, name: picture.name)
+            for rect in rects {
+                for y in Int(rect.minY * region.scale)..<Int(rect.maxY * region.scale) where (0..<whole.pixelsHigh).contains(y) {
+                    for x in Int(rect.minX * region.scale)..<Int(rect.maxX * region.scale) where (0..<whole.pixelsWide).contains(x) {
+                        compared += 1
+                        guard let a = region.srgb(x: x, y: y), let b = GalleryPixels.srgb(whole, x: x, y: y) else {
+                            XCTFail("\(picture.name) (\(x), \(y)) is not there"); continue
+                        }
+                        if a == b { continue }
+                        off += 1
+                        worst = max(worst, abs(a.redComponent - b.redComponent), abs(a.greenComponent - b.greenComponent),
+                                    abs(a.blueComponent - b.blueComponent), abs(a.alphaComponent - b.alphaComponent))
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(compared, 500_000)
+        XCTAssertLessThan(Double(off) / Double(compared), 1e-5, "\(off) of \(compared) pixels differ")
+        XCTAssertLessThanOrEqual(worst, 1.0 / 255 + 1e-6, "and by no more than a level")
+    }
+
+    /// A pixel the rule did not say it reads is a failure, not a nothing.
+    func testAPixelOutsideTheRegionIsAFailure() throws {
+        let label = NSTextField(labelWithString: "a region")
+        let window = GalleryHost.window(label, size: NSSize(width: 200, height: 100), look: .day)
+        let region = GalleryRegion.render(label, covering: [NSRect(x: 10, y: 10, width: 20, height: 10)], name: "probe")
+        XCTAssertNotNil(region.srgb(x: 30, y: 30))
+        XCTAssertNil(region.srgb(x: 5000, y: 30), "outside the picture is nothing, as ever")
+        XCTExpectFailure("a read outside the region is reported") {
+            XCTAssertNil(region.srgb(x: 300, y: 150))
+        }
+        _ = window
+    }
 }

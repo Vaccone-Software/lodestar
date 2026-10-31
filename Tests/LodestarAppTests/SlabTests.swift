@@ -26,10 +26,23 @@ final class SlabTests: XCTestCase {
         abs(a.red - b.red) <= tolerance && abs(a.green - b.green) <= tolerance && abs(a.blue - b.blue) <= tolerance
     }
 
-    private func pixel(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat) -> RGB? {
-        let scale = CGFloat(rep.pixelsWide) / rep.size.width
-        guard let c = GalleryPixels.srgb(rep, x: Int(x * scale), y: Int(y * scale)), c.alphaComponent > 0.5 else { return nil }
+    private func pixel(_ region: GalleryRegion, x: CGFloat, y: CGFloat) -> RGB? {
+        guard let c = region.srgb(x: Int(x * region.scale), y: Int(y * region.scale)), c.alphaComponent > 0.5 else { return nil }
         return RGB(red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent))
+    }
+
+    /// The part of `root` the pixel rules read for `slabs`: each slab's frame, which holds its face, its
+    /// side and the one point beneath it, and every field that stands on it. Nothing else is drawn, and
+    /// a rule that reads a pixel outside it fails naming the pixel (`GalleryRegion`).
+    private func region(for slabs: [NSView], in root: NSView, named name: String) -> GalleryRegion {
+        var rects: [NSRect] = []
+        for slab in slabs {
+            rects.append(rendered(slab, in: root))
+            walk(content(of: slab)) { view in
+                if let field = view as? NSTextField { rects.append(self.rendered(field, in: root)) }
+            }
+        }
+        return GalleryRegion.render(root, covering: rects, name: name)
     }
 
     private func contrast(_ a: RGB, _ b: RGB) -> Double { Readability.contrast(a.luminance, b.luminance) }
@@ -127,7 +140,7 @@ final class SlabTests: XCTestCase {
     func testEveryChosenThingIsTheSlabAndMeetsTheFloorsInBothLooksAtEveryHour() throws {
         var checkedSurfaces = Set<String>(), words = 0, slabCount = 0, litKeys = 0
         var wrong: [String] = []
-        for picture in GallerySweep.pictures(eyeComfort: true, drawing: true) {
+        for picture in GallerySweep.pictures(eyeComfort: true) {
             let shot = picture.shot, look = picture.look, root = picture.root
             let night = look == .night
             let name = shot.name(in: look)
@@ -137,7 +150,7 @@ final class SlabTests: XCTestCase {
             }
             if shot.surface != "foundation" && found.count > 1 { wrong.append("\(name): one slab per surface, found \(found.count)") }
             guard !found.isEmpty else { continue }
-            let rep = GalleryRender.bitmap(of: root)
+            let region = region(for: found, in: root, named: name)
             let host = steps(night: night), inside = steps(night: !night)
             let hostOnly = stepSet(host).filter { colour in !stepSet(inside).contains { near($0, colour, 0.004) } }
             let innerSet = stepSet(inside)
@@ -150,7 +163,7 @@ final class SlabTests: XCTestCase {
                 // The face is the slab step of the look around it; the side is 4 points, inside the frame.
                 do {
                     let x = frame.minX + 3, y = frame.minY + (frame.height - side) / 2
-                    if let face = pixel(rep, x: x, y: y) {
+                    if let face = pixel(region, x: x, y: y) {
                         if !near(face, host.slab) { wrong.append("\(name): the face of \(type(of: slab)) is not the slab step") }
                     } else { wrong.append("\(name): no face under \(type(of: slab))") }
                     XCTAssertEqual(side, (slab as? SlabRow)?.pressed == true ? Ceramic.Side.pressed : Ceramic.Side.row,
@@ -159,14 +172,14 @@ final class SlabTests: XCTestCase {
                     let sx = frame.midX
                     var shownSide = 0.0
                     var yy = frame.maxY - 0.25
-                    while yy > frame.minY, let p = pixel(rep, x: sx, y: yy), near(p, host.slabSide, 0.02) {
+                    while yy > frame.minY, let p = pixel(region, x: sx, y: yy), near(p, host.slabSide, 0.02) {
                         shownSide += 0.5
                         yy -= 0.5
                     }
                     if abs(shownSide - side) > 0.6 && !(slab is ObjectSurface) {
                         wrong.append("\(name): the side shows \(shownSide) points, not \(side)")
                     }
-                    if let below = pixel(rep, x: frame.minX + frame.width / 2, y: frame.maxY + 1.5), near(below, host.slabSide, 0.02) {
+                    if let below = pixel(region, x: frame.minX + frame.width / 2, y: frame.maxY + 1.5), near(below, host.slabSide, 0.02) {
                         wrong.append("\(name): the side hangs below its frame")
                     }
                 }
@@ -193,7 +206,7 @@ final class SlabTests: XCTestCase {
                                 while py < area.maxY {
                                     var px = area.minX
                                     while px < area.maxX {
-                                        if let p = self.pixel(rep, x: px, y: py) { best = max(best, self.contrast(p, host.slab)) }
+                                        if let p = self.pixel(region, x: px, y: py) { best = max(best, self.contrast(p, host.slab)) }
                                         px += 0.5
                                     }
                                     py += 0.5
@@ -249,13 +262,13 @@ final class SlabTests: XCTestCase {
     /// from the slab inside the field's frame, found in the bitmap at its own
     /// resolution (half a point) with the edge taken where the ink is half
     /// as strong as at its strongest.
-    private func inkSpan(in rect: NSRect, of rep: NSBitmapImageRep, over slab: RGB) -> (top: CGFloat, bottom: CGFloat)? {
-        let scale = CGFloat(rep.pixelsWide) / rep.size.width
+    private func inkSpan(in rect: NSRect, of region: GalleryRegion, over slab: RGB) -> (top: CGFloat, bottom: CGFloat)? {
+        let scale = region.scale
         var rows: [(y: Int, strength: Double)] = []
         for py in Int(rect.minY * scale)..<Int(rect.maxY * scale) {
             var strongest = 0.0
             for px in Int(rect.minX * scale)..<Int(rect.maxX * scale) {
-                guard let c = GalleryPixels.srgb(rep, x: px, y: py) else { continue }
+                guard let c = region.srgb(x: px, y: py) else { continue }
                 let d = max(abs(Double(c.redComponent) - slab.red), abs(Double(c.greenComponent) - slab.green),
                             abs(Double(c.blueComponent) - slab.blue))
                 strongest = max(strongest, d)
@@ -275,11 +288,11 @@ final class SlabTests: XCTestCase {
         var wrong: [String] = []
         var measured = 0
         var surfaces = Set<String>()
-        for picture in GallerySweep.pictures(drawing: true, where: { $0.level == 1 && !$0.receded }) {
+        for picture in GallerySweep.pictures(where: { $0.level == 1 && !$0.receded }) {
             let shot = picture.shot, look = picture.look, root = picture.root
             let slabsHere = slabs(in: root).filter { $0 is SlabRow }
             guard !slabsHere.isEmpty else { continue }
-            let rep = GalleryRender.bitmap(of: root)
+            let region = region(for: slabsHere, in: root, named: shot.name(in: look))
             let host = steps(night: look == .night)
             for slab in slabsHere {
                 let frame = rendered(slab, in: root)
@@ -309,7 +322,7 @@ final class SlabTests: XCTestCase {
                     let field = fields[index]
                     guard area.height < (field.font?.boundingRectForFont.height ?? 40) * 1.6,
                           let font = field.font,
-                          let span = inkSpan(in: area, of: rep, over: host.slab) else { continue }
+                          let span = inkSpan(in: area, of: region, over: host.slab) else { continue }
                     // Where the ink's bottom stands below the baseline, from the glyphs themselves.
                     let line = CTLineCreateWithAttributedString(NSAttributedString(string: field.stringValue,
                                                                                    attributes: [.font: font]))

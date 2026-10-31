@@ -395,7 +395,7 @@ enum StripPreview {
         }
 
         // 144: secure input left on, NOTICE=stuck|terminal|back: the held
-        // key beside the holder, or lit when the keys come back (held up
+        // key beside the line naming the holder, or lit when the keys come back (held up
         // here, so it can be photographed).
         if variant == 144 {
             let notice = HeldKeyNotice(clock: Clock(now: { Date() }, after: { _, _ in }))
@@ -405,12 +405,10 @@ enum StripPreview {
                 : SecureInputNotice.Holder(pid: 1, name: "Brave Browser", bundleID: "com.brave.Browser")
             DispatchQueue.main.async {
                 if ProcessInfo.processInfo.environment["NOTICE"] == "back" {
-                    notice.show(holder, icon: nil, onClick: {})
+                    notice.show(holder, onClick: {})
                     notice.keysBack()
                 } else {
-                    let icon = NSWorkspace.shared.urlForApplication(withBundleIdentifier: holder.bundleID ?? "")
-                        .map { NSWorkspace.shared.icon(forFile: $0.path) }
-                    notice.show(holder, icon: icon, onClick: {})
+                    notice.show(holder, onClick: {})
                 }
             }
             withExtendedLifetime(notice) { app.run() }

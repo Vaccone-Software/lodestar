@@ -14,11 +14,10 @@ import LodestarCore
 final class SecureInputController {
     /// One look at the machine; the tests replace it.
     var read: () -> SecureInputNotice.Sample = SecureInputProbe.sample
-    var show: (_ holder: SecureInputNotice.Holder, _ icon: NSImage?, _ onClick: @escaping () -> Void) -> Void = { _, _, _ in }
+    var show: (_ holder: SecureInputNotice.Holder, _ onClick: @escaping () -> Void) -> Void = { _, _ in }
     /// The notice goes; `keysBack` when secure input itself ended, so the
     /// key lights before it leaves.
     var hide: (_ keysBack: Bool) -> Void = { _ in }
-    var icon: (Int32) -> NSImage? = { NSRunningApplication(processIdentifier: $0)?.icon }
     var bringForward: (Int32) -> Void = { pid in
         if let app = NSRunningApplication(processIdentifier: pid) { SystemEvents.activate(app) }
     }
@@ -45,7 +44,7 @@ final class SecureInputController {
         switch notice.sample(read()) {
         case .show(let holder):
             Log.info("secure input", ["notice": "shown"])
-            show(holder, icon(holder.pid)) { [weak self] in self?.bringForward(holder.pid) }
+            show(holder) { [weak self] in self?.bringForward(holder.pid) }
         case .hide(let keysBack):
             Log.info("secure input", ["notice": keysBack ? "ended" : "quiet"])
             hide(keysBack)

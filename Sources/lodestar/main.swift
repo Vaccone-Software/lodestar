@@ -1547,10 +1547,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// It stands at the guide's home, so whatever the glass held there (a
     /// chip that asks for a key no one can press now) goes for it.
     private func wireSecureInput() {
-        secureInput.show = { [weak self] holder, icon, onClick in
+        secureInput.show = { [weak self] holder, onClick in
             guard let self else { return }
             if hud.owner != SurfaceOwner.none { hud.hide() }
-            heldKey.show(holder, icon: icon, onClick: onClick)
+            heldKey.show(holder, onClick: onClick)
         }
         secureInput.hide = { [weak self] keysBack in
             guard let self, heldKey.standing else { return }

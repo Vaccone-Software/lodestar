@@ -15,16 +15,14 @@ final class SecureInputControllerTests: XCTestCase {
         var sample = SecureInputNotice.Sample(on: true, holder: brave, frontPID: 1377, screenLocked: false)
         var brought: [Int32] = []
         controller.read = { sample }
-        controller.icon = { _ in NSImage(size: NSSize(width: 36, height: 36)) }
         controller.bringForward = { brought.append($0) }
-        controller.show = { holder, icon, onClick in notice.show(holder, icon: icon, onClick: onClick) }
+        controller.show = { holder, onClick in notice.show(holder, onClick: onClick) }
         controller.hide = { keysBack in keysBack ? notice.keysBack() : notice.hide() }
 
         controller.tick()
         XCTAssertFalse(notice.isUp, "one sample is not stuck yet")
         controller.tick()
         XCTAssertTrue(notice.standing)
-        XCTAssertTrue(notice.holderShown)
         XCTAssertEqual(notice.words, "Brave Browser is holding your keys")
         XCTAssertEqual(notice.key?.legend, "lode")
         XCTAssertEqual(notice.key?.state, .quiet, "the key no press can reach is drawn quiet")
@@ -36,7 +34,6 @@ final class SecureInputControllerTests: XCTestCase {
         controller.tick()
         XCTAssertTrue(notice.isUp)
         XCTAssertFalse(notice.standing, "no longer asking")
-        XCTAssertFalse(notice.holderShown, "the holder goes with the hold")
         XCTAssertEqual(notice.key?.state, .lit)
         XCTAssertEqual(notice.words, "Your keys are back")
         notice.click()
@@ -51,8 +48,7 @@ final class SecureInputControllerTests: XCTestCase {
         let controller = SecureInputController()
         var sample = SecureInputNotice.Sample(on: true, holder: brave, frontPID: 1377, screenLocked: false)
         controller.read = { sample }
-        controller.icon = { _ in nil }
-        controller.show = { holder, icon, onClick in notice.show(holder, icon: icon, onClick: onClick) }
+        controller.show = { holder, onClick in notice.show(holder, onClick: onClick) }
         controller.hide = { keysBack in keysBack ? notice.keysBack() : notice.hide() }
         controller.tick()
         controller.tick()

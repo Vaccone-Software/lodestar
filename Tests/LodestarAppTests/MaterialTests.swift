@@ -96,21 +96,25 @@ final class MaterialTests: XCTestCase {
     /// corners, is opaque, so nothing of the desktop shows through the ceramic.
     func testNoPanelLetsTheDesktopThrough() throws {
         var checked = 0
-        for picture in GallerySweep.pictures(drawing: true, where: { $0.surface != "foundation" }) {
+        for picture in GallerySweep.pictures(where: { $0.surface != "foundation" }) {
             let shot = picture.shot, look = picture.look
             guard let host = picture.root as? ShadowHostView else { continue }
-            let rep = GalleryRender.bitmap(of: host)
-            let scale = CGFloat(rep.pixelsWide) / rep.size.width
             let pane = host.bounds.insetBy(dx: SoftShadow.margin, dy: SoftShadow.margin)
                 .insetBy(dx: BarTheme.surfaceRadius, dy: BarTheme.surfaceRadius)
             guard pane.width > 0, pane.height > 0 else { continue }
+            // Only the pane is drawn, and without the keys: the rule reads its opacity, not its shadow or a caret.
+            let height = host.bounds.height
+            let region = GalleryRegion.render(
+                host, covering: [NSRect(x: pane.minX, y: height - pane.maxY, width: pane.width, height: pane.height)],
+                name: shot.name(in: look))
+            let scale = region.scale
             var clear: [String] = []
             for fx in stride(from: 0.0, through: 1.0, by: 0.1) {
                 for fy in stride(from: 0.0, through: 1.0, by: 0.1) {
                     let point = CGPoint(x: pane.minX + pane.width * fx, y: pane.minY + pane.height * fy)
-                    let x = Int(point.x * scale), y = Int((rep.size.height - point.y) * scale)
-                    guard (0..<rep.pixelsWide).contains(x), (0..<rep.pixelsHigh).contains(y),
-                          let color = rep.colorAt(x: x, y: y) else { continue }
+                    let x = Int(point.x * scale), y = Int((height - point.y) * scale)
+                    guard (0..<region.width).contains(x), (0..<region.height).contains(y),
+                          let color = region.srgb(x: x, y: y) else { continue }
                     if color.alphaComponent < 0.999 { clear.append("\(point)") }
                 }
             }

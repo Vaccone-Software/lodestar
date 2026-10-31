@@ -218,7 +218,7 @@ struct GalleryRegion {
         box = box.insetBy(dx: -margin, dy: -margin).intersection(NSRect(origin: .zero, size: size))
         if abs(size.width * scale - (size.width * scale).rounded()) > 1e-6
             || abs(size.height * scale - (size.height * scale).rounded()) > 1e-6 {
-            let whole = GalleryRender.bitmap(of: view)
+            let whole = GalleryRender.bitmap(of: view, keys: keys)
             return GalleryRegion(rep: whole, name: name, scale: CGFloat(whole.pixelsWide) / size.width, left: 0, top: 0,
                                  width: whole.pixelsWide, height: whole.pixelsHigh)
         }

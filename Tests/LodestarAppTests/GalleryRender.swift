@@ -114,8 +114,8 @@ enum GalleryRender {
     /// transparent where nothing is drawn. The view stands in a window, so
     /// the look is the window's, and every layer a view paints (a face, a
     /// lip, a row's rim, a shadow) is drawn by the same pass the screen takes.
-    static func bitmap(of view: NSView, scale: CGFloat = GalleryRender.scale) -> NSBitmapImageRep {
-        let keyed = holdingKeys(view)
+    static func bitmap(of view: NSView, scale: CGFloat = GalleryRender.scale, keys: Bool = true) -> NSBitmapImageRep {
+        let keyed = keys ? holdingKeys(view) : nil
         defer { keyed?.release() }
         prepare(view)
         let size = view.bounds.size

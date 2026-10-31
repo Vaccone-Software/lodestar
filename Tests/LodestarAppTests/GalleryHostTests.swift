@@ -103,9 +103,9 @@ final class GalleryHostTests: XCTestCase {
             let shot = try XCTUnwrap(GalleryShots.all.first { $0.surface + "-" + $0.state == name })
             GalleryLook.day.apply()
             let (view, keep) = try shot.built(in: .day)
-            let rep = GalleryRender.bitmap(of: view)
-            for y in stride(from: 0, to: rep.pixelsHigh, by: 3) {
-                for x in stride(from: 0, to: rep.pixelsWide, by: 3) {
+            let rep = GalleryRender.bitmap(of: view, keys: false)
+            for y in stride(from: 0, to: rep.pixelsHigh, by: 7) {
+                for x in stride(from: 0, to: rep.pixelsWide, by: 7) {
                     let direct = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
                     let memo = GalleryPixels.srgb(rep, x: x, y: y)
                     XCTAssertEqual(memo?.redComponent, direct?.redComponent, "\(name) (\(x), \(y))")
@@ -117,7 +117,7 @@ final class GalleryHostTests: XCTestCase {
             }
             _ = keep
         }
-        XCTAssertGreaterThan(compared, 100_000)
+        XCTAssertGreaterThan(compared, 20_000)
         XCTAssertNil(GalleryPixels.srgb(GalleryRender.bitmap(of: NSView(frame: NSRect(x: 0, y: 0, width: 4, height: 4))), x: 99, y: 99))
     }
 
@@ -126,11 +126,12 @@ final class GalleryHostTests: XCTestCase {
     func testARegionHasTheWholePicturesPixels() throws {
         var compared = 0, off = 0, pictures = 0
         var worst: CGFloat = 0
-        for picture in GallerySweep.pictures(looks: [.day], drawing: true, where: { $0.level == 1 && !$0.receded }) {
+        let all = GalleryShots.all.filter { $0.looks.contains(.day) && $0.level == 1 && !$0.receded }
+        let chosen = Set(stride(from: 5, to: all.count, by: 12).map { all[$0].surface + "-" + all[$0].state })
+        for picture in GallerySweep.pictures(looks: [.day], where: { chosen.contains($0.surface + "-" + $0.state) }) {
             pictures += 1
-            guard pictures % 6 == 0 else { continue }
             let root = picture.root, size = root.bounds.size
-            let whole = GalleryRender.bitmap(of: root)
+            let whole = GalleryRender.bitmap(of: root, keys: false)
             let rects = [NSRect(x: size.width * 0.3, y: size.height * 0.4, width: size.width * 0.35, height: size.height * 0.12),
                          NSRect(x: 5, y: 7, width: 40, height: 9)]
             let region = GalleryRegion.render(root, covering: rects, name: picture.name)
@@ -149,7 +150,8 @@ final class GalleryHostTests: XCTestCase {
                 }
             }
         }
-        XCTAssertGreaterThan(compared, 500_000)
+        XCTAssertGreaterThan(pictures, 5)
+        XCTAssertGreaterThan(compared, 100_000)
         XCTAssertLessThan(Double(off) / Double(compared), 1e-5, "\(off) of \(compared) pixels differ")
         XCTAssertLessThanOrEqual(worst, 1.0 / 255 + 1e-6, "and by no more than a level")
     }

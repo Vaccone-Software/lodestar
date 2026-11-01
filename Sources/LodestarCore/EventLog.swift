@@ -94,9 +94,10 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
         /// (pasted | replaced | copied | cancelled | empty), `row` the
         /// ending or the cancel's reason, `app` the destination, `seconds`
         /// open, `typed` characters typed, `words` spoken words settled,
-        /// `backspaces`, `switches` between modes, `openToFirstKey` and
-        /// `firstWord` the two hesitations, `warm` whether the model was
-        /// already loaded, `editing` the editing style. Never the text.
+        /// `backspaces`, `switches` between modes, `pointerActs` presses of
+        /// the pointer on the text, `openToFirstKey` and `firstWord` the two
+        /// hesitations, `warm` whether the model was already loaded,
+        /// `editing` the editing style. Never the text.
         case draft
         /// The clipboard strip closed: `action` (pasted | acted |
         /// abandoned), `source` how the card was addressed (label | pin |
@@ -210,6 +211,10 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
     public var aimsAway: Int?
     public var words: Int?
     public var switches: Int?
+    /// A draft: how many times the pointer was pressed on the text. Absent
+    /// from records written before the draft took the mouse, and read as
+    /// none.
+    public var pointerActs: Int?
     public var firstWord: Double?
     /// The strip's search, measured at exit: how many cards answered the
     /// query, how many recents were on show, how many exist, and — for a

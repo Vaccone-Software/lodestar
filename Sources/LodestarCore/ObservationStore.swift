@@ -368,7 +368,7 @@ public final class ObservationStore {
     /// A draft ended — counts and timings, never the text.
     public func drafted(app: String, door: String, action: String, row: String?,
                         seconds: TimeInterval, typed: Int, words: Int, backspaces: Int,
-                        switches: Int, firstKey: TimeInterval?, firstWord: TimeInterval?,
+                        switches: Int, pointerActs: Int = 0, firstKey: TimeInterval?, firstWord: TimeInterval?,
                         warm: Bool, peakDb: Double? = nil, editing: Draft.EditingStyle,
                         at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .draft)
@@ -381,6 +381,7 @@ public final class ObservationStore {
         event.words = words
         event.backspaces = backspaces
         event.switches = switches
+        event.pointerActs = pointerActs
         event.openToFirstKey = firstKey
         event.firstWord = firstWord
         event.warm = warm

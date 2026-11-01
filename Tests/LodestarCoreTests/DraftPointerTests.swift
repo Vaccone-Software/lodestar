@@ -268,3 +268,24 @@ final class DraftPointerTests: XCTestCase {
         XCTAssertEqual(vim.mode, .normal)
     }
 }
+
+/// The draft's record counts how often the hand pointed at the text, beside
+/// what it typed and how often it took a letter back.
+final class DraftPointerRecordTests: XCTestCase {
+    func testARecordWrittenBeforeTheDraftTookTheMouseStillReadsAndCountsNone() throws {
+        let old = #"{"t": 0, "kind": "draft", "app": "ghostty", "typed": 40, "words": 12, "backspaces": 3, "switches": 2}"#
+        let event = try JSONDecoder().decode(ObservationEvent.self, from: Data(old.utf8))
+        XCTAssertEqual(event.kind, .draft)
+        XCTAssertEqual(event.backspaces, 3)
+        XCTAssertNil(event.pointerActs, "absent in the record, and read as none")
+        XCTAssertEqual(event.pointerActs ?? 0, 0)
+    }
+
+    func testTheCountSurvivesTheRoundTrip() throws {
+        var event = ObservationEvent(t: Date(timeIntervalSince1970: 0), kind: .draft)
+        event.pointerActs = 4
+        let back = try JSONDecoder().decode(ObservationEvent.self, from: JSONEncoder().encode(event))
+        XCTAssertEqual(back.pointerActs, 4)
+        XCTAssertEqual(back, event)
+    }
+}

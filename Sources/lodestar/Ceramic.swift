@@ -1409,23 +1409,42 @@ final class PointerGate {
         if panel.isVisible { start() } else { stop() }
     }
 
+    /// A button is down on this surface's own text, so the window keeps
+    /// the mouse wherever the pointer goes. A drag that starts on words
+    /// and runs past the glass's edge is still the hand's selection, and a
+    /// window that stopped taking the mouse the moment the pointer left it
+    /// would end the drag where the glass ends. The surface that sets it
+    /// clears it on its mouse-up; the gate clears it itself on any
+    /// mouse-up it sees, and on `stop`, so a release that was lost, to
+    /// another app or a menu, cannot leave a window holding the mouse.
+    var held = false {
+        didSet { if held != oldValue { update() } }
+    }
+
     func start() {
         if monitors.isEmpty {
             let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
-            if let global = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] _ in
-                self?.update()
+            let watched: NSEvent.EventTypeMask = [moves, .leftMouseUp]
+            if let global = NSEvent.addGlobalMonitorForEvents(matching: watched, handler: { [weak self] event in
+                self?.watched(event)
             }) { monitors.append(global) }
-            if let local = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] event in
-                self?.update()
+            if let local = NSEvent.addLocalMonitorForEvents(matching: watched, handler: { [weak self] event in
+                self?.watched(event)
                 return event
             }) { monitors.append(local) }
         }
         update()
     }
 
+    private func watched(_ event: NSEvent) {
+        if event.type == .leftMouseUp { held = false }
+        update()
+    }
+
     func stop() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
+        held = false
         panel?.ignoresMouseEvents = true
     }
 
@@ -1442,7 +1461,7 @@ final class PointerGate {
     /// whenever the pane changes size under a still pointer.
     func update(pointer: NSPoint = NSEvent.mouseLocation) {
         guard let panel else { return }
-        let over = enabled && panel.isVisible && SoftShadow.inset(panel.frame).contains(pointer)
+        let over = held || (enabled && panel.isVisible && SoftShadow.inset(panel.frame).contains(pointer))
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
     }
 }

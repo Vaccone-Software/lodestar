@@ -232,10 +232,67 @@ final class VoiceLight: NSView {
     }
 }
 
+/// One thing the mouse did on the draft's text, in the window's own
+/// coordinates: the controller turns it into an edit.
+struct DraftPointerEvent {
+    enum Kind { case down, dragged, up }
+    let kind: Kind
+    /// Where the pointer is, in window coordinates.
+    let point: NSPoint
+    /// The press's click count: one a point, two a word, three a line.
+    let clicks: Int
+    let shift: Bool
+}
+
+/// The draft's words, as the mouse sees them. It reports what the hand
+/// does and decides nothing: a press, a drag and a release go to the
+/// controller, which owns the buffer. It is never first responder and
+/// never asks the panel to become key, because the draft is a glass
+/// laid over another app's cursor and a click on its words must leave
+/// that app exactly as it was. Only the left button points; the others
+/// are the app underneath's business and are swallowed, since a text view
+/// would otherwise answer with its own context menu.
+final class DraftTextView: NSTextView {
+    var onPointer: ((DraftPointerEvent) -> Void)?
+
+    override var acceptsFirstResponder: Bool { false }
+    override var needsPanelToBecomeKey: Bool { false }
+    /// The draft is never key, so the first click is the click.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private func report(_ kind: DraftPointerEvent.Kind, _ event: NSEvent) {
+        onPointer?(DraftPointerEvent(kind: kind, point: event.locationInWindow,
+                                     clicks: event.clickCount, shift: event.modifierFlags.contains(.shift)))
+    }
+
+    override func mouseDown(with event: NSEvent) { report(.down, event) }
+    override func mouseDragged(with event: NSEvent) { report(.dragged, event) }
+    override func mouseUp(with event: NSEvent) { report(.up, event) }
+    override func rightMouseDown(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+    override func menu(for event: NSEvent) -> NSMenu? { nil }
+
+    /// The I-beam over the words, as over any text a hand can point into.
+    /// A text view that is not selectable draws no cursor rect of its own,
+    /// so the tracking area asks for it; `.inVisibleRect` keeps the area
+    /// the scrolled window's own as the text moves under it.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.filter { $0.owner === self }.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds,
+                                       options: [.cursorUpdate, .activeAlways, .inVisibleRect],
+                                       owner: self))
+    }
+
+    override func cursorUpdate(with event: NSEvent) { NSCursor.iBeam.set() }
+}
+
 /// The draft's glass: bottom center, fixed in place, growing upward with
 /// the text. Never key — the app under it keeps its cursor the whole
-/// time — but it takes the mouse for two things on its register line:
-/// the microphone, which toggles, and the input, which is a menu.
+/// time — but it takes the mouse: on its register line, the input, which
+/// is a menu, and on its words, where a press points, a drag selects and a
+/// double or triple click takes a word or a line. None of it makes the
+/// panel key or Lodestar active.
 final class DraftPanel {
     let panel: NSPanel
     private let root = AppearanceRoot()
@@ -264,12 +321,11 @@ final class DraftPanel {
     /// stays in view, `zo` to open it whole, `zc` or the voice to fold
     /// it again.
     private(set) var expanded = false
-
     /// Internal so the tests can read the storage the screen reads: the
     /// find lights once shipped as background washes that vibrancy ate,
     /// and only a test against the rendered attributes catches that class
     /// of nothing-appears bug.
-    let textView = NSTextView()
+    let textView = DraftTextView()
     private let scroll = NSScrollView()
     private let caret = NSView()
     /// The keys, when they are asked for. The draft carries no legend:
@@ -280,6 +336,8 @@ final class DraftPanel {
 
     /// An input was chosen from the menu; nil is the system default.
     var onChooseInput: ((String?) -> Void)?
+    /// The mouse did something on the words.
+    var onPointer: ((DraftPointerEvent) -> Void)?
 
     private static let width: CGFloat = 720
     private static let margin = Grid.section
@@ -318,9 +376,10 @@ final class DraftPanel {
         panel.becomesKeyOnlyIfNeeded = true
         // The bars' edge and soft shadow, drawn by the window around the
         // glass rather than by the system.
-        // The mouse reaches the foot's input menu, and only over the
-        // glass. The panel never becomes key, so the app underneath
-        // keeps its cursor.
+        // The mouse reaches the foot's input menu and the words, and only
+        // over the glass, or anywhere while a button is held on the words.
+        // The panel never becomes key, so the app underneath keeps its
+        // cursor.
         gate = SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
         backdrop = Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
@@ -338,6 +397,15 @@ final class DraftPanel {
 
         textView.isEditable = false
         textView.isSelectable = false
+        // Held from the press to the release, so a drag that runs past the
+        // glass's edge is still the hand's: the gate keeps the window taking
+        // the mouse for as long as the button is down on the words.
+        textView.onPointer = { [weak self] event in
+            guard let self else { return }
+            if event.kind == .down { self.gate.held = true }
+            if event.kind == .up { self.gate.held = false }
+            self.onPointer?(event)
+        }
         textView.drawsBackground = false
         // Every run names its role, and the view sets them again when the look
         // changes: night's weight reaches words already on screen.
@@ -500,6 +568,133 @@ final class DraftPanel {
         let landingUTF16 = layout.characterIndexForGlyph(at: landingGlyph)
         // Back from UTF-16 to character space.
         return text.substring(to: min(landingUTF16, text.length)).count
+    }
+
+    // MARK: - The pointer
+
+    /// Whether the window holds the mouse for a drag, for the tests.
+    var pointerHeld: Bool { gate.held }
+
+    /// Where a point in the window falls on the text box, which the
+    /// pointer may be above or below while a drag runs past it.
+    enum Edge { case above, below }
+    func edge(atWindowPoint point: NSPoint) -> Edge? {
+        let box = scroll.convert(scroll.bounds, to: nil)
+        if point.y > box.maxY { return .above }
+        if point.y < box.minY { return .below }
+        return nil
+    }
+
+    /// The text of the panel's own storage, as the layout has it, mapped
+    /// to and from the buffer's characters. A standing ghost sits in the
+    /// storage between what is before the cursor and what is after it, so
+    /// everything past the cursor is shifted by its length; the controller
+    /// settles a ghost before it asks, and this stays right if it did not.
+    private func ghostLength(of buffer: Draft.Buffer) -> Int {
+        guard !buffer.ghost.isEmpty else { return 0 }
+        let lead = Draft.separator(after: buffer.characters[..<buffer.cursor], before: buffer.ghost)
+        return ((lead + buffer.ghost) as NSString).length
+    }
+
+    private func utf16Offset(ofCharacter index: Int, in buffer: Draft.Buffer) -> Int {
+        let upTo = min(max(index, 0), buffer.count)
+        let length = (String(buffer.characters[..<upTo]) as NSString).length
+        return upTo > buffer.cursor ? length + ghostLength(of: buffer) : length
+    }
+
+    private func characterOffset(ofUTF16 offset: Int, in buffer: Draft.Buffer) -> Int {
+        let text = String(buffer.characters) as NSString
+        let ghost = ghostLength(of: buffer)
+        let beforeLength = (String(buffer.characters[..<buffer.cursor]) as NSString).length
+        var u = max(0, offset)
+        if ghost > 0, u > beforeLength {
+            // Inside the ghost is the cursor; after it, the text shifts back.
+            u = u < beforeLength + ghost ? beforeLength : u - ghost
+        }
+        return min(buffer.count, text.substring(to: min(u, text.length)).count)
+    }
+
+    /// What a point in the window is over, as the buffer's own indexes: the
+    /// insertion point nearest it, rounded to the nearer side of the letter
+    /// by the layout's fraction of the distance, and the character it is
+    /// over. A point beyond a line's end is over the newline there, and one
+    /// below the last line is at the text's end; one above the first line
+    /// is at its start, by x. The point is held inside the text box, so a
+    /// drag that has left the glass above or below still reads as the top
+    /// or bottom line it was last over, and the autoscroll moves on from
+    /// there a line at a time.
+    func hit(atWindowPoint window: NSPoint) -> Draft.Pointer.Hit {
+        guard let buffer = lastView?.buffer, let layout = textView.layoutManager,
+              let container = textView.textContainer, layout.numberOfGlyphs > 0 else {
+            return Draft.Pointer.Hit(at: 0)
+        }
+        let box = scroll.convert(scroll.bounds, to: nil)
+        var point = textView.convert(NSPoint(x: window.x, y: min(max(window.y, box.minY + 1), box.maxY - 1)),
+                                     from: nil)
+        point.x -= textView.textContainerOrigin.x
+        point.y -= textView.textContainerOrigin.y
+        let n = buffer.count
+        let extra = layout.extraLineFragmentRect
+        let lastLine = layout.lineFragmentRect(forGlyphAt: layout.numberOfGlyphs - 1, effectiveRange: nil)
+        if point.y >= (extra.height > 0 ? extra.minY : lastLine.maxY) { return Draft.Pointer.Hit(at: n) }
+        var fraction: CGFloat = 0
+        let offset = layout.characterIndex(for: point, in: container,
+                                           fractionOfDistanceBetweenInsertionPoints: &fraction)
+        let index = characterOffset(ofUTF16: offset, in: buffer)
+        if index >= n || buffer.characters[index] == "\n" { return Draft.Pointer.Hit(at: min(index, n)) }
+        // The far half of the last letter on a wrapped line is the start of
+        // the next line, where the caret would jump; when that letter is the
+        // space the line broke on, the caret belongs before it, at the end
+        // of the words the hand pointed past.
+        var insertion = fraction >= 0.5 ? index + 1 : index
+        if insertion == index + 1, buffer.characters[index] == " ", buffer.ghost.isEmpty {
+            let glyph = layout.glyphIndexForCharacter(at: offset)
+            var fragment = NSRange()
+            _ = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &fragment)
+            if NSMaxRange(layout.characterRange(forGlyphRange: fragment, actualGlyphRange: nil)) == offset + 1,
+               index + 1 < n, buffer.characters[index + 1] != "\n" {
+                insertion = index
+            }
+        }
+        return Draft.Pointer.Hit(insertion: insertion, character: index)
+    }
+
+    /// The insertion point nearest a point in the window.
+    func characterIndex(atWindowPoint point: NSPoint) -> Int {
+        hit(atWindowPoint: point).insertion
+    }
+
+    /// A point in the window over a character's glyph, a quarter of the
+    /// way in from its left edge by default, midway up the line: the
+    /// spot a test presses to mean that character (0.75 is its far half).
+    /// Past the last character it is just beyond the text's end, on the
+    /// empty line a final newline leaves if there is one. The character
+    /// has to be on screen for the hit to find it again.
+    func windowPoint(forCharacter index: Int, at fraction: CGFloat = 0.25) -> NSPoint {
+        guard let buffer = lastView?.buffer, let layout = textView.layoutManager,
+              let container = textView.textContainer, layout.numberOfGlyphs > 0 else {
+            return textView.convert(NSPoint(x: 2, y: 8), to: nil)
+        }
+        let origin = textView.textContainerOrigin
+        let extra = layout.extraLineFragmentRect
+        var local: NSPoint
+        if index >= buffer.count {
+            if extra.height > 0 {
+                local = NSPoint(x: 2, y: extra.midY)
+            } else {
+                let glyph = layout.numberOfGlyphs - 1
+                let rect = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+                local = NSPoint(x: rect.maxX + 3, y: rect.midY)
+            }
+        } else {
+            let glyph = layout.glyphIndexForCharacter(at: utf16Offset(ofCharacter: index, in: buffer))
+            let rect = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+            let newline = buffer.characters[index] == "\n"
+            local = NSPoint(x: newline ? rect.minX + 2 : rect.minX + max(1, rect.width) * fraction, y: rect.midY)
+        }
+        local.x += origin.x
+        local.y += origin.y
+        return textView.convert(local, to: nil)
     }
 
     /// Where UTF-16 ranges of the settled text are drawn, in quartz screen

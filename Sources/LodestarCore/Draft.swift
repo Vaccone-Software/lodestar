@@ -308,6 +308,18 @@ public enum Draft {
             anchor = held
         }
 
+        /// A Mac selection from `anchor` to `cursor`, the cursor being the
+        /// end that moves: the pointer's, where `select` grows one from
+        /// where the cursor stands. Both are insertion points and are
+        /// clamped to the text; ends that meet are no selection.
+        public mutating func select(anchor newAnchor: Int, cursor newCursor: Int) {
+            let head = max(0, min(newCursor, characters.count))
+            let tail = max(0, min(newAnchor, characters.count))
+            cursor = head
+            anchor = tail == head ? nil : tail
+            lastGrain = nil
+        }
+
         public mutating func selectAll() {
             anchor = 0
             cursor = characters.count

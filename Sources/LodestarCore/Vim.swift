@@ -119,7 +119,9 @@ public struct Vim {
         }
         return positions
     }
-    private var visualAnchor = 0
+    /// The far end of a visual selection from the cursor. The pointer reads
+    /// it to extend a selection that already stands.
+    public private(set) var visualAnchor = 0
 
     // History.
     private struct Snapshot: Equatable { let characters: [Character]; let cursor: Int }
@@ -180,6 +182,42 @@ public struct Vim {
         insertOpen = false
         inserted = []
         recording = []
+        clampNormal(&buffer)
+    }
+
+    // MARK: - The pointer
+
+    /// A click: the cursor goes to `index`, and whatever was half typed
+    /// is dropped, since a hand that points has finished with the
+    /// sentence it was saying to the keys. Visual mode ends in normal; in
+    /// normal the cursor rests on a character, as it does after any
+    /// motion; in insert it is a caret between characters and the mode,
+    /// with the run it is in, goes on. An insert run's keys are the
+    /// editor's record of how to say it again, so the pending grammar is
+    /// cleared only outside insert, where it is not that record.
+    public mutating func point(at index: Int, buffer: inout Draft.Buffer) {
+        if mode != .insert {
+            clearPending()
+            mode = .normal
+        }
+        buffer.setCursor(index)
+        clampNormal(&buffer)
+    }
+
+    /// A drag, a double click or a triple click: visual mode over the span
+    /// from `anchor` to `cursor`, both characters, inclusive, the way
+    /// vim's own mouse makes one (`set mouse=a`), and its line form for a
+    /// triple click. Half-typed commands are dropped. The shell leaves
+    /// insert mode first, through its own path, because the microphone
+    /// follows the mode; this leaves it too if it is still there, so the
+    /// editor is never visual and inserting at once.
+    public mutating func visual(anchor: Int, cursor: Int, line: Bool, buffer: inout Draft.Buffer) {
+        if mode == .insert { leaveInsert(&buffer) }
+        clearPending()
+        mode = .visual(line: line)
+        let last = max(0, buffer.count - 1)
+        visualAnchor = min(max(anchor, 0), last)
+        buffer.setCursor(min(max(cursor, 0), buffer.count))
         clampNormal(&buffer)
     }
 

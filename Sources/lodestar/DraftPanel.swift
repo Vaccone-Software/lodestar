@@ -293,6 +293,39 @@ final class DraftTextView: NSTextView {
     override func cursorUpdate(with event: NSEvent) { NSCursor.iBeam.set() }
 }
 
+/// The glass around the words: the air beside them and over them, which a
+/// Mac field counts as its own, so a click in the margin left of a line
+/// puts the caret at that line's start and one over the text reaches its
+/// top line. It hands every press to the words, whose hit test holds the
+/// point inside the text box; the foot is not part of it, since a click
+/// beside the input's name is not a click on the text.
+final class DraftMargin: NSView {
+    weak var words: DraftTextView?
+
+    override var acceptsFirstResponder: Bool { false }
+    override var needsPanelToBecomeKey: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) { words?.mouseDown(with: event) }
+    override func mouseDragged(with event: NSEvent) { words?.mouseDragged(with: event) }
+    override func mouseUp(with event: NSEvent) { words?.mouseUp(with: event) }
+    override func rightMouseDown(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+
+    private var beam: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let beam { removeTrackingArea(beam) }
+        let area = NSTrackingArea(rect: bounds, options: [.cursorUpdate, .activeAlways, .inVisibleRect],
+                                  owner: self)
+        addTrackingArea(area)
+        beam = area
+    }
+
+    override func cursorUpdate(with event: NSEvent) { NSCursor.iBeam.set() }
+}
+
 /// The draft's glass: bottom center, fixed in place, growing upward with
 /// the text. Never key — the app under it keeps its cursor the whole
 /// time — but it takes the mouse: on its register line, the input, which
@@ -346,6 +379,8 @@ final class DraftPanel {
     let textView = DraftTextView()
     private let scroll = NSScrollView()
     private let caret = NSView()
+    /// The air around the words, which takes a press as the words do.
+    private let textMargin = DraftMargin()
     /// The keys, when they are asked for. The draft carries no legend:
     /// every key it owns lives behind `lode ?`, like every other
     /// surface's, and the glass grows to hold them.
@@ -455,7 +490,11 @@ final class DraftPanel {
         // The caret sits under the text: a block cursor is a solid plate
         // with the glyph inverted over it, the way every terminal draws
         // one, and the plate has to be behind the glyph for that.
-        for view in [registerIcon, registerName, registerNote, inputButton,
+        // The margin is first, under everything: the words, the foot and
+        // the keys each keep their own clicks, and it takes only what
+        // falls on the glass between them.
+        textMargin.words = textView
+        for view in [textMargin, registerIcon, registerName, registerNote, inputButton,
                      caret, scroll, voiceLight] {
             root.addSubview(view)
         }
@@ -470,6 +509,7 @@ final class DraftPanel {
             view.autoresizingMask = [.maxYMargin]
         }
         scroll.autoresizingMask = [.width, .height]
+        textMargin.autoresizingMask = [.width, .height]
         voiceLight.autoresizingMask = [.width, .height]
     }
 
@@ -1072,6 +1112,8 @@ final class DraftPanel {
         // The text.
         scroll.frame = NSRect(x: Self.padX, y: Self.footHeight + keysBand,
                               width: textWidth, height: textHeight)
+        textMargin.frame = NSRect(x: 0, y: scroll.frame.minY,
+                              width: root.bounds.width, height: max(0, root.bounds.height - scroll.frame.minY))
         textView.frame = NSRect(x: 0, y: 0, width: textWidth, height: max(textHeight, used))
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         if let window {

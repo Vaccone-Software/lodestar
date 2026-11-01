@@ -134,6 +134,57 @@ final class DraftPointerScenarioTests: XCTestCase {
         XCTAssertFalse(panel(stage).textView.isSelectable)
     }
 
+    func testTheGlassBesideTheWordsTakesAPressAsTheWordsDo() {
+        let stage = standard("first line\nsecond line", cursor: 0)
+        let box = panel(stage).textBoxInWindow
+        // In the air left of the second line: the caret at its start.
+        let beside = NSPoint(x: box.minX - 8, y: over(stage, 13).y)
+        XCTAssertTrue(panel(stage).panel.contentView?.hitTest(
+            panel(stage).panel.contentView!.convert(beside, from: nil)) is DraftMargin)
+        panel(stage).panel.sendEvent(event(.leftMouseDown, stage, at: beside))
+        XCTAssertTrue(panel(stage).pointerHeld, "a press in the margin holds the mouse as one on the words does")
+        panel(stage).panel.sendEvent(event(.leftMouseUp, stage, at: beside))
+        XCTAssertFalse(panel(stage).pointerHeld)
+        XCTAssertEqual(stage.draft.buffer.cursor, 11, "the start of the line beside it")
+        // Past the right end of the first line: its end.
+        panel(stage).panel.sendEvent(event(.leftMouseDown, stage, at: NSPoint(x: box.maxX + 8, y: over(stage, 2).y)))
+        panel(stage).panel.sendEvent(event(.leftMouseUp, stage, at: NSPoint(x: box.maxX + 8, y: over(stage, 2).y)))
+        XCTAssertEqual(stage.draft.buffer.cursor, 10)
+        XCTAssertFalse(panel(stage).panel.isKeyWindow)
+    }
+
+    func testAKeyStruckDuringADragEndsIt() {
+        let stage = standard("hello world", cursor: 0)
+        stage.draft.pointerDown(at: over(stage, 0), clicks: 1, shift: false)
+        stage.draft.pointerDragged(to: over(stage, 5))
+        XCTAssertEqual(selected(stage), "hello")
+        stage.press("x")
+        XCTAssertEqual(stage.draft.buffer.text, "x world")
+        // The pointer goes on moving with the button down: the press it
+        // belonged to ended at the key, so the text it read is not grown.
+        stage.draft.pointerDragged(to: over(stage, 6))
+        XCTAssertNil(stage.draft.buffer.selection)
+        XCTAssertEqual(stage.draft.buffer.cursor, 1)
+        stage.draft.pointerUp()
+    }
+
+    func testSpeechTakingTheSelectionADragIsMakingEndsTheDrag() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("Hello there world.")
+        stage.draft.pointerDown(at: over(stage, 6), clicks: 1, shift: false)
+        stage.draft.pointerDragged(to: over(stage, 11))
+        XCTAssertEqual(shown(stage), "there")
+        stage.speech.settle("here")
+        let after = stage.draft.buffer.text
+        XCTAssertFalse(after.contains("there"), "the words took the selection")
+        XCTAssertEqual(stage.draft.vim.mode, .insert)
+        stage.draft.pointerDragged(to: over(stage, 2))
+        XCTAssertEqual(stage.draft.buffer.text, after)
+        XCTAssertEqual(stage.draft.vim.mode, .insert, "a drag left over from before the words selects nothing")
+        stage.draft.pointerUp()
+    }
+
     func testTheRealEventsCarryTheClickCountAndShift() {
         let stage = standard("one two three", cursor: 0)
         let text = panel(stage).textView

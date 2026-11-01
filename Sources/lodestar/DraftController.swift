@@ -957,6 +957,11 @@ final class DraftController {
             stopAutoscroll()
             return
         }
+        // Words heard since the press stand as a ghost, which shifts every
+        // position past the cursor, and the layout cannot say where a line
+        // up or down lands until they settle: the step waits a tick rather
+        // than taking the fallback, which is the text's far end.
+        guard buffer.ghost.isEmpty else { return }
         let down = edge == .below
         let index = panel.visualMove(from: from.character, down: down, in: buffer)
             ?? (down ? buffer.count : 0)
@@ -1299,6 +1304,9 @@ final class DraftController {
             provisional = nil
             lastSpoken = nil
             vim.speakOver(range, with: repaired, buffer: &buffer)
+            // Speech that takes the selection a drag is still making ends
+            // the drag, as a key would: the range it grows from is gone.
+            if press != nil { pointerUp() }
             setMode(.insert)
             render()
             return
@@ -1473,9 +1481,12 @@ final class DraftController {
         if closing { return true }
         pasteRefused = false
         // A key ends the pointer's grain: a shift-click after one extends by
-        // characters again.
+        // characters again. A key struck with the button still down ends
+        // the press too: the drag that follows would grow a range read off
+        // text the key has since changed.
         grain = .character
         pressedUnit = nil
+        if press != nil { pointerUp() }
         // Standard's selection keys, ⌘ or not.
         if sessionStyle == .standard, mode == .insert, !control {
             // Words still being heard become text before a selection can

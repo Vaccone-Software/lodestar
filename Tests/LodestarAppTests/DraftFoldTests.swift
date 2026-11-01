@@ -316,4 +316,118 @@ final class DraftFoldTests: XCTestCase {
         panel.show(quiet)
         XCTAssertEqual(panel.lightLength, 1, accuracy: 0.001)
     }
+
+    // MARK: - The window holds still
+
+    private func numbered(_ count: Int) -> String { (1...count).map { "line \($0)" }.joined(separator: "\n") }
+
+    /// A silent insert-mode view of `count` numbered lines with the cursor at
+    /// the start of line `line`, one-based.
+    private func standing(on line: Int, of count: Int = 12) -> DraftView {
+        var buffer = Draft.Buffer(text: numbered(count))
+        buffer.setCursor(buffer.lineStartOfLine(line - 1))
+        var view = DraftView(buffer: buffer, mode: .insert, editor: .insert, speech: nil,
+                             destination: ("Ghostty", nil), replacing: false)
+        view.style = .standard
+        return view
+    }
+
+    /// Where the layout puts the top of a line, one-based.
+    private func top(ofLine line: Int) -> CGFloat {
+        var tops: [CGFloat] = []
+        let layout = panel.textView.layoutManager!
+        layout.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: layout.numberOfGlyphs)) {
+            rect, _, _, _, _ in tops.append(rect.minY)
+        }
+        return tops[line - 1]
+    }
+
+    /// The fold ended on the cursor's line every time, so clicking the top
+    /// visible line scrolled the text three lines under the pointer. The
+    /// window now stays where it stood while the cursor is inside it.
+    func testAMoveInsideTheWindowLeavesItWhereItStood() {
+        panel.show(standing(on: 12))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 9), accuracy: 0.5, "ends on the cursor's line")
+        panel.show(standing(on: 9))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 9), accuracy: 0.5, "the top line, and nothing moved")
+        panel.show(standing(on: 10))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 9), accuracy: 0.5)
+        XCTAssertEqual(visibleLines().cut, 0)
+    }
+
+    func testAMoveAboveTheWindowStartsItOnThatLineAndOneBelowEndsItThere() {
+        panel.show(standing(on: 12))
+        panel.show(standing(on: 5))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 5), accuracy: 0.5, "above: starts on the cursor's line")
+        panel.show(standing(on: 7))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 5), accuracy: 0.5, "inside again: held")
+        panel.show(standing(on: 10))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 7), accuracy: 0.5, "below: ends on the cursor's line")
+    }
+
+    /// The common case, and the reason the old rule was right for a long
+    /// time: words arriving at the end always show the last four lines.
+    func testTextArrivingAtTheEndStillShowsTheLastFourLines() {
+        panel.show(standing(on: 12))
+        for count in 13...15 {
+            var view = standing(on: 1, of: count)
+            var buffer = view.buffer
+            buffer.moveEnd()
+            view = DraftView(buffer: buffer, mode: .insert, editor: .insert, speech: nil,
+                             destination: ("Ghostty", nil), replacing: false)
+            panel.show(view)
+            XCTAssertEqual(panel.textScrollOrigin, top(ofLine: count - 3), accuracy: 0.5, "\(count) lines")
+        }
+        XCTAssertEqual(visibleLines().whole, DraftPanel.compactLines)
+    }
+
+    func testAWindowThatIsNoLongerFullIsFoundAgainOnTheCursor() {
+        panel.show(standing(on: 12))
+        panel.show(standing(on: 4, of: 5))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 1), accuracy: 0.5,
+                       "the old window began past where a full one can: it ends on the cursor's line")
+        panel.show(standing(on: 5, of: 5))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 2), accuracy: 0.5, "and holds there")
+    }
+
+    func testOpeningThenFoldingFindsTheWindowAfresh() {
+        panel.show(standing(on: 12))
+        panel.show(standing(on: 10))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 9), accuracy: 0.5, "held while folded")
+        var open = standing(on: 10)
+        open.expanded = true
+        panel.show(open)
+        panel.show(standing(on: 10))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 7), accuracy: 0.5,
+                       "folded again, it ends on the cursor's line like a first fold")
+    }
+
+    func testHidingForgetsTheWindow() {
+        panel.show(standing(on: 12))
+        panel.hide()
+        panel.show(standing(on: 10))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 7), accuracy: 0.5)
+    }
+
+    /// A wheel may have moved the text since the last render. The press
+    /// takes the window as the hand left it, so the line it lands on is
+    /// the line it was over and the render after it does not take it back.
+    func testTheWindowTheHandScrolledToIsAdoptedBeforeTheNextRender() {
+        panel.show(standing(on: 12))
+        let clip = panel.textView.enclosingScrollView!.contentView
+        clip.scroll(to: NSPoint(x: 0, y: top(ofLine: 5)))
+        panel.adoptVisibleWindow()
+        panel.show(standing(on: 6))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 5), accuracy: 0.5,
+                       "line 6 is inside the window the hand scrolled to: nothing moved")
+    }
+
+    func testWithoutAdoptingTheRenderTakesTheWindowBackToTheCursor() {
+        panel.show(standing(on: 12))
+        let clip = panel.textView.enclosingScrollView!.contentView
+        clip.scroll(to: NSPoint(x: 0, y: top(ofLine: 5)))
+        panel.show(standing(on: 6))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 6), accuracy: 0.5,
+                       "the old window was lines 9 to 12, and line 6 is above it")
+    }
 }

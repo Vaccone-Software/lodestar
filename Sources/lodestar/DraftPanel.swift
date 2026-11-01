@@ -321,6 +321,14 @@ final class DraftPanel {
     /// stays in view, `zo` to open it whole, `zc` or the voice to fold
     /// it again.
     private(set) var expanded = false
+    /// The line the folded window began on at the last render, by the
+    /// layout's own count of visual lines. The window is held where it
+    /// stands for as long as the cursor is inside it: ending it on the
+    /// cursor's line every time, which was right while words only arrived
+    /// at the end, scrolled the text three lines under a pointer that had
+    /// just clicked the top one. nil while nothing is folded.
+    private var windowTop: Int?
+
     /// Internal so the tests can read the storage the screen reads: the
     /// find lights once shipped as background washes that vibrancy ate,
     /// and only a test against the rendered attributes catches that class
@@ -477,6 +485,7 @@ final class DraftPanel {
         keysShown = false
         lastView = nil
         expanded = false
+        windowTop = nil
         inputMenu.hide()
         target = nil
         voiceLight.show(level: nil)
@@ -571,6 +580,35 @@ final class DraftPanel {
     }
 
     // MARK: - The pointer
+
+    /// The text's visual lines, top to bottom, as the layout drew them:
+    /// the eye's lines, which are what a fold counts. The empty line a
+    /// final newline leaves for the caret to stand on is the last one.
+    private func visualLines() -> [NSRect] {
+        guard let layout = textView.layoutManager, layout.numberOfGlyphs > 0 else { return [] }
+        var lines: [NSRect] = []
+        layout.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: layout.numberOfGlyphs)) {
+            rect, _, _, _, _ in lines.append(rect)
+        }
+        let extra = layout.extraLineFragmentRect
+        if extra.height > 0 { lines.append(extra) }
+        return lines
+    }
+
+    /// Take the window as the hand sees it before the next render lays it
+    /// out: a wheel or a trackpad may have scrolled the text since the
+    /// last one, and a click on a line should land on that line and leave
+    /// the window where the hand put it. The line nearest the top of what
+    /// is visible becomes the window's first; nothing is adopted while the
+    /// text is shown whole or is short enough to need no fold.
+    func adoptVisibleWindow() {
+        guard panel.isVisible, !expanded, windowTop != nil else { return }
+        let lines = visualLines()
+        guard lines.count > Self.compactLines else { return }
+        let y = scroll.contentView.bounds.origin.y
+        let nearest = lines.indices.min { abs(lines[$0].minY - y) < abs(lines[$1].minY - y) } ?? 0
+        windowTop = min(nearest, lines.count - Self.compactLines)
+    }
 
     /// Whether the window holds the mouse for a drag, for the tests.
     var pointerHeld: Bool { gate.held }
@@ -739,6 +777,9 @@ final class DraftPanel {
             }
         }
         lastView = view
+        // Opening or folding is a new view of the text, not a move inside
+        // one: the window is found afresh, ending on the cursor's line.
+        if view.expanded != expanded { windowTop = nil }
         expanded = view.expanded
         let screen = ActivePolicy.presentationFrame
         let width = min(view.width ?? Self.width, screen.width - Self.margin * 2)
@@ -847,20 +888,22 @@ final class DraftPanel {
         let cursorUTF16 = (String(view.buffer.characters[..<view.buffer.cursor]) as NSString).length
         let afterUTF16 = (String(view.buffer.characters[view.buffer.cursor...]) as NSString).length
         let focus = view.buffer.ghost.isEmpty ? cursorUTF16 : attributed.length - afterUTF16
-        // Folded, the window is whole lines read off the layout itself,
-        // ending on the focus's line: a line cut through at the top would
-        // be a fade drawn with a ruler.
+        // Folded, the window is whole lines read off the layout itself: a
+        // line cut through at the top would be a fade drawn with a ruler.
+        // It moves as little as it can. Where it stood is kept while the
+        // focus is inside it and it is still full; a focus above it starts
+        // the window on the focus's line, and one below it ends the window
+        // there, which is where words arriving at the end of the text
+        // always find it. With nothing remembered the window ends on the
+        // focus, as it always has.
         var window: (top: CGFloat, height: CGFloat)?
         var whole = expanded
+        var folded = false
         if !expanded, let layout = textView.layoutManager, layout.numberOfGlyphs > 0 {
-            var lines: [NSRect] = []
-            layout.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: layout.numberOfGlyphs)) {
-                rect, _, _, _, _ in lines.append(rect)
-            }
+            let lines = visualLines()
             // A text ending in a newline has one more line than its glyphs:
             // the empty one the caret stands on after ⇧⏎.
             let extra = layout.extraLineFragmentRect
-            if extra.height > 0 { lines.append(extra) }
             if lines.count > Self.compactLines {
                 // The focus's own line. A ghost's end is the character
                 // before it; a cursor is the character under it, which at
@@ -879,8 +922,14 @@ final class DraftPanel {
                     focusLine = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
                 }
                 let end = lines.firstIndex { abs($0.minY - focusLine.minY) < 0.5 } ?? lines.count - 1
-                let start = max(0, end - (Self.compactLines - 1))
-                let last = min(lines.count - 1, start + Self.compactLines - 1)
+                // The last top that still shows a full window.
+                let lowest = lines.count - Self.compactLines
+                var top = end - (Self.compactLines - 1)
+                if let held = windowTop, held <= lowest {
+                    if end < held { top = end } else if end < held + Self.compactLines { top = held }
+                }
+                top = min(max(0, top), lowest)
+                let last = top + Self.compactLines - 1
                 // A Mac selection the held lines would cut is read whole:
                 // Standard has no `zo`, and what ⌘X, ⌫ or speech is about to
                 // take should be seen first. It folds again with the selection.
@@ -889,15 +938,21 @@ final class DraftPanel {
                    let range = drawable(selection), let container = textView.textContainer {
                     let selected = layout.boundingRect(
                         forGlyphRange: layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: container)
-                    cut = selected.minY < lines[start].minY - 0.5 || selected.maxY > lines[last].maxY + 0.5
+                    cut = selected.minY < lines[top].minY - 0.5 || selected.maxY > lines[last].maxY + 0.5
                 }
                 if cut {
+                    // Read whole for now; the window it was is still the one
+                    // the text folds back to.
                     whole = true
+                    folded = true
                 } else {
-                    window = (lines[start].minY, min(maxTextHeight, lines[last].maxY - lines[start].minY))
+                    window = (lines[top].minY, min(maxTextHeight, lines[last].maxY - lines[top].minY))
+                    windowTop = top
+                    folded = true
                 }
             }
         }
+        if !folded { windowTop = nil }
         // The text box keeps a floor of its own so an empty draft is not a
         // slot — but that floor is slack under the words, and with keys
         // up it stacks on the keys' own air and reads as one gap of

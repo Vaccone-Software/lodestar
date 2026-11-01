@@ -430,8 +430,8 @@ final class DraftStandardScenarioTests: XCTestCase {
 
     // MARK: - The four lines
 
-    /// The cursor is never out of sight: the folded view ends on the
-    /// cursor's line, wherever a move takes it, so there is no `zo` to ask.
+    /// The cursor is never out of sight: the folded view follows it out of
+    /// the four lines, wherever a move takes it, so there is no `zo` to ask.
     func testTheFoldedViewFollowsTheCursorUp() {
         let panel = DraftPanel()
         defer { panel.hide() }
@@ -464,8 +464,11 @@ final class DraftStandardScenarioTests: XCTestCase {
         stage.chord("left", [shift, option])
         XCTAssertEqual(height(stage), folded, accuracy: 0.5, "a word on the last line: inside the four")
         stage.chord("up", [shift])
+        XCTAssertEqual(height(stage), folded, accuracy: 0.5,
+                       "a line up is still inside the four, and the window holds still under it")
+        for _ in 0..<3 { stage.chord("up", [shift]) }
         XCTAssertGreaterThan(height(stage), folded + 20,
-                             "the held lines now end on the cursor's line, above the selection's far end")
+                             "the cursor left the four, the window followed it up, and its far end is cut")
         stage.press("delete")
         XCTAssertEqual(height(stage), folded, accuracy: 0.5, "and folds with the selection")
         XCTAssertEqual(stage.draft.state["expanded"] as? Bool, false, "the draft itself was never opened")

@@ -764,6 +764,10 @@ final class DraftController {
     /// The grain of the last press, which a shift-click extends by: after a
     /// double click, whole words. Any key puts it back to a character.
     private var grain = Draft.Pointer.Grain.character
+    /// The word or line that press took, which a shift-click keeps whole as
+    /// it extends: double-click a word, shift-click three words on, shift-click
+    /// a word before it, and the word double-clicked is still the anchor.
+    private var pressedUnit: Range<Int>?
     /// Where the pointer last was while the button was down, and what it
     /// was over, for the autoscroll to go on from.
     private var dragPoint: NSPoint?
@@ -781,6 +785,7 @@ final class DraftController {
         stopAutoscroll()
         press = nil
         grain = .character
+        pressedUnit = nil
         dragPoint = nil
         dragHit = nil
         caretMoved = false
@@ -809,6 +814,15 @@ final class DraftController {
         let hit = panel.hit(atWindowPoint: point)
         if !shift { grain = Draft.Pointer.Grain(clicks: clicks) }
         var began = Press(range: hit.insertion..<hit.insertion, grain: grain)
+        // What a shift-click by words or lines reaches from: the unit that
+        // was pressed, while the selection still holds it, else the whole
+        // selection, else the caret.
+        let reached: Range<Int>? = {
+            let current = sessionStyle == .standard ? buffer.selection : vim.selection(in: buffer)
+            guard let unit = pressedUnit, let current,
+                  current.lowerBound <= unit.lowerBound, unit.upperBound <= current.upperBound else { return current }
+            return unit
+        }()
         if sessionStyle == .standard {
             if shift {
                 // The anchor stays; with no selection it is where the caret was.
@@ -816,7 +830,7 @@ final class DraftController {
                     let held = buffer.anchor ?? buffer.cursor
                     began.range = held..<held
                 } else {
-                    began.range = buffer.selection ?? buffer.cursor..<buffer.cursor
+                    began.range = reached ?? buffer.cursor..<buffer.cursor
                 }
             } else {
                 began.range = Draft.Pointer.range(at: hit, grain: grain, in: buffer)
@@ -833,11 +847,12 @@ final class DraftController {
                     began.character = buffer.cursor
                 }
             } else {
-                began.range = vim.selection(in: buffer) ?? buffer.cursor..<buffer.cursor + 1
+                began.range = reached ?? buffer.cursor..<buffer.cursor + 1
             }
         } else {
             began.range = Draft.Pointer.range(at: hit, grain: grain, in: buffer)
         }
+        if !shift { pressedUnit = grain == .character ? nil : began.range }
         press = began
         dragHit = hit
         dragPoint = point
@@ -1460,6 +1475,7 @@ final class DraftController {
         // A key ends the pointer's grain: a shift-click after one extends by
         // characters again.
         grain = .character
+        pressedUnit = nil
         // Standard's selection keys, ⌘ or not.
         if sessionStyle == .standard, mode == .insert, !control {
             // Words still being heard become text before a selection can

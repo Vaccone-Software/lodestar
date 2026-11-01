@@ -276,13 +276,19 @@ final class DraftTextView: NSTextView {
     /// A text view that is not selectable draws no cursor rect of its own,
     /// so the tracking area asks for it; `.inVisibleRect` keeps the area
     /// the scrolled window's own as the text moves under it.
+    private var beam: NSTrackingArea?
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.filter { $0.owner === self }.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds,
-                                       options: [.cursorUpdate, .activeAlways, .inVisibleRect],
-                                       owner: self))
+        if let beam { removeTrackingArea(beam) }
+        let area = NSTrackingArea(rect: bounds, options: [.cursorUpdate, .activeAlways, .inVisibleRect],
+                                  owner: self)
+        addTrackingArea(area)
+        beam = area
     }
+
+    /// The tracking area the I-beam is asked for by, for the tests.
+    var beamArea: NSTrackingArea? { beam }
 
     override func cursorUpdate(with event: NSEvent) { NSCursor.iBeam.set() }
 }
@@ -328,6 +334,10 @@ final class DraftPanel {
     /// at the end, scrolled the text three lines under a pointer that had
     /// just clicked the top one. nil while nothing is folded.
     private var windowTop: Int?
+    /// The window was just adopted from where the hand left it: the next
+    /// render keeps it even though the cursor is not in it yet, because the
+    /// press that adopted it is about to move the cursor into it.
+    private var adopted = false
 
     /// Internal so the tests can read the storage the screen reads: the
     /// find lights once shipped as background washes that vibrancy ate,
@@ -486,6 +496,7 @@ final class DraftPanel {
         lastView = nil
         expanded = false
         windowTop = nil
+        adopted = false
         inputMenu.hide()
         target = nil
         voiceLight.show(level: nil)
@@ -599,8 +610,10 @@ final class DraftPanel {
     /// out: a wheel or a trackpad may have scrolled the text since the
     /// last one, and a click on a line should land on that line and leave
     /// the window where the hand put it. The line nearest the top of what
-    /// is visible becomes the window's first; nothing is adopted while the
-    /// text is shown whole or is short enough to need no fold.
+    /// is visible becomes the window's first, and the next render keeps it
+    /// whatever the cursor is doing, since the press is about to put the
+    /// cursor inside it. Nothing is adopted while the text is shown whole
+    /// or is short enough to need no fold.
     func adoptVisibleWindow() {
         guard panel.isVisible, !expanded, windowTop != nil else { return }
         let lines = visualLines()
@@ -608,7 +621,12 @@ final class DraftPanel {
         let y = scroll.contentView.bounds.origin.y
         let nearest = lines.indices.min { abs(lines[$0].minY - y) < abs(lines[$1].minY - y) } ?? 0
         windowTop = min(nearest, lines.count - Self.compactLines)
+        adopted = true
     }
+
+    /// The text box, in window coordinates: the part of the text a hand can
+    /// point into, which a drag may run past.
+    var textBoxInWindow: NSRect { scroll.convert(scroll.bounds, to: nil) }
 
     /// Whether the window holds the mouse for a drag, for the tests.
     var pointerHeld: Bool { gate.held }
@@ -617,7 +635,7 @@ final class DraftPanel {
     /// pointer may be above or below while a drag runs past it.
     enum Edge { case above, below }
     func edge(atWindowPoint point: NSPoint) -> Edge? {
-        let box = scroll.convert(scroll.bounds, to: nil)
+        let box = textBoxInWindow
         if point.y > box.maxY { return .above }
         if point.y < box.minY { return .below }
         return nil
@@ -666,7 +684,7 @@ final class DraftPanel {
               let container = textView.textContainer, layout.numberOfGlyphs > 0 else {
             return Draft.Pointer.Hit(at: 0)
         }
-        let box = scroll.convert(scroll.bounds, to: nil)
+        let box = textBoxInWindow
         var point = textView.convert(NSPoint(x: window.x, y: min(max(window.y, box.minY + 1), box.maxY - 1)),
                                      from: nil)
         point.x -= textView.textContainerOrigin.x
@@ -926,7 +944,11 @@ final class DraftPanel {
                 let lowest = lines.count - Self.compactLines
                 var top = end - (Self.compactLines - 1)
                 if let held = windowTop, held <= lowest {
-                    if end < held { top = end } else if end < held + Self.compactLines { top = held }
+                    if adopted || (held...held + Self.compactLines - 1).contains(end) {
+                        top = held
+                    } else if end < held {
+                        top = end
+                    }
                 }
                 top = min(max(0, top), lowest)
                 let last = top + Self.compactLines - 1
@@ -953,6 +975,7 @@ final class DraftPanel {
             }
         }
         if !folded { windowTop = nil }
+        adopted = false
         // The text box keeps a floor of its own so an empty draft is not a
         // slot — but that floor is slack under the words, and with keys
         // up it stacks on the keys' own air and reads as one gap of

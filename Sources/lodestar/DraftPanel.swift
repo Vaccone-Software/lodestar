@@ -720,39 +720,6 @@ final class DraftPanel {
         hit(atWindowPoint: point).insertion
     }
 
-    /// A point in the window over a character's glyph, a quarter of the
-    /// way in from its left edge by default, midway up the line: the
-    /// spot a test presses to mean that character (0.75 is its far half).
-    /// Past the last character it is just beyond the text's end, on the
-    /// empty line a final newline leaves if there is one. The character
-    /// has to be on screen for the hit to find it again.
-    func windowPoint(forCharacter index: Int, at fraction: CGFloat = 0.25) -> NSPoint {
-        guard let buffer = lastView?.buffer, let layout = textView.layoutManager,
-              let container = textView.textContainer, layout.numberOfGlyphs > 0 else {
-            return textView.convert(NSPoint(x: 2, y: 8), to: nil)
-        }
-        let origin = textView.textContainerOrigin
-        let extra = layout.extraLineFragmentRect
-        var local: NSPoint
-        if index >= buffer.count {
-            if extra.height > 0 {
-                local = NSPoint(x: 2, y: extra.midY)
-            } else {
-                let glyph = layout.numberOfGlyphs - 1
-                let rect = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
-                local = NSPoint(x: rect.maxX + 3, y: rect.midY)
-            }
-        } else {
-            let glyph = layout.glyphIndexForCharacter(at: utf16Offset(ofCharacter: index, in: buffer))
-            let rect = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
-            let newline = buffer.characters[index] == "\n"
-            local = NSPoint(x: newline ? rect.minX + 2 : rect.minX + max(1, rect.width) * fraction, y: rect.midY)
-        }
-        local.x += origin.x
-        local.y += origin.y
-        return textView.convert(local, to: nil)
-    }
-
     /// Where UTF-16 ranges of the settled text are drawn, in quartz screen
     /// coordinates (top-left origin), as the editor's lens places chips.
     /// Nil for a range the panel is not showing.
@@ -1288,6 +1255,43 @@ final class DraftPanel {
         }
     }
 }
+
+#if DEBUG
+extension DraftPanel {
+    /// A point in the window over a character's glyph, a quarter of the
+    /// way in from its left edge by default, midway up the line: the
+    /// spot a test presses to mean that character (0.75 is its far half).
+    /// Past the last character it is just beyond the text's end, on the
+    /// empty line a final newline leaves if there is one. The character
+    /// has to be on screen for the hit to find it again.
+    func windowPoint(forCharacter index: Int, at fraction: CGFloat = 0.25) -> NSPoint {
+        guard let buffer = lastView?.buffer, let layout = textView.layoutManager,
+              let container = textView.textContainer, layout.numberOfGlyphs > 0 else {
+            return textView.convert(NSPoint(x: 2, y: 8), to: nil)
+        }
+        let origin = textView.textContainerOrigin
+        let extra = layout.extraLineFragmentRect
+        var local: NSPoint
+        if index >= buffer.count {
+            if extra.height > 0 {
+                local = NSPoint(x: 2, y: extra.midY)
+            } else {
+                let glyph = layout.numberOfGlyphs - 1
+                let rect = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+                local = NSPoint(x: rect.maxX + 3, y: rect.midY)
+            }
+        } else {
+            let glyph = layout.glyphIndexForCharacter(at: utf16Offset(ofCharacter: index, in: buffer))
+            let rect = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+            let newline = buffer.characters[index] == "\n"
+            local = NSPoint(x: newline ? rect.minX + 2 : rect.minX + max(1, rect.width) * fraction, y: rect.midY)
+        }
+        local.x += origin.x
+        local.y += origin.y
+        return textView.convert(local, to: nil)
+    }
+}
+#endif
 
 #if DEBUG
 extension DraftPanel {

@@ -199,7 +199,8 @@ final class DraftController {
 
     // MARK: State
 
-    private let panel = DraftPanel()
+    /// The glass. Internal so the scenarios can aim the mouse at its words.
+    let panel = DraftPanel()
 
     // MARK: - The editor, inside the draft
 
@@ -365,6 +366,9 @@ final class DraftController {
     private var listens = 0
     private var backspaces = 0
     private var modeSwitches = 0
+    /// Presses the hand made on the text: how often a draft is pointed at
+    /// rather than keyed through.
+    private var pointerActs = 0
     private var firstKeyAt: Date?
     private var firstWordAt: Date?
     private var wasWarm = false
@@ -421,6 +425,14 @@ final class DraftController {
             }
         }
         panel.onChooseInput = { [weak self] name in self?.selectInput(name) }
+        panel.onPointer = { [weak self] event in
+            guard let self else { return }
+            switch event.kind {
+            case .down: self.pointerDown(at: event.point, clicks: event.clicks, shift: event.shift)
+            case .dragged: self.pointerDragged(to: event.point)
+            case .up: self.pointerUp()
+            }
+        }
         // The destination follows focus; the foot follows it.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
@@ -588,8 +600,9 @@ final class DraftController {
         listening = false
         provisional = nil
         openedAt = clock.now()
-        typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
+        typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0; retries = 0
+        resetPointer()
 
         // What is under the cursor: a selection through either door, the
         // whole field through edit.
@@ -667,8 +680,9 @@ final class DraftController {
         self.standsAbove = standsAbove
         doorWidth = panel.width(for: text, style: sessionStyle)
         openedAt = clock.now()
-        typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0
+        typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
+        resetPointer()
         mode = .insert
         vim.startInsert(buffer)
         Log.info("draft", ["open": Draft.Door.clip.rawValue, "characters": text.count])
@@ -729,6 +743,224 @@ final class DraftController {
     }
 
     // MARK: - The mouse
+
+    /// What a press has made of the text and what it will make of a drag:
+    /// the unit it took, and how it grows.
+    private struct Press {
+        /// The unit the press took, as insertion points: empty at a point,
+        /// the word or the line under the pointer for a double or a triple
+        /// click. A drag grows it, and keeps it whole either way.
+        var range: Range<Int>
+        var grain: Draft.Pointer.Grain
+        /// A shift-click in the editor reaches from a character, inclusive,
+        /// and its drags go on from that same character.
+        var character: Int? = nil
+        /// The editor was in its line form when a shift-click reached from it.
+        var line = false
+    }
+
+    /// The press in progress, from the button going down to its release.
+    private var press: Press?
+    /// The grain of the last press, which a shift-click extends by: after a
+    /// double click, whole words. Any key puts it back to a character.
+    private var grain = Draft.Pointer.Grain.character
+    /// Where the pointer last was while the button was down, and what it
+    /// was over, for the autoscroll to go on from.
+    private var dragPoint: NSPoint?
+    private var dragHit: Draft.Pointer.Hit?
+    private var autoscroll: Timer?
+    /// The caret moved in insert mode since the last edit, by the pointer or
+    /// by a key: the next editing key or paste starts a new undo step. See
+    /// `markCaretBoundary`.
+    private var caretMoved = false
+
+    /// Seconds between the lines a drag past the text box takes.
+    static let autoscrollInterval: TimeInterval = 0.06
+
+    private func resetPointer() {
+        stopAutoscroll()
+        press = nil
+        grain = .character
+        dragPoint = nil
+        dragHit = nil
+        caretMoved = false
+    }
+
+    /// Whether a drag past the text box is taking lines on its own.
+    var autoscrolling: Bool { autoscroll != nil }
+
+    /// A press on the text. The same ground rules as a key: words still
+    /// being heard become text where they stand, since a hand that points
+    /// at the draft has read it and the ghost is part of what it read, and
+    /// the hand has acted. The glass is drawn again before the point is
+    /// read, so the characters under the pointer are the characters the
+    /// buffer holds. Nothing here touches the microphone or the mode,
+    /// except where a drag, a double click or a triple click makes a
+    /// selection in the editor, which is visual mode and wakes it as any
+    /// selection does.
+    func pointerDown(at point: NSPoint, clicks: Int, shift: Bool) {
+        guard isOpen, !closing else { return }
+        pointerActs += 1
+        settleGhostAsSeen()
+        handActed()
+        // The window as the hand left it, before it can be taken back.
+        panel.adoptVisibleWindow()
+        render()
+        let hit = panel.hit(atWindowPoint: point)
+        if !shift { grain = Draft.Pointer.Grain(clicks: clicks) }
+        var began = Press(range: hit.insertion..<hit.insertion, grain: grain)
+        if sessionStyle == .standard {
+            if shift {
+                // The anchor stays; with no selection it is where the caret was.
+                if grain == .character {
+                    let held = buffer.anchor ?? buffer.cursor
+                    began.range = held..<held
+                } else {
+                    began.range = buffer.selection ?? buffer.cursor..<buffer.cursor
+                }
+            } else {
+                began.range = Draft.Pointer.range(at: hit, grain: grain, in: buffer)
+            }
+        } else if shift {
+            if mode == .insert {
+                // The caret is where the selection begins, as a drag from it.
+                began.range = buffer.cursor..<buffer.cursor
+            } else if grain == .character {
+                if case .visual(let linewise) = vim.mode {
+                    began.character = vim.visualAnchor
+                    began.line = linewise
+                } else {
+                    began.character = buffer.cursor
+                }
+            } else {
+                began.range = vim.selection(in: buffer) ?? buffer.cursor..<buffer.cursor + 1
+            }
+        } else {
+            began.range = Draft.Pointer.range(at: hit, grain: grain, in: buffer)
+        }
+        press = began
+        dragHit = hit
+        dragPoint = point
+        if sessionStyle == .vim, !shift, grain == .character {
+            // A click: the cursor onto the character, a caret in insert.
+            // Whatever visual selection stood is over.
+            vim.point(at: mode == .insert ? hit.insertion : hit.character, buffer: &buffer)
+            matchSpeechToSelection()
+        } else {
+            extend(to: hit)
+        }
+        if mode == .insert { caretMoved = true }
+        render()
+    }
+
+    /// The pointer moved with the button down: the selection follows it,
+    /// and past the text box above or below, the autoscroll takes over.
+    func pointerDragged(to point: NSPoint) {
+        guard isOpen, !closing, press != nil else { return }
+        dragPoint = point
+        if panel.edge(atWindowPoint: point) != nil, autoscroll != nil { return }
+        let hit = panel.hit(atWindowPoint: point)
+        dragHit = hit
+        extend(to: hit)
+        render()
+        if panel.edge(atWindowPoint: point) != nil { startAutoscroll() } else { stopAutoscroll() }
+    }
+
+    /// The button came up.
+    func pointerUp() {
+        press = nil
+        dragPoint = nil
+        dragHit = nil
+        stopAutoscroll()
+    }
+
+    /// The selection a press and the pointer's present place make, in the
+    /// style's own terms. The Standard style's is the Mac's: the anchor is
+    /// where the press began and the caret goes with the pointer. The
+    /// editor's is visual mode over the same span, inclusive of the
+    /// character the pointer is over, as vim's own mouse makes it
+    /// (`set mouse=a`); a drag out of insert leaves it first, by the path
+    /// a key takes, so the microphone and the mode agree.
+    private func extend(to hit: Draft.Pointer.Hit) {
+        guard let press else { return }
+        if sessionStyle == .standard {
+            let s = Draft.Pointer.selection(press: press.range, to: hit, grain: press.grain, in: buffer)
+            buffer.select(anchor: s.anchor, cursor: s.head)
+            return
+        }
+        let line = press.line || press.grain == .line
+        if let held = press.character {
+            let last = max(0, buffer.count - 1)
+            leaveInsertForPointer()
+            vim.visual(anchor: held, cursor: min(hit.character, last), line: line, buffer: &buffer)
+            matchSpeechToSelection()
+            return
+        }
+        let s = Draft.Pointer.selection(press: press.range, to: hit, grain: press.grain, in: buffer)
+        guard let span = Draft.Pointer.visualSpan(anchor: s.anchor, head: s.head) else {
+            // Back where it began, or a unit with nothing in it: only a point.
+            if case .visual = vim.mode { vim.point(at: hit.character, buffer: &buffer) }
+            matchSpeechToSelection()
+            return
+        }
+        leaveInsertForPointer()
+        vim.visual(anchor: span.anchor, cursor: span.cursor, line: line, buffer: &buffer)
+        matchSpeechToSelection()
+    }
+
+    private func leaveInsertForPointer() {
+        if mode == .insert { setMode(.normal) }
+    }
+
+    // MARK: Autoscroll
+
+    /// A drag with the pointer above or below the text takes a line at a
+    /// time toward that edge until it comes back or the button is
+    /// released. A timer on the main run loop in the common modes, and
+    /// never a tracking loop inside the press: the key tap runs on this
+    /// run loop, and a loop that held it would starve every key until the
+    /// button came up.
+    private func startAutoscroll() {
+        guard autoscroll == nil else { return }
+        let timer = Timer(timeInterval: Self.autoscrollInterval, repeats: true) { [weak self] _ in
+            self?.autoscrollStep()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        autoscroll = timer
+    }
+
+    private func stopAutoscroll() {
+        autoscroll?.invalidate()
+        autoscroll = nil
+    }
+
+    /// One line toward the edge the pointer is past, from where the last
+    /// step left the selection.
+    func autoscrollStep() {
+        guard isOpen, !closing, press != nil, let point = dragPoint,
+              let edge = panel.edge(atWindowPoint: point), let from = dragHit else {
+            stopAutoscroll()
+            return
+        }
+        let down = edge == .below
+        let index = panel.visualMove(from: from.character, down: down, in: buffer)
+            ?? (down ? buffer.count : 0)
+        let hit = Draft.Pointer.Hit(at: index)
+        dragHit = hit
+        extend(to: hit)
+        render()
+    }
+
+    /// A move of the caret in insert mode ends the typing run, as in any
+    /// Mac field: type "abc", click at the start, type "x", and ⌘Z takes
+    /// back "x" alone. The boundary is marked at the next editing key and
+    /// not at the move, because a snapshot that differed from the text only
+    /// by where the cursor stood would make ⌘Z a cursor move.
+    private func markCaretBoundary() {
+        guard caretMoved else { return }
+        caretMoved = false
+        vim.markInsertBoundary(buffer)
+    }
 
     /// An input was chosen on the foot. The config line is the
     /// app's to write; the session restarts on the new device at once.
@@ -1225,6 +1457,9 @@ final class DraftController {
         // held ⏎ would reach the app ahead of the paste and send.
         if closing { return true }
         pasteRefused = false
+        // A key ends the pointer's grain: a shift-click after one extends by
+        // characters again.
+        grain = .character
         // Standard's selection keys, ⌘ or not.
         if sessionStyle == .standard, mode == .insert, !control {
             // Words still being heard become text before a selection can
@@ -1233,6 +1468,7 @@ final class DraftController {
             if shift { settleGhostAsSeen() }
             if Draft.Standard.move(key, shift: shift, option: option, command: command, in: &buffer) {
                 handActed()
+                caretMoved = true
                 render()
                 return true
             }
@@ -1250,9 +1486,9 @@ final class DraftController {
                 if mode == .insert { markSelectionStep(); buffer.deleteToLineStart(); backspaces += 1 }
                 render(); return true
             case "left":
-                buffer.moveLineStart(); render(); return true
+                buffer.moveLineStart(); caretMoved = mode == .insert || caretMoved; render(); return true
             case "right":
-                buffer.moveLineEnd(); render(); return true
+                buffer.moveLineEnd(); caretMoved = mode == .insert || caretMoved; render(); return true
             case "v":
                 if mode == .normal {
                     // Through the editor, so it is one undo step and `.` knows it.
@@ -1346,8 +1582,10 @@ final class DraftController {
     }
 
     /// A Mac selection about to be replaced or deleted is its own undo
-    /// step, so ⌘Z brings the text back.
+    /// step, so ⌘Z brings the text back. So is an edit made after the caret
+    /// moved.
     private func markSelectionStep() {
+        markCaretBoundary()
         if buffer.selection != nil { vim.markInsertBoundary(buffer) }
     }
 
@@ -1380,12 +1618,12 @@ final class DraftController {
         // rest of the line forward, the next character.
         if control {
             switch key {
-            case "a": buffer.moveLineStart()
-            case "e": buffer.moveLineEnd()
-            case "f": buffer.moveRight()
-            case "b": buffer.moveLeft()
-            case "n": buffer.moveDown()
-            case "p": buffer.moveUp()
+            case "a": buffer.moveLineStart(); caretMoved = true
+            case "e": buffer.moveLineEnd(); caretMoved = true
+            case "f": buffer.moveRight(); caretMoved = true
+            case "b": buffer.moveLeft(); caretMoved = true
+            case "n": buffer.moveDown(); caretMoved = true
+            case "p": buffer.moveUp(); caretMoved = true
             case "d": buffer.deleteForward()
             case "h":
                 backspaces += 1
@@ -1427,12 +1665,16 @@ final class DraftController {
             buffer.deleteForward()
         case "left":
             if option { buffer.moveWordLeft() } else { buffer.moveLeft() }
+            caretMoved = true
         case "right":
             if option { buffer.moveWordRight() } else { buffer.moveRight() }
+            caretMoved = true
         case "up":
             buffer.moveUp()
+            caretMoved = true
         case "down":
             buffer.moveDown()
+            caretMoved = true
         case "tab":
             buffer.type("\t"); vim.typed("\t"); typedCharacters += 1
         default:
@@ -1905,6 +2147,7 @@ final class DraftController {
         session += 1
         resetIntent()
         pendingSettle = nil
+        resetPointer()
         panel.hide()
     }
 
@@ -1914,7 +2157,7 @@ final class DraftController {
         observations?.drafted(
             app: destination?.name ?? "clipboard", door: door.rawValue, action: action, row: row,
             seconds: now.timeIntervalSince(openedAt), typed: typedCharacters, words: spokenWords,
-            backspaces: backspaces, switches: modeSwitches,
+            backspaces: backspaces, switches: modeSwitches, pointerActs: pointerActs,
             firstKey: firstKeyAt.map { $0.timeIntervalSince(openedAt) },
             firstWord: firstWordAt.map { $0.timeIntervalSince(openedAt) },
             warm: wasWarm, peakDb: peakDb.map { $0.rounded() }, editing: sessionStyle, at: now)

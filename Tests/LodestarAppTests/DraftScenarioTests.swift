@@ -118,6 +118,20 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.pasteboard, ["First second"], "the last words are not lost to the paste")
     }
 
+    func testCommandDeleteTakesTheWordsStillBeingHeardWithTheLine() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("Keep this.")
+        stage.press("return", shift: true)
+        stage.speech.settle("Drop this")
+        stage.speech.hear("and these words")
+        XCTAssertTrue(stage.commandPress("delete"))
+        XCTAssertEqual(stage.draft.buffer.text, "Keep this.\n", "the line goes, the words in flight with it")
+        XCTAssertEqual(stage.draft.buffer.ghost, "")
+        stage.speech.settle("and these words")
+        XCTAssertEqual(stage.draft.buffer.text, "Keep this.\n", "their final finds them edited and is dropped")
+    }
+
     func testReturnNeverSendsAndShiftReturnIsANewline() {
         let stage = Stage()
         stage.lode(".")

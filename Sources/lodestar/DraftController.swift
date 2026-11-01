@@ -1510,7 +1510,15 @@ final class DraftController {
             }
             switch key {
             case "delete":
-                if mode == .insert { markSelectionStep(); buffer.deleteToLineStart(); backspaces += 1 }
+                if mode == .insert {
+                    // An edit like ⌥⌫: words still a ghost were said before
+                    // the key, so they are text where they stand and go with
+                    // the line, and the final that follows finds them edited
+                    // and is dropped rather than put back.
+                    handActed()
+                    settleGhostAsSeen()
+                    markSelectionStep(); buffer.deleteToLineStart(); backspaces += 1
+                }
                 render(); return true
             case "left":
                 buffer.moveLineStart(); caretMoved = mode == .insert || caretMoved; render(); return true

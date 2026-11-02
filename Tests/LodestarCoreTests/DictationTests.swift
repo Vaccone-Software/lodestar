@@ -54,6 +54,44 @@ final class DictationTests: XCTestCase {
         XCTAssertEqual(quick.before, "look at the.", "no pause, no join")
     }
 
+    func testASentenceEndedOnAWordThatCanEndOneStaysEnded() {
+        func join(_ before: String, _ incoming: String) -> (before: String, incoming: String) {
+            Draft.Seams.join(before: before, incoming: incoming, pause: true, trailedOff: false, isOrdinary: ordinary)
+        }
+        // Said, a pronoun or a connective opens the next sentence: the period stays.
+        for (before, incoming) in [("I called her.", "She never picked up."),
+                                   ("That is what we are looking at.", "But the logs say otherwise."),
+                                   ("Nobody asked what it was about.", "I'm sure of that."),
+                                   ("Tell me who it is for.", "However, I can wait.")] {
+            let joined = join(before, incoming)
+            XCTAssertEqual(joined.before, before, before)
+            XCTAssertEqual(joined.incoming, incoming, before)
+        }
+        // Anything else still reads as the sentence going on after a pause.
+        XCTAssertEqual(join("Open the file and look at.", "The function that closes it.").before,
+                       "Open the file and look at")
+        XCTAssertEqual(join("I want to go over.", "The plan once more.").incoming, "the plan once more.")
+        XCTAssertEqual(join("I think I.", "Should call the bank.").incoming, "should call the bank.")
+        XCTAssertEqual(join("I called her.", "Back after lunch.").before, "I called her")
+        // A word that cannot end one is not given back, whatever opens after it.
+        XCTAssertEqual(join("Open the file and look at the.", "She said so.").before, "Open the file and look at the")
+        // A trailed-off end before a pronoun is a real end.
+        let trailed = Draft.Seams.join(before: "I called her", incoming: "She never answered.", pause: true,
+                                       trailedOff: true, isOrdinary: ordinary)
+        XCTAssertEqual(trailed.before, "I called her.")
+    }
+
+    func testTheSettlerKeepsARealEndOnAPreposition() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let first = settler.land(Heard("That is the file I was looking for.", words: [Heard.Word("That is the file I was looking for.", start: 0, end: 2)]),
+                                 after: "")
+        let second = settler.land(Heard("It lives in scripts.", words: [Heard.Word("It lives in scripts.", start: 5, end: 6.5)]),
+                                  after: first.text)
+        XCTAssertEqual(second.before, .unchanged)
+        XCTAssertEqual(second.text, "It lives in scripts.")
+        XCTAssertEqual(second.joins, 0)
+    }
+
     func testCasingKeepsIAndNames() {
         XCTAssertEqual(Draft.cased("I'm sure", after: Array("and")), "I'm sure")
         XCTAssertEqual(Draft.cased("I’ll go", after: Array("then")), "I’ll go")
@@ -129,6 +167,20 @@ final class DictationTests: XCTestCase {
         XCTAssertEqual(unsure.text, "ask Kash about")
         let sure = m.apply(tokens: [.init("clear"), .init("cache", confidence: 0.95), .init("first")])
         XCTAssertEqual(sure.text, "clear cache first", "a word the recognizer was sure of stays")
+    }
+
+    /// A span too short to sound like anything is skipped for the entry it
+    /// cannot be compared with, and every later entry still gets its casing
+    /// and alias checks. "mm" and "ooh" are a single sound each.
+    func testAShortSpanStillGetsALaterEntrysCasingAndAlias() {
+        XCTAssertLessThan(Self.pronouncer.phones("mm").count, 2)
+        XCTAssertLessThan(Self.pronouncer.phones("ooh").count, 2)
+        let casing = matcher(["Lodestar", "MM"])
+        XCTAssertEqual(casing.apply("it is 4 mm wide").text, "it is 4 MM wide",
+                       "Lodestar comes first and cannot be compared with one sound")
+        let alias = NameMatcher(terms: [.init("Lodestar"), .init("Uber", aliases: [["ooh"]])], pronouncer: Self.pronouncer,
+                                isCommon: { CommonWords.isCommon($0) }, isFrequent: { CommonWords.isFrequent($0) })
+        XCTAssertEqual(alias.apply("call an ooh now").text, "call an Uber now")
     }
 
     func testPunctuationRidesAlong() {

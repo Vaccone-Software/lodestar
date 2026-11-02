@@ -183,6 +183,111 @@ final class SettlingEarScenarioTests: XCTestCase {
         XCTAssertEqual(stage.pasteboard.last, "Rebase local/dev on main.")
     }
 
+    // MARK: - Catching up
+
+    /// Said while the ear was still loading, a run is heard from the held
+    /// audio the moment the ear is in, in place, and as one hearing.
+    func testAColdEarHearsTheRunWhenItHasLoaded() {
+        let ear = FakeEar(answer: "Open the file and look at the function that closes it.")
+        ear.isLoaded = false
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("Open the file and look at the.", 0, 2))
+        stage.speech.settle(timed("Function that clothes it.", 3, 5))
+        stage.settle(turns: 30)
+        XCTAssertEqual(ear.heard.count, 0, "cold: nothing to hear with")
+        XCTAssertEqual(stage.draft.buffer.text, "Open the file and look at the function that clothes it.")
+        ear.isLoaded = true
+        stage.draft.earLoaded()
+        stage.pump(until: { stage.draft.buffer.text.contains("closes") })
+        XCTAssertEqual(ear.heard.count, 1, "the whole run at once, not a hearing per phrase")
+        XCTAssertEqual(ear.heard.last.map { $0 >= 16_000 * 5 }, true, "from the first word to the last")
+        XCTAssertEqual(stage.draft.state["revised"] as? [String], ["closes"])
+    }
+
+    /// The hand ended the run before the ear came in: those words are the
+    /// hand's now, and are not heard.
+    func testACatchUpLeavesWhatTheHandTouched() {
+        let ear = FakeEar(answer: "Ship the build tonight.")
+        ear.isLoaded = false
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("Ship the bill tonight.", 0, 2))
+        stage.press("space")
+        ear.isLoaded = true
+        stage.draft.earLoaded()
+        stage.settle(turns: 30)
+        XCTAssertEqual(ear.heard.count, 0)
+        XCTAssertTrue(stage.draft.buffer.text.contains("bill"), "the live words stand")
+    }
+
+    /// An ear arriving after the draft closed has nothing to hear for.
+    func testACatchUpAfterTheDraftClosedHearsNothing() {
+        let ear = FakeEar(answer: "Ship the build tonight.")
+        ear.isLoaded = false
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("Ship the bill tonight.", 0, 2))
+        stage.press("escape")
+        ear.isLoaded = true
+        stage.draft.earLoaded()
+        stage.settle(turns: 30)
+        XCTAssertEqual(ear.heard.count, 0)
+    }
+
+    /// The catch-up is a hearing like any other: a read-back of the list
+    /// is refused by the same guard.
+    func testACatchUpIsGuardedLikeAnyHearing() {
+        let ear = FakeEar(answer: "Lodestar, Ghostty, Xonar, Kindora.")
+        ear.isLoaded = false
+        let stage = stageWithAudio(ear)
+        stage.draft.earContext = ["Lodestar", "Ghostty", "Xonar", "Kindora"]
+        stage.lode(".")
+        stage.speech.settle(timed("Okay.", 0, 1.5))
+        ear.isLoaded = true
+        stage.draft.earLoaded()
+        stage.pump(until: { ear.answered == 1 })
+        stage.settle(turns: 20)
+        XCTAssertEqual(stage.draft.buffer.text, "Okay.")
+    }
+
+    // MARK: - One running, one waiting
+
+    /// Phrases landing while the ear is busy replace one another in the
+    /// queue: the ear hears the run that was running, and then the newest.
+    func testOnlyTheNewestWaitingHearingRuns() {
+        let ear = FakeEar(answers: ["Stale.", "First part. Second part. Third part."])
+        ear.holdFirst()
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("First part.", 0, 1.5))
+        stage.pump(until: { ear.heard.count == 1 })
+        stage.speech.settle(timed("Second part.", 2, 3.5))
+        stage.speech.settle(timed("Third bart.", 4, 5.5))
+        ear.release()
+        stage.pump(until: { stage.draft.buffer.text.contains("Third part") })
+        XCTAssertEqual(ear.heard.count, 2, "the run, then the newest; the one between never ran")
+        XCTAssertEqual(ear.heard.last.map { $0 >= 16_000 * 5 }, true, "and the newest spans the whole run")
+        stage.settle(turns: 20)
+        XCTAssertEqual(ear.heard.count, 2)
+    }
+
+    /// ⏎ waits for the running hearing and the newest waiting one, and
+    /// lands what they made.
+    func testReturnWaitsForTheNewestAlone() {
+        let ear = FakeEar(answers: ["Stale.", "First part. Second part. Third part."])
+        ear.delay = 0.1
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("First part.", 0, 1.5))
+        stage.speech.settle(timed("Second part.", 2, 3.5))
+        stage.speech.settle(timed("Third bart.", 4, 5.5))
+        stage.press("return")
+        stage.pump(until: { !stage.pasteboard.isEmpty })
+        XCTAssertEqual(stage.pasteboard.last, "First part. Second part. Third part.")
+        XCTAssertEqual(ear.heard.count, 2)
+    }
+
     func testTheJournalKeepsADictationWhenAsked() throws {
         let ear = FakeEar(answer: "Rebase local/dev on main.")
         let stage = stageWithAudio(ear)

@@ -890,7 +890,8 @@ final class HotkeyEngine {
             let taken = draft.handleKey(key, shift: shift,
                                         command: event.flags.contains(.maskCommand),
                                         option: event.flags.contains(.maskAlternate),
-                                        control: event.flags.contains(.maskControl))
+                                        control: event.flags.contains(.maskControl),
+                                        keycode: keycode)
             if !taken, event.flags.contains(.maskCommand) {
                 _ = apply(core.leaveDoor(reason: "command"), event: nil)
             }
@@ -918,7 +919,9 @@ final class HotkeyEngine {
             let taken = draft.handleKey(key, shift: shift,
                                         command: event.flags.contains(.maskCommand),
                                         option: event.flags.contains(.maskAlternate),
-                                        control: event.flags.contains(.maskControl))
+                                        control: event.flags.contains(.maskControl),
+                                        keycode: keycode,
+                                        repeating: event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
             return taken ? nil : Unmanaged.passUnretained(event)
         }
         // Mid-chain and mid-scroll, lode may or may not still be down —

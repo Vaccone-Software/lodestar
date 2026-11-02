@@ -390,6 +390,20 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "open Ghostty and Lodestar, then the Supabase migration")
     }
 
+    /// The words the matcher put back are reported as they were said, so
+    /// the app can tell the models those first.
+    func testTheWordsPutBackAreReported() {
+        let stage = Stage()
+        stage.draft.words = ["Ghostty", "Lodestar", "Supabase"]
+        var used: [[String]] = []
+        stage.draft.onNamesUsed = { used.append($0) }
+        stage.lode(".")
+        stage.speech.settle("open ghostie and load star, then the super base migration")
+        XCTAssertEqual(used, [["Ghostty", "Lodestar", "Supabase"]])
+        stage.speech.settle("nothing to put back here.")
+        XCTAssertEqual(used.count, 1, "a result with none of them reports nothing")
+    }
+
     func testAPauseNeverWritesAnEllipsisOrBreaksASentence() {
         let stage = Stage()
         stage.lode(".")
@@ -546,8 +560,11 @@ final class DraftScenarioTests: XCTestCase {
         stage.speech.settle("send this")
         cmd(stage, "return")
         XCTAssertTrue(stage.draft.isOpen, "closing, not closed")
-        XCTAssertTrue(stage.press("return"), "a held ⏎ never reaches the app ahead of the paste")
+        XCTAssertTrue(stage.pressRepeat("return"), "a held ⏎ never reaches the app ahead of the paste")
+        XCTAssertTrue(stage.posted.isEmpty, "and its repeats are not a second ⏎")
+        XCTAssertTrue(stage.press("a"), "any other key is swallowed too")
         XCTAssertTrue(stage.posted.isEmpty)
+        XCTAssertEqual(stage.draft.buffer.text, "send this")
         stage.speech.finish()
         XCTAssertFalse(stage.draft.isOpen)
         XCTAssertEqual(stage.posted.map(\.key), ["v"])
@@ -1152,6 +1169,48 @@ final class DraftSpeechUndoTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "abc")
         _ = stage.commandPress("z")
         XCTAssertEqual(stage.draft.buffer.text, "", "a typed run is one step, as vim's is")
+    }
+
+    /// The first hand edit after a settled result is a new step: the
+    /// typed run after a sentence does not join the sentence's step.
+    func testBackspacesAfterAResultAreTheirOwnStep() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("Thanks for the note.")
+        cmd(stage, "delete"); cmd(stage, "delete")
+        XCTAssertNotEqual(stage.draft.buffer.text, "Thanks for the note.")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "Thanks for the note.", "speak, backspace twice, undo: the sentence is back")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "", "and the sentence is its own step after that")
+    }
+
+    func testTypingAfterAResultLeavesTheResultOnUndo() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("Thanks for the note.")
+        for key in [",", "space", "t", "h", "x"] { cmd(stage, key) }
+        XCTAssertEqual(stage.draft.buffer.text, "Thanks for the note., thx")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "Thanks for the note.", "the typed run goes, the sentence stays")
+    }
+
+    /// The step a hand edit opens is not a second snapshot of the same
+    /// text: in normal mode `u` undoes the edit and not nothing.
+    func testNormalModeUndoAfterAnEditAfterSpeechTakesTheEdit() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("One two.")
+        cmd(stage, "escape")
+        cmd(stage, "x")
+        cmd(stage, "i")
+        cmd(stage, "z")
+        cmd(stage, "escape")
+        let typed = stage.draft.buffer.text
+        cmd(stage, "u")
+        XCTAssertNotEqual(stage.draft.buffer.text, typed, "one u takes back the typed z")
+        cmd(stage, "u")
+        XCTAssertEqual(stage.draft.buffer.text, "One two.", "the next takes back x, not nothing")
     }
 
     // MARK: - Speaking over a selection

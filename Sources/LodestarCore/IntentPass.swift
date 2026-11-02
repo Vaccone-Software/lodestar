@@ -44,10 +44,22 @@ public enum IntentPass {
         gate.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
+    /// A spelled letter stands alone: the letter after an apostrophe is
+    /// part of its word, or "that's a" and "I'm a" read as two spelled
+    /// letters, which opened 40 of the 45 asks the spelled pattern made in
+    /// the maker's journal; the three of those that were accepted changed
+    /// only commas.
+    /// "second" is not a word that opens it: of 212 asks in the maker's
+    /// journal it was in 17 and none was accepted, 15 of them with nothing
+    /// else to ask about, and no fixture or text-set case needs it, since
+    /// a counted list says "first" or "third" as well. Every other word
+    /// here is kept: each either led to an accepted change, is needed by a
+    /// fixture case, or was too rare in the journal (two asks or fewer)
+    /// to say.
     private static let gate = try! NSRegularExpression(pattern:
         #"\b(um+|uh+|hmm+|er|wait|no|actually|sorry|mean|meant|scratch|rather|never mind|instead|"#
-        + #"dot|slash|underscore|dash|hyphen|capital|first|second|third|firstly|secondly)\b|"#
-        + #"\b(\w+)\W+\2\b|(?:\b[A-Za-z]\b[ ,.]+){2,}"#, options: [.caseInsensitive])
+        + #"dot|slash|underscore|dash|hyphen|capital|first|third|firstly|secondly)\b|"#
+        + #"\b(\w+)\W+\2\b|(?:(?<![\w'’])[A-Za-z]\b[ ,.]+){2,}"#, options: [.caseInsensitive])
 
     /// The prompt, variant D of the probe, word for word. `names` are the
     /// speaker's own words (`draft.words`), so a name is kept as written.

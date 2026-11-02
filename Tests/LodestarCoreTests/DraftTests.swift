@@ -178,4 +178,44 @@ final class DraftTests: XCTestCase {
         XCTAssertEqual(buffer.text, "hi there")
     }
 
+    // MARK: Joins
+
+    private func join(_ existing: String, _ incoming: String) -> String {
+        existing + Draft.separator(after: Array(existing), before: incoming) + incoming
+    }
+
+    func testAStraightQuoteOpensOnlyAtAnEvenCount() {
+        XCTAssertEqual(join("she said \"", "go"), "she said \"go", "the first quote opens")
+        XCTAssertEqual(join("she said \"go\"", "and"), "she said \"go\" and", "the second closes, and a word follows it")
+        XCTAssertEqual(join("\"go\" and \"", "stop"), "\"go\" and \"stop", "the third opens again")
+        XCTAssertEqual(join("\"", "go"), "\"go", "a quote that begins the text opens")
+        XCTAssertEqual(join("say 'go'", "now"), "say 'go' now")
+        XCTAssertEqual(join("say '", "go"), "say 'go")
+    }
+
+    func testAnApostropheInAWordIsNotAQuote() {
+        XCTAssertEqual(join("don't say '", "go"), "don't say 'go", "the contraction does not turn the count")
+        XCTAssertEqual(join("don't say 'go'", "now"), "don't say 'go' now")
+    }
+
+    func testClosingMarksAndEllipsesAttachToTheWordBefore() {
+        for mark in ["”", "’", "…", "%", ".", ")"] {
+            XCTAssertEqual(join("done", mark), "done" + mark, "\(mark) attaches")
+        }
+        XCTAssertEqual(join("fifty", "% of it"), "fifty% of it")
+    }
+
+    func testCurlyOpenersTakeTheWordAfterThem() {
+        XCTAssertEqual(join("she said “", "go"), "she said “go")
+        XCTAssertEqual(join("she said ‘", "go"), "she said ‘go")
+        XCTAssertEqual(join("she said “go”", "and"), "she said “go” and")
+    }
+
+    func testTypedWordsJoinASpokenQuotationByTheSameRule() {
+        var buffer = Draft.Buffer()
+        buffer.settle("She said \"go\"")
+        buffer.type("and", joining: true)
+        XCTAssertEqual(buffer.text, "She said \"go\" and")
+    }
+
 }

@@ -1031,6 +1031,14 @@ final class ClipboardStore {
     /// is where the text came from. Nothing touches the pasteboard.
     @discardableResult
     func fileEdit(from clip: Clipboard.Clip, text: String) -> Clipboard.Clip? {
+        file(text: text, source: clip)
+    }
+
+    /// Text kept as a new card at the top with no pasteboard behind it:
+    /// an edit (with its original as `source`), or a draft a run that did
+    /// not end cleanly left behind (with none).
+    @discardableResult
+    func file(text: String, source: Clipboard.Clip? = nil) -> Clipboard.Clip? {
         guard phase == .ready else { return nil }
         let data = Data(text.utf8)
         guard !data.isEmpty else { return nil }
@@ -1048,9 +1056,9 @@ final class ClipboardStore {
         let counted = Clipboard.counts(of: text)
         let kept = Clipboard.Clip(
             id: newID, kind: .text, created: Date(),
-            sourceBundleID: clip.sourceBundleID, sourceAppName: clip.sourceAppName,
+            sourceBundleID: source?.sourceBundleID, sourceAppName: source?.sourceAppName,
             preview: Clipboard.preview(of: text), bytes: data.count,
-            sourceHost: clip.sourceHost,
+            sourceHost: source?.sourceHost,
             lines: counted.lines, characters: counted.characters)
         index = Clipboard.merging(index, with: kept)
         if let merged = entry(for: index[0]) { commit(.front(merged)) }

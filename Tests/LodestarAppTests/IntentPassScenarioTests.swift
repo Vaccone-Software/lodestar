@@ -149,6 +149,69 @@ final class IntentPassScenarioTests: XCTestCase {
         XCTAssertEqual(stage.pasteboard.last, "Use the blue one.")
     }
 
+    // MARK: - How long ⏎ waits
+
+    /// An ask that, by the record of the last ones, will not finish inside
+    /// the wait is not waited for: the words land as spoken.
+    func testReturnDoesNotWaitForAnAskThatWillNotFinishInTime() {
+        let intent = FakeIntent(delay: 0.3) { _ in "Use the blue one." }
+        let stage = stage(intent)
+        stage.draft.intentTimes = [1.4, 1.6, 1.8]
+        stage.lode(".")
+        stage.speech.settle("Use the red one, actually no, the blue one.")
+        stage.pump(until: { !intent.asked.isEmpty })
+        stage.press("return")
+        XCTAssertFalse(stage.draft.isOpen, "landed at once")
+        XCTAssertEqual(stage.pasteboard.last, "Use the red one, actually no, the blue one.")
+        stage.pump(until: { stage.draft.intentTimes.count == 4 })
+        XCTAssertEqual(stage.draft.intentTimes.count, 4, "the late answer still says how long an ask takes")
+        XCTAssertEqual(stage.pasteboard.count, 1)
+    }
+
+    /// An ask that, by the record, can finish inside the wait is waited for.
+    func testReturnWaitsForAnAskThatWillFinishInTime() {
+        let intent = FakeIntent(delay: 0.1) { _ in "Use the blue one." }
+        let stage = stage(intent)
+        stage.draft.intentTimes = [0.3, 0.4, 0.5]
+        stage.lode(".")
+        stage.speech.settle("Use the red one, actually no, the blue one.")
+        stage.pump(until: { !intent.asked.isEmpty })
+        stage.press("return")
+        stage.pump(until: { !stage.pasteboard.isEmpty })
+        XCTAssertEqual(stage.pasteboard.last, "Use the blue one.")
+    }
+
+    /// The ask has been out a while already: what is left of its median
+    /// fits the wait.
+    func testTimeAlreadySpentCountsTowardTheWait() {
+        let intent = FakeIntent(delay: 0.1) { _ in "Use the blue one." }
+        let stage = stage(intent)
+        stage.draft.intentTimes = [1.6]
+        stage.lode(".")
+        stage.speech.settle("Use the red one, actually no, the blue one.")
+        stage.pump(until: { !intent.asked.isEmpty })
+        stage.clock.advance(by: 1.2)
+        stage.press("return")
+        stage.pump(until: { !stage.pasteboard.isEmpty })
+        XCTAssertEqual(stage.pasteboard.last, "Use the blue one.", "0.4 s left on a 1.6 s median: worth waiting")
+    }
+
+    /// Only the last twenty answers are the record, and the median is the
+    /// middle of them.
+    func testTheRecordKeepsTwentyAndTakesTheMedian() {
+        XCTAssertEqual(DraftController.median([3, 1, 2]), 2)
+        XCTAssertEqual(DraftController.median([4, 1, 2, 3]), 2.5)
+        XCTAssertNil(DraftController.median([]))
+        let intent = FakeIntent { _ in "Use the blue one." }
+        let stage = stage(intent)
+        stage.draft.intentTimes = Array(repeating: 9, count: DraftController.intentTimesKept)
+        stage.lode(".")
+        stage.speech.settle("Use the red one, actually no, the blue one.")
+        stage.pump(until: { intent.answered == 1 })
+        stage.pump(until: { stage.draft.intentTimes.last != 9 })
+        XCTAssertEqual(stage.draft.intentTimes.count, DraftController.intentTimesKept)
+    }
+
     func testAnUndoneRewriteIsNotOfferedAgain() {
         let intent = FakeIntent { _ in "Open the settings pane." }
         let stage = stage(intent)

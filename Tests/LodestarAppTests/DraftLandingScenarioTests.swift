@@ -347,4 +347,25 @@ final class DraftBlindPasteTests: XCTestCase {
         XCTAssertEqual(stage.targetAsks, 0)
         XCTAssertEqual(stage.posted.map(\.key), ["v"])
     }
+
+    /// A web engine says nothing has the focus while its composer has it,
+    /// so an app built on one is never asked and always pasted into.
+    func testAnAppBuiltOnAWebEngineIsNeverAsked() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func app(_ name: String, _ inside: String?) throws -> URL {
+            let bundle = root.appendingPathComponent("\(name).app")
+            try FileManager.default.createDirectory(at: bundle.appendingPathComponent("Contents/MacOS"),
+                                                    withIntermediateDirectories: true)
+            if let inside {
+                let path = bundle.appendingPathComponent("Contents").appendingPathComponent(inside)
+                try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+                FileManager.default.createFile(atPath: path.path, contents: Data())
+            }
+            return bundle
+        }
+        XCTAssertTrue(DraftController.hostsWebEngine(try app("Slack", "Frameworks/Electron Framework.framework")))
+        XCTAssertTrue(DraftController.hostsWebEngine(try app("Mullvad Browser", "MacOS/XUL")))
+        XCTAssertFalse(DraftController.hostsWebEngine(try app("Finder", nil)))
+    }
 }

@@ -2582,6 +2582,14 @@ final class DraftController {
     /// is `.unknown`, and the paste is posted as it always was.
     private static func probeTargetAX(pid: pid_t, done: @escaping (Draft.Target) -> Void) {
         targetQueue.async {
+            // A web engine builds its tree only when asked and tears it down
+            // when idle, and in between answers "nothing has the focus" with
+            // its composer focused: Slack, Brave and Claude would be refused
+            // a paste. Its answer is never positive, so it is not asked.
+            if let bundle = NSRunningApplication(processIdentifier: pid)?.bundleURL, hostsWebEngine(bundle) {
+                DispatchQueue.main.async { done(.unknown) }
+                return
+            }
             let app = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(app, axTimeout)
             var target = Draft.Target.unknown
@@ -2606,6 +2614,17 @@ final class DraftController {
             }
             DispatchQueue.main.async { done(target) }
         }
+    }
+
+    /// Electron, a Chromium browser or a Gecko one (Firefox, Mullvad):
+    /// each keeps its accessibility tree lazily.
+    static func hostsWebEngine(_ bundle: URL) -> Bool {
+        let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
+        if FileManager.default.fileExists(atPath: frameworks.appendingPathComponent("Electron Framework.framework").path)
+            || FileManager.default.fileExists(atPath: bundle.appendingPathComponent("Contents/MacOS/XUL").path) {
+            return true
+        }
+        return AXWarmer.isChromiumBrowser(bundle)
     }
 
     private static func selectAllAX(pid: pid_t) -> Bool {

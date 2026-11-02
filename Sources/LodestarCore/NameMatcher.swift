@@ -227,7 +227,7 @@ public struct NameMatcher: Sendable {
                         out.append(make(0, .alias, possessive))
                     }
                     if spanPhones == nil { spanPhones = pronouncer.phones(surface) }
-                    guard let heard = spanPhones, heard.count >= 2 else { break }
+                    guard let heard = spanPhones, heard.count >= 2 else { continue }
                     if !entry.term.isOwn, common(entry.term.text) || entry.phones[0].count < Self.minimumAutoPhones { continue }
                     var best = 9.0
                     for phones in entry.phones where phones.count >= Self.minimumPhones {

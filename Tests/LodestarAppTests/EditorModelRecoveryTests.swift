@@ -360,4 +360,59 @@ final class EditorModelRecoveryTests: XCTestCase {
             XCTAssertEqual(later, "hello")
         }
     }
+
+    // MARK: - Clearing MLX's cache takes the lane too
+
+    /// What happened, in order, with whether the lane was held at the time.
+    private final class Events: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lines: [String] = []
+        func add(_ line: String) { lock.withLock { lines.append(line) } }
+        var all: [String] { lock.withLock { lines } }
+    }
+
+    func testLettingGoOfTheModelClearsMLXsCacheHoldingTheLane() async {
+        let gate = MLXGate()
+        let probe = Probe()
+        let events = Events()
+        let model = EditorModel(engine: .standard, idleRelease: 3600, gate: gate,
+                                loader: { _ in Fake(probe: probe, mood: .prompt) },
+                                clearCache: { events.add(gate.isHeld ? "clear held" : "clear free") })
+        await model.prepare()
+        await model.release(reason: "test")
+        await eventually("the cache is cleared", { events.all.count == 1 })
+        XCTAssertEqual(events.all, ["clear held"], "the clear waited its turn on the lane like any evaluation")
+        XCTAssertFalse(gate.isHeld)
+    }
+
+    func testTheClearWaitsForTheLaneAndNeverFollowsTheNextLoad() async {
+        let gate = MLXGate()
+        let probe = Probe()
+        let events = Events()
+        let model = EditorModel(engine: .standard, idleRelease: 3600, gate: gate,
+                                loader: { _ in events.add("load"); return Fake(probe: probe, mood: .prompt) },
+                                clearCache: { events.add("clear") })
+        await model.prepare()
+        let lane = await gate.acquire()!              // the ear is mid-phrase
+        await model.release(reason: "test")
+        let loading = Task { await model.prepare() }  // typing resumes at once
+        await eventually("the load queues", { gate.waiting >= 1 })
+        XCTAssertEqual(events.all, ["load"], "neither the clear nor the second load ran under the ear")
+        gate.release(lane)
+        await loading.value
+        await eventually("the lane is idle", { !gate.isHeld && gate.waiting == 0 })
+        XCTAssertEqual(events.all, ["load", "clear", "load"], "cleared once, before the next backend loaded")
+    }
+
+    func testTheDraftsModelClearsItsCacheHoldingTheLaneToo() async {
+        let gate = MLXGate()
+        let probe = Probe()
+        let events = Events()
+        let draft = DraftModel(model: .gemma, gate: gate, loader: { _ in Fake(probe: probe, mood: .prompt) },
+                               clearCache: { events.add(gate.isHeld ? "clear held" : "clear free") })
+        await draft.load()
+        await draft.release()
+        await eventually("the cache is cleared", { events.all.count == 1 })
+        XCTAssertEqual(events.all, ["clear held"])
+    }
 }

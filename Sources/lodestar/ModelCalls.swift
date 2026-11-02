@@ -138,11 +138,36 @@ final class ModelCalls: Sendable {
     /// given up on for good.
     let stuckAfter: Duration
     private let state = Mutex(State())
+    /// A release has asked for MLX's buffer cache to be cleared and nobody
+    /// has done it yet.
+    private let clearPending = Mutex(false)
 
     init(name: String, gate: MLXGate = .shared, stuckAfter: TimeInterval = 20) {
         self.name = name
         self.gate = gate
         self.stuckAfter = .seconds(stuckAfter)
+    }
+
+    /// Clears MLX's buffer cache for a backend just let go of, holding the
+    /// lane: the allocator is not known to be safe against an evaluation
+    /// running on another thread (the ear's phrase), so it waits its turn
+    /// like any other MLX work, without making the releasing actor wait.
+    ///
+    /// The next load does the clear itself, first thing under its own turn
+    /// (`clearIfPending`), if it gets there before this does; whichever
+    /// comes first clears and the other finds nothing to do. So a clear
+    /// never runs after the backend that follows has loaded.
+    func clearCacheSoon(_ clear: @escaping @Sendable () -> Void) {
+        clearPending.withLock { $0 = true }
+        Task { [self] in
+            _ = await gate.run { clearIfPending(clear) }
+        }
+    }
+
+    /// Clears now if a release is waiting for it. Call it only holding the
+    /// lane.
+    func clearIfPending(_ clear: () -> Void) {
+        if clearPending.withLock({ pending in defer { pending = false }; return pending }) { clear() }
     }
 
     var ability: ModelAbility { state.withLock { $0.ability } }

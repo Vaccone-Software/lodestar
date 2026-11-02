@@ -113,9 +113,11 @@ actor DraftModel {
         let model = self.model
         let loader = self.loader
         let calls = self.calls
+        let clear = self.clearCache
         let deadline = loadDeadline
         let task = Task { () -> (any EditorBackend)? in
             let asked = await calls.ask(deadline: deadline, wait: deadline) { () -> Result<any EditorBackend, Error>? in
+                calls.clearIfPending(clear)
                 do { return .success(try await loader(model)) } catch { return .failure(error) }
             }
             switch asked {
@@ -144,7 +146,7 @@ actor DraftModel {
         guard lost > 0 else { return }
         backend = nil
         warmed = []
-        clearCache()
+        calls.clearCacheSoon(clearCache)
         Log.info("intent", ["model": model.rawValue, "recovered": "the model stopped answering", "generations": lost])
     }
 
@@ -174,7 +176,7 @@ actor DraftModel {
         guard backend != nil else { return }
         backend = nil
         warmed = []
-        clearCache()
+        calls.clearCacheSoon(clearCache)
         calls.backendReplaced()
         Log.info("intent", ["model": model.rawValue, "released": true])
     }

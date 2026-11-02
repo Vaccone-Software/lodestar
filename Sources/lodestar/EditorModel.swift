@@ -374,11 +374,15 @@ actor EditorModel: EditorProofreader {
         let engine = self.engine
         let loader = self.loader
         let calls = self.calls
+        let clear = self.clearCache
         let deadline = loadDeadline
         // Under the lane and a deadline of its own: a load that hangs must
         // not keep every question waiting on it for ever.
         let task = Task { () -> Result<any EditorBackend, Error> in
             let asked = await calls.ask(deadline: deadline, wait: deadline, gated: engine != .minimal) { () -> Result<any EditorBackend, Error>? in
+                // The cache of the backend let go of is cleared before this
+                // one loads, never after.
+                if engine != .minimal { calls.clearIfPending(clear) }
                 do { return .success(try await loader(engine)) } catch { return .failure(error) }
             }
             switch asked {
@@ -440,7 +444,7 @@ actor EditorModel: EditorProofreader {
     private func dropBackend() {
         backend = nil
         warmed = []
-        if backendEngine != .minimal { clearCache() }
+        if backendEngine != .minimal { calls.clearCacheSoon(clearCache) }
         backendEngine = nil
         state = .unloaded
         calls.backendReplaced()

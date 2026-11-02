@@ -512,3 +512,107 @@ final class EditorRegionTests: XCTestCase {
         XCTAssertEqual(Config().editorLanguage, "")
     }
 }
+
+/// What the spell checker may mark: a typo's repair and nothing the writer
+/// chose, a casing, an apostrophe, a name.
+final class EditorSpellingMarksTests: XCTestCase {
+    private func marks(_ word: String, caret: Int? = nil) -> [EditorIssue] {
+        EditorSession().issues(text: "we said \(word) here today", caret: caret)
+    }
+
+    func testCasingAndApostrophesAreTheWritersOwn() {
+        for word in ["jeff", "github", "iphone", "macos", "dont", "im", "ive", "youre", "isnt"] {
+            XCTAssertTrue(marks(word).isEmpty, "\(word) is the writer's casing or apostrophe: \(marks(word).map(\.replacement))")
+        }
+    }
+
+    func testAnswersThatAreTheWordInAnotherCaseOrApostropheAreDropped() {
+        XCTAssertNil(EditorSpelling.fix(for: "dont", correction: "don't", guesses: ["don't", "done"]))
+        XCTAssertNil(EditorSpelling.fix(for: "dont", correction: "don\u{2019}t", guesses: []), "curly too")
+        XCTAssertNil(EditorSpelling.fix(for: "im", correction: nil, guesses: ["in", "I'm"]),
+                     "the checker knows the letters: in is not the repair of im")
+        XCTAssertNil(EditorSpelling.fix(for: "github", correction: "GitHub", guesses: ["GitHub", "Github"]))
+        XCTAssertEqual(EditorSpelling.fix(for: "teh", correction: nil, guesses: ["the", "ten"]), "the")
+    }
+
+    func testRealTyposStillMark() {
+        let typos = ["teh": "the", "recieve": "receive", "seperate": "separate", "definately": "definitely",
+                     "wierd": "weird", "becuase": "because", "adn": "and", "thier": "their",
+                     "untill": "until", "occured": "occurred"]
+        for (typo, fix) in typos {
+            XCTAssertEqual(marks(typo).map(\.replacement), [fix], typo)
+        }
+    }
+
+    func testNamesAndJargonTheCheckerAnswersWithAStrangerAreLeftAlone() {
+        for word in ["priya", "jira", "nyc", "kubectl", "slackbot", "ngl", "tbh", "grokbot", "kitsugi"] {
+            XCTAssertTrue(marks(word).isEmpty, "\(word) → \(marks(word).map(\.replacement))")
+        }
+        XCTAssertNil(EditorSpelling.fix(for: "priya", correction: nil, guesses: ["prayer", "pray"]), "three away")
+        XCTAssertNil(EditorSpelling.fix(for: "jira", correction: "Mira", guesses: ["Mira"]), "a name for a lowercase word")
+        XCTAssertNil(EditorSpelling.fix(for: "kubectl", correction: nil, guesses: []), "no answer, no mark")
+        XCTAssertNotNil(EditorSpelling.fix(for: "definately", correction: "definitely", guesses: []))
+    }
+
+    func testTheAllowanceGrowsWithTheWord() {
+        XCTAssertEqual(EditorSpelling.allowance(forLength: 3), 1)
+        XCTAssertEqual(EditorSpelling.allowance(forLength: 5), 1)
+        XCTAssertEqual(EditorSpelling.allowance(forLength: 6), 2)
+        XCTAssertEqual(EditorSpelling.allowance(forLength: 20), 2)
+        XCTAssertNotNil(EditorSpelling.fix(for: "reciepts", correction: "receipts", guesses: []), "a swap and a slip")
+        XCTAssertNil(EditorSpelling.fix(for: "abcd", correction: "abxy", guesses: []), "two away from four letters")
+    }
+
+    func testDistanceCountsASwapAsOne() {
+        func d(_ a: String, _ b: String) -> Int { EditorSpelling.distance(Array(a), Array(b)) }
+        XCTAssertEqual(d("teh", "the"), 1)
+        XCTAssertEqual(d("recieve", "receive"), 1)
+        XCTAssertEqual(d("kitten", "sitting"), 3)
+        XCTAssertEqual(d("", "abc"), 3)
+        XCTAssertEqual(d("priya", "prayer"), 3)
+    }
+
+    func testChatsOwnWordsAndWordsWithoutAVowelAreNeverMarks() {
+        for word in ["ngl", "smh", "tfw", "nyc", "pls", "fomo"] {
+            XCTAssertTrue(EditorSpelling.skips(word), word)
+        }
+        XCTAssertFalse(EditorSpelling.skips("recieve"))
+    }
+
+    // MARK: Sigils
+
+    private func bare(_ text: String) -> [EditorIssue] {
+        EditorSpelling.issues(in: text, caret: nil, language: "en_US", guards: EditorGuards(), protected: [])
+    }
+
+    func testAWordAfterASigilIsNotProse() {
+        XCTAssertEqual(bare("go recieve now").map(\.replacement), ["receive"], "the control")
+        for sigil in ["#", "@", "/", ":", "$", "~"] {
+            XCTAssertTrue(bare("go \(sigil)recieve now").isEmpty, "\(sigil)recieve")
+        }
+        XCTAssertTrue(bare("react with :recieve: now").isEmpty)
+    }
+
+    func testALabelsColonIsPunctuationNotASigil() {
+        XCTAssertEqual(bare("Note: recieve now").map(\.replacement), ["receive"])
+    }
+
+    // MARK: Vocabulary
+
+    func testEachWordOfAMultiWordEntryReachesTheChecker() {
+        XCTAssertEqual(bare("we recieve them").map(\.replacement), ["receive"], "the control")
+        let guards = EditorGuards(vocabulary: ["Recieve Plan"])
+        let found = EditorSpelling.issues(in: "we recieve them", caret: nil, language: "en_US",
+                                          guards: guards, protected: [])
+        XCTAssertTrue(found.isEmpty, "the entry is two words and the checker meets one at a time")
+        XCTAssertEqual(Set(EditorSpelling.ignorable(["recieve plan", "solo"])), ["recieve plan", "recieve", "plan", "solo"])
+    }
+
+    func testTheCheckersIgnoredWordsIgnoreCase() {
+        let guards = EditorGuards(vocabulary: ["recieve"])
+        for form in ["recieve", "Recieve", "RECIEVE"] {
+            XCTAssertTrue(EditorSpelling.issues(in: "we \(form) them", caret: nil, language: "en_US",
+                                                guards: guards, protected: []).isEmpty, form)
+        }
+    }
+}

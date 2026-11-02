@@ -10,7 +10,7 @@ public enum EditorSpelling {
     public static func issues(in text: String, caret: Int?, language: String,
                               guards: EditorGuards, protected: [NSRange]) -> [EditorIssue] {
         let checker = NSSpellChecker.shared
-        checker.setIgnoredWords(Array(guards.vocabulary), inSpellDocumentWithTag: tag)
+        checker.setIgnoredWords(ignorable(guards.vocabulary), inSpellDocumentWithTag: tag)
         let ns = text as NSString
         let sentences = EditorText.sentences(in: text)
         var out: [EditorIssue] = []
@@ -25,7 +25,7 @@ public enum EditorSpelling {
             // typed next would change it, so it is not a mistake yet.
             if let caret, caret >= range.location, caret <= range.location + range.length { continue }
             if protected.contains(where: { NSIntersectionRange($0, range).length > 0 }) { continue }
-            if skips(word) { continue }
+            if skips(word) || opens(at: range.location, in: ns) { continue }
             // The first word of its sentence, whatever emoji or dash
             // stands before it.
             let sentenceStart = sentences.contains { sentence in
@@ -39,11 +39,11 @@ public enum EditorSpelling {
             if word.first?.isUppercase == true,
                let line = sentences.first(where: { NSLocationInRange(range.location, $0) }),
                ns.substring(with: line).split(whereSeparator: \.isWhitespace).count <= 2 { continue }
-            let suggestion = checker.correction(forWordRange: range, in: text, language: language,
+            let correction = checker.correction(forWordRange: range, in: text, language: language,
                                                 inSpellDocumentWithTag: tag)
-                ?? checker.guesses(forWordRange: range, in: text, language: language,
-                                   inSpellDocumentWithTag: tag)?.first
-            guard let suggestion, suggestion != word else { continue }
+            let guesses = checker.guesses(forWordRange: range, in: text, language: language,
+                                          inSpellDocumentWithTag: tag) ?? []
+            guard let suggestion = fix(for: word, correction: correction, guesses: guesses) else { continue }
             out.append(EditorIssue(range: range, original: word, replacement: suggestion, kind: .spelling))
         }
         return out
@@ -57,8 +57,94 @@ public enum EditorSpelling {
         return range.location != NSNotFound
     }
 
-    /// Tokens that are not prose: acronyms, anything with a digit, camel
-    /// case, and handles.
+
+    /// The fix the checker's answers earn for a word, or nil when the word
+    /// is better left alone. The checker is sure of every word it flags and
+    /// right about few of them: it flags names, products and jargon, and
+    /// when it has no real typo to offer it offers a case, an apostrophe or
+    /// a stranger. The writer's casing and punctuation are theirs, so a
+    /// word is only marked when the best answer is a typo's repair:
+    ///
+    /// - Any answer that is the word again in another case or with other
+    ///   apostrophes (jeff, github, iphone, dont, im, ive) says the checker
+    ///   knows these letters, and what it dislikes is the casing or the
+    ///   apostrophe. That is the writer's, so the word is left whole, and
+    ///   the other answers (im → in, dont → done) are not taken as the
+    ///   repair either.
+    /// - A capital the word does not have (jira → Mira) is a name offered
+    ///   for a lowercase word.
+    /// - A typo is nearly always a slip or two from the word meant: the
+    ///   best answer must lie within `allowance` of the word, so priya →
+    ///   prayer (three away) is a name, teh → the (one) is a typo.
+    static func fix(for word: String, correction: String?, guesses: [String]) -> String? {
+        guard let best = correction ?? guesses.first, best != word else { return nil }
+        let letters = folded(word)
+        if ([best] + guesses).contains(where: { folded($0) == letters }) { return nil }
+        if best.first?.isUppercase == true, word.first?.isUppercase != true { return nil }
+        let distance = EditorSpelling.distance(Array(word.lowercased()), Array(best.lowercased()))
+        return distance <= allowance(forLength: word.count) ? best : nil
+    }
+
+    /// How far a repair may lie from the word: a third of its length, one
+    /// at least and two at most. Every typo in the tests' list of the
+    /// commonest (teh, recieve, seperate, definately, wierd, becuase, adn,
+    /// thier, untill, occured) is one slip from its word, a transposition
+    /// counting as one; the names and jargon the checker answered with a
+    /// stranger were three or more.
+    static func allowance(forLength length: Int) -> Int { min(2, max(1, length / 3)) }
+
+    /// A word without its case and its apostrophes, curly or straight.
+    static func folded(_ word: String) -> String {
+        word.lowercased().filter { $0 != "'" && $0 != "\u{2019}" }
+    }
+
+    /// Damerau–Levenshtein distance (optimal string alignment): insertions,
+    /// deletions, substitutions and the swap of two neighbours, each one
+    /// step, since a swapped pair is the commonest slip a hand makes.
+    static func distance(_ a: [Character], _ b: [Character]) -> Int {
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+        var rows = [[Int]](repeating: [Int](repeating: 0, count: b.count + 1), count: a.count + 1)
+        for i in 0...a.count { rows[i][0] = i }
+        for j in 0...b.count { rows[0][j] = j }
+        for i in 1...a.count {
+            for j in 1...b.count {
+                let cost = a[i - 1] == b[j - 1] ? 0 : 1
+                rows[i][j] = min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost)
+                if i > 1, j > 1, a[i - 1] == b[j - 2], a[i - 2] == b[j - 1] {
+                    rows[i][j] = min(rows[i][j], rows[i - 2][j - 2] + 1)
+                }
+            }
+        }
+        return rows[a.count][b.count]
+    }
+
+    /// What the checker is told to ignore: the vocabulary, and every word
+    /// of an entry of several ("Claude Code", "say Vaccone"), since the
+    /// checker meets words one at a time and would never match the pair.
+    /// The checker's ignored list is not case-sensitive (lowercase
+    /// "vaccone" quiets "Vaccone" and "VACCONE"), and the guards already
+    /// hold the vocabulary lowercased.
+    static func ignorable(_ vocabulary: Set<String>) -> [String] {
+        var words = vocabulary
+        for entry in vocabulary {
+            let parts = entry.split(whereSeparator: \.isWhitespace)
+            if parts.count > 1 { words.formUnion(parts.map(String.init)) }
+        }
+        return Array(words)
+    }
+
+    /// A word written as part of something else: a #channel, an @mention,
+    /// a /command, a :shortcode:, a $variable or a ~home. The checker
+    /// hands back the word without its sigil (it answers "qqmorp" for
+    /// "#qqmorp"), so the sigil is read from the text before it. A colon
+    /// after a letter ("note:x") never reaches here: the checker takes
+    /// that for one word.
+    static func opens(at location: Int, in text: NSString) -> Bool {
+        guard location > 0, let scalar = UnicodeScalar(text.character(at: location - 1)) else { return false }
+        return "#@/$~:".contains(Character(scalar))
+    }
+
     /// Chat's own words: never a spelling mistake in a message.
     static let casual: Set<String> = [
         "lol", "lmao", "np", "ok", "okay", "ty", "thx", "idk", "imo", "imho", "tbh", "btw", "brb", "lmk",
@@ -66,16 +152,23 @@ public enum EditorSpelling {
         "u", "ur", "pls", "plz", "dm", "dms", "gonna", "wanna", "gotta", "kinda", "sorta", "yeah", "yep",
         "nope", "hmm", "haha", "hahaha", "ya", "yup", "ugh", "rn", "tmrw", "tmr", "sgtm", "wip", "nit", "ack",
         "ptal", "irl", "ooo", "eow", "cc", "fwiw", "ic", "k", "kk",
+        "ngl", "tfw", "smh", "ikr", "iykyk", "fomo", "ftw", "yolo", "bc", "cuz", "cus", "tho", "thru",
+        "gg", "wtf", "wth", "bruh", "yall", "lemme", "gimme", "dunno", "nah", "meh", "yay", "oof", "aight",
     ]
 
+    /// Tokens that are not prose: chat's words, acronyms, anything with a
+    /// digit, camel case, and anything without a vowel (nyc, tbh, pls). A
+    /// typo keeps most of its word's letters, so a vowelless token is an
+    /// abbreviation, and the checker's answer for one ("nyc" → "nye") is a
+    /// stranger.
     static func skips(_ word: String) -> Bool {
         if word.count < 2 { return true }
+        if !word.lowercased().contains(where: { "aeiou".contains($0) }) { return true }
         if casual.contains(word.lowercased()) { return true }
         if word.contains(where: \.isNumber) { return true }
         if word == word.uppercased(), word.contains(where: \.isLetter) { return true }
         let inner = word.dropFirst()
-        if inner.contains(where: \.isUppercase) { return true }
-        return word.hasPrefix("@") || word.hasPrefix("#")
+        return inner.contains(where: \.isUppercase)
     }
 }
 

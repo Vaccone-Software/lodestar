@@ -304,15 +304,23 @@ public final class ObservationStore {
         record(event)
     }
 
-    /// The editor showed, applied, dismissed or took back a mark. Never
-    /// the text: the words are the writer's.
-    public func edited(action: String, kind: String?, app: String, via: String? = nil, at now: Date = Date()) {
+    /// The editor's record of a mark: that it stood, how it ended, or that a
+    /// fix was taken back. Never the text: the words are the writer's.
+    ///
+    /// `stood` is how long the mark stood before it ended (rounded to a
+    /// tenth), kept on the outcome events; `mark` is the kind of mark an
+    /// answer was about, for the outcomes whose `kind` says something else
+    /// (a dismissal's reach). `EventLog` lists what the actions mean.
+    public func edited(action: String, kind: String?, app: String, via: String? = nil,
+                       mark: String? = nil, stood: TimeInterval? = nil, at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .editor)
         event.action = action
         event.rec = kind
         event.app = app.lowercased()
         // Which road the answer took: the lens's keys or the card's mouse.
         event.row = via
+        event.source = mark
+        event.seconds = stood.map { ($0 * 10).rounded() / 10 }
         record(event)
     }
 

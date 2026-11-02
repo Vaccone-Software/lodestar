@@ -137,11 +137,20 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
         /// the breath road records. The evidence a breath offer needs:
         /// the pair is wanted side by side, not merely used in turn.
         case compose
-        /// The editor at work: `action` (shown | applied | dismissed |
-        /// undone), `rec` the issue's kind (spelling | grammar) or a
-        /// dismissal's reach (name: the word
-        /// learned · sentence: quiet in that sentence only), `app` where. Counts,
-        /// never the words.
+        /// The editor at work. A mark's life is recorded once, when it ends
+        /// (`EditorMarkLedger`): `stood` (it was drawn and stood a second or
+        /// more: the honest count of marks shown), then its outcome, with
+        /// `seconds` how long it stood: `applied` (a fix, `row` the road),
+        /// `dismissed` (kept or learned, `rec` name | sentence, `source` the
+        /// mark's kind), `byhand` (the hand fixed it), `changed` (the hand
+        /// edited its words into something else), `left` (the field was
+        /// left with it standing); `withdrawn` (the editor dropped it
+        /// itself, and never counted as stood); `undone` (a fix taken
+        /// back, `rec` its kind). Records from before `stood` have `shown`,
+        /// written the instant a mark was placed, beside `applied`,
+        /// `dismissed` and `undone`: the two eras are never mixed in one
+        /// rate (`EditorRecord`). `rec` the kind of mark (spelling |
+        /// grammar), `app` where. Counts, never the words.
         case editor
     }
 

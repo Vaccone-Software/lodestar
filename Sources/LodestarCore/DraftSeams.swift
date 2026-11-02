@@ -57,6 +57,30 @@ extension Draft {
             very just really also
             """.split(whereSeparator: \.isWhitespace).map(String.init))
 
+        /// The words in `dangling` that can end a sentence all the same: "I
+        /// called her.", "that is what it is about.", "nothing to wait for.".
+        /// Before the next word is known they are guessed to dangle, and
+        /// `opens` takes the guess back.
+        static let endable: Set<String> = Set("""
+            i her his
+            to of in on at for with by from over about under through
+            """.split(whereSeparator: \.isWhitespace).map(String.init))
+
+        /// Words a new sentence opens on and a sentence going on seldom
+        /// does after one of `endable`: a subject pronoun ("I called her.
+        /// She never picked up."), a connective ("what we are looking at.
+        /// But the logs…"). The period stays before them. "The" and "a"
+        /// can follow either, so they are not here. Measured with and
+        /// without: the same false breaks at pauses on 60 recordings, on
+        /// 135 synthetic items (23 of 40) and on 96 pauses after these
+        /// words (6, in two sets, the second written after this list), and
+        /// 21 of 101 real sentence ends given back that the list had
+        /// merged (67 wrong merges to 46).
+        static let opens: Set<String> = Set("""
+            i we you he she they it there
+            but and however so then now okay ok well yes no also actually maybe
+            """.split(whereSeparator: \.isWhitespace).map(String.init))
+
         /// The text with every ellipsis taken out: inside it, each one is a
         /// seam of its own, decided as a join between results is; at its
         /// start it goes; at its end it goes and `trailedOff` says so, for
@@ -106,7 +130,7 @@ extension Draft {
             let candidate = (endsWithPeriod && pause) || trailedOff
             guard candidate else { return (before, incoming) }
             let last = lastWord(trimmed).lowercased()
-            if dangling.contains(last) {
+            if dangling.contains(last), !(endable.contains(last) && opens.contains(firstWord(of: incoming))) {
                 // Mid-sentence: the period goes and the next word is lowered.
                 let kept = endsWithPeriod ? String(trimmed.dropLast()) : trimmed
                 return (kept, lowered(incoming, isOrdinary: isOrdinary))
@@ -140,6 +164,12 @@ extension Draft {
         static func raised(_ text: String) -> String {
             guard let first = text.first, first.isLowercase else { return text }
             return first.uppercased() + text.dropFirst()
+        }
+
+        /// The first word of `text`, lower case, up to an apostrophe: "I'm" is "i".
+        static func firstWord(of text: String) -> String {
+            let word = text.prefix { $0.isLetter || $0.isNumber }
+            return word.lowercased()
         }
 
         static func lastWord(_ text: String) -> String {

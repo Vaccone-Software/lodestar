@@ -156,6 +156,14 @@ final class IntentPassTests: XCTestCase {
                      "Write a SwiftUI view that lists every MLX model."] {
             XCTAssertFalse(IntentPass.wants(text), text)
         }
+        // "second" alone asked 15 times in the journal and changed nothing; a list still has its first and third.
+        XCTAssertFalse(IntentPass.wants("The second panel never closes."))
+        XCTAssertTrue(IntentPass.wants("Second, run the tests. Third, ship it."))
+        // A letter after an apostrophe belongs to its word, not to a spelling.
+        for text in ["I think that's a good start.", "I'm a little lost here.", "It’s a bug, isn’t it."] {
+            XCTAssertFalse(IntentPass.wants(text), text)
+        }
+        XCTAssertTrue(IntentPass.wants("Call it K O A, the new one."))
     }
 
     func testThePromptNamesTheSpeakersWords() {

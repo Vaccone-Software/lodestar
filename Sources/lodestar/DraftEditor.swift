@@ -31,7 +31,7 @@ final class DraftEditor: EditorLens {
     private var inFlight: Set<String> = []
     private var working = false
     private var pauseWork: DispatchWorkItem?
-    private var fixes: [(range: NSRange, original: String, replacement: String, batch: Int)] = []
+    private var fixes: [(range: NSRange, original: String, replacement: String, kind: EditorIssue.Kind, batch: Int)] = []
     private var batches = 0
 
     init(proofreader: EditorProofreader, clock: Clock = .live) {
@@ -119,6 +119,14 @@ final class DraftEditor: EditorLens {
     /// The chips are drawn over the draft, not the app beneath it.
     var lensCanvas: CGRect? { draft?.editorCanvas }
 
+    /// The draft records its answers (`applied`, `dismissed`, `undone`, all
+    /// under the app "draft") and no `shown`, and the report reads them as a
+    /// line of their own. A field's marks are judged by how long they
+    /// stood and how they ended, which needs a field the hand leaves and
+    /// edits without the editor; the draft's marks are drawn on its own
+    /// glass, redrawn with every keystroke, and answered in the breath
+    /// they are read, so a "shown" here would be a count of redraws and
+    /// its rate a different number from the field's under the same name.
     func fix(_ mark: EditorController.Mark, completion: @escaping (Bool) -> Void) {
         let issue = mark.issue
         guard let draft, draft.editorReplace(issue.range, expected: issue.original, with: issue.replacement) else {
@@ -127,7 +135,7 @@ final class DraftEditor: EditorLens {
         }
         batches += 1
         fixes.append((NSRange(location: issue.range.location, length: (issue.replacement as NSString).length),
-                      issue.original, issue.replacement, batches))
+                      issue.original, issue.replacement, issue.kind, batches))
         trimFixes()
         observations?.edited(action: "applied", kind: issue.kind.rawValue, app: "draft", via: "keys", at: clock.now())
         completion(true)
@@ -143,7 +151,7 @@ final class DraftEditor: EditorLens {
         guard !landed.isEmpty else { completion(0); return }
         batches += 1
         for (issue, range) in zip(landed, EditorController.settled(landed)) {
-            fixes.append((range, issue.original, issue.replacement, batches))
+            fixes.append((range, issue.original, issue.replacement, issue.kind, batches))
             observations?.edited(action: "applied", kind: issue.kind.rawValue, app: "draft", via: "all", at: clock.now())
         }
         trimFixes()
@@ -191,7 +199,7 @@ final class DraftEditor: EditorLens {
             done = draft.editorReplace(fix.range, expected: fix.replacement, with: fix.original) && done
         }
         guard done else { completion(false); return }
-        observations?.edited(action: "undone", kind: nil, app: "draft", at: clock.now())
+        for fix in group { observations?.edited(action: "undone", kind: fix.kind.rawValue, app: "draft", at: clock.now()) }
         completion(true)
     }
 }

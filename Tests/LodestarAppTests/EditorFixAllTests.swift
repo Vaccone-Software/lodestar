@@ -80,13 +80,16 @@ final class EditorFixAllTests: XCTestCase {
     }
 
     /// The record counts each fix, says it came from ⏎, and keeps no words.
+    /// A ⌫ takes the batch back as one gesture and the record as one undo
+    /// for each fix in it, so what is fixed is what is left fixed.
     func testTheRecordCountsEachFixAndTheirOneUndo() {
         let rig = rig()
         _ = fixAll(rig)
         _ = undo(rig)
         let actions = rig.events.map(\.action)
         XCTAssertEqual(actions.filter { $0 == "applied" }.count, 3)
-        XCTAssertEqual(actions.filter { $0 == "undone" }.count, 1)
+        XCTAssertEqual(actions.filter { $0 == "undone" }.count, 3)
+        XCTAssertEqual(actions.filter { $0 == "stood" }.count, 3, "every mark answered is shown")
         XCTAssertEqual(Set(rig.events.filter { $0.action == "applied" }.compactMap(\.row)), ["all"])
     }
 

@@ -303,9 +303,13 @@ final class EditorCasesTests: XCTestCase {
         XCTAssertEqual(marks.count, 2)
         session.dismissOnce(marks[0], in: text)
         XCTAssertEqual(session.issues(text: text, caret: nil).map(\.range.location), [marks[1].range.location])
-        // Edited, the sentence is read afresh.
-        let edited = "I pet a small, grey cat. We saw a small, dog."
+        // Written on past the kept words, the keep stands.
+        let longer = "I pet a small, grey cat. We saw a small, dog."
         session.record(sentence: "I pet a small, grey cat.", corrected: "I pet a small grey cat.")
+        XCTAssertEqual(session.issues(text: longer, caret: nil).count, 1)
+        // Edited before them, the sentence is read afresh.
+        let edited = "Today I pet a small, cat. We saw a small, dog."
+        session.record(sentence: "Today I pet a small, cat.", corrected: "Today I pet a small cat.")
         XCTAssertEqual(session.issues(text: edited, caret: nil).count, 2)
     }
 
@@ -357,7 +361,7 @@ final class EditorUnansweredTests: XCTestCase {
         let session = EditorSession()
         let text = "We need to recieve them."
         session.record(sentence: text, corrected: nil)
-        XCTAssertTrue(session.hasAnswer(for: text), "asked, so not asked again")
+        XCTAssertTrue(session.hasAnswer(for: text), "asked, so not asked again at once")
         XCTAssertTrue(session.sentencesToCheck(text: text, caret: nil, paused: true).isEmpty)
         XCTAssertEqual(session.issues(text: text, caret: nil).map(\.original), ["recieve"],
                        "a model that did not answer did not read it")
@@ -614,5 +618,172 @@ final class EditorSpellingMarksTests: XCTestCase {
             XCTAssertTrue(EditorSpelling.issues(in: "we \(form) them", caret: nil, language: "en_US",
                                                 guards: guards, protected: []).isEmpty, form)
         }
+    }
+}
+
+/// The model's marks wait for the word the caret is in, as the spell
+/// checker's and the rules' do.
+final class EditorModelCaretTests: XCTestCase {
+    func testAModelMarkOnTheWordBeingTypedWaits() {
+        let session = EditorSession()
+        let text = "Their going to push it."
+        session.record(sentence: text, corrected: "They're going to push it.")
+        XCTAssertEqual(session.issues(text: text, caret: nil).count, 1)
+        XCTAssertTrue(session.issues(text: text, caret: 3).isEmpty, "inside the word")
+        XCTAssertTrue(session.issues(text: text, caret: 5).isEmpty, "just after it")
+        XCTAssertEqual(session.issues(text: text, caret: 6).count, 1, "a space on, the word is finished")
+        XCTAssertEqual(session.issues(text: text, caret: 20).count, 1, "elsewhere in the sentence")
+    }
+
+    func testAFinishedSentencesClosingPunctuationIsNotTheWord() {
+        let session = EditorSession()
+        let text = "We went to their."
+        session.record(sentence: text, corrected: "We went to there.")
+        let end = (text as NSString).length
+        XCTAssertEqual(session.issues(text: text, caret: end).map(\.replacement), ["there."], "past the full stop")
+        XCTAssertTrue(session.issues(text: text, caret: end - 1).isEmpty, "before the full stop")
+    }
+}
+
+/// A keep outlives the typing of the sentence it was made in.
+final class EditorKeepTests: XCTestCase {
+    func testAKeepOnTheModelsMarkHoldsAsTheSentenceGrows() {
+        let session = EditorSession()
+        let first = "Their going to push it"
+        session.record(sentence: first, corrected: "They're going to push it")
+        session.dismissOnce(session.issues(text: first, caret: nil)[0], in: first)
+        let grown = first + " now"
+        session.record(sentence: grown, corrected: "They're going to push it now")
+        XCTAssertTrue(session.issues(text: grown, caret: nil).isEmpty, "the next keystroke does not bring it back")
+        let more = grown + " tonight, then lunch."
+        session.record(sentence: more, corrected: "They're going to push it now tonight, then lunch.")
+        XCTAssertTrue(session.issues(text: more, caret: nil).isEmpty)
+    }
+
+    func testAKeepOnASpellingMarkHoldsAsTheSentenceGrows() {
+        let session = EditorSession()
+        let first = "We need to recieve"
+        let tail = first + " them"
+        let issue = session.issues(text: tail, caret: nil)[0]
+        session.dismissOnce(issue, in: tail)
+        XCTAssertTrue(session.issues(text: tail + " soon", caret: nil).isEmpty)
+        XCTAssertTrue(session.issues(text: tail + " soon, and then more", caret: nil).isEmpty)
+    }
+
+    func testAKeepOnARuleHoldsAsTheSentenceGrows() {
+        let session = EditorSession()
+        let text = "I think the the plan"
+        let issue = session.issues(text: text, caret: nil)[0]
+        session.dismissOnce(issue, in: text)
+        XCTAssertTrue(session.issues(text: text + " works", caret: nil).isEmpty)
+    }
+
+    func testAKeepIsReadAfreshWhenTheWordsBeforeItChange() {
+        let session = EditorSession()
+        let text = "We need to recieve them"
+        session.dismissOnce(session.issues(text: text, caret: nil)[0], in: text)
+        XCTAssertEqual(session.issues(text: "So we need to recieve them", caret: nil).map(\.original), ["recieve"],
+                       "the lead-in changed: a different sentence")
+    }
+
+    func testTheSameChangeInAnotherSentenceIsNotKept() {
+        let session = EditorSession()
+        let text = "Their going to push it. Their going to ship it."
+        session.record(sentence: "Their going to push it.", corrected: "They're going to push it.")
+        session.record(sentence: "Their going to ship it.", corrected: "They're going to ship it.")
+        let marks = session.issues(text: text, caret: nil)
+        XCTAssertEqual(marks.count, 2)
+        session.dismissOnce(marks[0], in: text)
+        XCTAssertEqual(session.issues(text: text, caret: nil).map(\.range.location), [marks[1].range.location])
+    }
+
+    func testAKeepSurvivesAnEditInAnEarlierSentence() {
+        let session = EditorSession()
+        let text = "Hello there. We need to recieve them."
+        session.dismissOnce(session.issues(text: text, caret: nil)[0], in: text)
+        XCTAssertTrue(session.issues(text: "Hello there, friend. We need to recieve them.", caret: nil).isEmpty,
+                      "the sentence moved on in the field, and is still the second")
+    }
+
+    func testKeepsAreLetGoWhenTheFieldIsReadEmpty() {
+        let session = EditorSession()
+        let text = "We need to recieve them."
+        session.dismissOnce(session.issues(text: text, caret: nil)[0], in: text)
+        XCTAssertTrue(session.issues(text: text, caret: nil).isEmpty)
+        XCTAssertTrue(session.issues(text: "", caret: nil).isEmpty)
+        XCTAssertEqual(session.issues(text: text, caret: nil).map(\.original), ["recieve"], "sent, and written afresh")
+    }
+
+    func testAKeepDoesNotSilenceAnotherMistakeInTheSameSentence() {
+        let session = EditorSession()
+        let text = "We need to recieve them and seperate it"
+        let issues = session.issues(text: text, caret: nil)
+        XCTAssertEqual(issues.map(\.original), ["recieve", "seperate"])
+        session.dismissOnce(issues[0], in: text)
+        XCTAssertEqual(session.issues(text: text, caret: nil).map(\.original), ["seperate"])
+    }
+}
+
+/// A question the model did not answer is asked again, a little later.
+final class EditorRetryTests: XCTestCase {
+    private final class Clock: @unchecked Sendable {
+        var at = Date(timeIntervalSince1970: 1_000_000)
+        func advance(_ seconds: TimeInterval) { at = at.addingTimeInterval(seconds) }
+    }
+
+    private let text = "Their going to push it."
+
+    private func asked(_ session: EditorSession) -> Bool {
+        !session.sentencesToCheck(text: text, caret: nil, paused: true).isEmpty
+    }
+
+    func testAnUnansweredSentenceIsAskedAgainAfterTenSecondsThenAMinute() {
+        let clock = Clock()
+        let session = EditorSession(now: { clock.at })
+        XCTAssertTrue(asked(session))
+        session.record(sentence: text, corrected: nil)
+        XCTAssertFalse(asked(session), "not at once")
+        clock.advance(9)
+        XCTAssertFalse(asked(session))
+        clock.advance(1)
+        XCTAssertTrue(asked(session), "ten seconds on")
+        session.record(sentence: text, corrected: nil)
+        clock.advance(59)
+        XCTAssertFalse(asked(session))
+        clock.advance(1)
+        XCTAssertTrue(asked(session), "a minute after the second failure")
+        session.record(sentence: text, corrected: nil)
+        clock.advance(86_400)
+        XCTAssertFalse(asked(session), "two retries, then it is given up on while the text stands")
+    }
+
+    func testAnAnswerEndsTheRetries() {
+        let clock = Clock()
+        let session = EditorSession(now: { clock.at })
+        session.record(sentence: text, corrected: nil)
+        clock.advance(10)
+        XCTAssertTrue(asked(session))
+        session.record(sentence: text, corrected: "They're going to push it.")
+        clock.advance(86_400)
+        XCTAssertFalse(asked(session))
+        XCTAssertEqual(session.issues(text: text, caret: nil).map(\.replacement), ["They're"])
+    }
+
+    func testSpellingStillSpeaksWhileTheSentenceWaits() {
+        let clock = Clock()
+        let session = EditorSession(now: { clock.at })
+        let typo = "We need to recieve them."
+        session.record(sentence: typo, corrected: nil)
+        XCTAssertEqual(session.issues(text: typo, caret: nil).map(\.original), ["recieve"])
+    }
+
+    func testEachSentenceKeepsItsOwnWait() {
+        let clock = Clock()
+        let session = EditorSession(now: { clock.at })
+        let two = "Their going to push it. Let me know if your coming."
+        session.record(sentence: "Their going to push it.", corrected: nil)
+        clock.advance(10)
+        session.record(sentence: "Let me know if your coming.", corrected: nil)
+        XCTAssertEqual(session.sentencesToCheck(text: two, caret: nil, paused: true), ["Their going to push it."])
     }
 }

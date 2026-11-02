@@ -182,9 +182,18 @@ public final class EditorSession {
     public var language = "en_US"
     public var guards = EditorGuards()
     /// Each sentence's answer; an inner nil is a question the model did
-    /// not answer — asked, so not asked again, but not a reading either:
-    /// the spell checker still speaks there.
+    /// not answer — not a reading, so the spell checker still speaks there,
+    /// and a question asked again after a wait (see `retryAfter`).
     private var answers: [String: String?] = [:]
+    /// How often a sentence went unanswered, and when it may be asked
+    /// again. The model fails for minutes at a time (a deadline, a refusal
+    /// while it was busy or wedged), and a sentence whose only answer was
+    /// that failure would lose its grammar for as long as its text stands.
+    private var unanswered: [String: (count: Int, retryAt: Date)] = [:]
+    /// The wait before each new ask of an unanswered sentence: ten
+    /// seconds, then a minute, then it is given up on until it changes.
+    static let retryAfter: [TimeInterval] = [10, 60]
+    private let now: () -> Date
     private var order: [String] = []
     private let capacity = 600
     /// Per-sentence issue lists that the hand dismissed "just once", by
@@ -192,21 +201,39 @@ public final class EditorSession {
     private var dismissedOnce: Set<String> = []
     private var dismissedOrder: [String] = []
 
-    public init() {}
+    /// `now` is the clock the retries wait on; tests hand in their own.
+    public init(now: @escaping () -> Date = { Date() }) { self.now = now }
 
-    /// A model answer for a sentence, kept — or nil, the model had none.
+    /// A model answer for a sentence, kept — or nil, the model had none,
+    /// which is remembered with a time to ask again.
     public func record(sentence: String, corrected: String?) {
         if answers[sentence] == nil {
             order.append(sentence)
-            if order.count > capacity { answers[order.removeFirst()] = nil }
+            if order.count > capacity {
+                let old = order.removeFirst()
+                answers[old] = nil
+                unanswered[old] = nil
+            }
         }
         answers[sentence] = .some(corrected)
+        guard corrected == nil else { unanswered[sentence] = nil; return }
+        let count = (unanswered[sentence]?.count ?? 0) + 1
+        let wait = Self.retryAfter.indices.contains(count - 1) ? Self.retryAfter[count - 1] : nil
+        unanswered[sentence] = (count, wait.map { now().addingTimeInterval($0) } ?? .distantFuture)
+    }
+
+    /// Is the sentence worth asking the model: it has no answer, or its
+    /// only answers were failures and the wait since the last has passed.
+    private func wantsAnswer(_ sentence: String) -> Bool {
+        guard answers[sentence] != nil else { return true }
+        guard let failed = unanswered[sentence] else { return false }
+        return failed.retryAt <= now()
     }
 
     public func hasAnswer(for sentence: String) -> Bool { answers[sentence] != nil }
 
     /// Sentences the model should read now: finished ones without an
-    /// answer. A sentence is finished when the caret is past it, or when
+    /// answer, or whose last try went unanswered long enough ago. A sentence is finished when the caret is past it, or when
     /// it ends in a full stop the caret is beyond, or — after a pause —
     /// whatever holds the caret too.
     public func sentencesToCheck(text: String, caret: Int?, paused: Bool) -> [String] {
@@ -215,7 +242,7 @@ public final class EditorSession {
         return EditorText.sentences(in: text).compactMap { range in
             let sentence = ns.substring(with: range)
             if EditorText.isForeign(sentence) { return nil }
-            guard !hasAnswer(for: sentence), sentence.split(whereSeparator: \.isWhitespace).count >= 2 else { return nil }
+            guard wantsAnswer(sentence), sentence.split(whereSeparator: \.isWhitespace).count >= 2 else { return nil }
             // A sentence that is all code or link has nothing to read.
             if protected.contains(where: { NSIntersectionRange($0, range).length == range.length }) { return nil }
             guard let caret else { return sentence }
@@ -235,14 +262,20 @@ public final class EditorSession {
     /// model wins, because it read the sentence, and a rule beats the spell
     /// checker, because it knows the phrase.
     public func issues(text: String, caret: Int?) -> [EditorIssue] {
+        if text.isEmpty {
+            dismissedOnce.removeAll()
+            dismissedOrder.removeAll()
+            return []
+        }
         let ns = text as NSString
         // Sentences in another language are protected like code: read by
         // neither layer.
         let protected = EditorText.protectedRanges(in: text)
             + EditorText.sentences(in: text).filter { EditorText.isForeign(ns.substring(with: $0)) }
+        let sentences = EditorText.sentences(in: text)
         var modelIssues: [EditorIssue] = []
         var read: [NSRange] = []
-        for range in EditorText.sentences(in: text) {
+        for (position, range) in sentences.enumerated() {
             let sentence = ns.substring(with: range)
             guard let answer = answers[sentence], let corrected = answer else { continue }
             // A reply that rewrote or answered the sentence did not read
@@ -256,15 +289,18 @@ public final class EditorSession {
                    EditorSpelling.isMisspelled(issue.original, language: language) {
                     issue.kind = .spelling
                 }
-                if !dismissedOnce.contains(Self.onceKey(sentence: sentence, issue: issue)) {
+                // A pause in the middle of a word asks the model about a word
+                // not yet finished, as the spell checker and the rules
+                // know; its answer waits for the word.
+                if Self.unfinished(issue, caret: caret) { continue }
+                if !dismissedOnce.contains(Self.onceKey(text: ns, sentences: sentences, at: position, issue: issue)) {
                     modelIssues.append(issue)
                 }
             }
         }
         func dismissed(_ issue: EditorIssue) -> Bool {
-            guard let sentence = EditorText.sentences(in: text).first(where: {
-                NSLocationInRange(issue.range.location, $0) }) else { return false }
-            return dismissedOnce.contains(Self.onceKey(sentence: ns.substring(with: sentence), issue: issue))
+            guard let position = sentences.firstIndex(where: { NSLocationInRange(issue.range.location, $0) }) else { return false }
+            return dismissedOnce.contains(Self.onceKey(text: ns, sentences: sentences, at: position, issue: issue))
         }
         let rules = EditorRules.issues(in: text, caret: caret, protected: protected)
             .filter { issue in !modelIssues.contains { NSIntersectionRange($0.range, issue.range).length > 0 } }
@@ -282,20 +318,45 @@ public final class EditorSession {
         return (modelIssues + rules + spelling).sorted { $0.range.location < $1.range.location }
     }
 
-    /// Kept as written: the issue stays quiet while its sentence stands,
-    /// and nothing is learned — edit the sentence and it is read afresh.
+    /// Is the caret in or against the issue's last word, so that a letter
+    /// typed next would change it? Punctuation closing the range is not the
+    /// word: a caret after the full stop of a finished sentence is past it.
+    static func unfinished(_ issue: EditorIssue, caret: Int?) -> Bool {
+        guard let caret else { return false }
+        let closing = issue.original.reversed().prefix { !$0.isLetter && !$0.isNumber }.map(\.utf16.count).reduce(0, +)
+        return caret >= issue.range.location && caret <= issue.range.location + issue.range.length - closing
+    }
+
+    /// Kept as written: the issue stays quiet while the words before it in
+    /// its sentence stand, and nothing is learned — edit those words and it
+    /// is read afresh.
     public func dismissOnce(_ issue: EditorIssue, in text: String) {
         let ns = text as NSString
-        guard let sentence = EditorText.sentences(in: text).first(where: {
-            NSLocationInRange(issue.range.location, $0) }) else { return }
-        let key = Self.onceKey(sentence: ns.substring(with: sentence), issue: issue)
+        let sentences = EditorText.sentences(in: text)
+        guard let position = sentences.firstIndex(where: { NSLocationInRange(issue.range.location, $0) }) else { return }
+        let key = Self.onceKey(text: ns, sentences: sentences, at: position, issue: issue)
         if dismissedOnce.insert(key).inserted {
             dismissedOrder.append(key)
             if dismissedOrder.count > capacity { dismissedOnce.remove(dismissedOrder.removeFirst()) }
         }
     }
 
-    static func onceKey(sentence: String, issue: EditorIssue) -> String {
-        "\(sentence)\u{1}\(issue.original)\u{1}\(issue.replacement)"
+    /// What a keep is known by: the change, which sentence it is in, and
+    /// the sentence's words up to the kept span. The whole sentence's text
+    /// would forget the keep at the next keystroke of a sentence still
+    /// being written, and that is where the mark nearest the caret, the one
+    /// given the easiest letter, always is. What stands after the kept
+    /// words is free to grow. What stands before them is the context the
+    /// keep was made in, and changing it reads them afresh. The sentence is
+    /// told by its place in the field (the nth), which an edit elsewhere
+    /// leaves alone as it does not leave an offset alone, so the same
+    /// change in another sentence, "Their going" opening two, is not
+    /// quieted: nothing is learned. The keeps are let go when a field is
+    /// read empty (a message sent, a field cleared), so the next thing
+    /// written there starts afresh.
+    static func onceKey(text: NSString, sentences: [NSRange], at position: Int, issue: EditorIssue) -> String {
+        let start = sentences[position].location
+        let lead = NSRange(location: start, length: max(0, issue.range.location - start))
+        return "\(position)\u{1}\(text.substring(with: lead))\u{1}\(issue.original)\u{1}\(issue.replacement)"
     }
 }

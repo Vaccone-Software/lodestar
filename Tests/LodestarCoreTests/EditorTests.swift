@@ -787,3 +787,78 @@ final class EditorRetryTests: XCTestCase {
         XCTAssertEqual(session.sentencesToCheck(text: two, caret: nil, paused: true), ["Their going to push it."])
     }
 }
+
+/// The writer's register and punctuation are theirs: what the Standard
+/// model marked in 265 passages of the maker's dictated text that were
+/// style, not slips, are not offered.
+final class EditorStyleTests: XCTestCase {
+    private func issues(_ text: String, _ corrected: String) -> [EditorIssue] {
+        let ns = text as NSString
+        return EditorDiff.issues(text: ns, sentence: NSRange(location: 0, length: ns.length),
+                                 corrected: corrected, guards: EditorGuards(),
+                                 protected: EditorText.protectedRanges(in: text))
+    }
+
+    func testAContractionWrittenOutIsNotAMistake() {
+        XCTAssertTrue(issues("I think it's fine.", "I think it is fine.").isEmpty)
+        XCTAssertTrue(issues("It\u{2019}s fine today.", "It is fine today.").isEmpty, "curly, case kept")
+        XCTAssertTrue(issues("I think there's a bug.", "I think there is a bug.").isEmpty)
+        XCTAssertTrue(issues("Whatever's left is fine.", "Whatever is left is fine.").isEmpty)
+        XCTAssertTrue(issues("The layout's broken now.", "The layout is broken now.").isEmpty)
+        XCTAssertTrue(issues("We don't know yet.", "We do not know yet.").isEmpty)
+        XCTAssertTrue(issues("They're late and we'll wait.", "They are late and we will wait.").isEmpty)
+        XCTAssertTrue(issues("I've seen it and I'm sure.", "I have seen it and I am sure.").isEmpty)
+        XCTAssertTrue(issues("He'd go if she'd ask.", "He would go if she had ask.").isEmpty)
+        XCTAssertTrue(issues("I can't see it.", "I cannot see it.").isEmpty)
+        XCTAssertTrue(issues("I won't go.", "I will not go.").isEmpty)
+    }
+
+    func testTheRealErrorsAroundContractionsStillMark() {
+        XCTAssertEqual(issues("I think its fine.", "I think it's fine.").map(\.replacement), ["it's"])
+        XCTAssertEqual(issues("The dog wagged it's tail.", "The dog wagged its tail.").map(\.replacement), ["its"])
+        XCTAssertEqual(issues("I think your right.", "I think you're right.").map(\.replacement), ["you're"])
+        XCTAssertEqual(issues("Their going home.", "They're going home.").map(\.replacement), ["They're"])
+        XCTAssertEqual(issues("I think there's two bugs.", "I think there are two bugs.").map(\.replacement), ["there are"],
+                       "agreement, not an expansion")
+        XCTAssertFalse(issues("We don't know yet.", "We do not care yet.").isEmpty, "an expansion plus another change")
+    }
+
+    func testDigitsAndNumberWordsAreTheWritersChoice() {
+        XCTAssertTrue(issues("I have 2 cats.", "I have two cats.").isEmpty)
+        XCTAssertTrue(issues("I have two cats.", "I have 2 cats.").isEmpty)
+        XCTAssertTrue(issues("We met 25 times.", "We met twenty five times.").isEmpty)
+        XCTAssertTrue(issues("We met twenty-five times.", "We met 25 times.").isEmpty)
+        XCTAssertTrue(issues("We need 100 of them.", "We need one hundred of them.").isEmpty)
+        XCTAssertFalse(issues("I have 2 cats.", "I have three cats.").isEmpty, "a different number is a change")
+        XCTAssertFalse(issues("I have to cats.", "I have two cats.").isEmpty, "to for two is a homophone slip")
+    }
+
+    func testACommaBeforeAConjunctionIsTheWritersBreath() {
+        for conjunction in ["and", "because", "when", "but", "or", "while", "though", "although", "since", "yet", "as"] {
+            let text = "I describe a feature, \(conjunction) I like it."
+            let model = "I describe a feature \(conjunction) I like it."
+            XCTAssertTrue(issues(text, model).isEmpty, conjunction)
+        }
+        XCTAssertTrue(issues("Ship it, so that we can rest.", "Ship it so that we can rest.").isEmpty)
+        XCTAssertEqual(issues("Ship it, so we can rest.", "Ship it so we can rest.").map(\.shown), ["remove comma"],
+                       "so alone is not a conjunction here")
+    }
+
+    func testACommaAfterALoneSentenceOpenerIsTheWritersBreath() {
+        for opener in ["However", "Also", "So", "Actually", "Honestly", "Well", "Yes", "No", "Okay", "Please"] {
+            XCTAssertTrue(issues("\(opener), we ship it.", "\(opener) we ship it.").isEmpty, opener)
+        }
+        XCTAssertEqual(issues("Could you please, review the draft?", "Could you please review the draft?").map(\.shown),
+                       ["remove comma"], "mid-sentence, a stray")
+        XCTAssertEqual(issues("Tomorrow, we ship it.", "Tomorrow we ship it.").map(\.shown), ["remove comma"],
+                       "only the listed openers")
+    }
+
+    func testStrayCommasStillMark() {
+        XCTAssertEqual(issues("We talked about, the workflow.", "We talked about the workflow.").map(\.shown), ["remove comma"])
+        XCTAssertEqual(issues("I like your, recommendations.", "I like your recommendations.").map(\.shown), ["remove comma"])
+        XCTAssertEqual(issues("Treat it as someone, who knows.", "Treat it as someone who knows.").map(\.shown), ["remove comma"])
+        XCTAssertEqual(issues("The new policy, applies to everyone.", "The new policy applies to everyone.").map(\.shown),
+                       ["remove comma"])
+    }
+}

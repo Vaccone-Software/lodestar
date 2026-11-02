@@ -66,7 +66,10 @@ public enum EditorDiff {
         // This message"), which is never a name.
         for block in blocks where block.kind == .equal {
             let (writer, model) = (a[block.i1], b[block.j1].0)
-            guard let fixed = punctuationOrCaseFix(writer.0, model, first: block.i1 <= firstWord) else { continue }
+            guard let fixed = punctuationOrCaseFix(writer.0, model, first: block.i1 <= firstWord,
+                                                   next: na.indices.contains(block.i1 + 1) ? na[block.i1 + 1] : nil,
+                                                   afterNext: na.indices.contains(block.i1 + 2) ? na[block.i1 + 2] : "",
+                                                   opens: block.i1 == firstWord) else { continue }
             if protected.contains(where: { NSIntersectionRange($0, writer.1).length > 0 }) { continue }
             out.append(EditorIssue(range: writer.1, original: writer.0, replacement: fixed.text,
                                    kind: .grammar, note: fixed.note))
@@ -92,6 +95,8 @@ public enum EditorDiff {
             if rawSrc.contains("-") || rawDst.contains("-"),
                src.replacingOccurrences(of: " ", with: "") == dst.replacingOccurrences(of: " ", with: "") { continue }
             if (i1..<i2).contains(where: { guards.vocabulary.contains(na[$0]) }) { continue }
+            if expandsContractions(Array(na[i1..<i2]), Array(nb[j1..<j2])) { continue }
+            if sameNumber(Array(na[i1..<i2]), Array(nb[j1..<j2])) { continue }
 
             // Inserts and deletes are carried by a neighbour, so every
             // issue has a word to stand under and one range to replace.
@@ -140,9 +145,121 @@ public enum EditorDiff {
         "had", "would", "can", "could", "should", "just", "very", "some", "any", "all",
     ]
 
+    /// Words that open a clause the comma before them only paces. Measured
+    /// on 265 passages of the maker's own dictated text read by the Standard
+    /// model: 54 of its 98 marks (0.37 a sentence) were "remove comma", about
+    /// half on a stray comma ("about, the workflow", "as someone, who") and
+    /// the other half on a style comma, nearly always before one of these.
+    /// One removal was wrong outright: "I describe a feature, and I really
+    /// like" joins two clauses. A comma before a conjunction is the
+    /// writer's punctuation, so these are never taken.
+    static let clauseOpeners: Set<String> = [
+        "and", "because", "when", "but", "or", "while", "though", "although", "since", "yet", "as",
+    ]
+
+    /// Single words that open a sentence with a comma after them: the same
+    /// measurement's other half of the style commas ("However, we", "Well,
+    /// that"). The comma is the writer's breath, not a stray.
+    static let openingWords: Set<String> = [
+        "however", "also", "so", "actually", "honestly", "well", "yes", "no", "okay", "please",
+    ]
+
+    /// Does the comma after a word pace a clause rather than split one: the
+    /// next word is a conjunction ("so" counting only as "so that"), or the
+    /// word is a lone opener of its sentence.
+    static func isStyleComma(word: String, next: String?, afterNext: String, opens: Bool) -> Bool {
+        if opens, openingWords.contains(EditorText.normalized(word)) { return true }
+        guard let next else { return false }
+        return clauseOpeners.contains(next) || (next == "so" && afterNext == "that")
+    }
+
+    /// Contractions written out. In the same 265 passages (98 marks) "it's"
+    /// → "it is", "whatever's" → "whatever is" and their kin were marks
+    /// too, and so were digits written as words: the writer's register,
+    /// which DESIGN.md says is theirs, not a mistake. Only the exact
+    /// expansion is dropped: its → it's, it's → its, your → you're,
+    /// their → they're and "there's" → "there are" (agreement) are changes
+    /// of words and still mark.
+    static func expandsContractions(_ src: [String], _ dst: [String]) -> Bool {
+        guard !src.isEmpty, src.contains(where: { $0.contains("'") }) else { return false }
+        // Each contraction's possible expansions, as a flat run of words;
+        // a word with none stays as it is.
+        var options: [[String]] = [[]]
+        for token in src {
+            let forms = expansions(of: token)
+            options = options.flatMap { head in forms.map { head + $0 } }
+        }
+        return options.contains { $0 == dst || $0.joined() == dst.joined() }
+    }
+
+    private static func expansions(of token: String) -> [[String]] {
+        guard let apostrophe = token.lastIndex(of: "'") else { return [[token]] }
+        let stem = String(token[..<apostrophe]), tail = String(token[token.index(after: apostrophe)...])
+        switch tail {
+        case "re": return [[stem, "are"]]
+        case "ll": return [[stem, "will"]]
+        case "ve": return [[stem, "have"]]
+        case "m": return [[stem, "am"]]
+        case "d": return [[stem, "would"], [stem, "had"]]
+        case "s": return stem == "let" ? [[stem, "us"]] : [[stem, "is"], [stem, "has"]]
+        case "t" where stem.hasSuffix("n"):
+            let base = String(stem.dropLast())
+            switch base {
+            case "wo": return [["will", "not"]]
+            case "ca": return [["can", "not"], ["cannot"]]
+            case "sha": return [["shall", "not"]]
+            case "ai": return [[token]]
+            default: return [[base, "not"]]
+            }
+        default: return [[token]]
+        }
+    }
+
+    /// Digits and number words: "2" ↔ "two", "25" ↔ "twenty five". Style,
+    /// like a contraction written out, and dropped when both sides are the
+    /// same number written the other way.
+    static func sameNumber(_ src: [String], _ dst: [String]) -> Bool {
+        guard let a = numberValue(src), let b = numberValue(dst), a == b else { return false }
+        return src.allSatisfy { $0.allSatisfy(\.isNumber) } != dst.allSatisfy { $0.allSatisfy(\.isNumber) }
+    }
+
+    private static let units: [String: Int] = [
+        "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+        "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+        "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+    ]
+    private static let tens: [String: Int] = [
+        "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+    ]
+
+    /// The number a run of tokens writes, in digits or in words (to 999),
+    /// or nil when it is not a number. A hyphen is gone from the tokens
+    /// ("twenty-five" is "twentyfive"), so a tens word may carry its unit.
+    private static func numberValue(_ tokens: [String]) -> Int? {
+        if tokens.count == 1, let digits = Int(tokens[0]), tokens[0].allSatisfy(\.isNumber) { return digits }
+        var total = 0, current = 0, any = false
+        for token in tokens {
+            if let n = units[token] { current += n }
+            else if let n = tens[token] { current += n }
+            else if let ten = tens.first(where: { token.hasPrefix($0.key) && units[String(token.dropFirst($0.key.count))] != nil }) {
+                current += ten.value + units[String(token.dropFirst(ten.key.count))]!
+            } else if token == "hundred" { current = max(current, 1) * 100 }
+            else if token == "and", any { continue }
+            else { return nil }
+            any = true
+        }
+        total += current
+        return any ? total : nil
+    }
+
     /// The writer's token fixed as the model fixed it, when the difference
-    /// is a removed comma or semicolon or a lowercased little word.
-    static func punctuationOrCaseFix(_ writer: String, _ model: String, first: Bool) -> (text: String, note: String)? {
+    /// is a removed comma or semicolon or a lowercased little word. The
+    /// model only ever removes a comma in this road: one it adds is
+    /// tidying and never reaches here (testACommaTheModelAddedIsTidyingAndIgnored),
+    /// so the style-comma rule needs no mirror for additions.
+    static func punctuationOrCaseFix(_ writer: String, _ model: String, first: Bool,
+                                     next: String? = nil, afterNext: String = "",
+                                     opens: Bool = false) -> (text: String, note: String)? {
         var text = writer
         var notes: [String] = []
         let writerTail = String(writer.reversed().prefix { !$0.isLetter && !$0.isNumber && $0 != "'" }.reversed())
@@ -150,7 +267,9 @@ public enum EditorDiff {
         // Removed, not replaced: a comma the model turned into a full stop
         // split the sentence, which is a rewrite, not a stray comma.
         let replaced = modelTail.contains { ".;:!?".contains($0) }
-        for mark in [",", ";"] where writerTail.contains(mark) && !modelTail.contains(mark) && !replaced {
+        let style = isStyleComma(word: writer, next: next, afterNext: afterNext, opens: opens)
+        for mark in [",", ";"] where writerTail.contains(mark) && !modelTail.contains(mark) && !replaced
+            && !(mark == "," && style) {
             if let at = text.lastIndex(of: Character(mark)) { text.remove(at: at) }
             notes.append(mark == "," ? "remove comma" : "remove semicolon")
         }

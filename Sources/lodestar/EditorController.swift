@@ -130,6 +130,10 @@ final class EditorController: EditorLens {
     /// answers again is the same field, and its state is kept through it.
     private var lastRead = Date.distantPast
     private var silentSince: Date?
+    /// Sentences the model has left unanswered in a row, and whether the
+    /// hand has been told about this run of them.
+    private var unanswered = 0
+    private var toldSilent = false
 
     /// Longest field read, in UTF-16 units: the editor is for messages
     /// and mail, not for documents.
@@ -146,6 +150,9 @@ final class EditorController: EditorLens {
     /// times in Slack, 385 in Brave and 232 in Claude, and Chromium builds
     /// its elements again behind the same text.
     static let grace: TimeInterval = 1.5
+    /// Sentences left unanswered in a row before the hand is told.
+    static let silentAfter = 3
+    static let silentLine = "Grammar checking is paused. Spelling still works"
 
     init(source: EditorFieldSource = AXFieldSource(), queue: DispatchQueue = EditorAX.queue,
          proofreader: EditorProofreader = EditorModel(engine: .standard),
@@ -192,6 +199,8 @@ final class EditorController: EditorLens {
             // What was waiting for the old model goes.
             queue = []
             inFlight = []
+            unanswered = 0
+            toldSilent = false
         }
         modelReadyNow = engine.usesModel && modelReady(engine)
         issuesText = ""   // the guards changed: read again
@@ -530,6 +539,7 @@ final class EditorController: EditorLens {
             let corrected = await proofreader.correct(next)
             guard let self else { return }
             self.working = false
+            self.noteAnswer(corrected != nil)
             // No answer is kept too: asked again, it would fail again,
             // every beat. The spell checker still speaks there. Recorded on
             // the session's queue, and the sentence stays in flight until it
@@ -545,6 +555,24 @@ final class EditorController: EditorLens {
                 }
             }
             self.drain()
+        }
+    }
+
+    /// The model answered, or did not. It can stop answering for minutes
+    /// (it has, while dictation ran its own model), and the marks it would
+    /// have made are simply absent, which reads as a clean field. After
+    /// three sentences in a row with no answer the editor says so, once
+    /// for the run, and the next answer ends the run.
+    private func noteAnswer(_ answered: Bool) {
+        if answered {
+            unanswered = 0
+            toldSilent = false
+            return
+        }
+        unanswered += 1
+        if unanswered >= Self.silentAfter, !toldSilent {
+            toldSilent = true
+            flash(Self.silentLine)
         }
     }
 

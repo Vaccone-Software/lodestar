@@ -167,4 +167,44 @@ final class EditorRecordScenarioTests: XCTestCase {
         leave(rig)
         XCTAssertEqual(actions(rig), ["withdrawn"], "not a mark that was shown")
     }
+
+    // MARK: - The model going quiet
+
+    private let sentences = ["Their going to push it.", "Please send the file.", "We ship on Friday.",
+                             "Call me tomorrow then.", "Lunch is at noon.", "The room is booked.",
+                             "Nothing else to add.", "See you there soon."]
+
+    /// The text of the first `count` sentences, with a last unfinished one
+    /// so the caret's own sentence waits.
+    private func text(_ count: Int) -> String { sentences.prefix(count).joined(separator: " ") + " And" }
+
+    func testTheEditorSaysOnceWhenTheModelStopsAnswering() {
+        let rig = EditorRig()
+        rig.type(text(2))
+        rig.settle("two asked") { rig.reader.asked.count == 2 }
+        rig.drain()
+        XCTAssertTrue(rig.flashes.isEmpty, "two unanswered is not yet a run")
+
+        rig.type(text(3))
+        rig.settle("the notice") { rig.flashes.count == 1 }
+        XCTAssertEqual(rig.flashes, [EditorController.silentLine])
+
+        rig.type(text(4))
+        rig.settle("a fourth asked") { rig.reader.asked.count == 4 }
+        rig.drain()
+        XCTAssertEqual(rig.flashes.count, 1, "once for the run")
+    }
+
+    func testAnAnswerEndsTheRunAndTheNextRunIsToldAgain() {
+        let rig = EditorRig()
+        rig.type(text(3))
+        rig.settle("the notice") { rig.flashes.count == 1 }
+        rig.reader.answer(sentences[3], sentences[3])
+        rig.type(text(4))
+        rig.settle("the answer") { rig.reader.asked.count == 4 }
+        rig.drain()
+        for count in 5...7 { rig.type(text(count)) ; rig.settle("asked \(count)") { rig.reader.asked.count == count } }
+        rig.settle("the second notice") { rig.flashes.count == 2 }
+        XCTAssertEqual(Set(rig.flashes), [EditorController.silentLine])
+    }
 }

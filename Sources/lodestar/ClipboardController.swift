@@ -33,9 +33,10 @@ final class ClipboardController {
     /// A copy the hand made, recorded: the Keep walk's first step.
     var onCopied: (() -> Void)?
     /// The board a paste writes and the keystroke that lands it — the
-    /// system's, except on the stage, where a test must never paste into
-    /// whatever window the machine has focused.
-    var pasteboard: NSPasteboard = .general
+    /// system's, except under a test run, where a paste goes onto the run's
+    /// own board, the one the copies are read from, and never onto the
+    /// general one.
+    var pasteboard: NSPasteboard = SystemEvents.pasteboard
     lazy var postPaste: () -> Void = { [weak self] in self?.synthesizePaste() }
     lazy var postMove: () -> Void = { [weak self] in self?.synthesizePaste(flags: [.maskCommand, .maskAlternate]) }
     var excludedApps: Set<String> = []

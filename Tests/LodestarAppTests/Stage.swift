@@ -334,12 +334,14 @@ final class Stage {
         // The world never moves a window, so a fresh ask for the focused
         // one finds no app in front: the model knows only what a test told it.
         model.frontmostApp = { nil }
+        // The run's own board, never the general one, and empty as each
+        // stage begins: the controller pastes onto the board it reads its
+        // copies from, so a board of the stage's own would have Keep, which
+        // looks at the board as it opens, compare one board's count with
+        // another's and take in whatever an earlier test left behind.
+        SystemEvents.pasteboard.clearContents()
         let clipboard = ClipboardController(
             store: SealedFixture.clipboardStore(directory.appendingPathComponent("clipboard")))
-        // A private board and a counted keystroke: a test that pasted into
-        // the general pasteboard and posted ⌘V would type into whatever
-        // the machine had focused.
-        clipboard.pasteboard = NSPasteboard(name: NSPasteboard.Name("lodestar-stage-\(UUID().uuidString)"))
         // Secure Keyboard Entry is the machine's: a locked screen turns it
         // on (loginwindow holds it) and every paste scenario would read
         // "secure". The stage answers for itself; a test that wants the

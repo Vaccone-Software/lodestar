@@ -44,4 +44,21 @@ final class KeepOpeningTests: XCTestCase {
         XCTAssertEqual(stage.engine.strip.shownRecents.map(\.preview), ["two", "one"])
         stage.press("escape")
     }
+
+    /// Keep's own paste is on the board the next opening looks at, and is
+    /// known there as its own: opening again takes nothing in. On CI it
+    /// took in what an earlier test had left, because the stage pasted
+    /// onto a board of its own while Keep looked at the run's.
+    func testOpeningAfterItsOwnPasteTakesNothingIn() {
+        copy("left behind by an earlier test")
+        let stage = Stage()
+        for text in ["one", "two"] { stage.seedClip(text) }
+        stage.openStrip()
+        stage.press("j")
+        XCTAssertEqual(SystemEvents.pasteboard.string(forType: .string), "two", "pasted onto the board copies come from")
+        stage.openStrip()
+        XCTAssertEqual(stage.engine.strip.shownRecents.map(\.preview), ["two", "one"])
+        stage.press("k")
+        XCTAssertEqual(SystemEvents.pasteboard.string(forType: .string), "one")
+    }
 }

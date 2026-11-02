@@ -1073,6 +1073,15 @@ public struct EngineCore {
 
     // MARK: - Hints
 
+    /// The editor's lens has finished with the keys: what the hand typed
+    /// while a fix landed has been put into the app, and the lens ends. A
+    /// no-op from any other state.
+    public mutating func lensDone() -> [EngineEffect] {
+        guard case .hints = state else { return [] }
+        state = .idle
+        return [.exitHints]
+    }
+
     /// Hints are a lens like scroll: its own keys act, Escape (or lode ;
     /// again) closes it, any other lode verb exits and executes. Plain
     /// typing belongs to the labels; everything unlabeled is swallowed.

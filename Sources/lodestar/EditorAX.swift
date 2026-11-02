@@ -41,8 +41,8 @@ struct AXFieldSource: EditorFieldSource {
     }
 
     /// Type a replacement the way a hand would, marked so the tap lets it
-    /// through untouched.
-    static func type(_ text: String, to pid: pid_t) {
+    /// through untouched. `pace` is the gap between the key's two events.
+    static func type(_ text: String, to pid: pid_t, pace: useconds_t = 15_000) {
         let units = Array(text.utf16)
         for down in [true, false] {
             guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down) else { continue }
@@ -50,7 +50,21 @@ struct AXFieldSource: EditorFieldSource {
             event.flags = event.flags.withoutModifiers
             event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
             SystemEvents.post(event, toPid: pid)
-            usleep(15_000)
+            if pace > 0 { usleep(pace) }
+        }
+    }
+
+    /// A key that types no character (⌫ is 51, ⏎ is 36), struck with the
+    /// modifiers given (none, for the hand's typing held back) and marked
+    /// as Lodestar's own like the typing is.
+    static func strike(_ code: CGKeyCode, to pid: pid_t, pace: useconds_t = 15_000,
+                       flags: CGEventFlags = []) {
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
+            event.flags = flags
+            event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
+            SystemEvents.post(event, toPid: pid)
+            if pace > 0 { usleep(pace) }
         }
     }
 }
@@ -65,12 +79,11 @@ enum EditorAX {
     static let timeout: Float = 0.25
     private static let systemWide = AX.systemWide()
 
-    private static let editableRoles: Set<String> = ["AXTextArea", "AXTextField", "AXComboBox"]
-
     // MARK: - Reading
 
     /// The focused field, if it is one the editor may read: editable, not a
-    /// password, not a search box, not Lodestar's own glass.
+    /// password, not a query (a search box, a launcher, an address bar), not
+    /// Lodestar's own glass.
     static func focusedField(frontmost: pid_t? = nil) -> EditorField? {
         dispatchPrecondition(condition: .onQueue(queue))
         // The system-wide question can fail outright ("cannot complete",
@@ -85,6 +98,10 @@ enum EditorAX {
         else { return nil }
         var pid: pid_t = 0
         guard AXUIElementGetPid(element, &pid) == .success, pid != getpid() else { return nil }
+        // A launcher's one field is a query, whatever it answers about
+        // itself: refused before the app is asked anything more.
+        let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+        guard !EditorFieldGate.refusesApp(bundleID) else { return nil }
         AXUIElementSetMessagingTimeout(element, timeout)
         // Rich web editors focus a node inside the field; Chromium names
         // the field itself.
@@ -92,28 +109,64 @@ enum EditorAX {
             element = ancestor
             AXUIElementSetMessagingTimeout(element, timeout)
         }
-        guard isReadable(role: AX.string(element, kAXRoleAttribute as String) ?? "",
-                         subrole: AX.string(element, kAXSubroleAttribute as String) ?? "",
-                         valueSettable: settable(element, kAXValueAttribute as String),
-                         rangeSettable: settable(element, kAXSelectedTextRangeAttribute as String))
-        else { return nil }
+        var facts = EditorFieldFacts(role: AX.string(element, kAXRoleAttribute as String) ?? "",
+                                     subrole: AX.string(element, kAXSubroleAttribute as String) ?? "",
+                                     bundleID: bundleID,
+                                     valueSettable: settable(element, kAXValueAttribute as String),
+                                     rangeSettable: settable(element, kAXSelectedTextRangeAttribute as String))
+        // The names are only read for the fields that could be refused by
+        // them: every one is a message to the app.
+        if facts.isSingleLine {
+            facts.roleDescription = AX.string(element, kAXRoleDescriptionAttribute as String) ?? ""
+            facts.description = AX.string(element, kAXDescriptionAttribute as String) ?? ""
+            facts.title = AX.string(element, kAXTitleAttribute as String) ?? ""
+            facts.placeholder = AX.string(element, "AXPlaceholderValue") ?? ""
+            if facts.asksWhereItStands { facts.insideWebArea = isInsideWebArea(element) }
+        }
+        guard EditorFieldGate.verdict(facts) == .read else { return nil }
         guard let text = AX.string(element, kAXValueAttribute as String) else { return nil }
         let app = NSRunningApplication(processIdentifier: pid)
         var field = EditorField(element: element, pid: pid, appName: app?.localizedName ?? "",
-                                bundleID: app?.bundleIdentifier, text: text)
+                                bundleID: bundleID, text: text)
         if let selection = selectedRange(element), selection.length == 0 { field.caret = selection.location }
         field.frame = frame(of: element)
         if let window = AX.element(element, kAXWindowAttribute as String) { field.windowFrame = frame(of: window) }
         return field
     }
 
-    /// Which fields the editor may read: editable text, never a password,
-    /// never a search box, never a terminal's screen — a text area nobody
-    /// types into through accessibility, its text and selection both fixed.
+    /// Which fields the editor may read: see `EditorFieldGate`. Kept for
+    /// the callers that know only the role and the subrole.
     static func isReadable(role: String, subrole: String, valueSettable: Bool, rangeSettable: Bool) -> Bool {
-        guard editableRoles.contains(role) else { return false }
-        guard subrole != "AXSecureTextField", subrole != "AXSearchField" else { return false }
-        return valueSettable || rangeSettable
+        EditorFieldGate.verdict(EditorFieldFacts(role: role, subrole: subrole, valueSettable: valueSettable,
+                                                 rangeSettable: rangeSettable)) == .read
+    }
+
+    /// Whether an AXWebArea stands above the element: the page's own
+    /// fields do, a browser's address bar (its own interface) does not.
+    /// A field's place never changes, and the answer costs up to forty
+    /// accessibility messages, one per hop, on every read of a field (every
+    /// keystroke and caret move in a page's single-line input), so a field
+    /// pays for the walk once and the last few are remembered.
+    static func isInsideWebArea(_ element: AXUIElement) -> Bool {
+        dispatchPrecondition(condition: .onQueue(queue))
+        return placeMemory.answer(for: element) { walkUpToWebArea(element) }
+    }
+
+    nonisolated(unsafe) static var placeMemory = PlaceMemory()
+
+    /// The walk itself, bounded: nil when it did not finish (a timeout, a
+    /// tree deeper than any page), which refuses the field for now, the
+    /// quiet side, and is not remembered.
+    static func walkUpToWebArea(_ element: AXUIElement) -> Bool? {
+        var node = element
+        for _ in 0..<40 {
+            guard let parent = AX.element(node, kAXParentAttribute as String) else { return nil }
+            let role = AX.string(parent, kAXRoleAttribute as String)
+            if role == "AXWebArea" { return true }
+            if role == kAXWindowRole as String { return false }
+            node = parent
+        }
+        return nil
     }
 
     /// Does the range still read what the mark was made for? A fix whose
@@ -248,7 +301,16 @@ enum EditorAX {
     /// and put the caret back where the hand left it. Native text takes
     /// the replacement directly; Chromium, Electron and Outlook ignore
     /// that and take typing into a selection instead, which is also the
-    /// one road their own editors and undo understand.
+    /// one road their editors and undo understand.
+    ///
+    /// For those the write is not tried. It was, first, and waited a
+    /// third of a second to see whether it landed (some native apps apply
+    /// one that late), then typed for up to 0.6 s more: the word stood
+    /// selected for 0.3 to 0.9 s, and the hand's next character, struck
+    /// inside that time, replaced it. Going straight to the selection and
+    /// the typing leaves the word selected only for the typing itself: two
+    /// key events fifteen milliseconds apart, and the beat Chromium takes
+    /// to apply them.
     static func replace(_ range: NSRange, expected: String, with text: String, in field: EditorField,
                         post: (String) -> Void) -> Bool {
         dispatchPrecondition(condition: .onQueue(queue))
@@ -258,15 +320,20 @@ enum EditorAX {
         let before = selectedRange(field.element)
         let target = ns.replacingCharacters(in: range, with: text)
         guard select(field.element, range) else { return false }
-        _ = AXUIElementSetAttributeValue(field.element, kAXSelectedTextAttribute as CFString, text as CFString)
-        if !settles(field.element, to: target, within: 0.3) {
-            // The direct write was ignored: the selection stands, so type.
-            if AX.string(field.element, kAXValueAttribute as String) == current {
-                select(field.element, range)
-                post(text)
-                guard settles(field.element, to: target, within: 0.6) else { return false }
-            } else if AX.string(field.element, kAXValueAttribute as String) != target {
-                return false
+        if fixesByTyping(bundleID: field.bundleID, pid: field.pid) {
+            post(text)
+            guard settles(field.element, to: target, within: 0.6) else { return false }
+        } else {
+            _ = AXUIElementSetAttributeValue(field.element, kAXSelectedTextAttribute as CFString, text as CFString)
+            if !settles(field.element, to: target, within: 0.3) {
+                // The direct write was ignored: the selection stands, so type.
+                if AX.string(field.element, kAXValueAttribute as String) == current {
+                    select(field.element, range)
+                    post(text)
+                    guard settles(field.element, to: target, within: 0.6) else { return false }
+                } else if AX.string(field.element, kAXValueAttribute as String) != target {
+                    return false
+                }
             }
         }
         // The caret goes back where it was, moved by the change in length
@@ -276,6 +343,33 @@ enum EditorAX {
                                                          replacementLength: (text as NSString).length))
         }
         return true
+    }
+
+    // MARK: - Which apps take typing
+
+    /// Whether an app ignores a direct write to the selected text and
+    /// takes typing into a selection instead: Chromium, Electron and
+    /// Outlook, as probed. Pure, so the table is testable.
+    static func fixesByTyping(bundleID: String?, chromium: Bool, electron: Bool) -> Bool {
+        chromium || electron || bundleID?.lowercased() == "com.microsoft.outlook"
+    }
+
+    nonisolated(unsafe) private static var typed: [String: Bool] = [:]
+    private static let typedLock = NSLock()
+
+    /// The same question of a running app, read once per bundle: Chromium
+    /// browsers carry renderer helpers and Electron apps carry their
+    /// framework, both a directory listing away.
+    static func fixesByTyping(bundleID: String?, pid: pid_t) -> Bool {
+        guard let bundle = NSRunningApplication(processIdentifier: pid)?.bundleURL else {
+            return fixesByTyping(bundleID: bundleID, chromium: false, electron: false)
+        }
+        if let known = typedLock.withLock({ typed[bundle.path] }) { return known }
+        let electron = FileManager.default.fileExists(
+            atPath: bundle.appendingPathComponent("Contents/Frameworks/Electron Framework.framework").path)
+        let answer = fixesByTyping(bundleID: bundleID, chromium: AXWarmer.isChromiumBrowser(bundle), electron: electron)
+        typedLock.withLock { typed[bundle.path] = answer }
+        return answer
     }
 
     /// Put the caret back, and keep it there: Chromium applies typed text
@@ -307,6 +401,124 @@ enum EditorAX {
             usleep(30_000)
         } while Date() < deadline
         return AX.string(element, kAXValueAttribute as String) == target
+    }
+}
+
+/// What the editor knows about a focused field before it reads a word of
+/// it: the attributes the gate decides on, gathered by `EditorAX` and
+/// handed over as plain values so the decision is testable without an app.
+struct EditorFieldFacts {
+    var role = ""
+    var subrole = ""
+    var roleDescription = ""
+    var description = ""
+    var title = ""
+    var placeholder = ""
+    var bundleID: String?
+    var valueSettable = false
+    var rangeSettable = false
+    /// An AXWebArea stands above the field. Only asked of a browser's
+    /// single-line fields (`asksWhereItStands`), false elsewhere.
+    var insideWebArea = false
+
+    /// One line: a text field or a combo box. A text area (and a web
+    /// contenteditable, which Chromium exposes as one) is where prose is
+    /// written; a one-line field is a query, a name, a subject.
+    var isSingleLine: Bool { role == "AXTextField" || role == "AXComboBox" }
+
+    var isBrowser: Bool { AppCategory.of(bundleID: bundleID, declared: nil).kind == "browser" }
+
+    /// Whether the gate needs to know if the field is inside a page: a
+    /// browser's single-line field is the page's own, or the browser's
+    /// address bar, and only its place tells which.
+    var asksWhereItStands: Bool { role == "AXTextField" && isBrowser }
+}
+
+/// Which fields the editor may read.
+///
+/// Editable text, with three kinds left alone. A **secret** is never read.
+/// A **query** is not writing: the editor marked 368 things in Raycast in
+/// ten days and the hand fixed none, because a launcher's field, a search
+/// box and a browser's address bar hold a few words typed to be matched, not
+/// a sentence, and an underline there is noise the eye must dismiss. Browsers
+/// and Harper (Automattic's checker) draw the same line: they check a
+/// multi-line field and a contenteditable by default and skip a single-line
+/// input unless asked. The editor is kinder than that to the single-line
+/// field that is still writing (an email's subject, a form's name), since a
+/// subject line is worth a mark. A **terminal's screen** is a text area
+/// nobody types into through accessibility, its text and selection both
+/// fixed.
+///
+/// What a query looks like, from what the apps say about themselves:
+/// Chromium maps `<input type=search>` and role=searchbox to AXTextField
+/// with subrole AXSearchField and exposes AXPlaceholderValue; its address
+/// bar is a single-line AXTextField in the browser's own interface, outside
+/// every AXWebArea, described as the address and search bar. Which of these
+/// a live Raycast or omnibox answers is unverified here; the gate refuses
+/// on any of them.
+enum EditorFieldGate {
+    enum Reason: Equatable {
+        case notText, secure, launcher, search, comboBox, addressBar, notEditable
+    }
+
+    enum Verdict: Equatable {
+        case read
+        case refused(Reason)
+    }
+
+    /// Apps whose only field is a query, by bundle id (lowercased, as
+    /// `EditorController.neverReadBundles` is).
+    static let launchers: Set<String> = [
+        "com.raycast.macos", "com.runningwithcrayons.alfred", "com.apple.spotlight", "at.obdev.launchbar",
+    ]
+
+    static func refusesApp(_ bundleID: String?) -> Bool {
+        bundleID.map { launchers.contains($0.lowercased()) } ?? false
+    }
+
+    private static let editableRoles: Set<String> = ["AXTextArea", "AXTextField", "AXComboBox"]
+
+    /// A name that says the field is a search: "search" opening a word, so
+    /// "Search or enter address" and "Address and search bar" are searches
+    /// and "research" is not.
+    static func namesSearch(_ names: [String]) -> Bool {
+        names.contains { $0.range(of: "\\bsearch", options: [.regularExpression, .caseInsensitive]) != nil }
+    }
+
+    static func verdict(_ facts: EditorFieldFacts) -> Verdict {
+        guard editableRoles.contains(facts.role) else { return .refused(.notText) }
+        let kind = facts.roleDescription.lowercased()
+        if facts.subrole == "AXSecureTextField" || kind.contains("secure") || kind.contains("password") {
+            return .refused(.secure)
+        }
+        if refusesApp(facts.bundleID) { return .refused(.launcher) }
+        if facts.role == "AXComboBox" { return .refused(.comboBox) }
+        if facts.subrole == "AXSearchField" { return .refused(.search) }
+        // A name is read on single-line fields only: a text area called
+        // "Message to #search-team" is a message.
+        if facts.isSingleLine,
+           namesSearch([facts.roleDescription, facts.description, facts.title, facts.placeholder]) {
+            return .refused(.search)
+        }
+        if facts.asksWhereItStands, !facts.insideWebArea { return .refused(.addressBar) }
+        guard facts.valueSettable || facts.rangeSettable else { return .refused(.notEditable) }
+        return .read
+    }
+}
+
+/// The last few fields whose place was worked out, compared the way
+/// `EditorField.isSame` compares: a new reference to the same node is
+/// equal. Only an answer the walk was sure of is kept.
+struct PlaceMemory {
+    private var seen: [(element: AXUIElement, inside: Bool)] = []
+    static let capacity = 8
+
+    mutating func answer(for element: AXUIElement, walk: () -> Bool?) -> Bool {
+        if let known = seen.first(where: { CFEqual($0.element, element) }) { return known.inside }
+        guard let inside = walk() else { return false }
+        seen.append((element, inside))
+        if seen.count > Self.capacity { seen.removeFirst() }
+        return inside
     }
 }
 

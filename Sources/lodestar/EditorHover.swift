@@ -25,17 +25,25 @@ final class EditorHover: NSObject {
         super.init()
     }
 
-    /// A pointer resting this long on a mark opens its card — long enough
-    /// that a pointer crossing the text opens nothing, short enough to feel
-    /// like the word answered. Leaving the word and the card for `linger`
-    /// closes it.
+    /// A pointer resting this long on a mark opens its card — short enough
+    /// to feel like the word answered. Resting is the pointer staying within
+    /// `rest` points for the whole of it: the time alone was not enough,
+    /// since a pointer crossing the text takes longer than this to cross a
+    /// long word and was opening a card on every mark it passed over. Leaving
+    /// the word and the card for `linger` closes it.
     static let dwell: TimeInterval = 0.12
     static let linger: TimeInterval = 0.35
+    /// How far the pointer may drift and still be resting: a hand on a
+    /// trackpad or a mouse is never perfectly still, and a pointer sweeping
+    /// across the text moves many times this between two events.
+    static let rest: CGFloat = 4
 
     private var globalMonitor: Any?
     private var localMonitor: Any?
     private var dwellWork: DispatchWorkItem?
     private var dwellTarget: EditorIssue?
+    /// Where the pointer was when the dwell began.
+    private var dwellAnchor: CGPoint?
     private var leaveWork: DispatchWorkItem?
     private(set) var shown: EditorController.Mark?
     private(set) var panel: NSPanel?
@@ -108,15 +116,22 @@ final class EditorHover: NSObject {
         guard mark.issue != shown?.issue else { return }
         // A card already open follows the pointer to the next mark at once.
         if shown != nil { show(mark); return }
-        guard mark.issue != dwellTarget else { return }
+        // Still resting where the wait began: let it run. A pointer that
+        // moved on starts the wait again from where it is now.
+        if mark.issue == dwellTarget, let anchor = dwellAnchor, Self.resting(point, at: anchor) { return }
         cancelDwell()
         dwellTarget = mark.issue
+        dwellAnchor = point
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            let anchor = self.dwellAnchor
             self.dwellWork = nil
             self.dwellTarget = nil
+            self.dwellAnchor = nil
             // Still resting on it: open. A pointer that passed through does not.
-            guard let under = Self.mark(at: self.pointer(), in: self.marks()), under.issue == mark.issue else { return }
+            let now = self.pointer()
+            guard let anchor, Self.resting(now, at: anchor),
+                  let under = Self.mark(at: now, in: self.marks()), under.issue == mark.issue else { return }
             self.show(under)
         }
         dwellWork = work
@@ -129,6 +144,12 @@ final class EditorHover: NSObject {
         dwellWork?.cancel()
         dwellWork = nil
         dwellTarget = nil
+        dwellAnchor = nil
+    }
+
+    /// Whether the pointer is still where the wait began.
+    static func resting(_ point: CGPoint, at anchor: CGPoint) -> Bool {
+        hypot(point.x - anchor.x, point.y - anchor.y) <= rest
     }
 
     func hide() {

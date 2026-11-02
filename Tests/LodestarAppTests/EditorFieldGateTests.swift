@@ -142,3 +142,45 @@ final class EditorTypedFixTests: XCTestCase {
         XCTAssertFalse(EditorAX.fixesByTyping(bundleID: "com.apple.dt.xctest", pid: getpid()))
     }
 }
+
+/// A field's place never changes, so the walk up to its web area is made
+/// once, not on every read.
+final class EditorPlaceMemoryTests: XCTestCase {
+    func testASecondReadOfTheSameFieldDoesNotWalkAgain() {
+        var memory = PlaceMemory()
+        var walks = 0
+        let field = AXUIElementCreateApplication(4242)
+        XCTAssertTrue(memory.answer(for: field) { walks += 1; return true })
+        XCTAssertTrue(memory.answer(for: AXUIElementCreateApplication(4242)) { walks += 1; return true },
+                      "a new reference to the same node is the same field")
+        XCTAssertEqual(walks, 1)
+    }
+
+    func testEachFieldIsWalkedOnce() {
+        var memory = PlaceMemory()
+        var walks = 0
+        XCTAssertTrue(memory.answer(for: AXUIElementCreateApplication(1001)) { walks += 1; return true })
+        XCTAssertFalse(memory.answer(for: AXUIElementCreateApplication(1002)) { walks += 1; return false },
+                       "an address bar's place is remembered too")
+        XCTAssertFalse(memory.answer(for: AXUIElementCreateApplication(1002)) { walks += 1; return true })
+        XCTAssertEqual(walks, 2)
+    }
+
+    func testAWalkThatDidNotFinishIsAskedAgain() {
+        var memory = PlaceMemory()
+        var walks = 0
+        XCTAssertFalse(memory.answer(for: AXUIElementCreateApplication(1001)) { walks += 1; return nil })
+        XCTAssertTrue(memory.answer(for: AXUIElementCreateApplication(1001)) { walks += 1; return true })
+        XCTAssertEqual(walks, 2, "a timeout is not an answer")
+    }
+
+    func testOnlyTheLastFewAreKept() {
+        var memory = PlaceMemory()
+        var walks = 0
+        for pid in 0...PlaceMemory.capacity {
+            _ = memory.answer(for: AXUIElementCreateApplication(pid_t(2000 + pid))) { walks += 1; return true }
+        }
+        _ = memory.answer(for: AXUIElementCreateApplication(2000)) { walks += 1; return true }
+        XCTAssertEqual(walks, PlaceMemory.capacity + 2, "the oldest was forgotten")
+    }
+}

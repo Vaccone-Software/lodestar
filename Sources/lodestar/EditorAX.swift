@@ -129,19 +129,30 @@ enum EditorAX {
 
     /// Whether an AXWebArea stands above the element: the page's own
     /// fields do, a browser's address bar (its own interface) does not.
-    /// Bounded, since a deep tree answering slowly must cost the editor a
-    /// beat and no more; an unfinished walk reads as "not in a page", which
-    /// refuses the field, the quiet side.
+    /// A field's place never changes, and the answer costs up to forty
+    /// accessibility messages, one per hop, on every read of a field (every
+    /// keystroke and caret move in a page's single-line input), so a field
+    /// pays for the walk once and the last few are remembered.
     static func isInsideWebArea(_ element: AXUIElement) -> Bool {
+        dispatchPrecondition(condition: .onQueue(queue))
+        return placeMemory.answer(for: element) { walkUpToWebArea(element) }
+    }
+
+    nonisolated(unsafe) static var placeMemory = PlaceMemory()
+
+    /// The walk itself, bounded: nil when it did not finish (a timeout, a
+    /// tree deeper than any page), which refuses the field for now, the
+    /// quiet side, and is not remembered.
+    static func walkUpToWebArea(_ element: AXUIElement) -> Bool? {
         var node = element
         for _ in 0..<40 {
-            guard let parent = AX.element(node, kAXParentAttribute as String) else { return false }
+            guard let parent = AX.element(node, kAXParentAttribute as String) else { return nil }
             let role = AX.string(parent, kAXRoleAttribute as String)
             if role == "AXWebArea" { return true }
             if role == kAXWindowRole as String { return false }
             node = parent
         }
-        return false
+        return nil
     }
 
     /// Does the range still read what the mark was made for? A fix whose
@@ -478,6 +489,22 @@ enum EditorFieldGate {
         if facts.asksWhereItStands, !facts.insideWebArea { return .refused(.addressBar) }
         guard facts.valueSettable || facts.rangeSettable else { return .refused(.notEditable) }
         return .read
+    }
+}
+
+/// The last few fields whose place was worked out, compared the way
+/// `EditorField.isSame` compares: a new reference to the same node is
+/// equal. Only an answer the walk was sure of is kept.
+struct PlaceMemory {
+    private var seen: [(element: AXUIElement, inside: Bool)] = []
+    static let capacity = 8
+
+    mutating func answer(for element: AXUIElement, walk: () -> Bool?) -> Bool {
+        if let known = seen.first(where: { CFEqual($0.element, element) }) { return known.inside }
+        guard let inside = walk() else { return false }
+        seen.append((element, inside))
+        if seen.count > Self.capacity { seen.removeFirst() }
+        return inside
     }
 }
 

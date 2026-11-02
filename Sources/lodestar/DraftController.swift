@@ -311,6 +311,15 @@ final class DraftController {
     private var doorWidth: CGFloat?
     private var standsAbove: CGFloat = 0
     private var closing = false
+    /// ⏎ has been waiting longer than it takes to notice: the foot says
+    /// the draft is finishing, so the keys swallowed meanwhile are not a
+    /// freeze.
+    private var finishing = false
+    private var finishingWork: DispatchWorkItem?
+    static let finishingShownSeconds: TimeInterval = 0.15
+    /// What a second ⏎ runs while the first waits: the ghost settles as
+    /// seen and the draft lands with what stands.
+    private var landNow: (() -> Void)?
     /// Whether the panel shows the whole text or its last four lines:
     /// `zo` and `zc`, and the voice folds it.
     private var expanded = false
@@ -583,6 +592,7 @@ final class DraftController {
         out["listening"] = listening
         out["silent"] = hearsNothing
         out["retrying"] = retrying
+        out["finishing"] = finishing
         out["mic"] = micWanted
         if let inputName { out["input"] = inputName }
         out["expanded"] = expanded
@@ -1504,11 +1514,17 @@ final class DraftController {
     /// the system — ⌘⇥ is how the destination changes — except the few
     /// that edit text, which would land in the app underneath and edit
     /// the wrong thing.
-    func handleKey(_ key: String, shift: Bool, command: Bool, option: Bool, control: Bool) -> Bool {
+    func handleKey(_ key: String, shift: Bool, command: Bool, option: Bool, control: Bool,
+                   repeating: Bool = false) -> Bool {
         guard isOpen else { return false }
         // While the last words settle, keys are swallowed, not passed on: a
-        // held ⏎ would reach the app ahead of the paste and send.
-        if closing { return true }
+        // held ⏎ would reach the app ahead of the paste and send. A second
+        // ⏎, struck afresh and not repeated by a held key, lands now with
+        // what stands.
+        if closing {
+            if key == "return", !shift, !repeating, !command, !option, !control, let landNow { landNow() }
+            return true
+        }
         pasteRefused = false
         // A key ends the pointer's grain: a shift-click after one extends by
         // characters again. A key struck with the button still down ends
@@ -1816,19 +1832,47 @@ final class DraftController {
         guard isOpen, !closing else { return }
         closing = true
         if clipOrigin != nil { landClip(exit: "return", commit: true); return }
-        let finish = { [weak self] in self?.afterEars { self?.afterIntent { self?.land() } } }
+        // The wait is named once it is long enough to be noticed.
+        let showing = DispatchWorkItem { [weak self] in
+            guard let self, self.isOpen, self.closing else { return }
+            self.finishing = true
+            self.render()
+        }
+        finishingWork = showing
+        clock.after(Self.finishingShownSeconds, showing)
+        // Every path ends in one landing, once: the waits that outlive it
+        // find it done.
+        var landedOnce = false
+        let land = { [weak self] in
+            guard !landedOnce else { return }
+            landedOnce = true
+            self?.land()
+        }
+        let finish = { [weak self] in self?.afterEars { self?.afterIntent { land() } } }
+        // A second ⏎ ends every wait: the ghost lands as seen, and so does
+        // whatever the ear and the pass have not yet answered.
+        var stopped = false
+        landNow = { [weak self] in
+            guard let self else { return }
+            if !stopped {
+                stopped = true
+                if !self.buffer.ghost.isEmpty { self.settle(Heard(self.buffer.ghost)) }
+            }
+            Log.info("draft", ["commit": "landed by a second return"])
+            land()
+        }
         if sessionStarted, listening, mode == .insert, micWanted {
             // A ghost with no final behind it settles as what it was.
             var landed = false
             pendingSettle = { [weak self] in
                 // A final for an earlier segment is not the end: words still
                 // volatile settle on the stop, and the paste waits for them.
-                guard !landed, self?.buffer.ghost.isEmpty ?? true else { return }
+                guard !landed, !stopped, self?.buffer.ghost.isEmpty ?? true else { return }
                 landed = true
                 finish()
             }
             speech.stop { [weak self] in
-                guard let self, !landed else { return }
+                guard let self, !landed, !stopped else { return }
                 landed = true
                 if !self.buffer.ghost.isEmpty { self.settle(Heard(self.buffer.ghost)) }
                 finish()
@@ -1838,7 +1882,7 @@ final class DraftController {
             // would leave `closing` standing and every key swallowed.
             // Past this, the ghost lands as seen and the draft closes.
             let backstop = DispatchWorkItem { [weak self] in
-                guard let self, !landed else { return }
+                guard let self, !landed, !stopped else { return }
                 landed = true
                 Log.info("draft", ["commit": "landed by backstop", "ghost": !self.buffer.ghost.isEmpty])
                 if !self.buffer.ghost.isEmpty { self.settle(Heard(self.buffer.ghost)) }
@@ -2240,6 +2284,10 @@ final class DraftController {
     private func close() {
         defer { onClosed?() }
         isOpen = false
+        finishing = false
+        finishingWork?.cancel()
+        finishingWork = nil
+        landNow = nil
         clipOrigin = nil
         doorWidth = nil
         standsAbove = 0
@@ -2356,7 +2404,7 @@ final class DraftController {
             editorMarks: buffer.ghost.isEmpty ? editorMarks : [],
             pending: vim.isPending, speech: speechState, input: inputName, level: level,
             inputs: inputs, systemInput: systemInputName, chosenInput: inputDevice,
-            micOn: micWanted, silent: hearsNothing, retrying: retrying,
+            micOn: micWanted, silent: hearsNothing, retrying: retrying, finishing: finishing,
             destination: card == nil ? front.map { ($0.name, $0.icon) } : nil,
             replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid,
             card: card, width: doorWidth, standsAbove: standsAbove, expanded: expanded,

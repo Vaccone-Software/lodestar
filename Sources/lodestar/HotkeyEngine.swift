@@ -914,7 +914,8 @@ final class HotkeyEngine {
             let taken = draft.handleKey(key, shift: shift,
                                         command: event.flags.contains(.maskCommand),
                                         option: event.flags.contains(.maskAlternate),
-                                        control: event.flags.contains(.maskControl))
+                                        control: event.flags.contains(.maskControl),
+                                        repeating: event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
             return taken ? nil : Unmanaged.passUnretained(event)
         }
         // Mid-chain and mid-scroll, lode may or may not still be down —

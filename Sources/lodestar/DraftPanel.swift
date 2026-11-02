@@ -37,6 +37,9 @@ struct DraftView {
     /// The start failed and the draft asks again on its own: the line
     /// says so, so nobody closes the draft to get the microphone back.
     var retrying = false
+    /// ⏎ is waiting for the last words, the ear and the rewrite: the line
+    /// says so, because the keys are swallowed until it lands.
+    var finishing = false
     /// Where ⏎ lands right now: the frontmost app, or the clipboard.
     let destination: (name: String, icon: NSImage?)?
     /// The origin field's text was pulled in, so ⏎ replaces it there.
@@ -1268,6 +1271,9 @@ final class DraftPanel {
     }
 
     static func note(for view: DraftView) -> String {
+        // The draft is waiting to land and is taking no keys: that is the
+        // news, above whatever the microphone has to say.
+        if view.finishing { return "finishing" }
         // A Mac selection the microphone is waiting to replace is the news,
         // and outranks where ⏎ lands, which is the pulled field's.
         if view.style == .standard, view.selection?.isEmpty == false, micWanted(view),

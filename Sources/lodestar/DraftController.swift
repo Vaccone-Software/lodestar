@@ -1493,7 +1493,7 @@ final class DraftController {
             // be drawn across them. Any shifted key settles them, as typing
             // it would.
             if shift { settleGhostAsSeen() }
-            if Draft.Standard.move(key, shift: shift, option: option, command: command, in: &buffer) {
+            if Draft.Standard.move(key, shift: shift, option: option, command: command, lines: eyeLines, in: &buffer) {
                 handActed()
                 caretMoved = true
                 render()
@@ -1517,13 +1517,13 @@ final class DraftController {
                     // and is dropped rather than put back.
                     handActed()
                     settleGhostAsSeen()
-                    markSelectionStep(); buffer.deleteToLineStart(); backspaces += 1
+                    markSelectionStep(); buffer.deleteToVisualLineStart(panelLines); backspaces += 1
                 }
                 render(); return true
             case "left":
-                buffer.moveLineStart(); caretMoved = mode == .insert || caretMoved; render(); return true
+                buffer.moveVisualLineStart(eyeLines); caretMoved = mode == .insert || caretMoved; render(); return true
             case "right":
-                buffer.moveLineEnd(); caretMoved = mode == .insert || caretMoved; render(); return true
+                buffer.moveVisualLineEnd(eyeLines); caretMoved = mode == .insert || caretMoved; render(); return true
             case "v":
                 if mode == .normal {
                     // Through the editor, so it is one undo step and `.` knows it.
@@ -1616,6 +1616,21 @@ final class DraftController {
         settler.handInterrupted()
     }
 
+    /// The lines the panel draws, which a dictated paragraph breaks into
+    /// though it is one logical line. The buffer arrives by value, as it
+    /// does for the editor's `j` and `k`: reading `self.buffer` from here
+    /// would collide with the `inout` hold the move has on it.
+    private var panelLines: Draft.Lines {
+        Draft.Lines(
+            move: { [weak self] buffer, index, down in self?.panel.caretMove(from: index, down: down, in: buffer) },
+            bounds: { [weak self] buffer, index in self?.panel.lineBounds(containing: index, in: buffer) })
+    }
+
+    /// The same, for the keys that walk by the eye's lines in the Standard
+    /// style. Vim's insert mode keeps the file's lines, as its normal mode
+    /// does for every motion but `j` and `k`.
+    private var eyeLines: Draft.Lines? { sessionStyle == .standard ? panelLines : nil }
+
     /// A Mac selection about to be replaced or deleted is its own undo
     /// step, so ⌘Z brings the text back. So is an edit made after the caret
     /// moved.
@@ -1653,12 +1668,12 @@ final class DraftController {
         // rest of the line forward, the next character.
         if control {
             switch key {
-            case "a": buffer.moveLineStart(); caretMoved = true
-            case "e": buffer.moveLineEnd(); caretMoved = true
+            case "a": buffer.moveVisualLineStart(eyeLines); caretMoved = true
+            case "e": buffer.moveVisualLineEnd(eyeLines); caretMoved = true
             case "f": buffer.moveRight(); caretMoved = true
             case "b": buffer.moveLeft(); caretMoved = true
-            case "n": buffer.moveDown(); caretMoved = true
-            case "p": buffer.moveUp(); caretMoved = true
+            case "n": buffer.moveVisualDown(eyeLines); caretMoved = true
+            case "p": buffer.moveVisualUp(eyeLines); caretMoved = true
             case "d": buffer.deleteForward()
             case "h":
                 backspaces += 1
@@ -1705,10 +1720,10 @@ final class DraftController {
             if option { buffer.moveWordRight() } else { buffer.moveRight() }
             caretMoved = true
         case "up":
-            buffer.moveUp()
+            buffer.moveVisualUp(eyeLines)
             caretMoved = true
         case "down":
-            buffer.moveDown()
+            buffer.moveVisualDown(eyeLines)
             caretMoved = true
         case "tab":
             buffer.type("\t"); vim.typed("\t"); typedCharacters += 1

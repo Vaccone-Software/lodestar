@@ -630,6 +630,77 @@ final class DraftPanel {
         return text.substring(to: min(landingUTF16, text.length)).count
     }
 
+    /// The line the caret at a UTF-16 offset of the storage stands on: its
+    /// rect, the glyphs it holds (none for the empty line a final newline
+    /// leaves) and the x of the caret on it.
+    private func caretLine(atUTF16 offset: Int) -> (rect: NSRect, glyphs: NSRange, x: CGFloat)? {
+        guard let layout = textView.layoutManager, let container = textView.textContainer,
+              let storage = textView.textStorage, storage.length > 0, layout.numberOfGlyphs > 0 else { return nil }
+        let text = storage.string as NSString
+        if offset >= text.length, text.character(at: text.length - 1) == 0x0A {
+            let extra = layout.extraLineFragmentRect
+            guard extra.height > 0 else { return nil }
+            return (extra, NSRange(location: layout.numberOfGlyphs, length: 0), extra.minX)
+        }
+        let glyph = layout.glyphIndexForCharacter(at: min(offset, text.length - 1))
+        var range = NSRange()
+        let rect = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &range)
+        let x = offset >= text.length
+            ? layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).maxX
+            : rect.minX + layout.location(forGlyphAt: glyph).x
+        return (rect, range, x)
+    }
+
+    /// Where one line up or down from the caret at character `index`
+    /// lands, by the layout the screen shows: the nearer side of the letter
+    /// under the same x on the neighbouring line, the text's end on the
+    /// empty line a final newline leaves. For the caret between characters
+    /// that insert mode keeps, where `visualMove` finds the character a
+    /// block cursor stands on. Words still a ghost are mapped through. nil
+    /// at the layout's edges, and where no layout is up.
+    func caretMove(from index: Int, down: Bool, in buffer: Draft.Buffer) -> Int? {
+        guard let layout = textView.layoutManager,
+              let here = caretLine(atUTF16: utf16Offset(ofCharacter: index, in: buffer)) else { return nil }
+        let neighbor: NSRect
+        if down {
+            let next = NSMaxRange(here.glyphs)
+            guard here.glyphs.length > 0 else { return nil }
+            if next < layout.numberOfGlyphs {
+                neighbor = layout.lineFragmentRect(forGlyphAt: next, effectiveRange: nil)
+            } else if layout.extraLineFragmentRect.height > 0 {
+                return buffer.count
+            } else {
+                return nil
+            }
+        } else {
+            let previous = here.glyphs.length == 0 ? layout.numberOfGlyphs - 1 : here.glyphs.location - 1
+            guard previous >= 0 else { return nil }
+            neighbor = layout.lineFragmentRect(forGlyphAt: previous, effectiveRange: nil)
+        }
+        return hit(atContainerPoint: NSPoint(x: here.x, y: neighbor.midY), in: buffer).insertion
+    }
+
+    /// The characters of the line the caret at `index` stands on, from the
+    /// line's start to its end: before the newline that ends it, or before
+    /// the space a wrap broke it on, so the caret sent there is still on
+    /// the line it was sent to. The text's end for the last line. nil where
+    /// no layout is up.
+    func lineBounds(containing index: Int, in buffer: Draft.Buffer) -> Range<Int>? {
+        guard let layout = textView.layoutManager, let storage = textView.textStorage,
+              let line = caretLine(atUTF16: utf16Offset(ofCharacter: index, in: buffer)) else { return nil }
+        if line.glyphs.length == 0 { return buffer.count..<buffer.count }
+        let text = storage.string as NSString
+        let span = layout.characterRange(forGlyphRange: line.glyphs, actualGlyphRange: nil)
+        var end = NSMaxRange(span)
+        if text.character(at: end - 1) == 0x0A {
+            end -= 1
+        } else if end < text.length {
+            while end > span.location, text.character(at: end - 1) == 0x20 { end -= 1 }
+        }
+        let lower = characterOffset(ofUTF16: span.location, in: buffer)
+        return lower..<max(lower, characterOffset(ofUTF16: end, in: buffer))
+    }
+
     // MARK: - The pointer
 
     /// The text's visual lines, top to bottom, as the layout drew them:
@@ -721,7 +792,7 @@ final class DraftPanel {
     /// there a line at a time.
     func hit(atWindowPoint window: NSPoint) -> Draft.Pointer.Hit {
         guard let buffer = lastView?.buffer, let layout = textView.layoutManager,
-              let container = textView.textContainer, layout.numberOfGlyphs > 0 else {
+              layout.numberOfGlyphs > 0 else {
             return Draft.Pointer.Hit(at: 0)
         }
         let box = textBoxInWindow
@@ -729,6 +800,16 @@ final class DraftPanel {
                                      from: nil)
         point.x -= textView.textContainerOrigin.x
         point.y -= textView.textContainerOrigin.y
+        return hit(atContainerPoint: point, in: buffer)
+    }
+
+    /// `hit(atWindowPoint:)` for a point already in the text container's
+    /// coordinates, which is where the layout keeps its lines.
+    private func hit(atContainerPoint point: NSPoint, in buffer: Draft.Buffer) -> Draft.Pointer.Hit {
+        guard let layout = textView.layoutManager, let container = textView.textContainer,
+              layout.numberOfGlyphs > 0 else {
+            return Draft.Pointer.Hit(at: 0)
+        }
         let n = buffer.count
         let extra = layout.extraLineFragmentRect
         let lastLine = layout.lineFragmentRect(forGlyphAt: layout.numberOfGlyphs - 1, effectiveRange: nil)

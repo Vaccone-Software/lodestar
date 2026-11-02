@@ -580,6 +580,135 @@ final class DraftStandardScenarioTests: XCTestCase {
         XCTAssertTrue(panel.caretShown, "the caret comes back where the selection ended")
     }
 
+    // MARK: - Lines are the eye's
+
+    /// A dictation is one logical line, and the panel breaks it into
+    /// several. Every key a Mac field answers by the line answers by these.
+    private static let paragraph = "The quick brown fox jumps over the lazy dog and keeps going until the panel "
+        + "wraps this line at least once, and then it carries on for a good while longer so that the glass "
+        + "has to break it into at least three lines before the last word of it arrives."
+
+    private func dictated(_ stage: Stage) {
+        stage.lode(".")
+        stage.speech.settle(Self.paragraph)
+    }
+
+    /// Where the panel starts and ends the line the caret is on.
+    private func eyeLine(_ stage: Stage) -> Range<Int>? {
+        stage.draft.panel.lineBounds(containing: stage.draft.buffer.cursor, in: stage.draft.buffer)
+    }
+
+    func testTheParagraphIsOneLogicalLineAndSeveralOnTheGlass() throws {
+        let stage = standardStage()
+        dictated(stage)
+        let count = stage.draft.buffer.count
+        let last = try XCTUnwrap(eyeLine(stage))
+        XCTAssertFalse(stage.draft.buffer.text.contains("\n"))
+        XCTAssertGreaterThan(last.lowerBound, 0, "the glass wrapped it")
+        XCTAssertEqual(last.upperBound, count)
+        stage.chord("left", [command])
+        XCTAssertEqual(stage.draft.buffer.cursor, last.lowerBound,
+                       "⌘← is the start of the line the eye sees, not of the paragraph")
+    }
+
+    func testUpAndDownWalkTheGlassLinesAndKeepTheirPlace() throws {
+        let stage = standardStage()
+        dictated(stage)
+        let count = stage.draft.buffer.count
+        let bottom = try XCTUnwrap(eyeLine(stage))
+        stage.press("up")
+        let cursor = stage.draft.buffer.cursor
+        XCTAssertGreaterThan(cursor, 0, "a line up and not the first character")
+        XCTAssertLessThan(cursor, bottom.lowerBound)
+        let above = try XCTUnwrap(eyeLine(stage))
+        XCTAssertEqual(above.upperBound + 1, bottom.lowerBound, "the line directly above, up to the space it broke on")
+        stage.press("down")
+        XCTAssertGreaterThanOrEqual(stage.draft.buffer.cursor, bottom.lowerBound)
+        stage.press("down")
+        XCTAssertEqual(stage.draft.buffer.cursor, count, "below the last line is the text's end")
+        for _ in 0..<10 { stage.press("up") }
+        XCTAssertEqual(stage.draft.buffer.cursor, 0, "above the first line is the text's start")
+    }
+
+    func testControlPAndControlNAreTheSameLineMoves() throws {
+        let stage = standardStage()
+        dictated(stage)
+        let bottom = try XCTUnwrap(eyeLine(stage))
+        stage.controlPress("p")
+        XCTAssertLessThan(stage.draft.buffer.cursor, bottom.lowerBound)
+        XCTAssertGreaterThan(stage.draft.buffer.cursor, 0)
+        stage.controlPress("a")
+        let top = try XCTUnwrap(eyeLine(stage))
+        XCTAssertEqual(stage.draft.buffer.cursor, top.lowerBound, "⌃a: the start of the line the eye sees")
+        stage.controlPress("e")
+        XCTAssertEqual(stage.draft.buffer.cursor, top.upperBound, "⌃e: its end, before the space the wrap broke on")
+        stage.controlPress("n")
+        XCTAssertGreaterThan(stage.draft.buffer.cursor, top.upperBound)
+    }
+
+    func testShiftCommandRightExtendsToTheEndOfTheGlassLine() throws {
+        let stage = standardStage()
+        dictated(stage)
+        stage.chord("left", [command])
+        let start = stage.draft.buffer.cursor
+        stage.chord("up", [shift])
+        XCTAssertLessThan(stage.draft.buffer.cursor, start)
+        stage.chord("right", [shift, command])
+        let line = try XCTUnwrap(eyeLine(stage))
+        XCTAssertEqual(stage.draft.buffer.cursor, line.upperBound)
+        XCTAssertEqual(stage.draft.buffer.selection, line.upperBound..<start,
+                       "the anchor held where the selection began")
+    }
+
+    func testCommandUpAndDownStayTheTextsEnds() {
+        let stage = standardStage()
+        dictated(stage)
+        stage.chord("up", [command])
+        XCTAssertEqual(stage.draft.buffer.cursor, 0)
+        stage.chord("down", [command])
+        XCTAssertEqual(stage.draft.buffer.cursor, stage.draft.buffer.count)
+    }
+
+    func testCommandDeleteTakesTheGlassLineAndLeavesTheRestOfTheParagraph() throws {
+        let stage = standardStage()
+        dictated(stage)
+        let before = stage.draft.buffer.text
+        let line = try XCTUnwrap(eyeLine(stage))
+        stage.chord("delete", [command])
+        XCTAssertEqual(stage.draft.buffer.text, String(before.prefix(line.lowerBound)))
+        XCTAssertGreaterThan(stage.draft.buffer.count, 0, "the paragraph is not gone")
+    }
+
+    func testCommandDeleteWithWordsStillBeingHeardTakesThemWithTheGlassLine() {
+        let stage = standardStage()
+        dictated(stage)
+        stage.speech.hear("and so on")
+        stage.chord("delete", [command])
+        let text = stage.draft.buffer.text
+        XCTAssertTrue((Self.paragraph + " and so on").hasPrefix(text), "only the start is left")
+        XCTAssertGreaterThan(text.count, 0)
+        XCTAssertLessThan(text.count, Self.paragraph.count, "and the line they stood on went with them")
+        XCTAssertEqual(stage.draft.buffer.ghost, "", "the words heard were settled where they stood, then deleted")
+        XCTAssertEqual(stage.draft.buffer.cursor, text.count)
+    }
+
+    func testCommandDeleteUnderVimInsertTakesTheGlassLineToo() throws {
+        let stage = Stage()
+        dictated(stage)
+        let before = stage.draft.buffer.text
+        let line = try XCTUnwrap(eyeLine(stage))
+        stage.chord("delete", [command])
+        XCTAssertEqual(stage.draft.buffer.text, String(before.prefix(line.lowerBound)))
+        XCTAssertGreaterThan(stage.draft.buffer.count, 0)
+    }
+
+    func testVimInsertArrowsKeepTheFilesLines() {
+        let stage = Stage()
+        dictated(stage)
+        stage.press("up")
+        XCTAssertEqual(stage.draft.buffer.cursor, 0, "Vim's insert mode is unchanged: the file's one line")
+    }
+
     // MARK: - The keys
 
     func testTheKeysSheetSaysEscClosesUnderStandardAndStopsTypingUnderVim() {

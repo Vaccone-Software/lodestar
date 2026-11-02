@@ -419,6 +419,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.earHost.warm()
         }
         draft.onClosed = { [weak self] in self?.earHost.rest() }
+        // An ear that was cold when the words were said hears them once it
+        // is in, if the draft is still open.
+        earHost.loaded = { [weak draft] in draft?.earLoaded() }
         draft.journal = DictationJournal.forThisBuild()
         earHost.editorFetching = { [weak self] in self?.editorDownload.engine.flatMap(EditorManifest.forEngine) }
         earHost.sharesEditor = { [weak self] model in

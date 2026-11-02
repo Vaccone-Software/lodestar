@@ -265,6 +265,11 @@ final class HotkeyEngine {
         var visible = 0
         var recents = 0
         var depth: Int?
+        /// When Keep was turned to Bring. The session is held, not
+        /// closed, while Bring stands, so that stepping back is the same
+        /// opening resumed; if it ends still having acted by Bring, this
+        /// is when it did.
+        var handedToBringAt: Date?
     }
     private var stripSession: StripSession?
     private var pasteSelection = 0
@@ -1109,6 +1114,30 @@ final class HotkeyEngine {
         return nil
     }
 
+    /// The opening's record, written once when it ends. An opening that
+    /// ended by turning to Bring, and was not taken back, is timed to the
+    /// turn rather than to the end of Bring.
+    private func recordStripSession() {
+        guard let session = stripSession else { return }
+        stripSession = nil
+        let now = clock.now()
+        var ended = now
+        if session.outcome?.row == "bring", session.outcome?.action == "acted",
+           let turned = session.handedToBringAt {
+            ended = turned
+        }
+        observations?.pasted(
+            app: NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown",
+            action: session.outcome?.action ?? "abandoned",
+            source: session.outcome?.source, row: session.outcome?.row,
+            rank: session.outcome?.rank, typed: session.typed,
+            seconds: ended.timeIntervalSince(session.openedAt),
+            firstKey: session.firstKeyAt.map { $0.timeIntervalSince(session.openedAt) },
+            matches: session.matches, visible: session.visible,
+            recents: session.recents, depth: session.depth,
+            at: now)
+    }
+
     private func apply(_ effects: [EngineEffect], event: CGEvent?) -> Unmanaged<CGEvent>? {
         let scopeAtKey = settingsScope
         var pass = false
@@ -1118,12 +1147,19 @@ final class HotkeyEngine {
             case .passThrough:
                 pass = true
             case .enterPaste:
-                stripSession = StripSession(openedAt: clock.now())
                 if returningToKeep {
+                    // Back from Bring is the opening it was, resumed: the
+                    // session was held while Bring stood, so a paste from
+                    // here is that opening's paste and leaving from here
+                    // leaves it as it was, acted by Bring. Counting the
+                    // return as a second opening put a phantom, usually
+                    // abandoned, in the record for every Bring used.
                     returningToKeep = false
+                    if stripSession == nil { stripSession = StripSession(openedAt: clock.now()) }
                     renderStrip()
                     break
                 }
+                stripSession = StripSession(openedAt: clock.now())
                 // Whatever the opening gesture left down does not count.
                 carriedIntoKeep = (event?.flags ?? CGEventSource.flagsState(.combinedSessionState))
                     .intersection([.maskShift, .maskCommand, .maskAlternate, .maskControl])
@@ -1134,19 +1170,12 @@ final class HotkeyEngine {
                                       seconds: Date().timeIntervalSince(began))
                 walkSignal?(.clipboardOpened)
             case .exitPaste:
-                if let session = stripSession {
-                    let now = clock.now()
-                    observations?.pasted(
-                        app: NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown",
-                        action: session.outcome?.action ?? "abandoned",
-                        source: session.outcome?.source, row: session.outcome?.row,
-                        rank: session.outcome?.rank, typed: session.typed,
-                        seconds: now.timeIntervalSince(session.openedAt),
-                        firstKey: session.firstKeyAt.map { $0.timeIntervalSince(session.openedAt) },
-                        matches: session.matches, visible: session.visible,
-                        recents: session.recents, depth: session.depth,
-                        at: now)
-                    stripSession = nil
+                // Keep turning to Bring is not Keep ending: the session is
+                // held for Bring to end or to hand back.
+                if case .bring = core.state {
+                    stripSession?.handedToBringAt = clock.now()
+                } else {
+                    recordStripSession()
                 }
                 pasteQuery = nil
                 panelClip = nil
@@ -1233,6 +1262,8 @@ final class HotkeyEngine {
                 heldOverStrip = .none
                 // esc steps back to Keep, on the same panel.
                 if case .paste = core.state { returningToKeep = true } else {
+                    // Bring was where the opening ended.
+                    recordStripSession()
                     carriedIntoKeep = []
                     stopWatchingClicks()
                     strip.hide()
@@ -2396,6 +2427,11 @@ extension HotkeyEngine: EngineWorld {
             }
             let named = stripSession?.outcome
             stripSession?.outcome = ("acted", named?.source, "keep", named?.rank)
+        } else {
+            // Renaming a keepsake is something the panel did, not a panel
+            // opened and left: it was recorded as an abandoned opening.
+            let named = stripSession?.outcome
+            stripSession?.outcome = ("acted", named?.source, "rename", named?.rank)
         }
         let live = clipboard.history.clips.first { $0.id == clip.id } ?? clip
         naming = Naming(id: clip.id, text: Clipboard.name(of: live), selected: true, fresh: fresh,

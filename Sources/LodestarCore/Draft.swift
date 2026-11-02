@@ -388,11 +388,33 @@ public enum Draft {
         guard let last = existing.last, let first = incoming.first else { return "" }
         if last.isWhitespace || last.isNewline { return "" }
         if attaching.contains(first) { return "" }
-        if last == "(" || last == "[" || last == "{" || last == "\"" || last == "'" { return "" }
+        if last == "(" || last == "[" || last == "{" || last == "“" || last == "‘" { return "" }
+        if (last == "\"" || last == "'") && opens(last, in: existing) { return "" }
         return " "
     }
 
-    private static let attaching: Set<Character> = [".", ",", ";", ":", "!", "?", ")", "]", "}"]
+    private static let attaching: Set<Character> = [".", ",", ";", ":", "!", "?", ")", "]", "}", "”", "’", "…", "%"]
+
+    /// Whether the straight quote ending `existing` opens a quotation: the
+    /// quotes of its kind before it pair off in twos, so it opens when an
+    /// even number came before and closes when an odd number did, and a
+    /// closing quote is followed by a space like any word. An apostrophe
+    /// inside a word ("don't") is not a quotation mark and is not counted.
+    private static func opens<C: BidirectionalCollection>(_ quote: Character, in existing: C) -> Bool
+    where C.Element == Character {
+        var count = 0
+        var i = existing.index(before: existing.endIndex)
+        while i > existing.startIndex {
+            i = existing.index(before: i)
+            guard existing[i] == quote else { continue }
+            if quote == "'" {
+                let after = existing[existing.index(after: i)]
+                if after.isLetter, i > existing.startIndex, existing[existing.index(before: i)].isLetter { continue }
+            }
+            count += 1
+        }
+        return count % 2 == 0
+    }
 
     /// The recognizer capitalizes the first word of every result, as if
     /// every result began a sentence. Landing mid-sentence — after a word,

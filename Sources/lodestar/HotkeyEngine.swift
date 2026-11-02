@@ -873,6 +873,16 @@ final class HotkeyEngine {
             // The strip over an open draft feeds it: the clip's ⌘V comes
             // back through this tap and lands in the draft, so the draft
             // stays up rather than being hidden with the other bars.
+            // A copy made in the last third of a second has not been polled
+            // yet and would land after Keep is drawn, moving every card one
+            // place under a hand that has just read which letter is which.
+            // So the board is looked at once, now: a changeCount comparison
+            // when nothing was copied, the usual capture when something was.
+            // It happens out here because a capture tells the strip to
+            // redraw, which reads the engine's state while the engine is
+            // mid-change. Copies that arrive while Keep is open still
+            // refresh it live.
+            clipboard.capture()
             return dispatch(core.openPaste(world: self), event: event)
         }
         // The clip door: every unheld key is the draft's, and the strip

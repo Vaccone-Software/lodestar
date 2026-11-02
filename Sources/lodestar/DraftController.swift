@@ -125,6 +125,15 @@ final class DraftController {
     private var intentSent: Set<String> = []
     /// How long ⏎ waits, after the ear, for a rewrite under way.
     static let intentWaitSeconds: TimeInterval = 0.6
+    /// How long the asks this process has made took to be answered, the
+    /// last twenty, in memory only. ⏎ waits for an ask under way only if
+    /// this record says it can finish inside the wait: the median ask
+    /// takes 1.6 s, and a wait of 0.6 s for one that will not make it
+    /// only delays the paste and loses anyway.
+    var intentTimes: [Double] = []
+    static let intentTimesKept = 20
+    /// When the ask under way was sent.
+    private var intentSentAt: Date?
     /// The most words sent at once: a result and the sentence before it,
     /// as measured, not a paragraph a single refusal would lose.
     static let intentWords = 60
@@ -2034,6 +2043,7 @@ final class DraftController {
         guard IntentPass.wants(core), !intentSent.contains(core) else { return }
         intentSent.insert(core)
         intentInFlight = true
+        intentSentAt = clock.now()
         intentGeneration += 1
         let generation = intentGeneration
         let mine = session
@@ -2054,6 +2064,12 @@ final class DraftController {
     private func intentHeard(_ answer: String?, judged: (text: String?, verdict: IntentChecker.Verdict?),
                              sent: (range: Range<Int>, text: String), lead: String, session mine: Int,
                              generation: Int, ears: Int, seconds: Double) {
+        // Every answer says how long an ask takes, a late one most of all:
+        // it is the answer ⏎ did not wait for.
+        if answer != nil {
+            intentTimes.append(seconds)
+            if intentTimes.count > Self.intentTimesKept { intentTimes.removeFirst(intentTimes.count - Self.intentTimesKept) }
+        }
         guard generation == intentGeneration else { return }
         intentInFlight = false
         defer {
@@ -2098,9 +2114,21 @@ final class DraftController {
         render()
     }
 
-    /// ⏎ waits for a rewrite under way, a little.
+    /// ⏎ waits for a rewrite under way, a little: only when the record of
+    /// answers says it can finish inside the wait. Otherwise it lands now,
+    /// and the answer, if it comes, finds the draft gone. With no record
+    /// yet, it waits as it always did.
     private func afterIntent(_ then: @escaping () -> Void) {
         guard intentInFlight else { then(); return }
+        if let median = Self.median(intentTimes) {
+            let elapsed = intentSentAt.map { clock.now().timeIntervalSince($0) } ?? 0
+            if median - elapsed > Self.intentWaitSeconds {
+                Log.info("draft", ["intent wait": "skipped", "median ms": Int(median * 1000),
+                                   "elapsed ms": Int(elapsed * 1000)])
+                then()
+                return
+            }
+        }
         var done = false
         let go = {
             guard !done else { return }
@@ -2109,6 +2137,13 @@ final class DraftController {
         }
         intentWaiters.append(go)
         clock.after(Self.intentWaitSeconds, DispatchWorkItem { go() })
+    }
+
+    static func median(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        return sorted.count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
     }
 
     private func land() {

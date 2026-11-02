@@ -779,7 +779,7 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
     // often an opening ended in nothing, and this says how far the hand got
     // before it left. Never the clip; the events hold none.
     if let keep = KeepReport.compute(events: events) {
-        let letters = Clipboard.recentLabels.map { $0.uppercased() }
+        let letters = Clipboard.recentLabels
         func share(_ count: Int, _ of: Int) -> String {
             of > 0 ? String(format: " (%d%%)", Int((Double(count) / Double(of) * 100).rounded())) : ""
         }

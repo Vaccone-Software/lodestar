@@ -488,6 +488,7 @@ final class SelectController {
 
     func backspace() {
         if door == .editor {
+            if settling { return }
             if !entryTyped.isEmpty {
                 entryTyped.removeLast()
                 renderEditor()
@@ -530,6 +531,9 @@ final class SelectController {
         // The editor's lens: a letter fixes, ⇧ and a letter leaves the
         // words as written, ⌥ and a letter learns the word.
         if door == .editor {
+            // A fix still landing owns the field: a key handed to the app
+            // now would meet the word selected and replace it.
+            if settling { return .pending }
             if editorMarks.isEmpty {
                 handingBack = true
                 return .pending
@@ -619,6 +623,8 @@ final class SelectController {
         entryLabels = []
         entryTyped = ""
         answered = []
+        shiftedFrom = [:]
+        settling = false
         entryChipsAtEntry = 0
         firstKeyAt = nil
         pendingKeys = []
@@ -664,6 +670,7 @@ final class SelectController {
 
     private func labelEditor(_ marks: [EditorController.Mark]) {
         editorMarks = marks
+        shiftedFrom = [:]
         entryTyped = ""
         entryLabels = HintLabels.labels(count: marks.count, alphabet: letters)
         renderEditor()
@@ -703,6 +710,59 @@ final class SelectController {
         }
     }
 
+    /// Where each mark moved by `shift(past:)` stood when the editor made
+    /// it, so what was answered is remembered by the words the editor
+    /// knows them by.
+    private var shiftedFrom: [EditorIssue: EditorIssue] = [:]
+
+    /// Whether the app fixes by typing, and so keeps the word selected until
+    /// the typing lands. A seam for the scenarios.
+    var holdsFix: (pid_t) -> Bool = { pid in
+        EditorAX.fixesByTyping(bundleID: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier, pid: pid)
+    }
+
+    /// A fix is landing: the field belongs to it until it has. Keys the
+    /// lens does not letter are swallowed rather than handed to the app,
+    /// whose next character would otherwise replace the word still
+    /// selected. Lifted when the fix reports, and in any case after
+    /// `settleLimit`, so a fix that never reports cannot keep the keys.
+    private var settling = false
+    static let settleLimit: TimeInterval = 1.5
+
+    /// Start holding, and return what lifts it.
+    private func holdKeys() -> () -> Void {
+        settling = true
+        let expected = generation
+        let lift = { [weak self] in
+            guard let self, self.generation == expected else { return }
+            self.settling = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleLimit, execute: lift)
+        return lift
+    }
+
+    /// The marks after a fix, moved by the length it changed. A mark
+    /// before the fix, or overlapping it, is where it was.
+    static func moved(_ marks: [EditorController.Mark], past fixed: EditorIssue) -> [EditorController.Mark] {
+        let delta = (fixed.replacement as NSString).length - fixed.range.length
+        let end = fixed.range.location + fixed.range.length
+        guard delta != 0 else { return marks }
+        return marks.map { mark in
+            guard mark.issue.range.location >= end else { return mark }
+            var issue = mark.issue
+            issue.range.location += delta
+            return EditorController.Mark(issue: issue, rect: mark.rect)
+        }
+    }
+
+    private func shift(past fixed: EditorIssue) {
+        let moved = Self.moved(editorMarks, past: fixed)
+        for (before, after) in zip(editorMarks, moved) where before.issue != after.issue {
+            shiftedFrom[after.issue] = shiftedFrom[before.issue] ?? before.issue
+        }
+        editorMarks = moved
+    }
+
     enum EditorAnswer { case fix, ignore, learn }
 
     static func fixAllOffer(count: Int) -> ModePill.Offer? {
@@ -718,11 +778,12 @@ final class SelectController {
     private func editorFixAll() -> SelectStep {
         guard let editor, !editorMarks.isEmpty else { return .pending }
         let marks = editorMarks
-        answered.append(contentsOf: marks.map(\.issue))
+        answered.append(contentsOf: marks.map { shiftedFrom[$0.issue] ?? $0.issue })
         editorMarks = []
         entryTyped = ""
         entryLabels = []
-        editor.fixAll(marks) { _ in }
+        let lift = holdKeys()
+        editor.fixAll(marks) { _ in lift() }
         overlay.hide()
         showPill(text: nil, offer: Self.undoOffer)
         return .done
@@ -737,19 +798,39 @@ final class SelectController {
         switch HintLabels.match(typed: candidate, labels: entryLabels) {
         case .exact(let index):
             let mark = editorMarks[index]
-            answered.append(mark.issue)
+            answered.append(shiftedFrom[mark.issue] ?? mark.issue)
             entryTyped = ""
             editorMarks.remove(at: index)
             entryLabels = HintLabels.labels(count: editorMarks.count, alphabet: letters)
+            // The last mark of an app that takes typing waits for the typing
+            // to land; the lens stands, its keys its own, until it has.
+            let last = editorMarks.isEmpty
+            let holds = last && answer == .fix && holdsFix(focusedPid)
             switch answer {
-            case .fix: editor?.fix(mark) { _ in }
+            case .fix:
+                // The text is about to move under every mark after this
+                // one: they are moved with it now, not when the look after
+                // the fix finds them, so a second letter struck at once
+                // names the words where they will stand.
+                shift(past: mark.issue)
+                if holds {
+                    let lift = holdKeys()
+                    editor?.fix(mark) { _ in lift() }
+                } else {
+                    editor?.fix(mark) { _ in }
+                }
             case .ignore: editor?.ignore(mark)
             case .learn: editor?.learn(mark)
             }
+            if holds {
+                overlay.hide()
+                showPill(text: nil, offer: Self.undoOffer)
+                return .done
+            }
             // The last mark ends the lens; otherwise it stands and letters
             // what remains once the text settles.
-            firedTextInput = editorMarks.isEmpty
-            if editorMarks.isEmpty { overlay.hide() } else { renderEditor() }
+            firedTextInput = last
+            if last { overlay.hide() } else { renderEditor() }
             return .done
         case .partial:
             entryTyped = candidate

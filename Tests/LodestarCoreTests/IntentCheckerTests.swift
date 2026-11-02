@@ -156,6 +156,9 @@ final class IntentPassTests: XCTestCase {
                      "Write a SwiftUI view that lists every MLX model."] {
             XCTAssertFalse(IntentPass.wants(text), text)
         }
+        // "second" alone asked 15 times in the journal and changed nothing; a list still has its first and third.
+        XCTAssertFalse(IntentPass.wants("The second panel never closes."))
+        XCTAssertTrue(IntentPass.wants("Second, run the tests. Third, ship it."))
     }
 
     func testThePromptNamesTheSpeakersWords() {

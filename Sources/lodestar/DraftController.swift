@@ -347,6 +347,17 @@ final class DraftController {
     /// while `closing` stands every key is swallowed, so a stop that
     /// hangs would take the keyboard with it.
     private var landBackstop: DispatchWorkItem?
+    /// Drafts esc has closed that are waiting out of sight for their last
+    /// words, by session number: the clipboard is written when the stop
+    /// completes, or at the bound. A draft opened again meanwhile has its
+    /// own number and never meets these.
+    private var departing: [Int: Departure] = [:]
+    /// How long esc waits for the last words before the clipboard is
+    /// given the text as it stood.
+    static let departBackstopSeconds: TimeInterval = 1.0
+    /// How many drafts have ended, so a departed one can tell whether
+    /// another has ended since.
+    private var endings = 0
     /// How long `⏎` waits for the recognizer's last words before landing
     /// what it has. The session's own finalize is bounded at 0.7s; this
     /// is the bound on the bound.
@@ -1183,7 +1194,11 @@ final class DraftController {
             self.onActivity?()
             self.render()
         }, onSettled: { [weak self] heard in
-            guard let self, self.isOpen, self.session == mine else { return }
+            guard let self else { return }
+            // Finals for a draft esc has closed go to the copy of its text
+            // that waits for them.
+            if let leaving = self.departing[mine] { leaving.take(heard); return }
+            guard self.isOpen, self.session == mine else { return }
             self.settle(heard)
         })
         listenWatchdog?.cancel()
@@ -1309,25 +1324,10 @@ final class DraftController {
         return landing
     }
 
-    /// The text just before `point` changed as the settler decided: a
-    /// period dropped or added after the last non-space character.
+    /// The text just before `point` changed as the settler decided.
     /// Returns how many characters `point` moved by.
     private func applyBefore(_ change: Draft.Settler.Landing.Before, at point: Int) -> Int {
-        guard change != .unchanged else { return 0 }
-        var end = point
-        while end > 0, buffer.characters[end - 1].isWhitespace { end -= 1 }
-        guard end > 0 else { return 0 }
-        switch change {
-        case .dropPeriod:
-            guard buffer.characters[end - 1] == "." else { return 0 }
-            buffer.replace((end - 1)..<end, with: "")
-            return -1
-        case .addPeriod:
-            buffer.replace(end..<end, with: ".")
-            return 1
-        case .unchanged:
-            return 0
-        }
+        buffer.applyBefore(change, at: point)
     }
 
     /// `beyondEdit` is a final's remainder placed after reserved words the
@@ -2264,15 +2264,49 @@ final class DraftController {
         closing = true
         learnFromTheHand()
         if clipOrigin != nil { landClip(exit: reason, commit: false); return }
-        if sessionStarted { speech.stop {} }
         let text = buffer.text + (buffer.ghost.isEmpty ? "" : Draft.separator(after: buffer.characters, before: buffer.ghost) + buffer.ghost)
         let destination = frontmost()
-        if !text.isEmpty {
-            writePasteboard(text)
-            if reason == "escape" { flash?("⌂ draft kept in the clipboard") }
+        // A quit waits for nothing: the process is going.
+        if sessionStarted, listening, mode == .insert, micWanted, reason != "quit" {
+            // The panel closes now; the last second of speech is still in
+            // the recognizer, and the clip is written once the stop has
+            // delivered it, into a copy of the text.
+            let mine = session
+            let endedBefore = endings
+            let leaving = Departure(buffer: buffer, settler: settler, provisional: provisional,
+                                    anchor: freshSpeechAnchor())
+            departing[mine] = leaving
+            var kept = false
+            let keep = { [weak self] in
+                guard let self, !kept else { return }
+                kept = true
+                self.departing[mine] = nil
+                self.keepDeparted(leaving.text, reason: reason, endedBefore: endedBefore)
+            }
+            speech.stop { keep() }
+            clock.after(Self.departBackstopSeconds, DispatchWorkItem { keep() })
+        } else {
+            if sessionStarted { speech.stop {} }
+            if !text.isEmpty {
+                writePasteboard(text)
+                if reason == "escape" { flash?("⌂ draft kept in the clipboard") }
+            }
         }
         close()
         record(action: text.isEmpty ? "empty" : "cancelled", row: reason, destination: destination)
+    }
+
+    /// The clipboard given a departed draft's text, with its flash.
+    /// Skipped when a later draft has already ended: its landing is the
+    /// newer thing on the pasteboard and this would take it back.
+    private func keepDeparted(_ text: String, reason: String, endedBefore: Int) {
+        guard !text.isEmpty else { return }
+        guard endings <= endedBefore + 1 else {
+            Log.info("draft", ["cancel": "clip not written", "reason": "a later draft has ended"])
+            return
+        }
+        writePasteboard(text)
+        if reason == "escape" { flash?("⌂ draft kept in the clipboard") }
     }
 
     /// The clip door's ending, into the history and never the pasteboard.
@@ -2298,6 +2332,7 @@ final class DraftController {
 
     private func close() {
         defer { onClosed?() }
+        endings += 1
         isOpen = false
         finishing = false
         finishingWork?.cancel()

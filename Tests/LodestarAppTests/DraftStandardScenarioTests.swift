@@ -704,11 +704,17 @@ final class DraftStandardScenarioTests: XCTestCase {
         XCTAssertGreaterThan(stage.draft.buffer.count, 0)
     }
 
-    func testVimInsertArrowsKeepTheFilesLines() {
+    func testVimInsertArrowsWalkTheGlassLinesAsJAndKDo() throws {
         let stage = Stage()
         dictated(stage)
+        let end = stage.draft.buffer.cursor
+        let line = try XCTUnwrap(eyeLine(stage))
         stage.press("up")
-        XCTAssertEqual(stage.draft.buffer.cursor, 0, "Vim's insert mode is unchanged: the file's one line")
+        XCTAssertGreaterThan(stage.draft.buffer.cursor, 0, "a paragraph's ↑ is the line above, not its first character")
+        XCTAssertLessThan(stage.draft.buffer.cursor, line.lowerBound, "on the glass line above the last")
+        stage.press("down")
+        XCTAssertGreaterThanOrEqual(stage.draft.buffer.cursor, line.lowerBound, "and ↓ comes back to it")
+        XCTAssertLessThanOrEqual(stage.draft.buffer.cursor, end)
     }
 
     // MARK: - Undo

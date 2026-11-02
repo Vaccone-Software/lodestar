@@ -1655,10 +1655,12 @@ final class DraftController {
             bounds: { [weak self] buffer, index in self?.panel.lineBounds(containing: index, in: buffer) })
     }
 
-    /// The same, for the keys that walk by the eye's lines in the Standard
-    /// style. Vim's insert mode keeps the file's lines, as its normal mode
-    /// does for every motion but `j` and `k`.
-    private var eyeLines: Draft.Lines? { sessionStyle == .standard ? panelLines : nil }
+    /// The same, for the Mac's keys that walk by lines in insert mode, in
+    /// either style: under Vim they are insert mode's arrows, and the
+    /// draft already walks `j` and `k` by the eye's lines, because draft
+    /// prose makes a logical line an accident of width. Normal mode's own
+    /// motions (`0`, `$`, `dd`) keep the file's lines, as vim's do.
+    private var eyeLines: Draft.Lines? { panelLines }
 
     /// A Mac selection about to be replaced or deleted is its own undo
     /// step, so ⌘Z brings the text back. So is an edit made after the caret

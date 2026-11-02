@@ -708,6 +708,14 @@ final class ClipboardController {
         }
     }
 
+    /// A draft a run that did not end cleanly left behind, kept as a card
+    /// at the top. The pasteboard is not touched: it holds whatever the
+    /// hand copied last, and that is not this launch's to take. False when
+    /// the history is not ready to take it.
+    func keepRecovered(_ text: String) -> Bool {
+        store.file(text: text) != nil
+    }
+
     /// `K` on a keepsake lets it go; keeping goes through naming instead.
     func togglePin(_ clip: Clipboard.Clip) {
         if clip.isPinned {

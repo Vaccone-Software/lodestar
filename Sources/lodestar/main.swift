@@ -453,8 +453,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.measuresVoice = config.observationsHealth
         draft.playback = PlaybackPause()
         // The in-flight stash: a crash mid-draft costs at most the last
-        // half second of words, recovered to the pasteboard at the next boot.
-        // A clean close always clears it. Sealed under the clipboard ring, so it
+        // half second of words, recovered at the next boot, whatever ended
+        // the run: a clean close always clears it, so one left is a draft
+        // cut off. It comes back as a clipboard card. Sealed under the clipboard ring, so it
         // is written only while the history's key is ready (a crash while the
         // history is unavailable recovers nothing), and read off the main thread.
         let clipboardStore = clipboardController.history
@@ -475,17 +476,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A compaction of the history retires the ring's old keys: the words
         // in flight are sealed again under the new one.
         clipboardStore.onCompacted = { stashQueue.async { stash.reseal() } }
-        let recovering = crashedLastRun
-        stashQueue.async { [weak draft, weak hud] in
+        stashQueue.async { [weak self, weak draft, weak hud] in
             let found = stash.recover()
             // Sealed and the key cannot be asked for: left where it is, for the launch that can.
             if found != .unavailable { stash.clear() }
             DispatchQueue.main.async {
                 switch found {
-                case .text(let stranded) where recovering:
-                    draft?.writePasteboard(stranded)
-                    hud?.flash("⌂ Your draft is on the clipboard")
-                    Log.info("draft", ["recovered": stranded.count])
+                case .text(let stranded):
+                    // Whatever ended the last run: a clean close clears the
+                    // stash, so a stash at launch is a draft cut off.
+                    DraftRecovery.restore(stranded,
+                                          keepCard: { self?.clipboardController?.keepRecovered($0) ?? false },
+                                          pasteboard: { draft?.writePasteboard($0) },
+                                          flash: { hud?.flash($0) })
                 case .unavailable:
                     Log.warning("draft: words were in flight and are sealed; the keychain did not open, so they are left for a later launch")
                 default:

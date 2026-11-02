@@ -390,6 +390,20 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "open Ghostty and Lodestar, then the Supabase migration")
     }
 
+    /// The words the matcher put back are reported as they were said, so
+    /// the app can tell the models those first.
+    func testTheWordsPutBackAreReported() {
+        let stage = Stage()
+        stage.draft.words = ["Ghostty", "Lodestar", "Supabase"]
+        var used: [[String]] = []
+        stage.draft.onNamesUsed = { used.append($0) }
+        stage.lode(".")
+        stage.speech.settle("open ghostie and load star, then the super base migration")
+        XCTAssertEqual(used, [["Ghostty", "Lodestar", "Supabase"]])
+        stage.speech.settle("nothing to put back here.")
+        XCTAssertEqual(used.count, 1, "a result with none of them reports nothing")
+    }
+
     func testAPauseNeverWritesAnEllipsisOrBreaksASentence() {
         let stage = Stage()
         stage.lode(".")

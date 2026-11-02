@@ -44,6 +44,10 @@ final class DraftController {
     /// A word learned from a correction goes into the vocabulary
     /// (`draft.words`), the same list the editor's keep writes to.
     var learnWord: (String) -> Void = { _ in }
+    /// The words of the list the matcher put back in a settled result, in
+    /// the order they were said: the app keeps which were used lately, to
+    /// tell the models those first.
+    var onNamesUsed: ([String]) -> Void = { _ in }
     /// Words a pass rewrote — the second ear or the intent pass — as they
     /// now stand, underlined quietly until the hand's next key, so a
     /// change made while the eye was elsewhere can be seen and undone.
@@ -1297,6 +1301,7 @@ final class DraftController {
         } ?? false
         let landing = settler.land(heard, after: before, typedBetween: handSinceSpeech, canReachBack: reachBack)
         settled.names += landing.names
+        if !landing.terms.isEmpty { onNamesUsed(landing.terms) }
         settled.ellipses += landing.ellipses
         settled.joins += landing.joins
         settled.fillers += landing.fillers

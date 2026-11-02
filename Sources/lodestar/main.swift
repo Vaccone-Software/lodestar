@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var draftController: DraftController?
     /// The draft's dictation model, by tier (`draft.model`).
     private let earHost = EarHost()
+    /// The words of `draft.words` used or learned lately in this process,
+    /// most recent first: past thirty words, these are the ones the models
+    /// are told.
+    private var recentWords = RecentWords()
     private var editorController: EditorController?
     /// False until the boot's own apply, so the card greets a switch turned
     /// on, never a launch that found it on.
@@ -412,10 +416,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.codeRepository = { RepoNames.repository(pid: $0.pid, bundleID: $0.bundleID) }
         // The settling ear: chosen by tier, loaded when dictation starts.
         earHost.configure(config.draftModel)
-        draft.earContext = Array(config.draftWords.prefix(30))
+        draft.earContext = toldWords(config)
+        draft.onNamesUsed = { [weak self] terms in self?.recentWords.touch(terms) }
         draft.onListen = { [weak self, weak draft] in
             guard let self, let draft else { return }
             draft.ear = self.earHost.ear
+            self.refreshToldWords()
             self.earHost.warm()
         }
         draft.onClosed = { [weak self] in self?.earHost.rest() }
@@ -522,6 +528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let inDraft = DraftEditor(proofreader: editor.proofreader)
             inDraft.observations = observationStore
             SurfaceWiring.wireEditors(engine: engine, draft: draft, app: editor, inDraft: inDraft) { [weak self] word in
+                self?.recentWords.touch([word])
                 self?.editorLearn(path: ["draft", "words", word], flash: "✓ \(word) is one of your words now")
             }
             draftEditor = inDraft
@@ -2403,13 +2410,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editorController?.refreshModel()
     }
 
+    /// The words the ear and the intent prompt are told: at most thirty,
+    /// those used or learned lately first, the rest alphabetical.
+    private func toldWords(_ config: Config) -> [String] {
+        DraftVocabulary.told(config.draftWords, recent: recentWords.order)
+    }
+
+    /// Dictation starts: the words in use since the last time lead the
+    /// list. The intent prompt is rebuilt only when the list differs, since
+    /// a new prompt is read again by the model.
+    private func refreshToldWords() {
+        let told = toldWords(config)
+        guard told != draftController?.earContext else { return }
+        draftController?.earContext = told
+        wireIntent(config)
+    }
+
     /// What was meant, from what was said: asked of Speak's tier's model,
     /// the editor's copy of it when the editor holds the same weights, the
     /// draft's own otherwise. Whenever that model is here; there is no switch.
     private func wireIntent(_ config: Config) {
         draftController?.intentNames = config.draftWords
         guard let model = earHost.cleanup else { draftController?.intend = nil; return }
-        let prompt = IntentPass.prompt(names: Array(config.draftWords.prefix(30)))
+        let prompt = IntentPass.prompt(names: toldWords(config))
         if earHost.sharesEditor(model), let proofreader = editorController?.proofreader {
             draftController?.intend = { text in await proofreader.rewrite(text, prompt: prompt) }
         } else if let own = earHost.draftModel {
@@ -2524,7 +2547,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.excludedApps = loaded.clipboardExcludedApps
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         draftController?.words = loaded.draftWords
-        draftController?.earContext = Array(loaded.draftWords.prefix(30))
+        draftController?.earContext = toldWords(loaded)
         earHost.configure(loaded.draftModel)
         applyEditor(loaded)
         draftController?.editingStyle = loaded.draftEditingStyle

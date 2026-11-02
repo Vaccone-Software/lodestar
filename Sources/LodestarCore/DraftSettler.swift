@@ -50,6 +50,10 @@ extension Draft {
             public var replacesLast = false
             // Counts for the record; never the words.
             public var names = 0
+            /// The user's own words the matcher put back, in the order they
+            /// were said. Not stored with the record: they say which of
+            /// the list was lately in use.
+            public var terms: [String] = []
             public var codeNames = 0
             public var ellipses = 0
             public var joins = 0
@@ -138,6 +142,7 @@ extension Draft {
                 let matched = matcher.apply(tokens: tokens)
                 text = matched.text
                 landing.names = matched.edits.count
+                landing.terms = matched.edits.map(\.term)
             }
             // 1b. Names in code, as the repository writes them.
             if let codeNames {

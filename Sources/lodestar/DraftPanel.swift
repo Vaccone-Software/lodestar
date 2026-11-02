@@ -1353,7 +1353,7 @@ final class DraftPanel {
         // hint: a hand that is writing alone needs to know it before it needs
         // to know where ⏎ lands or what speech would replace.
         switch view.speech {
-        case .denied: return "microphone not allowed, typing only"
+        case .denied: return "microphone not allowed, lode . opens Settings"
         case .unavailable: return "no speech recognizer for this language, typing only"
         case .failed(let why): return view.retrying ? "\(why), trying again" : why
         case .listening where micWanted(view) && view.silent:

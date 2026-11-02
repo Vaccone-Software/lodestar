@@ -161,6 +161,12 @@ final class DraftController {
     /// The user picked an input on the foot; the app writes the
     /// config line (`draft.input`), nil meaning the system default.
     var chooseInput: ((String?) -> Void)?
+    /// Whether the microphone is allowed now, read without asking, and where
+    /// a refused one is allowed again: the grant is the person's, and its
+    /// switch is in Privacy & Security.
+    var microphoneGranted: () -> Bool = { AVCaptureDevicePermission.granted }
+    var openSettings: (URL) -> Void = { SystemEvents.open($0) }
+    static let microphoneSettings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
     /// Music steps aside while the mic is open on a shared Bluetooth
     /// radio; the draft only reports its edges.
     var playback: PlaybackPause?
@@ -710,7 +716,14 @@ final class DraftController {
             // A session that has itself failed is asked again now; one
             // still starting after a retry is left to land, though the
             // line still shows the failure before it.
-            if !sessionStarted || (sessionSpoke && speechState?.retries == true) { listenAgain() }
+            // A refused microphone is not asked again, since asking changes
+            // nothing: `lode .` opens the setting that does, and once it has
+            // been switched on the same key listens.
+            if speechState == .denied, !microphoneGranted() {
+                openSettings(Self.microphoneSettings)
+            } else if !sessionStarted || speechState == .denied || (sessionSpoke && speechState?.retries == true) {
+                listenAgain()
+            }
             if mode != .insert { setMode(.insert) } else { resumeIfWanted() }
         case .edit, .clip:
             // The silent posture: the mic stops writing, the mode stays.

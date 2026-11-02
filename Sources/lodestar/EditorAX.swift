@@ -41,8 +41,8 @@ struct AXFieldSource: EditorFieldSource {
     }
 
     /// Type a replacement the way a hand would, marked so the tap lets it
-    /// through untouched.
-    static func type(_ text: String, to pid: pid_t) {
+    /// through untouched. `pace` is the gap between the key's two events.
+    static func type(_ text: String, to pid: pid_t, pace: useconds_t = 15_000) {
         let units = Array(text.utf16)
         for down in [true, false] {
             guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down) else { continue }
@@ -50,7 +50,21 @@ struct AXFieldSource: EditorFieldSource {
             event.flags = event.flags.withoutModifiers
             event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
             SystemEvents.post(event, toPid: pid)
-            usleep(15_000)
+            if pace > 0 { usleep(pace) }
+        }
+    }
+
+    /// A key that types no character (⌫ is 51, ⏎ is 36), struck with the
+    /// modifiers given (none, for the hand's typing held back) and marked
+    /// as Lodestar's own like the typing is.
+    static func strike(_ code: CGKeyCode, to pid: pid_t, pace: useconds_t = 15_000,
+                       flags: CGEventFlags = []) {
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
+            event.flags = flags
+            event.setIntegerValueField(.eventSourceUserData, value: SelectController.ownMark)
+            SystemEvents.post(event, toPid: pid)
+            if pace > 0 { usleep(pace) }
         }
     }
 }

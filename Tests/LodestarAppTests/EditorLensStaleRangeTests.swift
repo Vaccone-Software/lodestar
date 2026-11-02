@@ -160,8 +160,9 @@ final class EditorLensStaleRangeTests: XCTestCase {
 }
 
 /// The last fix of an app that takes typing lands over a beat: the word
-/// stands selected until it has, and a key struck inside it must not reach
-/// the app and replace the word.
+/// stands selected until it has, and a key struck inside it must neither
+/// reach the app and replace the word nor be lost. What the hand types
+/// meanwhile is kept and put into the field, in order, after the fix.
 final class EditorFixSettlingTests: XCTestCase {
     private func stand(_ stage: Stage) {
         stage.model.stand(WindowModel.Window(
@@ -187,6 +188,13 @@ final class EditorFixSettlingTests: XCTestCase {
         func undoLastFix(completion: @escaping (Bool) -> Void) { completion(true) }
     }
 
+    /// What reached the app, and whether the fix had landed when it did.
+    private final class App {
+        var log: [(keys: [SelectController.HeldKey], paced: Bool)] = []
+        var landedBefore: [Bool] = []
+        var keys: [SelectController.HeldKey] { log.flatMap(\.keys) }
+    }
+
     private func lens(count: Int) -> SlowLens {
         SlowLens((0..<count).map { i in
             EditorController.Mark(
@@ -196,31 +204,118 @@ final class EditorFixSettlingTests: XCTestCase {
         })
     }
 
-    func testTheLastFixHoldsTheKeysUntilItHasLanded() throws {
-        let lens = lens(count: 1)
+    private func rig(marks: Int, typing: Bool = true) -> (Stage, SlowLens, App) {
+        let lens = lens(count: marks)
         let stage = Stage()
         stand(stage)
         stage.engine.appEditor = lens
-        stage.engine.select.holdsFix = { _ in true }
+        stage.engine.select.holdsFix = { _ in typing }
+        let app = App()
+        stage.engine.select.replay = { _, keys, paced, done in
+            app.log.append((keys, paced))
+            done()
+        }
+        return (stage, lens, app)
+    }
+
+    func testTheLastFixHoldsTheKeysUntilItHasLanded() throws {
+        let (stage, lens, app) = rig(marks: 1)
         try withExtendedLifetime(lens) {
             stage.lode("tab")
             let label = try XCTUnwrap(stage.engine.select.shownChips.first?.label)
             XCTAssertTrue(stage.press(label))
             XCTAssertEqual(lens.landing.count, 1)
-            XCTAssertTrue(stage.press("x"), "the word is still selected: the key is the lens's, not the app's")
+            XCTAssertTrue(stage.press("x"), "the word is still selected: the key is not the app's yet")
+            XCTAssertTrue(app.keys.isEmpty, "and it is not in the field before the fix")
             XCTAssertTrue(stage.engine.stateDescription.contains("hints"))
             lens.landing.forEach { $0() }
-            XCTAssertFalse(stage.press("x"), "landed: the key is the app's again")
+            XCTAssertEqual(app.keys, [.text("x")], "kept, and put in after the fix")
+        }
+    }
+
+    /// Keys typed while the fix lands arrive in the app in order, after
+    /// the fixed word: characters (shift capitalizing), a space, a ⌫ and a
+    /// ⏎, none lost.
+    func testKeysTypedWhileTheFixLandsArriveInOrder() throws {
+        let (stage, lens, app) = rig(marks: 1)
+        try withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+            stage.press("h")
+            stage.press("i", shift: true)
+            stage.press("space")
+            stage.press("o")
+            stage.press("k")
+            stage.press("delete")
+            stage.press("return")
+            stage.press("a")
+            XCTAssertTrue(app.keys.isEmpty)
+            lens.landing.forEach { $0() }
+            XCTAssertEqual(app.keys, [.text("hI ok"), .delete, .enter, .text("a")])
+            XCTAssertTrue(app.log.allSatisfy(\.paced), "behind the fix, off the main thread")
+        }
+    }
+
+    /// The hand typed on, so the lens is over: the next ⌫ is the hand's
+    /// and not the lens's undo of the fix.
+    func testTheLensEndsOnceWhatWasTypedIsIn() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        try withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+            stage.press("h")
+            lens.landing.forEach { $0() }
             XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
+            XCTAssertFalse(stage.press("delete"), "the app's own")
+        }
+    }
+
+    /// Nothing typed: the lens stands one key longer with Undo offered,
+    /// as after ⏎.
+    func testNothingTypedLeavesTheUndoOffered() throws {
+        let (stage, lens, app) = rig(marks: 1)
+        try withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+            lens.landing.forEach { $0() }
+            XCTAssertTrue(app.keys.isEmpty)
+            XCTAssertTrue(stage.engine.stateDescription.contains("hints"))
+            XCTAssertEqual(stage.engine.select.pill?.state?.offer, SelectController.undoOffer)
+            XCTAssertFalse(stage.press("x"), "the next key is the app's")
+        }
+    }
+
+    /// A ⌘ key is not typing: the hold ends, what was typed goes in first,
+    /// and the key passes through after it.
+    func testACommandKeyEndsTheHoldAndPassesAfterTheReplay() throws {
+        let (stage, lens, app) = rig(marks: 1)
+        try withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+            stage.press("h")
+            stage.press("i")
+            XCTAssertFalse(stage.press("a", command: true), "the ⌘ key goes to the app")
+            XCTAssertEqual(app.keys, [.text("hi")], "after the replay")
+            XCTAssertEqual(app.log.map(\.paced), [false], "now, so it is in before the key")
+            XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
+            lens.landing.forEach { $0() }
+            XCTAssertEqual(app.keys, [.text("hi")], "and nothing is put in twice")
+        }
+    }
+
+    func testAnArrowEndsTheHoldToo() throws {
+        let (stage, lens, app) = rig(marks: 1)
+        try withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+            stage.press("h")
+            XCTAssertFalse(stage.press("left"))
+            XCTAssertEqual(app.keys, [.text("h")])
         }
     }
 
     func testAnAppThatTakesTheDirectWriteEndsTheLensAtOnce() throws {
-        let lens = lens(count: 1)
-        let stage = Stage()
-        stand(stage)
-        stage.engine.appEditor = lens
-        stage.engine.select.holdsFix = { _ in false }
+        let (stage, lens, _) = rig(marks: 1, typing: false)
         try withExtendedLifetime(lens) {
             stage.lode("tab")
             let label = try XCTUnwrap(stage.engine.select.shownChips.first?.label)
@@ -229,31 +324,44 @@ final class EditorFixSettlingTests: XCTestCase {
         }
     }
 
-    func testFixAllHoldsTheKeysUntilItHasLanded() {
-        let lens = lens(count: 2)
-        let stage = Stage()
-        stand(stage)
-        stage.engine.appEditor = lens
+    func testFixAllHoldsAndReplaysTheKeysToo() {
+        let (stage, lens, app) = rig(marks: 2)
         withExtendedLifetime(lens) {
             stage.lode("tab")
             stage.press("return")
             XCTAssertTrue(stage.press("x"), "the fixes are landing: the key is held")
+            XCTAssertTrue(app.keys.isEmpty)
             lens.landing.forEach { $0() }
-            XCTAssertFalse(stage.press("x"), "landed: the next key goes to the app")
+            XCTAssertEqual(app.keys, [.text("x")])
         }
     }
 
-    func testAFixThatNeverReportsDoesNotKeepTheKeys() {
-        let lens = lens(count: 2)
-        let stage = Stage()
-        stand(stage)
-        stage.engine.appEditor = lens
-        withExtendedLifetime(lens) {
+    /// Too many keys for the hold to keep: the one past the cap ends it,
+    /// and everything kept goes in before it.
+    func testTheHoldIsCappedAndNothingPastItIsLost() throws {
+        let (stage, lens, app) = rig(marks: 1)
+        try withExtendedLifetime(lens) {
             stage.lode("tab")
-            stage.press("return")
-            XCTAssertTrue(stage.press("x"))
-            stage.pump(until: { !stage.press("x") }, within: SelectController.settleLimit + 2)
-            XCTAssertFalse(stage.engine.stateDescription.contains("hints"), "after the limit the keys are the app's")
+            stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+            for _ in 0..<SelectController.heldCapacity { stage.press("x") }
+            XCTAssertTrue(app.keys.isEmpty)
+            XCTAssertFalse(stage.press("y"), "the thirty-third key ends the hold and goes on")
+            XCTAssertEqual(app.keys, [.text(String(repeating: "x", count: SelectController.heldCapacity))])
+        }
+    }
+
+    /// A fix that never reports: after the limit the hold lifts, and what
+    /// was typed is put in all the same.
+    func testTheLimitLiftReplaysToo() throws {
+        let (stage, lens, app) = rig(marks: 1)
+        try withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+            stage.press("h")
+            stage.press("i")
+            stage.pump(until: { !app.keys.isEmpty }, within: SelectController.settleLimit + 2)
+            XCTAssertEqual(app.keys, [.text("hi")])
+            XCTAssertFalse(stage.engine.stateDescription.contains("hints"), "and the lens is over")
         }
     }
 }

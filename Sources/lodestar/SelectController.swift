@@ -488,7 +488,7 @@ final class SelectController {
 
     func backspace() {
         if door == .editor {
-            if settling { return }
+            if settling { holdDelete(); return }
             if !entryTyped.isEmpty {
                 entryTyped.removeLast()
                 renderEditor()
@@ -532,8 +532,9 @@ final class SelectController {
         // words as written, ⌥ and a letter learns the word.
         if door == .editor {
             // A fix still landing owns the field: a key handed to the app
-            // now would meet the word selected and replace it.
-            if settling { return .pending }
+            // now would meet the word selected and replace it. The hand's
+            // typing is kept for after, never dropped.
+            if settling { return hold(key, shift: shift, option: option) }
             if editorMarks.isEmpty {
                 handingBack = true
                 return .pending
@@ -721,24 +722,165 @@ final class SelectController {
         EditorAX.fixesByTyping(bundleID: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier, pid: pid)
     }
 
-    /// A fix is landing: the field belongs to it until it has. Keys the
-    /// lens does not letter are swallowed rather than handed to the app,
-    /// whose next character would otherwise replace the word still
-    /// selected. Lifted when the fix reports, and in any case after
-    /// `settleLimit`, so a fix that never reports cannot keep the keys.
+    /// A fix is landing: the field belongs to it until it has. A key the
+    /// hand strikes meanwhile must not reach the app, whose character would
+    /// replace the word still selected, and must not be lost either: at the
+    /// hand's pace (238 ms between keys, measured) a fix that takes a third
+    /// of a second or more costs one or two characters after every last
+    /// fix. So the typing is kept, in order, and put into the field once the
+    /// fix has landed (or after `settleLimit`, so a fix that never reports
+    /// cannot keep the keys). A key that is not typing (an arrow, escape,
+    /// anything with ⌘ ⌃ ⌥) ends the hold at once: what was typed is put in
+    /// first, and the key goes on to the app after it.
     private var settling = false
+    private var landed = false
+    private var held: [HeldKey] = []
+    private var heldAny = false
+    private var holdToken = 0
     static let settleLimit: TimeInterval = 1.5
+    static let heldCapacity = 32
+
+    /// What the hand struck while a fix was landing.
+    enum HeldKey: Equatable {
+        case text(String)
+        case delete
+        case enter
+
+        /// Keys it stands for.
+        var length: Int {
+            if case .text(let characters) = self { return characters.count }
+            return 1
+        }
+    }
+
+    /// The editor's lens has nothing left to do once what the hand typed
+    /// during the hold is in: the engine ends it, so a ⌫ after that is the
+    /// hand's own and not the lens's undo.
+    var onLensDone: (() -> Void)?
+
+    /// The modifiers of the key being handled, set by the engine before it
+    /// asks (the lens's grammar carries only ⇧ and ⌥).
+    var keyFlags: CGEventFlags = []
+
+    /// Puts what was held into the app at `pid`. `paced` is true when it
+    /// can wait its turn behind the fix on the accessibility queue; false
+    /// is now, on the caller's thread, for a key about to be handed on
+    /// that must come after it.
+    var replay: (pid_t, [HeldKey], Bool, @escaping () -> Void) -> Void = { pid, keys, paced, done in
+        func put() {
+            var text = ""
+            func flush() {
+                if !text.isEmpty { AXFieldSource.type(text, to: pid, pace: paced ? 15_000 : 0) }
+                text = ""
+            }
+            for key in keys {
+                switch key {
+                case .text(let characters): text += characters
+                case .delete: flush(); AXFieldSource.strike(51, to: pid, pace: paced ? 15_000 : 0)
+                case .enter: flush(); AXFieldSource.strike(36, to: pid, pace: paced ? 15_000 : 0)
+                }
+            }
+            flush()
+        }
+        if paced {
+            EditorAX.queue.async {
+                put()
+                DispatchQueue.main.async(execute: done)
+            }
+        } else {
+            put()
+            done()
+        }
+    }
 
     /// Start holding, and return what lifts it.
     private func holdKeys() -> () -> Void {
         settling = true
+        landed = false
+        held = []
+        heldAny = false
+        holdToken += 1
+        let token = holdToken
         let expected = generation
         let lift = { [weak self] in
-            guard let self, self.generation == expected else { return }
-            self.settling = false
+            guard let self, self.generation == expected, self.holdToken == token, self.settling,
+                  !self.landed else { return }
+            self.landed = true
+            self.drainHeld()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleLimit, execute: lift)
         return lift
+    }
+
+    /// The fix has landed: what was typed goes in, in order. The hold stays
+    /// until the last of it is in, so a key struck meanwhile queues behind
+    /// it rather than ahead.
+    private func drainHeld() {
+        let keys = held
+        held = []
+        guard !keys.isEmpty else {
+            settling = false
+            if heldAny, editorMarks.isEmpty { onLensDone?() }
+            return
+        }
+        heldAny = true
+        let token = holdToken
+        replay(focusedPid, keys, true) { [weak self] in
+            guard let self, self.holdToken == token else { return }
+            self.drainHeld()
+        }
+    }
+
+    private func keep(_ key: HeldKey) -> Bool {
+        guard held.count < Self.heldCapacity else { return false }
+        if case .text(let more) = key, case .text(let before)? = held.last {
+            held[held.count - 1] = .text(before + more)
+        } else {
+            held.append(key)
+        }
+        return true
+    }
+
+    /// The count of keys held: a run of characters is one entry.
+    private var heldCount: Int { held.reduce(0) { $0 + $1.length } }
+
+    private var keyIsPlain: Bool {
+        !keyFlags.contains(.maskCommand) && !keyFlags.contains(.maskControl) && !keyFlags.contains(.maskAlternate)
+    }
+
+    /// A key during the hold: typing is kept, anything else ends the hold.
+    private func hold(_ key: String, shift: Bool, option: Bool) -> SelectStep {
+        if keyIsPlain, !option, heldCount < Self.heldCapacity {
+            if key == "return" { _ = keep(.enter); return .pending }
+            if let character = Keys.character(for: key, shift: shift) { _ = keep(.text(character)); return .pending }
+        }
+        endHold()
+        handingBack = true
+        return .pending
+    }
+
+    /// ⌫ during the hold.
+    private func holdDelete() {
+        if keyIsPlain, heldCount < Self.heldCapacity {
+            _ = keep(.delete)
+            return
+        }
+        // A ⌫ with a modifier is an edit the lens cannot keep in order;
+        // what was typed goes in first and the ⌫ follows it, as struck.
+        endHold()
+        AXFieldSource.strike(51, to: focusedPid, pace: 0, flags: keyFlags)
+    }
+
+    /// Put what was held in now and let the keys go, for a key that cannot
+    /// wait for the fix.
+    private func endHold() {
+        let keys = held
+        held = []
+        holdToken += 1
+        settling = false
+        landed = true
+        guard !keys.isEmpty else { return }
+        replay(focusedPid, keys, false) {}
     }
 
     /// The marks after a fix, moved by the length it changed. A mark

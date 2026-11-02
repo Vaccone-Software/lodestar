@@ -405,6 +405,10 @@ final class HotkeyEngine {
             guard let self else { return }
             _ = self.apply(self.core.aimLanded(), event: nil)
         }
+        select.onLensDone = { [weak self] in
+            guard let self else { return }
+            _ = self.apply(self.core.lensDone(), event: nil)
+        }
         applyGrammarConfig()
         applyStripConfig()
     }
@@ -925,6 +929,7 @@ final class HotkeyEngine {
         if held || !core.isIdle { lastActivityAt = clock.now() }
 
         let wasIdle = core.isIdle
+        select.keyFlags = keepFlags
         let effects = core.keyDown(key: key, held: held, shift: effectiveShift,
                                    command: keepFlags.contains(.maskCommand),
                                    option: keepFlags.contains(.maskAlternate),

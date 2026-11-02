@@ -44,6 +44,24 @@ public struct KeepReport: Equatable {
     public let namedAndLeft: Int
     public let otherKeyAndLeft: Int
 
+    /// Of the openings left with no key at all, the ones whose ending was
+    /// watched (the strip began recording how it closed and what the hand did
+    /// next at one moment, so earlier records carry neither): how each
+    /// closed, and what the hand did in the seconds after. `thenNext` counts
+    /// `nothing` for a watch that passed with no key. Both add up to
+    /// `thenWatched`.
+    public let thenWatched: Int
+    public let thenClosed: [String: Int]
+    public let thenNext: [String: Int]
+    /// Pastes made since the strip began watching, and how many of those
+    /// were taken back with ⌘Z inside the window.
+    public let watchedPastes: Int
+    public let undone: Int
+
+    /// The words, in the order the report prints them.
+    public static let closedWords = ["escape", "toggle", "click", "lode", "other"]
+    public static let nextWords = ["paste", "copy", "reopen", "typed", "nothing"]
+
     /// Median seconds open, and the median wait to the first key.
     public let abandonedSeconds: Double?
     public let pastedSeconds: Double?
@@ -105,6 +123,22 @@ public struct KeepReport: Equatable {
             else { other += 1 }
         }
 
+        // The no-key openings whose ending was watched, told by the word for
+        // how they closed, which every one of them carries and no earlier
+        // record does.
+        let watchedLooks = left.filter { $0.openToFirstKey == nil && $0.closed != nil }
+        var closedBy: [String: Int] = [:]
+        var nextBy: [String: Int] = [:]
+        for event in watchedLooks {
+            closedBy[event.closed ?? "other", default: 0] += 1
+            nextBy[event.after ?? "nothing", default: 0] += 1
+        }
+        // A paste that was watched and saw nothing has no word either, so the
+        // pastes made since the first watched record stand in for "watched".
+        let watchingSince = events.filter { $0.kind == .paste && ($0.closed != nil || $0.after != nil) }
+            .map(\.t).min()
+        let watchedPastes = watchingSince.map { since in pastes.filter { $0.t >= since } } ?? []
+
         let searchOpens = opens.filter { $0.source == "search" || ($0.typed ?? 0) > 0 }
         let searchPastes = searchOpens.filter { $0.action == "pasted" }
         let shown = Clipboard.recentLabels.count
@@ -127,6 +161,9 @@ public struct KeepReport: Equatable {
             reading: pastes.filter { $0.row == "reading" }.count,
             labelRanks: labelRanks, slots: slots,
             lookedAndLeft: looked, typedAndLeft: typed, namedAndLeft: named, otherKeyAndLeft: other,
+            thenWatched: watchedLooks.count, thenClosed: closedBy, thenNext: nextBy,
+            watchedPastes: watchedPastes.count,
+            undone: watchedPastes.filter { $0.after == "undo" }.count,
             abandonedSeconds: median(left.map(\.seconds)),
             pastedSeconds: median(pastes.map(\.seconds)),
             pastedFirstKey: median(pastes.map(\.openToFirstKey)),

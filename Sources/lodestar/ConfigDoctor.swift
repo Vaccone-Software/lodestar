@@ -811,6 +811,21 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
                 + "\(keep.lookedAndLeft) with no key · \(keep.typedAndLeft) typed a search"
                 + " · \(keep.namedAndLeft) named a card · \(keep.otherKeyAndLeft) other key")
         }
+        if keep.thenWatched > 0 {
+            let names = ["paste": "⌘V"]
+            func counts(_ words: [String], _ by: [String: Int]) -> String {
+                words.compactMap { word in
+                    by[word].map { "\(names[word] ?? word) \($0)" }
+                }.joined(separator: " · ")
+            }
+            print(pad("  then", 10)
+                + "no-key opens closed by " + counts(KeepReport.closedWords, keep.thenClosed)
+                + " · next " + counts(KeepReport.nextWords, keep.thenNext))
+        }
+        if keep.watchedPastes > 0 {
+            print(pad("  undone", 10)
+                + "\(keep.undone) of \(keep.watchedPastes) pastes within \(Int(HotkeyEngine.watchSecondsAfterPaste)) s")
+        }
         let waits = [median(keep.abandonedSeconds, "open when left"),
                      median(keep.pastedSeconds, "open when pasted"),
                      median(keep.pastedFirstKey, "to the first key")].filter { !$0.isEmpty }

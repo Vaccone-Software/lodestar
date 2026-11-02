@@ -10,7 +10,8 @@ final class KeepReportTests: XCTestCase {
     private func paste(_ action: String, source: String? = nil, row: String? = nil,
                        rank: Int? = nil, typed: Int = 0, seconds: Double = 2,
                        firstKey: Double? = 0.5, app: String = "slack", matches: Int? = nil,
-                       depth: Int? = nil, daysAgo: Double = 0) -> ObservationEvent {
+                       depth: Int? = nil, closed: String? = nil, after: String? = nil,
+                       daysAgo: Double = 0) -> ObservationEvent {
         var event = ObservationEvent(t: now.addingTimeInterval(-daysAgo * 86_400), kind: .paste)
         event.action = action
         event.source = source
@@ -22,6 +23,8 @@ final class KeepReportTests: XCTestCase {
         event.app = app
         event.matches = matches
         event.depth = depth
+        event.closed = closed
+        event.after = after
         return event
     }
 
@@ -127,5 +130,63 @@ final class KeepReportTests: XCTestCase {
         let keep = try XCTUnwrap(KeepReport.compute(events: events, now: now))
         XCTAssertEqual(keep.apps, [KeepReport.Landing(app: "ghostty", count: 3),
                                    KeepReport.Landing(app: "slack", count: 1)])
+    }
+
+    func testNoKeyOpeningsAreToldByHowTheyClosedAndWhatCameNext() throws {
+        let events = [
+            paste("abandoned", firstKey: nil, closed: "escape", after: "paste"),
+            paste("abandoned", firstKey: nil, closed: "escape", after: "paste"),
+            paste("abandoned", firstKey: nil, closed: "escape", after: "copy"),
+            paste("abandoned", firstKey: nil, closed: "toggle", after: "reopen"),
+            paste("abandoned", firstKey: nil, closed: "click"),
+            paste("abandoned", firstKey: nil, closed: "lode", after: "typed"),
+            // Before the strip watched: it says neither, and is not guessed.
+            paste("abandoned", firstKey: nil),
+            // A key was struck, so it is not a no-key opening.
+            paste("abandoned", firstKey: 0.5, closed: "escape", after: "typed"),
+        ]
+        let keep = try XCTUnwrap(KeepReport.compute(events: events, now: now))
+        XCTAssertEqual(keep.lookedAndLeft, 7)
+        XCTAssertEqual(keep.thenWatched, 6)
+        XCTAssertEqual(keep.thenClosed, ["escape": 3, "toggle": 1, "click": 1, "lode": 1])
+        XCTAssertEqual(keep.thenNext, ["paste": 2, "copy": 1, "reopen": 1, "nothing": 1, "typed": 1])
+        XCTAssertEqual(keep.thenClosed.values.reduce(0, +), keep.thenWatched)
+        XCTAssertEqual(keep.thenNext.values.reduce(0, +), keep.thenWatched)
+    }
+
+    func testUndoneCountsOnlyPastesMadeSinceTheStripBeganWatching() throws {
+        let events = [
+            // Before: no word yet to tell a paste watched from one that was not.
+            paste("pasted", source: "label", row: "plain", rank: 0, daysAgo: 3),
+            paste("pasted", source: "label", row: "plain", rank: 0, daysAgo: 2),
+            paste("abandoned", firstKey: nil, closed: "escape", daysAgo: 1),
+            paste("pasted", source: "label", row: "plain", rank: 0, after: "undo", daysAgo: 0.5),
+            paste("pasted", source: "label", row: "plain", rank: 1, after: "typed", daysAgo: 0.4),
+            paste("pasted", source: "pin", row: "plain", rank: 2, daysAgo: 0.3),
+        ]
+        let keep = try XCTUnwrap(KeepReport.compute(events: events, now: now))
+        XCTAssertEqual(keep.watchedPastes, 3)
+        XCTAssertEqual(keep.undone, 1)
+    }
+
+    func testRecordsFromBeforeTheWatchSayNothingOfIt() throws {
+        let keep = try XCTUnwrap(KeepReport.compute(events: [
+            paste("pasted", source: "label", row: "plain", rank: 0),
+            paste("abandoned", firstKey: nil),
+        ], now: now))
+        XCTAssertEqual(keep.thenWatched, 0)
+        XCTAssertEqual(keep.watchedPastes, 0)
+        XCTAssertEqual(keep.undone, 0)
+    }
+
+    func testTheWordsSurviveTheLog() throws {
+        let event = paste("abandoned", firstKey: nil, closed: "click", after: "reopen")
+        let back = try JSONDecoder().decode(ObservationEvent.self, from: JSONEncoder().encode(event))
+        XCTAssertEqual(back.closed, "click")
+        XCTAssertEqual(back.after, "reopen")
+        let old = try JSONDecoder().decode(ObservationEvent.self,
+                                           from: Data(#"{"t":0,"kind":"paste","action":"pasted"}"#.utf8))
+        XCTAssertNil(old.closed)
+        XCTAssertNil(old.after)
     }
 }

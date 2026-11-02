@@ -166,6 +166,12 @@ final class DraftController {
     var readField: (pid_t, Bool) -> Field?
     /// Select a range in the origin field, for a whole-field replacement.
     var selectAll: (pid_t) -> Bool
+    /// What the app in front shows as focused, asked just before a paste
+    /// is posted into it: AX off the main thread in the app, answered on
+    /// the main thread; a stub on the stage.
+    var probeTarget: (pid_t, @escaping (Draft.Target) -> Void) -> Void
+    /// How long ⏎ waits for that answer before pasting as it always did.
+    static let targetWaitSeconds: TimeInterval = 0.5
     /// What `p` pastes: the pasteboard's text.
     var readPasteboard: () -> String?
     /// Settled speech is activity too, for the engine's idle clock.
@@ -471,6 +477,7 @@ final class DraftController {
         postKey = Self.post
         readField = Self.readFieldAX
         selectAll = Self.selectAllAX
+        probeTarget = Self.probeTargetAX
         readPasteboard = { SystemEvents.pasteboard.string(forType: .string) }
         enumerateInputs = { done in
             Self.inputQueue.async {
@@ -2214,6 +2221,28 @@ final class DraftController {
             hasDestination: destination != nil,
             destinationIsOrigin: destination?.pid == origin?.pid,
             pulledFromOrigin: origin?.pulled ?? false)
+        // A plain paste into another app is the one ending that can land
+        // on nothing: the app may have no focused element, or a list. It is
+        // asked off the main thread before the key is posted; a replace
+        // goes back into the field the words came from and needs no asking.
+        if !text.isEmpty, ending == .paste, let pid = destination?.pid {
+            var answered = false
+            let answer: (Draft.Target) -> Void = { [weak self] target in
+                guard !answered else { return }
+                answered = true
+                self?.finishLanding(text: text, destination: destination, ending: ending, target: target)
+            }
+            probeTarget(pid, answer)
+            // An answer that never comes is an uncertain one.
+            clock.after(Self.targetWaitSeconds, DispatchWorkItem { answer(.unknown) })
+            return
+        }
+        finishLanding(text: text, destination: destination, ending: ending, target: nil)
+    }
+
+    private func finishLanding(text: String, destination: Destination?, ending: Draft.Ending,
+                               target: Draft.Target?) {
+        guard isOpen else { return }
         var action = "empty"
         var row: String? = nil
         if !text.isEmpty {
@@ -2229,6 +2258,13 @@ final class DraftController {
             case _ where secure:
                 flash?("press ⌘V to paste, this field blocks synthetic input")
                 action = "copied"; row = "secure"
+            case .paste where target.map({ !Draft.pastes(into: $0) }) ?? false:
+                // The app is there and nothing in it takes text: a paste
+                // would be a key struck into the air, with the confirming
+                // sound over it. The words are on the pasteboard, and the
+                // flash says where they went.
+                flash?("⌂ copied, no field there takes a paste")
+                action = "copied"; row = "no field"
             case .replace where origin?.wholeField == true
                 && origin.flatMap({ readField($0.pid, false) })?.token != origin?.token:
                 // The same app, a different field: a paste there, and the
@@ -2536,6 +2572,40 @@ final class DraftController {
             }
         }
         return field
+    }
+
+    private static let targetQueue = DispatchQueue(label: "com.vaccone.lodestar.draft-target", qos: .userInitiated)
+
+    /// Ask the app what has the focus, off the main thread, and answer on
+    /// it. Positive only when the app answered "nothing" and still speaks
+    /// Accessibility; an error, a timeout or an app that does not answer
+    /// is `.unknown`, and the paste is posted as it always was.
+    private static func probeTargetAX(pid: pid_t, done: @escaping (Draft.Target) -> Void) {
+        targetQueue.async {
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, axTimeout)
+            var target = Draft.Target.unknown
+            var ref: CFTypeRef?
+            switch AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &ref) {
+            case .success:
+                if let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() {
+                    let focused = ref as! AXUIElement
+                    AXUIElementSetMessagingTimeout(focused, axTimeout)
+                    if let role = AX.string(focused, kAXRoleAttribute) {
+                        var settable: DarwinBoolean = false
+                        let takesValue = AXUIElementIsAttributeSettable(focused, kAXValueAttribute as CFString, &settable) == .success
+                            && settable.boolValue
+                        let hasCaret = AX.copy(focused, kAXSelectedTextRangeAttribute) != nil
+                        target = .focus(role: role, text: takesValue || hasCaret)
+                    }
+                }
+            case .noValue:
+                if AX.string(app, kAXRoleAttribute) != nil { target = .noFocus }
+            default:
+                break
+            }
+            DispatchQueue.main.async { done(target) }
+        }
     }
 
     private static func selectAllAX(pid: pid_t) -> Bool {

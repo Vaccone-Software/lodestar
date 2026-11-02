@@ -237,6 +237,11 @@ final class Stage {
     var pasteboard: [String] = []
     /// What the stage's focused field holds, for the draft to pull.
     var field: DraftController.Field?
+    /// What the app in front shows as focused when ⏎ asks, and whether it
+    /// answers at all: a text field, unless a test says otherwise.
+    var target: Draft.Target = .focus(role: "AXTextField", text: true)
+    var targetAnswers = true
+    private(set) var targetAsks = 0
     /// Every input chosen on the register line (nil = system default).
     var chosenInputs: [String?] = []
     /// The playback world: which players say they are playing, whether
@@ -418,6 +423,10 @@ final class Stage {
         draft.postKey = { [unowned self] key, flags in self.posted.append((key, flags)) }
         draft.readField = { [unowned self] _, _ in self.field }
         draft.selectAll = { _ in true }
+        draft.probeTarget = { [unowned self] _, done in
+            self.targetAsks += 1
+            if self.targetAnswers { done(self.target) }
+        }
         draft.readPasteboard = { [unowned self] in self.pasteboard.last }
         draft.enumerateInputs = { done in done(["Stage Microphone", "Other Microphone"], "Stage Microphone") }
         draft.chooseInput = { [unowned self] name in self.chosenInputs.append(name) }

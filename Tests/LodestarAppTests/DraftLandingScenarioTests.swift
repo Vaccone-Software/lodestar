@@ -223,3 +223,128 @@ final class DraftLandingScenarioTests: XCTestCase {
         XCTAssertEqual(stage.pasteboard, ["hi"], "no live microphone, nothing to wait for")
     }
 }
+
+/// ⏎ posts the paste only where something can take it. Only a positive
+/// answer, no focused element or one that holds no text, turns it into a
+/// copy; every doubt pastes, so a terminal is never refused.
+final class DraftBlindPasteTests: XCTestCase {
+    private var heard: [Sounds.Cue] = []
+
+    override func setUp() {
+        heard = []
+        setOverride(\Sounds.Type.play, to: { [unowned self] cue in self.heard.append(cue) })
+    }
+
+    private func landed(_ stage: Stage) {
+        stage.lode(".")
+        stage.speech.alive()
+        stage.speech.settle("Meet at noon")
+        stage.press("return")
+        XCTAssertFalse(stage.draft.isOpen)
+    }
+
+    final class Flashes { var texts: [String] = [] }
+
+    private func watching(_ stage: Stage) -> Flashes {
+        let seen = Flashes()
+        stage.draft.flash = { seen.texts.append($0) }
+        return seen
+    }
+
+    // MARK: - Pastes
+
+    func testAFieldTakesThePaste() {
+        let stage = Stage()
+        landed(stage)
+        XCTAssertEqual(stage.posted.map(\.key), ["v"])
+        XCTAssertEqual(heard, [.listening, .landed])
+        XCTAssertEqual(stage.targetAsks, 1)
+    }
+
+    func testAGhosttyLikeTextAreaThatDoesNotLookLikeAFieldStillPastes() {
+        let stage = Stage()
+        stage.actions.focused = (pid: 7, name: "Ghostty")
+        stage.target = .focus(role: "AXGroup", text: false)
+        landed(stage)
+        XCTAssertEqual(stage.posted.map(\.key), ["v"], "a refused terminal paste would be the worse failure")
+        XCTAssertEqual(heard, [.listening, .landed])
+        XCTAssertEqual(stage.lastDraft?.action, "pasted")
+    }
+
+    func testAnAppThatDoesNotAnswerPastes() {
+        let stage = Stage()
+        stage.target = .unknown
+        landed(stage)
+        XCTAssertEqual(stage.posted.map(\.key), ["v"])
+        XCTAssertEqual(heard, [.listening, .landed])
+    }
+
+    func testAnAnswerThatNeverComesPastesAfterTheWait() {
+        let stage = Stage()
+        stage.targetAnswers = false
+        stage.lode(".")
+        stage.speech.settle("Meet at noon")
+        stage.press("return")
+        XCTAssertTrue(stage.draft.isOpen, "waiting on the answer")
+        XCTAssertTrue(stage.posted.isEmpty)
+        stage.clock.advance(by: 0.6)
+        XCTAssertFalse(stage.draft.isOpen)
+        XCTAssertEqual(stage.posted.map(\.key), ["v"])
+    }
+
+    func testAWebAreaPastes() {
+        let stage = Stage()
+        stage.target = .focus(role: "AXWebArea", text: false)
+        landed(stage)
+        XCTAssertEqual(stage.posted.map(\.key), ["v"])
+    }
+
+    // MARK: - Copies
+
+    func testAFinderLikeListIsACopyWithTheSayingAndNoSound() {
+        let stage = Stage()
+        let seen = watching(stage)
+        stage.actions.focused = (pid: 9, name: "Finder")
+        stage.target = .focus(role: "AXList", text: false)
+        landed(stage)
+        XCTAssertTrue(stage.posted.isEmpty, "no key into the air")
+        XCTAssertEqual(stage.pasteboard.last, "Meet at noon", "the words are on the pasteboard")
+        XCTAssertEqual(heard, [.listening], "and Landed does not play")
+        XCTAssertEqual(seen.texts, ["⌂ copied, no field there takes a paste"])
+        XCTAssertEqual(stage.lastDraft?.action, "copied")
+    }
+
+    func testNothingFocusedIsACopyToo() {
+        let stage = Stage()
+        let seen = watching(stage)
+        stage.actions.focused = (pid: 9, name: "Finder")
+        stage.target = .noFocus
+        landed(stage)
+        XCTAssertTrue(stage.posted.isEmpty)
+        XCTAssertEqual(stage.pasteboard.last, "Meet at noon")
+        XCTAssertEqual(heard, [.listening])
+        XCTAssertEqual(seen.texts, ["⌂ copied, no field there takes a paste"])
+    }
+
+    // MARK: - Not asked
+
+    func testNoAppInFrontIsNotAsked() {
+        let stage = Stage()
+        stage.actions.focused = nil
+        stage.target = .noFocus
+        landed(stage)
+        XCTAssertEqual(stage.targetAsks, 0)
+        XCTAssertTrue(stage.posted.isEmpty)
+        XCTAssertEqual(stage.pasteboard.last, "Meet at noon")
+    }
+
+    func testAReplaceIntoTheFieldTheWordsCameFromIsNotAsked() {
+        let stage = Stage()
+        stage.field = DraftController.Field(selection: nil, value: "fix me")
+        stage.target = .noFocus
+        stage.lode(".", shift: true)
+        stage.press("return")
+        XCTAssertEqual(stage.targetAsks, 0)
+        XCTAssertEqual(stage.posted.map(\.key), ["v"])
+    }
+}

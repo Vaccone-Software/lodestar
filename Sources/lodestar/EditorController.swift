@@ -540,8 +540,10 @@ final class EditorController: EditorLens {
             guard let self else { return }
             self.working = false
             self.noteAnswer(corrected != nil)
-            // No answer is kept too: asked again, it would fail again,
-            // every beat. The spell checker still speaks there. Recorded on
+            // No answer is kept too, with a time to ask again (the session
+            // waits ten seconds, then a minute, then gives up while the
+            // text stands), so a model that is failing is not asked every
+            // beat. The spell checker still speaks there. Recorded on
             // the session's queue, and the sentence stays in flight until it
             // is: a computation already queued ahead of the record still
             // counts it unanswered, and its result comes home first.

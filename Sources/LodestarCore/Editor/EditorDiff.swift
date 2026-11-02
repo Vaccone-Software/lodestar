@@ -173,9 +173,9 @@ public enum EditorDiff {
         return clauseOpeners.contains(next) || (next == "so" && afterNext == "that")
     }
 
-    /// Contractions written out. In the same 265 passages (98 marks) "it's"
-    /// → "it is", "whatever's" → "whatever is" and their kin were marks
-    /// too, and so were digits written as words: the writer's register,
+    /// Contractions written out. In the same 265 passages (98 marks) four
+    /// were "it's" → "it is", "whatever's" → "whatever is" and their kin,
+    /// and two were digits written as words: the writer's register,
     /// which DESIGN.md says is theirs, not a mistake. Only the exact
     /// expansion is dropped: its → it's, it's → its, your → you're,
     /// their → they're and "there's" → "there are" (agreement) are changes

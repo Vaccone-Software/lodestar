@@ -384,6 +384,9 @@ final class DraftController {
     private var firstKeyAt: Date?
     private var firstWordAt: Date?
     private var wasWarm = false
+    /// The keyboard layout's say in what a key types, with its dead key kept
+    /// between presses.
+    var layoutTyper = LayoutTyper()
 
     /// Pulled or pasted text past this is refused: a draft is a message,
     /// not a document, and the panel lays the whole text out on every
@@ -615,6 +618,7 @@ final class DraftController {
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0; retries = 0
         resetPointer()
+        layoutTyper.reset()
 
         // What is under the cursor: a selection through either door, the
         // whole field through edit.
@@ -695,6 +699,7 @@ final class DraftController {
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
         resetPointer()
+        layoutTyper.reset()
         mode = .insert
         vim.startInsert(buffer)
         Log.info("draft", ["open": Draft.Door.clip.rawValue, "characters": text.count])
@@ -825,6 +830,7 @@ final class DraftController {
     func pointerDown(at point: NSPoint, clicks: Int, shift: Bool) {
         guard isOpen, !closing else { return }
         pointerActs += 1
+        layoutTyper.reset()
         settleGhostAsSeen()
         handActed()
         // The window as the hand left it, before it can be taken back.
@@ -1492,8 +1498,11 @@ final class DraftController {
     /// draft took it; false hands it to the system. ⌘ chords belong to
     /// the system — ⌘⇥ is how the destination changes — except the few
     /// that edit text, which would land in the app underneath and edit
-    /// the wrong thing.
-    func handleKey(_ key: String, shift: Bool, command: Bool, option: Bool, control: Bool) -> Bool {
+    /// the wrong thing. `keycode` is the key as the keyboard sent it, which
+    /// the layout types ⌥ characters and dead keys from; a key without one
+    /// is a name only, typed as the key tables type it.
+    func handleKey(_ key: String, shift: Bool, command: Bool, option: Bool, control: Bool,
+                   keycode: Int64? = nil) -> Bool {
         guard isOpen else { return false }
         // While the last words settle, keys are swallowed, not passed on: a
         // held ⏎ would reach the app ahead of the paste and send.
@@ -1520,6 +1529,7 @@ final class DraftController {
             }
         }
         if command {
+            layoutTyper.reset()
             // In normal mode the chords are the editor's own verbs, so
             // they are one undo step each and `.` knows them.
             if mode == .normal, let keys = Self.normalModeChord(key, shift: shift) {
@@ -1606,7 +1616,7 @@ final class DraftController {
         }
         if firstKeyAt == nil, Keys.character(for: key, shift: shift) != nil { firstKeyAt = clock.now() }
         switch mode {
-        case .insert: return insertKey(key, shift: shift, option: option, control: control)
+        case .insert: return insertKey(key, shift: shift, option: option, control: control, keycode: keycode)
         case .normal: return normalKey(key, shift: shift, option: option, control: control)
         }
     }
@@ -1663,8 +1673,11 @@ final class DraftController {
         if buffer.selection != nil { vim.markInsertBoundary(buffer) }
     }
 
-    private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
+    private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool, keycode: Int64?) -> Bool {
         handActed()
+        // A dead key waits for the key that completes it, and nothing else
+        // completes it: a move, a delete or a return lets it go.
+        if control || Keys.character(for: key, shift: false) == nil { layoutTyper.reset() }
         // Words still a ghost when the hand starts writing become text
         // on the spot, reserved where they stand: dictate, type, dictate
         // lands in the order it happened, and the final that arrives
@@ -1752,7 +1765,15 @@ final class DraftController {
         case "tab":
             buffer.type("\t"); vim.typed("\t"); typedCharacters += 1
         default:
-            guard !control, let typed = Keys.character(for: key, shift: shift) else { return true }
+            guard !control, var typed = Keys.character(for: key, shift: shift) else { return true }
+            // Through the layout when ⌥ is held, a dead key is waiting or
+            // this key is one: ⌥e is an accent, ⌥⇧- a dash, and the key
+            // after a dead one completes it. Every other key is typed as
+            // the key tables type it.
+            if let keycode, let laid = layoutTyper.type(keycode: keycode, shift: shift, option: option) {
+                guard !laid.isEmpty else { render(); return true }
+                typed = laid
+            }
             // The editor hears exactly what the buffer took, separator
             // and all, or `.` would replay a word without its space.
             vim.typed(buffer.type(typed, joining: true))

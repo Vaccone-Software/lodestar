@@ -13,7 +13,13 @@ import Tokenizers
 /// probe (mlx-audio) on the same weights, within a word or two.
 ///
 /// Everything MLX touches runs on one serial queue, so a load, the
-/// phrases, and an unload never overlap.
+/// phrases, and an unload never overlap one another, and each holds the
+/// process's MLX lane (`MLXGate`) while it works, so none overlaps the
+/// editor's language model either: two threads evaluating on the GPU at
+/// once is what slowed a phrase from 0.5 s to 3 to 9 s while the editor
+/// checked a sentence, and left the editor's own answers abandoned.
+/// The queue's thread waits for the lane, which is its own thread and not
+/// the cooperative pool's. Parakeet runs on Core ML and needs no lane.
 public final class QwenEar: SettlingEar, @unchecked Sendable {
     public let name: String
     public let folder: URL
@@ -36,23 +42,27 @@ public final class QwenEar: SettlingEar, @unchecked Sendable {
     public func load() async throws {
         try await onQueue {
             guard self.model == nil else { return }
-            let tokenizer = try QwenTokenizer.load(self.folder)
-            try QwenPrompt.check(tokenizer)
-            let model = try QwenASRModel.load(self.folder)
-            // One phrase of silence builds the GPU kernels, so the first
-            // phrase the speaker says is not the one that pays for them.
-            _ = try Self.hear([Float](repeating: 0, count: QwenMel.sampleRate), context: ["Lodestar"],
-                              model: model, tokenizer: tokenizer, cap: 4)
-            self.model = model
-            self.tokenizer = tokenizer
-            self.lock.withLock { self.loaded = true }
+            try MLXGate.shared.runBlocking {
+                let tokenizer = try QwenTokenizer.load(self.folder)
+                try QwenPrompt.check(tokenizer)
+                let model = try QwenASRModel.load(self.folder)
+                // One phrase of silence builds the GPU kernels, so the first
+                // phrase the speaker says is not the one that pays for them.
+                _ = try Self.hear([Float](repeating: 0, count: QwenMel.sampleRate), context: ["Lodestar"],
+                                  model: model, tokenizer: tokenizer, cap: 4)
+                self.model = model
+                self.tokenizer = tokenizer
+                self.lock.withLock { self.loaded = true }
+            }
         }
     }
 
     public func transcribe(_ samples: [Float], context: [String]) async throws -> Heard {
         try await onQueue {
             guard let model = self.model, let tokenizer = self.tokenizer else { throw QwenEarError.notLoaded }
-            return Heard(try Self.hear(samples, context: context, model: model, tokenizer: tokenizer))
+            return try MLXGate.shared.runBlocking {
+                Heard(try Self.hear(samples, context: context, model: model, tokenizer: tokenizer))
+            }
         }
     }
 
@@ -62,10 +72,12 @@ public final class QwenEar: SettlingEar, @unchecked Sendable {
     public func unload() {
         lock.withLock { loaded = false }
         queue.async {
-            self.model = nil
-            self.tokenizer = nil
-            self.lock.withLock { self.loaded = false }
-            Memory.clearCache()
+            MLXGate.shared.runBlocking {
+                self.model = nil
+                self.tokenizer = nil
+                self.lock.withLock { self.loaded = false }
+                Memory.clearCache()
+            }
         }
     }
 

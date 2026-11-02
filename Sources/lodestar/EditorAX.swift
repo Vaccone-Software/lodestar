@@ -65,12 +65,11 @@ enum EditorAX {
     static let timeout: Float = 0.25
     private static let systemWide = AX.systemWide()
 
-    private static let editableRoles: Set<String> = ["AXTextArea", "AXTextField", "AXComboBox"]
-
     // MARK: - Reading
 
     /// The focused field, if it is one the editor may read: editable, not a
-    /// password, not a search box, not Lodestar's own glass.
+    /// password, not a query (a search box, a launcher, an address bar), not
+    /// Lodestar's own glass.
     static func focusedField(frontmost: pid_t? = nil) -> EditorField? {
         dispatchPrecondition(condition: .onQueue(queue))
         // The system-wide question can fail outright ("cannot complete",
@@ -85,6 +84,10 @@ enum EditorAX {
         else { return nil }
         var pid: pid_t = 0
         guard AXUIElementGetPid(element, &pid) == .success, pid != getpid() else { return nil }
+        // A launcher's one field is a query, whatever it answers about
+        // itself: refused before the app is asked anything more.
+        let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+        guard !EditorFieldGate.refusesApp(bundleID) else { return nil }
         AXUIElementSetMessagingTimeout(element, timeout)
         // Rich web editors focus a node inside the field; Chromium names
         // the field itself.
@@ -92,28 +95,53 @@ enum EditorAX {
             element = ancestor
             AXUIElementSetMessagingTimeout(element, timeout)
         }
-        guard isReadable(role: AX.string(element, kAXRoleAttribute as String) ?? "",
-                         subrole: AX.string(element, kAXSubroleAttribute as String) ?? "",
-                         valueSettable: settable(element, kAXValueAttribute as String),
-                         rangeSettable: settable(element, kAXSelectedTextRangeAttribute as String))
-        else { return nil }
+        var facts = EditorFieldFacts(role: AX.string(element, kAXRoleAttribute as String) ?? "",
+                                     subrole: AX.string(element, kAXSubroleAttribute as String) ?? "",
+                                     bundleID: bundleID,
+                                     valueSettable: settable(element, kAXValueAttribute as String),
+                                     rangeSettable: settable(element, kAXSelectedTextRangeAttribute as String))
+        // The names are only read for the fields that could be refused by
+        // them: every one is a message to the app.
+        if facts.isSingleLine {
+            facts.roleDescription = AX.string(element, kAXRoleDescriptionAttribute as String) ?? ""
+            facts.description = AX.string(element, kAXDescriptionAttribute as String) ?? ""
+            facts.title = AX.string(element, kAXTitleAttribute as String) ?? ""
+            facts.placeholder = AX.string(element, "AXPlaceholderValue") ?? ""
+            if facts.asksWhereItStands { facts.insideWebArea = isInsideWebArea(element) }
+        }
+        guard EditorFieldGate.verdict(facts) == .read else { return nil }
         guard let text = AX.string(element, kAXValueAttribute as String) else { return nil }
         let app = NSRunningApplication(processIdentifier: pid)
         var field = EditorField(element: element, pid: pid, appName: app?.localizedName ?? "",
-                                bundleID: app?.bundleIdentifier, text: text)
+                                bundleID: bundleID, text: text)
         if let selection = selectedRange(element), selection.length == 0 { field.caret = selection.location }
         field.frame = frame(of: element)
         if let window = AX.element(element, kAXWindowAttribute as String) { field.windowFrame = frame(of: window) }
         return field
     }
 
-    /// Which fields the editor may read: editable text, never a password,
-    /// never a search box, never a terminal's screen — a text area nobody
-    /// types into through accessibility, its text and selection both fixed.
+    /// Which fields the editor may read: see `EditorFieldGate`. Kept for
+    /// the callers that know only the role and the subrole.
     static func isReadable(role: String, subrole: String, valueSettable: Bool, rangeSettable: Bool) -> Bool {
-        guard editableRoles.contains(role) else { return false }
-        guard subrole != "AXSecureTextField", subrole != "AXSearchField" else { return false }
-        return valueSettable || rangeSettable
+        EditorFieldGate.verdict(EditorFieldFacts(role: role, subrole: subrole, valueSettable: valueSettable,
+                                                 rangeSettable: rangeSettable)) == .read
+    }
+
+    /// Whether an AXWebArea stands above the element: the page's own
+    /// fields do, a browser's address bar (its own interface) does not.
+    /// Bounded, since a deep tree answering slowly must cost the editor a
+    /// beat and no more; an unfinished walk reads as "not in a page", which
+    /// refuses the field, the quiet side.
+    static func isInsideWebArea(_ element: AXUIElement) -> Bool {
+        var node = element
+        for _ in 0..<40 {
+            guard let parent = AX.element(node, kAXParentAttribute as String) else { return false }
+            let role = AX.string(parent, kAXRoleAttribute as String)
+            if role == "AXWebArea" { return true }
+            if role == kAXWindowRole as String { return false }
+            node = parent
+        }
+        return false
     }
 
     /// Does the range still read what the mark was made for? A fix whose
@@ -307,6 +335,108 @@ enum EditorAX {
             usleep(30_000)
         } while Date() < deadline
         return AX.string(element, kAXValueAttribute as String) == target
+    }
+}
+
+/// What the editor knows about a focused field before it reads a word of
+/// it: the attributes the gate decides on, gathered by `EditorAX` and
+/// handed over as plain values so the decision is testable without an app.
+struct EditorFieldFacts {
+    var role = ""
+    var subrole = ""
+    var roleDescription = ""
+    var description = ""
+    var title = ""
+    var placeholder = ""
+    var bundleID: String?
+    var valueSettable = false
+    var rangeSettable = false
+    /// An AXWebArea stands above the field. Only asked of a browser's
+    /// single-line fields (`asksWhereItStands`), false elsewhere.
+    var insideWebArea = false
+
+    /// One line: a text field or a combo box. A text area (and a web
+    /// contenteditable, which Chromium exposes as one) is where prose is
+    /// written; a one-line field is a query, a name, a subject.
+    var isSingleLine: Bool { role == "AXTextField" || role == "AXComboBox" }
+
+    var isBrowser: Bool { AppCategory.of(bundleID: bundleID, declared: nil).kind == "browser" }
+
+    /// Whether the gate needs to know if the field is inside a page: a
+    /// browser's single-line field is the page's own, or the browser's
+    /// address bar, and only its place tells which.
+    var asksWhereItStands: Bool { role == "AXTextField" && isBrowser }
+}
+
+/// Which fields the editor may read.
+///
+/// Editable text, with three kinds left alone. A **secret** is never read.
+/// A **query** is not writing: the editor marked 368 things in Raycast in
+/// ten days and the hand fixed none, because a launcher's field, a search
+/// box and a browser's address bar hold a few words typed to be matched, not
+/// a sentence, and an underline there is noise the eye must dismiss. Browsers
+/// and Harper (Automattic's checker) draw the same line: they check a
+/// multi-line field and a contenteditable by default and skip a single-line
+/// input unless asked. The editor is kinder than that to the single-line
+/// field that is still writing (an email's subject, a form's name), since a
+/// subject line is worth a mark. A **terminal's screen** is a text area
+/// nobody types into through accessibility, its text and selection both
+/// fixed.
+///
+/// What a query looks like, from what the apps say about themselves:
+/// Chromium maps `<input type=search>` and role=searchbox to AXTextField
+/// with subrole AXSearchField and exposes AXPlaceholderValue; its address
+/// bar is a single-line AXTextField in the browser's own interface, outside
+/// every AXWebArea, described as the address and search bar. Which of these
+/// a live Raycast or omnibox answers is unverified here; the gate refuses
+/// on any of them.
+enum EditorFieldGate {
+    enum Reason: Equatable {
+        case notText, secure, launcher, search, comboBox, addressBar, notEditable
+    }
+
+    enum Verdict: Equatable {
+        case read
+        case refused(Reason)
+    }
+
+    /// Apps whose only field is a query, by bundle id (lowercased, as
+    /// `EditorController.neverReadBundles` is).
+    static let launchers: Set<String> = [
+        "com.raycast.macos", "com.runningwithcrayons.alfred", "com.apple.spotlight", "at.obdev.launchbar",
+    ]
+
+    static func refusesApp(_ bundleID: String?) -> Bool {
+        bundleID.map { launchers.contains($0.lowercased()) } ?? false
+    }
+
+    private static let editableRoles: Set<String> = ["AXTextArea", "AXTextField", "AXComboBox"]
+
+    /// A name that says the field is a search: "search" opening a word, so
+    /// "Search or enter address" and "Address and search bar" are searches
+    /// and "research" is not.
+    static func namesSearch(_ names: [String]) -> Bool {
+        names.contains { $0.range(of: "\\bsearch", options: [.regularExpression, .caseInsensitive]) != nil }
+    }
+
+    static func verdict(_ facts: EditorFieldFacts) -> Verdict {
+        guard editableRoles.contains(facts.role) else { return .refused(.notText) }
+        let kind = facts.roleDescription.lowercased()
+        if facts.subrole == "AXSecureTextField" || kind.contains("secure") || kind.contains("password") {
+            return .refused(.secure)
+        }
+        if refusesApp(facts.bundleID) { return .refused(.launcher) }
+        if facts.role == "AXComboBox" { return .refused(.comboBox) }
+        if facts.subrole == "AXSearchField" { return .refused(.search) }
+        // A name is read on single-line fields only: a text area called
+        // "Message to #search-team" is a message.
+        if facts.isSingleLine,
+           namesSearch([facts.roleDescription, facts.description, facts.title, facts.placeholder]) {
+            return .refused(.search)
+        }
+        if facts.asksWhereItStands, !facts.insideWebArea { return .refused(.addressBar) }
+        guard facts.valueSettable || facts.rangeSettable else { return .refused(.notEditable) }
+        return .read
     }
 }
 

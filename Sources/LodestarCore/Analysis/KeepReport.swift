@@ -32,7 +32,7 @@ public struct KeepReport: Equatable {
     public let native: Int
     public let reading: Int
 
-    /// Pastes by the card's rank (0 the newest, on J), always as many as
+    /// Label pastes by the card's rank (0 the newest, on J), always as many as
     /// there are labels, and by keepsake slot (1 through the slot count).
     public let labelRanks: [Int]
     public let slots: [Int]
@@ -90,7 +90,7 @@ public struct KeepReport: Equatable {
             guard let rank = event.rank else { continue }
             if event.source == "pin", rank >= 1, rank <= slots.count {
                 slots[rank - 1] += 1
-            } else if event.source != "pin", rank >= 0, rank < labelRanks.count {
+            } else if event.source == "label", rank >= 0, rank < labelRanks.count {
                 labelRanks[rank] += 1
             }
         }

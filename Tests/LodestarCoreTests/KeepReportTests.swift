@@ -70,7 +70,7 @@ final class KeepReportTests: XCTestCase {
         XCTAssertEqual(keep.reading, 1)
         XCTAssertEqual(keep.labelRanks.count, Clipboard.recentLabels.count)
         XCTAssertEqual(keep.labelRanks[0], 3)
-        XCTAssertEqual(keep.labelRanks[4], 1)
+        XCTAssertEqual(keep.labelRanks[4], 0, "a search's rank is among its matches, not the row")
         XCTAssertEqual(keep.labelRanks[7], 1)
         XCTAssertEqual(keep.slots, [0, 2, 0, 0], "keepsake slots count from one")
     }

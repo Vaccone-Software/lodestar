@@ -299,10 +299,14 @@ final class HotkeyEngine {
     private var naming: Naming?
     /// The modifier held over Keep, which changes what the cards show.
     private var heldOverStrip: ClipboardStrip.Held = .none
-    /// The ⇧ ⌥ ⌃ still down from the gesture that opened Keep. Keep opens
+    /// The ⇧ ⌘ ⌥ ⌃ still down from the gesture that opened Keep. Keep opens
     /// on ⇧⌘V with the hand still on its keys, and a modifier carried in
     /// that way is not a choice made over the cards: it neither shows nor
-    /// acts until it has been let go and pressed again.
+    /// acts until it has been let go and pressed again. ⌘ is among them
+    /// because it is the one the opening always leaves down, and the ⌘
+    /// finger is the slowest to lift: the first letter struck before it
+    /// had would open that card's actions instead of pasting it, or, on a
+    /// key that names no card, close the strip and be swallowed.
     private var carriedIntoKeep: CGEventFlags = []
 
     /// The flags Keep reads. A modifier carried in from the opening is
@@ -1112,7 +1116,7 @@ final class HotkeyEngine {
                 }
                 // Whatever the opening gesture left down does not count.
                 carriedIntoKeep = (event?.flags ?? CGEventSource.flagsState(.combinedSessionState))
-                    .intersection([.maskShift, .maskAlternate, .maskControl])
+                    .intersection([.maskShift, .maskCommand, .maskAlternate, .maskControl])
                 let began = Date()
                 renderStrip()
                 recordCaretCover()

@@ -660,9 +660,17 @@ final class Stage {
         return swallowed
     }
 
-    /// ⇧⌘V: the strip's own trigger, the one that lives outside lode.
+    /// ⇧⌘V: the strip's own trigger, the one that lives outside lode, with
+    /// the hand lifted from it as a hand does. Keep does not count a
+    /// modifier still down from the opening, so a scenario that goes on to
+    /// press ⌘ or ⇧ with a key means it fresh; the ones that mean the
+    /// opening's own still down open it with `chord("v", ...)` themselves.
     @discardableResult
-    func openStrip() -> Bool { chord("v", [.maskShift, .maskCommand]) }
+    func openStrip() -> Bool {
+        let swallowed = chord("v", [.maskShift, .maskCommand])
+        modifiers([])
+        return swallowed
+    }
 
     // MARK: - The clipboard
 

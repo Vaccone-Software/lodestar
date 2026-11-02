@@ -99,6 +99,10 @@ final class FakeSpeech: SpeechSession {
     /// Whether `stop` settles the standing ghost before completing, the
     /// way a real finalization does.
     var settlesOnStop = true
+    /// Finals the recognizer still owes when it is stopped, delivered
+    /// after the ghost's and before the completion, the way the stop's
+    /// drain hands them over.
+    var finalsOnStop: [Heard] = []
     /// Hold the listening state back, the way a model download or the
     /// first-run microphone prompt does; `ready()` releases it.
     var slowToListen = false
@@ -136,11 +140,18 @@ final class FakeSpeech: SpeechSession {
         }
         if settlesOnStop, let ghost { onSettled?(Heard(ghost)) }
         ghost = nil
+        drain()
         completion()
+    }
+    private func drain() {
+        let owed = finalsOnStop
+        finalsOnStop = []
+        for heard in owed { onSettled?(heard) }
     }
     func finish() {
         if settlesOnStop, let ghost { onSettled?(Heard(ghost)) }
         ghost = nil
+        drain()
         pendingStop?()
         pendingStop = nil
     }

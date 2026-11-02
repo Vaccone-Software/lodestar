@@ -1368,6 +1368,17 @@ private actor AnalyzerBox {
             }
             if !finished { await analyzer.cancelAndFinishNow() }
         }
+        // The finals the finish produced are still on their way through the
+        // results loop, and each is handed to the main actor from inside it.
+        // Cancelling the loop here dropped one already yielded, or let it
+        // arrive after the completion that told ⏎ to land. So the stop waits
+        // for the loop to end, and `completion` runs behind every final.
+        // Bounded, and abandoned past the bound like the finish above.
+        if let results {
+            _ = try? await abandoningAsyncAfter(.milliseconds(500), label: "speech.drain", limit: 4) {
+                await results.value
+            }
+        }
         results?.cancel()
         results = nil
         analyzer = nil

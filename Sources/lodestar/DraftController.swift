@@ -327,7 +327,6 @@ final class DraftController {
     /// Whether the panel shows the whole text or its last four lines:
     /// `zo` and `zc`, and the voice folds it.
     private var expanded = false
-    private var pendingSettle: (() -> Void)?
     /// The word that runs if the recognizer never says it is listening:
     /// the light would otherwise stay out forever, and the hand would
     /// talk into nothing. Past this the session is stopped and named
@@ -1183,8 +1182,6 @@ final class DraftController {
         }, onSettled: { [weak self] heard in
             guard let self, self.isOpen, self.session == mine else { return }
             self.settle(heard)
-            self.pendingSettle?()
-            self.pendingSettle = nil
         })
         listenWatchdog?.cancel()
         let watchdog = DispatchWorkItem { [weak self] in
@@ -1867,18 +1864,15 @@ final class DraftController {
             land()
         }
         if sessionStarted, listening, mode == .insert, micWanted {
-            // A ghost with no final behind it settles as what it was.
+            // ⏎ lands when the stop completes, not on the first final: the
+            // stop drains the finals the recognizer still owes before it
+            // reports done, so each has settled by then. Landing on the
+            // first one left a second, outstanding, to be dropped.
             var landed = false
-            pendingSettle = { [weak self] in
-                // A final for an earlier segment is not the end: words still
-                // volatile settle on the stop, and the paste waits for them.
-                guard !landed, !stopped, self?.buffer.ghost.isEmpty ?? true else { return }
-                landed = true
-                finish()
-            }
             speech.stop { [weak self] in
                 guard let self, !landed, !stopped else { return }
                 landed = true
+                // A ghost with no final behind it settles as what it was.
                 if !self.buffer.ghost.isEmpty { self.settle(Heard(self.buffer.ghost)) }
                 finish()
             }
@@ -2321,7 +2315,6 @@ final class DraftController {
         earNext = nil
         run = nil
         resetIntent()
-        pendingSettle = nil
         resetPointer()
         panel.hide()
     }

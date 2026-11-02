@@ -46,4 +46,49 @@ final class DraftLandingScenarioTests: XCTestCase {
         XCTAssertFalse(stage.draft.isOpen)
         XCTAssertEqual(stage.pasteboard.last, "sent so far and these")
     }
+
+    // MARK: - A dropped final keeps what comes after the edit
+
+    func testWhatFollowsEditedReservedWordsLandsAfterTheEdit() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.hear("send the report")
+        stage.press("delete")
+        XCTAssertEqual(stage.draft.buffer.text, "send the")
+        stage.speech.settle("Send the report today and call Sam.")
+        XCTAssertEqual(stage.draft.buffer.text, "send the today and call Sam.",
+                       "the hand's edit stands and the words it never saw land after it")
+        XCTAssertTrue(stage.commandPress("z"))
+        XCTAssertEqual(stage.draft.buffer.text, "send the", "one undo step takes the landing back")
+    }
+
+    func testTheRemainderLandsAfterWhatTheHandTypedInPlaceOfTheReservedWords() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.hear("ship it")
+        stage.press("delete")
+        stage.press("space"); stage.press("n"); stage.press("o")
+        XCTAssertEqual(stage.draft.buffer.text, "ship no")
+        stage.speech.settle("Ship it now please")
+        XCTAssertEqual(stage.draft.buffer.text, "ship no now please",
+                       "after the end of the edit, which took in what the hand typed")
+    }
+
+    func testAFinalThatDoesNotBeginWithTheReservedWordsIsStillDropped() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.hear("send the report")
+        stage.press("delete")
+        stage.speech.settle("Something quite different today")
+        XCTAssertEqual(stage.draft.buffer.text, "send the")
+    }
+
+    func testAFinalWithNothingPastTheReservedWordsIsStillDropped() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.hear("send the report")
+        stage.press("delete")
+        stage.speech.settle("Send the report.")
+        XCTAssertEqual(stage.draft.buffer.text, "send the")
+    }
 }

@@ -354,7 +354,10 @@ final class DraftController {
     /// Words that were still a ghost when insert mode ended were settled
     /// on the spot, as seen; the recognizer's final for them, if it still
     /// comes, replaces exactly that text and nothing else.
-    private var provisional: (range: Range<Int>, text: String)?
+    ///
+    /// `base` is the page as it stood when they were reserved, so the end
+    /// of the reservation can be found again after the hand has edited it.
+    private var provisional: (range: Range<Int>, text: String, base: [Character])?
     /// The last moment the microphone heard something louder than a
     /// quiet room, and the level that counts as something.
     private var lastVoiceAt: Date?
@@ -767,7 +770,7 @@ final class DraftController {
         let start = buffer.cursor
         buffer.settle(ghost)
         let text = buffer.slice(start..<buffer.cursor)
-        provisional = (start..<buffer.cursor, text)
+        provisional = (start..<buffer.cursor, text, buffer.characters)
         vim.typed(text)
     }
 
@@ -1327,7 +1330,10 @@ final class DraftController {
         }
     }
 
-    private func settle(_ heard: Heard) {
+    /// `beyondEdit` is a final's remainder placed after reserved words the
+    /// hand has since edited: it lands at the anchor set for it and is
+    /// never the voice taking a selection.
+    private func settle(_ heard: Heard, beyondEdit: Bool = false) {
         learnFromTheHand()
         let writing = mode == .insert && micWanted
         // Speaking over a selection, visual or a Mac's, is `c` with the
@@ -1336,7 +1342,7 @@ final class DraftController {
         // back as it stood. Not while words are reserved: that final is
         // theirs, and revises them in place below, taking any selection
         // with it.
-        if micWanted, listening, provisional == nil,
+        if micWanted, listening, provisional == nil, !beyondEdit,
            let range = vim.selection(in: buffer), !heard.text.trimmingCharacters(in: .whitespaces).isEmpty {
             settler.handInterrupted()
             let repaired = settler.land(heard, after: "", canReachBack: false).text
@@ -1357,12 +1363,21 @@ final class DraftController {
         // that no longer stand as they did, and inserting it would put
         // the whole utterance back on top of the edit. Delete a word from
         // what you just said and the recognizer's final would paste the
-        // entire session in again — the comment below always claimed this
-        // was dropped, and the branch underneath quietly inserted it.
+        // entire session in again, so the edit stands as the hand left it.
+        // What the final carries past the reserved words was never drawn,
+        // and lands after the edit's end, through the settler like any
+        // landing; a final that does not begin with them is dropped.
         if let standing = provisional, buffer.slice(standing.range) != standing.text {
             buffer.clearGhost()
             provisional = nil
             speechAnchor = nil
+            if writing, let rest = Draft.Reserved.remainder(of: heard, after: standing.text) {
+                let end = Draft.Reserved.end(of: standing.range, was: standing.base, now: buffer.characters)
+                Log.info("draft", ["speech": "final kept past the edit", "words": rest.text.split(whereSeparator: \.isWhitespace).count])
+                speechAnchor = (end, clock.now())
+                settle(rest, beyondEdit: true)
+                return
+            }
             Log.info("draft", ["speech": "final dropped", "reason": "reserved words were edited"])
             render()
             return
@@ -1415,6 +1430,7 @@ final class DraftController {
             let anchor = freshSpeechAnchor()
             var resume = buffer.cursor
             var point = anchor ?? buffer.cursor
+            let cursorAfterPoint = resume >= point
             let landing = self.landing(heard, at: point)
             journal?.heard(heard, landed: landing.text, at: clock.now())
             spokenWords += landing.text.split(whereSeparator: \.isWhitespace).count
@@ -1452,7 +1468,7 @@ final class DraftController {
                     buffer.replace(at..<at, with: " ")
                     grew += 1
                 }
-                buffer.setCursor(min(buffer.count, resume + grew))
+                buffer.setCursor(min(buffer.count, cursorAfterPoint ? resume + grew : resume))
                 lastSpoken = nil
             }
             handSinceSpeech = false

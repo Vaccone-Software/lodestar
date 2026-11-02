@@ -315,6 +315,10 @@ public protocol EngineWorld: AnyObject {
     /// Does the card at this address have a reading to paste? `nil` is the
     /// search's best match. `⌃` on a card without one does nothing.
     func pasteReadingExists(address: String?) -> Bool
+    /// Does the search have a best match to take? `⏎` on a query nothing
+    /// answers has nothing to commit, and ending the search over it would
+    /// throw the query away.
+    func pasteBestMatchExists() -> Bool
     /// A key while select is up — search, label, anchor, or finish.
     func selectKey(_ key: String, shift: Bool) -> SelectStep
     /// ⌘C while select is up: take what is anchored so far. `.done` when
@@ -353,6 +357,7 @@ public extension EngineWorld {
     func bringCardExists(_ label: String) -> Bool { true }
     func pasteQueryIsEmpty() -> Bool { true }
     func pasteReadingExists(address: String?) -> Bool { true }
+    func pasteBestMatchExists() -> Bool { true }
     var historyNotice: String? { nil }
 }
 
@@ -1234,6 +1239,11 @@ public struct EngineCore {
                 state = .paste(searching: false)
                 return [.pasteSearchEnd]
             case "return":
+                // A query nothing answers has no best match, and ⏎ over it
+                // is a mis-hit like any other address with no card behind
+                // it: the strip would close on nothing pasted and take the
+                // query with it.
+                guard world.pasteBestMatchExists() else { return [] }
                 // ⌘↵ acts on the selected match without leaving: opening a
                 // panel and closing the mode in the same breath showed
                 // nothing at all.
@@ -1341,7 +1351,12 @@ public struct EngineCore {
             state = .paste(searching: true)
             return [.pasteSearchBegin, .pasteSearchPaste]
         }
+        // A place the strip draws is not the app's shortcut, though: ⌘ and
+        // a label or a keepsake's digit with no card behind it is a
+        // mis-hit over the cards, the same as the bare key. It stays and
+        // does nothing, where ⌘W, ⌘T and the rest go on closing the strip.
         if command, !world.pasteCardExists(address: key) {
+            if Self.isPlace(key) { return [] }
             state = .idle
             return [.exitPaste]
         }
@@ -1366,6 +1381,10 @@ public struct EngineCore {
             guard let slot = Int(key), slot >= 1, slot <= Clipboard.pinSlots else {
                 return []
             }
+            // A free keepsake place is drawn as a recess, and pressing it
+            // is a mis-hit, not a paste of nothing: closing the strip over
+            // it was the commonest way Keep ended with nothing pasted.
+            guard world.pasteCardExists(address: key) else { return [] }
             if action == .panel {
                 state = .pastePanel(searching: searching)
                 return [.pastePinned(slot: slot, action: .panel), .pastePanelShow]
@@ -1380,6 +1399,9 @@ public struct EngineCore {
             guard Clipboard.recentLabels.contains(key) else {
                 return []
             }
+            // Fewer than eight clips leave labels with no card behind
+            // them; the key does nothing rather than ending the strip.
+            guard world.pasteCardExists(address: key) else { return [] }
             if action == .panel {
                 state = .pastePanel(searching: searching)
                 return [.pasteRecent(label: key, action: .panel), .pastePanelShow]
@@ -1719,6 +1741,14 @@ public struct EngineCore {
 
     static func isDigit(_ name: String) -> Bool {
         name.count == 1 && name.first!.isNumber
+    }
+
+    /// A key the strip draws a place for: one of the recents' labels, or a
+    /// keepsake's digit. Whether a card stands there is the world's to say.
+    static func isPlace(_ key: String) -> Bool {
+        if Clipboard.recentLabels.contains(key) { return true }
+        guard let slot = Int(key) else { return false }
+        return slot >= 1 && slot <= Clipboard.pinSlots
     }
 
     static func display(_ letters: [String]) -> String {

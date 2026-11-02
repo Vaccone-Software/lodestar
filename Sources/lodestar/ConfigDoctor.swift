@@ -760,6 +760,79 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
         print("")
     }
 
+    // Keep, the clipboard strip, taken apart: the abandonment line says how
+    // often an opening ended in nothing, and this says how far the hand got
+    // before it left. Never the clip; the events hold none.
+    if let keep = KeepReport.compute(events: events) {
+        let letters = Clipboard.recentLabels
+        func share(_ count: Int, _ of: Int) -> String {
+            of > 0 ? String(format: " (%d%%)", Int((Double(count) / Double(of) * 100).rounded())) : ""
+        }
+        func median(_ value: Double?, _ suffix: String) -> String {
+            value.map { String(format: "%.1fs %@", $0, suffix) } ?? ""
+        }
+        var head = pad("keep", 10)
+        head += pad("\(keep.opens) opens", 12)
+        head += pad(String(format: "%.1f/day", keep.perDay), 10)
+        head += pad("\(keep.pasted) pasted", 12)
+        head += pad("\(keep.acted) acted", 10)
+        head += "\(keep.abandoned) abandoned" + share(keep.abandoned, keep.opens)
+        print(head)
+        if keep.acted > 0 {
+            let verbs = keep.actedVerbs.sorted { $0.value > $1.value || ($0.value == $1.value && $0.key < $1.key) }
+            print(pad("", 10) + "acted by " + verbs.map { "\($0.key) \($0.value)" }.joined(separator: " · "))
+        }
+        if keep.pasted > 0 {
+            print(pad("  how", 10)
+                + "label \(keep.byLabel) · keepsake \(keep.byKeepsake) · search \(keep.bySearch)"
+                + "   plain \(keep.plain) · native \(keep.native) · reading \(keep.reading)")
+            let cards = zip(letters, keep.labelRanks).map { "\($0) \($1)" }.joined(separator: " · ")
+            let slots = keep.slots.enumerated().map { "\($0.offset + 1) \($0.element)" }
+                .joined(separator: " · ")
+            print(pad("  cards", 10) + cards + "   keepsakes " + slots)
+        }
+        if keep.abandoned > 0 {
+            print(pad("  left", 10)
+                + "\(keep.lookedAndLeft) with no key · \(keep.typedAndLeft) typed a search"
+                + " · \(keep.namedAndLeft) named a card · \(keep.otherKeyAndLeft) other key")
+        }
+        if keep.thenWatched > 0 {
+            let names = ["paste": "⌘V"]
+            func counts(_ words: [String], _ by: [String: Int]) -> String {
+                words.compactMap { word in
+                    by[word].map { "\(names[word] ?? word) \($0)" }
+                }.joined(separator: " · ")
+            }
+            print(pad("  then", 10)
+                + "no-key opens closed by " + counts(KeepReport.closedWords, keep.thenClosed)
+                + " · next " + counts(KeepReport.nextWords, keep.thenNext))
+        }
+        if keep.watchedPastes > 0 {
+            print(pad("  undone", 10)
+                + "\(keep.undone) of \(keep.watchedPastes) pastes within \(Int(HotkeyEngine.watchSecondsAfterPaste)) s")
+        }
+        let waits = [median(keep.abandonedSeconds, "open when left"),
+                     median(keep.pastedSeconds, "open when pasted"),
+                     median(keep.pastedFirstKey, "to the first key")].filter { !$0.isEmpty }
+        if !waits.isEmpty { print(pad("  median", 10) + waits.joined(separator: " · ")) }
+        if keep.searches > 0 {
+            var search = "\(keep.searchPasted) pasted · \(keep.searchLeft) left"
+            if keep.searchActed > 0 { search += " · \(keep.searchActed) acted" }
+            if let matches = keep.medianMatches { search += String(format: " · median %.0f matches", matches) }
+            if keep.depthOnShow + keep.depthBeyond > 0 {
+                search += " · \(keep.depthBeyond) of \(keep.depthOnShow + keep.depthBeyond) pastes"
+                    + " from beyond the \(Clipboard.recentLabels.count) on show"
+                if let depth = keep.medianDepth { search += String(format: " (median depth %.0f)", depth) }
+            }
+            print(pad("  search", 10) + search)
+        }
+        if !keep.apps.isEmpty {
+            print(pad("  into", 10)
+                + keep.apps.prefix(5).map { "\($0.app) \($0.count)" }.joined(separator: " · "))
+        }
+        print("")
+    }
+
     // The hands' pulse, described and never judged: the mirror's whole
     // grammar. Four weeks, because a trend needs a baseline and a month
     // is the shortest span a rhythm shows in.

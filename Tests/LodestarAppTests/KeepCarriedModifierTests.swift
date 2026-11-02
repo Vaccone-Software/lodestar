@@ -77,4 +77,50 @@ final class KeepCarriedModifierTests: XCTestCase {
         XCTAssertEqual(stage.engine.strip.shownHeld, .option, "this opening carried only shift")
         close(stage)
     }
+
+    /// ⌘ is the one the opening always leaves down, and its finger is the
+    /// slowest to lift: a letter struck before it has pastes that card
+    /// rather than opening its actions.
+    func testCommandStillDownFromOpeningPastesTheLetterAndDoesNotOpenItsActions() {
+        let stage = opened()
+        XCTAssertEqual(stage.engine.strip.shownHeld, .none)
+        XCTAssertTrue(stage.chord("j", [.maskShift, .maskCommand]))
+        XCTAssertEqual(stage.stripPastes, 1, "J pasted")
+        XCTAssertEqual(stage.lastPaste?.action, "pasted")
+        XCTAssertEqual(stage.lastPaste?.row, "plain", "not native: the opening's shift does not count either")
+        XCTAssertEqual(stage.engine.grammarState, .idle, "and the actions never opened")
+    }
+
+    /// A key that names no card was closing the strip and being swallowed
+    /// while ⌘ was still the opening's; now it is an ordinary dead key.
+    func testCommandStillDownFromOpeningDoesNotMakeAnyKeyAShortcut() {
+        let stage = opened()
+        stage.modifiers(.maskCommand)
+        XCTAssertTrue(stage.chord("w", .maskCommand))
+        XCTAssertEqual(stage.engine.grammarState, .paste(searching: false), "a dead key, not a closing one")
+        close(stage)
+    }
+
+    func testCommandLetGoAndPressedAgainOpensTheActions() {
+        let stage = opened()
+        stage.modifiers(.maskCommand)
+        stage.modifiers([])
+        XCTAssertEqual(stage.engine.strip.shownHeld, .none)
+        stage.modifiers(.maskCommand)
+        XCTAssertTrue(stage.chord("j", .maskCommand))
+        XCTAssertEqual(stage.engine.grammarState, .pastePanel(searching: false), "pressed again, it counts")
+        XCTAssertEqual(stage.stripPastes, 0)
+        close(stage)
+    }
+
+    /// With ⌘ carried and ⇧ struck fresh, the cards wear the form ⇧ asks
+    /// for: ⌘ no longer hides it as a held ⌘ would.
+    func testShiftPressedOverACarriedCommandShowsAtOnce() {
+        let stage = opened()
+        stage.modifiers(.maskCommand)
+        XCTAssertEqual(stage.engine.strip.shownHeld, .none)
+        stage.modifiers([.maskCommand, .maskShift])
+        XCTAssertEqual(stage.engine.strip.shownHeld, .shift)
+        close(stage)
+    }
 }

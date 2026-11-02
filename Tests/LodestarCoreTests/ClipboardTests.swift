@@ -307,6 +307,7 @@ final class PasteModeTests: XCTestCase {
 
     /// The label names the card; the modifier names the verb.
     func testLabelPastesPlainAndShiftPastesAsCopied() {
+        world.pasteCards.insert("f")
         open()
         XCTAssertEqual(press("a"), [.pasteRecent(label: "a", action: .plain), .exitPaste])
         XCTAssertEqual(core.state, .idle)
@@ -351,6 +352,7 @@ final class PasteModeTests: XCTestCase {
     }
 
     func testDigitsAddressPinsAndOnlyTheSlotsThatExist() {
+        world.pasteCards.insert("2")
         open()
         XCTAssertEqual(press("2"), [.pastePinned(slot: 2, action: .plain), .exitPaste])
         open()
@@ -551,6 +553,7 @@ extension PasteModeTests {
     func testSemicolonIsTheTenthLabel() {
         XCTAssertEqual(Clipboard.recentLabels, Array("jkl;fdsa").map(String.init),
                        "right hand first, out from the index finger, then the left")
+        world.pasteCards.insert(";")
         var core = EngineCore()
         _ = core.openPaste(world: world)
         XCTAssertEqual(core.keyDown(key: ";", held: false, shift: false, command: false, world: world),
@@ -560,7 +563,6 @@ extension PasteModeTests {
         XCTAssertEqual(core.keyDown(key: ";", held: false, shift: true, command: false, world: world),
                        [.pasteRecent(label: ";", action: .native), .exitPaste])
         core = EngineCore()
-        world.pasteCards.insert(";")
         _ = core.openPaste(world: world)
         XCTAssertEqual(core.keyDown(key: ";", held: false, shift: false, command: true, world: world),
                        [.pasteRecent(label: ";", action: .panel), .pastePanelShow])
@@ -621,14 +623,15 @@ extension PasteModeTests {
 }
 
 extension PasteModeTests {
-    /// ⌘ on a label with no card behind it leaves rather than opening a
-    /// panel that would draw nothing and swallow every label until escape.
-    func testPanelWithNoCardBehindItLeavesInstead() {
+    /// ⌘ on a label with no card behind it opens no panel, which would
+    /// draw nothing and swallow every label until escape, and does not
+    /// close the strip either: it is a mis-hit over the cards.
+    func testPanelWithNoCardBehindItStaysInsteadOfOpening() {
         _ = core.openPaste(world: world)
         XCTAssertFalse(world.pasteCardExists(address: "l"))
         XCTAssertEqual(core.keyDown(key: "l", held: false, shift: false,
-                                    command: true, world: world), [.exitPaste])
-        XCTAssertTrue(core.isIdle)
+                                    command: true, world: world), [])
+        XCTAssertEqual(core.state, .paste(searching: false))
     }
 
     /// The panel still opens for a label that does have a card.
@@ -801,14 +804,71 @@ final class PasteModeExitTests: XCTestCase {
         XCTAssertEqual(effects, [.exitPaste], "⌘W must not reach the window")
     }
 
-    func testCommandOnAnEmptyPinSlotLeavesToo() {
+    func testCommandOnAnEmptyPinSlotStaysAndSwallowsTheKey() {
         let world = WorldStub()
         var core = opened(world)
-        // Pin one is filled in the stub; pin four is not.
+        // Pin one is filled in the stub; pin four is not, and is drawn as a
+        // place that says "Keep here", so ⌘4 over it is a mis-hit.
         let effects = core.keyDown(key: "4", held: false, shift: false,
+                                   command: true, option: false, world: world)
+        XCTAssertEqual(core.state, .paste(searching: false))
+        XCTAssertEqual(effects, [])
+    }
+
+    func testCommandOnADigitBeyondThePinsStillLeaves() {
+        let world = WorldStub()
+        var core = opened(world)
+        // There is no place 5, so ⌘5 is the app's tab switch.
+        let effects = core.keyDown(key: "5", held: false, shift: false,
                                    command: true, option: false, world: world)
         XCTAssertTrue(core.isIdle)
         XCTAssertEqual(effects, [.exitPaste])
+    }
+
+    /// A bare key on a place with no card behind it is a mis-hit and the
+    /// strip stays: closing on it was Keep's commonest way to end with
+    /// nothing pasted. The digit of a free keepsake place, and a label when
+    /// fewer than eight clips exist, are the two cases.
+    func testABareKeyOnAFreePlaceStaysInKeep() {
+        let world = WorldStub()
+        var core = opened(world)
+        XCTAssertEqual(core.keyDown(key: "3", held: false, shift: false,
+                                    command: false, option: false, world: world), [])
+        XCTAssertEqual(core.state, .paste(searching: false), "a free keepsake place")
+        XCTAssertEqual(core.keyDown(key: "l", held: false, shift: false,
+                                    command: false, option: false, world: world), [])
+        XCTAssertEqual(core.state, .paste(searching: false), "a label with no clip behind it")
+        XCTAssertEqual(core.keyDown(key: "l", held: false, shift: true,
+                                    command: false, option: false, world: world), [])
+        XCTAssertEqual(core.keyDown(key: "3", held: false, shift: false, command: false,
+                                    option: false, control: true, world: world), [])
+        XCTAssertEqual(core.state, .paste(searching: false), "in every form")
+        XCTAssertEqual(core.keyDown(key: "s", held: false, shift: false,
+                                    command: false, option: false, world: world),
+                       [.pasteRecent(label: "s", action: .plain), .exitPaste],
+                       "and a place with a card still pastes")
+    }
+
+    /// ⏎ over a query nothing answers has no best match to take; the strip
+    /// stays in the search with the words still typed.
+    func testReturnWithNoMatchKeepsTheSearchAndItsQuery() {
+        let world = WorldStub()
+        world.bestMatch = false
+        var core = opened(world)
+        _ = core.keyDown(key: "/", held: false, shift: false,
+                         command: false, option: false, world: world)
+        _ = core.keyDown(key: "q", held: false, shift: false,
+                         command: false, option: false, world: world)
+        for (shift, command, control) in [(false, false, false), (true, false, false),
+                                          (false, true, false), (false, false, true)] {
+            XCTAssertEqual(core.keyDown(key: "return", held: false, shift: shift, command: command,
+                                        option: false, control: control, world: world), [])
+            XCTAssertEqual(core.state, .paste(searching: true))
+        }
+        world.bestMatch = true
+        XCTAssertEqual(core.keyDown(key: "return", held: false, shift: false,
+                                    command: false, option: false, world: world),
+                       [.pasteSearchCommit(action: .plain), .exitPaste])
     }
 
     func testCommandOnALiveCardStillOpensItsActions() {

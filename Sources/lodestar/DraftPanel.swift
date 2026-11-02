@@ -1349,10 +1349,21 @@ final class DraftPanel {
     }
 
     static func note(for view: DraftView) -> String {
+        // A microphone that is refused, absent, failed or deaf outranks every
+        // hint: a hand that is writing alone needs to know it before it needs
+        // to know where ⏎ lands or what speech would replace.
+        switch view.speech {
+        case .denied: return "microphone not allowed, typing only"
+        case .unavailable: return "no speech recognizer for this language, typing only"
+        case .failed(let why): return view.retrying ? "\(why), trying again" : why
+        case .listening where micWanted(view) && view.silent:
+            return "hearing nothing on \(view.input ?? "the microphone")"
+        default: break
+        }
         // A Mac selection the microphone is waiting to replace is the news,
         // and outranks where ⏎ lands, which is the pulled field's.
         if view.style == .standard, view.selection?.isEmpty == false, micWanted(view),
-           case .listening = view.speech, !view.silent {
+           case .listening = view.speech {
             return "speak to replace the selection"
         }
         if view.replacing { return "replaces the selection" }
@@ -1360,20 +1371,11 @@ final class DraftPanel {
         case .preparing(let progress):
             if let progress, progress > 0 { return "preparing speech \(Int(progress * 100))%" }
             return "preparing speech"
-        case .denied: return "microphone not allowed, typing only"
-        case .unavailable: return "speech needs macOS 26, typing only"
-        case .failed(let why): return view.retrying ? "\(why), trying again" : why
-        case .listening:
-            // Off, or waiting for insert mode: the light is out, and that
-            // is the whole message.
-            guard micWanted(view) else { return "" }
-            return view.silent ? "hearing nothing on \(view.input ?? "the microphone")" : ""
-        case .paused: return ""
-        case nil:
-            // Between the door and the recognizer's first word about
-            // itself the light is out: on a Bluetooth headset that is one
-            // to three seconds, and the light coming on is the cue to
-            // speak.
+        default:
+            // Off, or waiting for insert mode: the light is out, and that is
+            // the whole message. Between the door and the recognizer's first
+            // word about itself it is out too: on a Bluetooth headset that is
+            // one to three seconds, and the light coming on is the cue to speak.
             return ""
         }
     }

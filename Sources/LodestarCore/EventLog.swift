@@ -104,8 +104,14 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
         /// search), `row` the paste's form (plain | native) or the panel
         /// verb (pin | delete | save | exclude), `rank` the card's position
         /// or the pin's slot, `typed` search characters, `seconds` open,
-        /// `openToFirstKey` the hesitation, `app` where the paste landed.
-        /// Never the clip.
+        /// `openToFirstKey` the hesitation, `app` where the paste landed,
+        /// `closed` how an opening that pasted nothing and acted on nothing
+        /// ended (escape | toggle | click | lode | other), `after` what the
+        /// hand did next, in the seconds after the opening ended (paste |
+        /// copy | reopen | undo | typed, absent when nothing was struck):
+        /// ten seconds after an opening that pasted nothing, five after a
+        /// paste, where undo is only watched for. The key itself is never
+        /// kept, only which of these words it was. Never the clip.
         case paste
         /// A scroll mode session ended: `app`, `seconds` in the mode,
         /// `keys` direction presses, `pages` half and full pages, `ends`
@@ -224,6 +230,11 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
     public var visible: Int?
     public var recents: Int?
     public var depth: Int?
+    /// A strip opening: how it ended when it pasted nothing and acted on
+    /// nothing, and what the hand did next. Absent from records written
+    /// before the strip watched the hand afterwards, and read as unknown.
+    public var closed: String?
+    public var after: String?
     /// A focus event: the switch brought its window into view — placed
     /// from parked, minimized, or hidden — rather than focusing one that
     /// already stood on screen.

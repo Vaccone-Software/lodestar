@@ -402,7 +402,8 @@ public final class ObservationStore {
     public func pasted(app: String, action: String, source: String?, row: String?,
                        rank: Int?, typed: Int, seconds: TimeInterval,
                        firstKey: TimeInterval?, matches: Int? = nil, visible: Int? = nil,
-                       recents: Int? = nil, depth: Int? = nil, at now: Date = Date()) {
+                       recents: Int? = nil, depth: Int? = nil,
+                       closed: String? = nil, after: String? = nil, at now: Date = Date()) {
         var event = ObservationEvent(t: now, kind: .paste)
         event.app = app.lowercased()
         event.action = action
@@ -416,6 +417,8 @@ public final class ObservationStore {
         event.visible = visible
         event.recents = recents
         event.depth = depth
+        event.closed = closed
+        event.after = after
         record(event)
     }
 

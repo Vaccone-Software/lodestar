@@ -653,10 +653,10 @@ final class Stage {
     /// A key under any modifiers, lode up: ⌥⌘A addresses a card's
     /// actions mid-search.
     @discardableResult
-    func chord(_ name: String, _ flags: CGEventFlags) -> Bool {
+    func chord(_ name: String, _ flags: CGEventFlags, posted: Bool = false) -> Bool {
         let code = Self.keycode(name)
-        let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: false))
-        send(event(type: .keyUp, keycode: code, flags: flags, posted: false))
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: posted))
+        send(event(type: .keyUp, keycode: code, flags: flags, posted: posted))
         return swallowed
     }
 
@@ -735,6 +735,10 @@ final class Stage {
 
     /// The last strip record the store wrote.
     var lastPaste: ObservationEvent? {
+        // A paste is written when the hand's next key has said what came
+        // after it; a scenario that reads the record at once means the
+        // opening as it ended.
+        engine.settleStripWatch()
         observations.flush()
         return observations.log.recent(days: 30, now: clock.now.addingTimeInterval(1))
             .last { $0.kind == .paste }

@@ -272,6 +272,47 @@ final class HotkeyEngine {
         var handedToBringAt: Date?
     }
     private var stripSession: StripSession?
+    /// Why the opening is ending, set by whoever knows it for the length of
+    /// the call that ends it: the key that reached the grammar, the click.
+    /// Read once by `recordStripSession` and never left standing, so an
+    /// ending nobody named (a reset, a ⌘ chord the door declined) is
+    /// `other` and not whatever the last one was.
+    private var stripClosing: String?
+    /// An opening that has ended and is waiting to be written, until the
+    /// hand's next key says what it did with the ending: looked and pasted
+    /// by itself, went to copy the clip again, or took back a paste. A
+    /// look and a miss are the same record until then.
+    ///
+    /// Held in memory only. If the app quits inside the window the opening
+    /// is lost, which costs one record in a measurement of hundreds.
+    private struct StripWatch {
+        var record: StripRecord
+        var pasted: Bool
+        var until: Date
+        var expiry: DispatchWorkItem
+    }
+    private struct StripRecord {
+        var app: String
+        var action: String
+        var source: String?
+        var row: String?
+        var rank: Int?
+        var typed: Int
+        var seconds: TimeInterval
+        var firstKey: TimeInterval?
+        var matches: Int?
+        var visible: Int
+        var recents: Int
+        var depth: Int?
+        var closed: String?
+        var at: Date
+    }
+    private var stripWatch: StripWatch?
+    /// How long the hand is watched after an opening that pasted nothing,
+    /// and after one that pasted. A paste is judged sooner because what it
+    /// is looked for is a correction, and a correction comes at once.
+    static let watchSecondsAfterNothing: TimeInterval = 10
+    static let watchSecondsAfterPaste: TimeInterval = 5
     private var pasteSelection = 0
     private var panelClip: Clipboard.Clip?
     /// The card open in the clip door, lit on the strip beneath it.
@@ -741,6 +782,16 @@ final class HotkeyEngine {
 
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
         let named = Keys.name(for: keycode)
+        // What the hand does after Keep closes is the record's last word on
+        // it. Only the hand's own keys: Lodestar's ⌘V from a paste, the
+        // draft's, and anything an agent posts are told apart by the
+        // posting pid, as the pulse does, so the paste that closed an
+        // opening is never mistaken for the hand pasting again.
+        if stripWatch != nil, actingInputWasHuman,
+           event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+            watchHand(keycode: keycode, flags: event.flags,
+                      lode: armed || classify(event.flags).held)
+        }
         if actingInputWasHuman {
             // Autorepeat keydowns are the OS's, not the hand's: holding a
             // key emits one every ~30ms, and a pulse that counted them
@@ -888,6 +939,8 @@ final class HotkeyEngine {
             // mid-change. Copies that arrive while Keep is open still
             // refresh it live.
             clipboard.capture()
+            stripClosing = "toggle"
+            defer { stripClosing = nil }
             return dispatch(core.openPaste(world: self), event: event)
         }
         // The clip door: every unheld key is the draft's, and the strip
@@ -944,6 +997,8 @@ final class HotkeyEngine {
         if held || !core.isIdle { lastActivityAt = clock.now() }
 
         let wasIdle = core.isIdle
+        stripClosing = held ? "lode" : key == "escape" ? "escape" : nil
+        defer { stripClosing = nil }
         let effects = core.keyDown(key: key, held: held, shift: effectiveShift,
                                    command: keepFlags.contains(.maskCommand),
                                    option: keepFlags.contains(.maskAlternate),
@@ -1114,28 +1169,97 @@ final class HotkeyEngine {
         return nil
     }
 
-    /// The opening's record, written once when it ends. An opening that
-    /// ended by turning to Bring, and was not taken back, is timed to the
-    /// turn rather than to the end of Bring.
+    /// The opening's record, made once when it ends and written when the
+    /// hand's next key has said what came after it (see `StripWatch`). An
+    /// opening that ended by turning to Bring, and was not taken back, is
+    /// timed to the turn rather than to the end of Bring.
     private func recordStripSession() {
         guard let session = stripSession else { return }
         stripSession = nil
+        let closing = stripClosing
+        stripClosing = nil
+        guard observations != nil else { return }
         let now = clock.now()
         var ended = now
         if session.outcome?.row == "bring", session.outcome?.action == "acted",
            let turned = session.handedToBringAt {
             ended = turned
         }
-        observations?.pasted(
+        let action = session.outcome?.action ?? "abandoned"
+        let record = StripRecord(
             app: NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown",
-            action: session.outcome?.action ?? "abandoned",
+            action: action,
             source: session.outcome?.source, row: session.outcome?.row,
             rank: session.outcome?.rank, typed: session.typed,
             seconds: ended.timeIntervalSince(session.openedAt),
             firstKey: session.firstKeyAt.map { $0.timeIntervalSince(session.openedAt) },
             matches: session.matches, visible: session.visible,
             recents: session.recents, depth: session.depth,
+            // How it closed is asked only of an opening that did nothing:
+            // a paste or an act closed it by being what it was.
+            closed: action == "pasted" || action == "acted" ? nil : (closing ?? "other"),
             at: now)
+        endStripWatch(after: nil)
+        let pasted = action == "pasted"
+        let seconds = pasted ? Self.watchSecondsAfterPaste : Self.watchSecondsAfterNothing
+        let expiry = DispatchWorkItem { [weak self] in self?.endStripWatch(after: nil) }
+        stripWatch = StripWatch(record: record, pasted: pasted,
+                                until: now.addingTimeInterval(seconds), expiry: expiry)
+        clock.after(seconds, expiry)
+    }
+
+    /// The watch is over, whichever way: write the opening with what the
+    /// hand did, or nil if it did nothing in time.
+    private func endStripWatch(after: String?) {
+        guard let watch = stripWatch else { return }
+        stripWatch = nil
+        watch.expiry.cancel()
+        let record = watch.record
+        observations?.pasted(
+            app: record.app, action: record.action, source: record.source, row: record.row,
+            rank: record.rank, typed: record.typed, seconds: record.seconds,
+            firstKey: record.firstKey, matches: record.matches, visible: record.visible,
+            recents: record.recents, depth: record.depth,
+            closed: record.closed, after: after, at: record.at)
+    }
+
+    /// Writes an opening still being watched, as a quit would not. For the
+    /// scenario harness, which reads the record without waiting out the clock.
+    func settleStripWatch() { endStripWatch(after: nil) }
+
+    /// What the hand's next key was, in the few words the record keeps and
+    /// never the key itself. Anything with lode in it is a gesture and so
+    /// `typed`, like any key that is none of these. ⌘Z counts only after a
+    /// paste: it is how a wrong card shows itself, and after a look it is
+    /// some other work.
+    static func nextWord(key: String?, flags: CGEventFlags, lode: Bool,
+                         pasted: Bool, keepOpens: Bool) -> String {
+        guard !lode, let key else { return "typed" }
+        let held = flags.intersection([.maskShift, .maskCommand, .maskAlternate, .maskControl])
+        let command: CGEventFlags = .maskCommand
+        switch key {
+        case "v":
+            // ⌘V, or ⌥⇧⌘V (paste and match style), and ⇧⌘V is Keep again.
+            if held == command || held == [.maskCommand, .maskShift, .maskAlternate] { return "paste" }
+            if held == [.maskCommand, .maskShift], keepOpens { return "reopen" }
+        case "c", "x":
+            if held == command { return "copy" }
+        case "z":
+            if held == command, pasted { return "undo" }
+        default:
+            break
+        }
+        return "typed"
+    }
+
+    /// A key the hand struck while an opening is being watched. The first
+    /// one decides; a key after the window is no part of it.
+    private func watchHand(keycode: Int64, flags: CGEventFlags, lode: Bool) {
+        guard let watch = stripWatch else { return }
+        guard clock.now() < watch.until else { endStripWatch(after: nil); return }
+        endStripWatch(after: Self.nextWord(
+            key: Keys.name(for: keycode), flags: flags, lode: lode,
+            pasted: watch.pasted, keepOpens: config.clipboardEnabled))
     }
 
     private func apply(_ effects: [EngineEffect], event: CGEvent?) -> Unmanaged<CGEvent>? {
@@ -1159,6 +1283,9 @@ final class HotkeyEngine {
                     renderStrip()
                     break
                 }
+                // Whatever the last opening was waiting to learn, this is
+                // the answer: the hand came back to Keep.
+                endStripWatch(after: "reopen")
                 stripSession = StripSession(openedAt: clock.now())
                 // Whatever the opening gesture left down does not count.
                 carriedIntoKeep = (event?.flags ?? CGEventSource.flagsState(.combinedSessionState))
@@ -2835,11 +2962,17 @@ extension HotkeyEngine: EngineWorld {
         ) { [weak self] _ in
             // Off the callback before touching the monitor: tearing it down
             // from inside its own handler is asking for trouble.
-            DispatchQueue.main.async {
-                guard let self else { return }
-                _ = self.apply(self.core.leavePaste(), event: nil)
-            }
+            DispatchQueue.main.async { self?.clickedAway() }
         }
+    }
+
+    /// A click landed elsewhere: the mode ends behind it, and the record
+    /// says a click ended it. The monitor's body, apart so a scenario can
+    /// click without the window server.
+    func clickedAway() {
+        stripClosing = "click"
+        defer { stripClosing = nil }
+        _ = apply(core.leavePaste(), event: nil)
     }
 
     private func stopWatchingClicks() {

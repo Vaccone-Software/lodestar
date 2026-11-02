@@ -7,6 +7,7 @@ import XCTest
 /// renaming a keepsake is something done, not an opening left.
 final class KeepSessionTests: XCTestCase {
     private func pastes(_ stage: Stage) -> [ObservationEvent] {
+        stage.engine.settleStripWatch()
         stage.observations.flush()
         return stage.observations.log.recent(days: 30, now: stage.clock.now.addingTimeInterval(1))
             .filter { $0.kind == .paste }

@@ -677,6 +677,8 @@ final class DraftStandardScenarioTests: XCTestCase {
         stage.chord("delete", [command])
         XCTAssertEqual(stage.draft.buffer.text, String(before.prefix(line.lowerBound)))
         XCTAssertGreaterThan(stage.draft.buffer.count, 0, "the paragraph is not gone")
+        XCTAssertTrue(stage.commandPress("z"))
+        XCTAssertEqual(stage.draft.buffer.text, before, "and it is one step back")
     }
 
     func testCommandDeleteWithWordsStillBeingHeardTakesThemWithTheGlassLine() {
@@ -707,6 +709,43 @@ final class DraftStandardScenarioTests: XCTestCase {
         dictated(stage)
         stage.press("up")
         XCTAssertEqual(stage.draft.buffer.cursor, 0, "Vim's insert mode is unchanged: the file's one line")
+    }
+
+    // MARK: - Undo
+
+    func testTypingAfterAResultIsItsOwnUndoStep() {
+        let stage = standardStage()
+        stage.lode(".")
+        stage.speech.settle("Thanks for the note.")
+        type(stage, " ok")
+        XCTAssertEqual(stage.draft.buffer.text, "Thanks for the note. ok")
+        XCTAssertTrue(stage.commandPress("z"))
+        XCTAssertEqual(stage.draft.buffer.text, "Thanks for the note.", "the typed run goes and the sentence stays")
+        XCTAssertTrue(stage.commandPress("z"))
+        XCTAssertEqual(stage.draft.buffer.text, "", "then the sentence is its own step")
+    }
+
+    func testBackspaceAfterAResultIsItsOwnUndoStep() {
+        let stage = standardStage()
+        stage.lode(".")
+        stage.speech.settle("Thanks for the note.")
+        stage.press("delete"); stage.press("delete")
+        XCTAssertNotEqual(stage.draft.buffer.text, "Thanks for the note.")
+        XCTAssertTrue(stage.commandPress("z"))
+        XCTAssertEqual(stage.draft.buffer.text, "Thanks for the note.", "the sentence is restored")
+    }
+
+    func testTypingBetweenTwoResultsKeepsEachInItsOwnStep() {
+        let stage = standardStage()
+        stage.lode(".")
+        stage.speech.settle("One.")
+        type(stage, " two")
+        stage.speech.settle("Three.")
+        XCTAssertEqual(stage.draft.buffer.text, "One. two three.")
+        for expected in ["One. two", "One.", ""] {
+            XCTAssertTrue(stage.commandPress("z"))
+            XCTAssertEqual(stage.draft.buffer.text, expected)
+        }
     }
 
     // MARK: - The keys

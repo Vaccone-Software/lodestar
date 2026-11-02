@@ -36,7 +36,13 @@ final class DraftController {
     /// that reaches back into it.
     private var lastSpoken: (range: Range<Int>, text: String)?
     /// The hand typed or moved since the last result landed.
-    private var handSinceSpeech = false
+    private var handSinceSpeech = false {
+        didSet { if !handSinceSpeech { resultStepOpen = true } }
+    }
+    /// A settled result stands as the last undo step and the hand has not
+    /// yet edited after it: the first edit closes that step first, so what
+    /// it types or takes back is its own step and ⌘Z leaves the result.
+    private var resultStepOpen = false
     /// The text as it stood when the hand began editing, until the edit
     /// ends (speech arrives, a pass rewrites, the draft lands or closes):
     /// what the hand changed between the two is what it corrected.
@@ -1633,8 +1639,13 @@ final class DraftController {
 
     /// A Mac selection about to be replaced or deleted is its own undo
     /// step, so ⌘Z brings the text back. So is an edit made after the caret
-    /// moved.
+    /// moved, and the first edit after a settled result, which would
+    /// otherwise join the result's step and take it back with it.
     private func markSelectionStep() {
+        if resultStepOpen {
+            resultStepOpen = false
+            vim.markInsertBoundary(buffer)
+        }
         markCaretBoundary()
         if buffer.selection != nil { vim.markInsertBoundary(buffer) }
     }

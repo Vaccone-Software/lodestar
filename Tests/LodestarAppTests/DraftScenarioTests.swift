@@ -1154,6 +1154,48 @@ final class DraftSpeechUndoTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "", "a typed run is one step, as vim's is")
     }
 
+    /// The first hand edit after a settled result is a new step: the
+    /// typed run after a sentence does not join the sentence's step.
+    func testBackspacesAfterAResultAreTheirOwnStep() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("Thanks for the note.")
+        cmd(stage, "delete"); cmd(stage, "delete")
+        XCTAssertNotEqual(stage.draft.buffer.text, "Thanks for the note.")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "Thanks for the note.", "speak, backspace twice, undo: the sentence is back")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "", "and the sentence is its own step after that")
+    }
+
+    func testTypingAfterAResultLeavesTheResultOnUndo() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("Thanks for the note.")
+        for key in [",", "space", "t", "h", "x"] { cmd(stage, key) }
+        XCTAssertEqual(stage.draft.buffer.text, "Thanks for the note., thx")
+        _ = stage.commandPress("z")
+        XCTAssertEqual(stage.draft.buffer.text, "Thanks for the note.", "the typed run goes, the sentence stays")
+    }
+
+    /// The step a hand edit opens is not a second snapshot of the same
+    /// text: in normal mode `u` undoes the edit and not nothing.
+    func testNormalModeUndoAfterAnEditAfterSpeechTakesTheEdit() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle("One two.")
+        cmd(stage, "escape")
+        cmd(stage, "x")
+        cmd(stage, "i")
+        cmd(stage, "z")
+        cmd(stage, "escape")
+        let typed = stage.draft.buffer.text
+        cmd(stage, "u")
+        XCTAssertNotEqual(stage.draft.buffer.text, typed, "one u takes back the typed z")
+        cmd(stage, "u")
+        XCTAssertEqual(stage.draft.buffer.text, "One two.", "the next takes back x, not nothing")
+    }
+
     // MARK: - Speaking over a selection
 
     func testSpeakingOverASelectionReplacesIt() {

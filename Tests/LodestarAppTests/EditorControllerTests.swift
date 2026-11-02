@@ -664,6 +664,8 @@ final class EditorModelTests: XCTestCase {
         let ledger = Ledger()
         let model = EditorModel(
             engine: engine, idleRelease: idle, answerDeadline: deadline,
+            // A lane of its own: the shared one is the whole test process's.
+            gate: MLXGate(),
             loader: { engine in
                 ledger.lock.withLock { ledger.loads.append(engine) }
                 if fails { throw EditorModelError.missing(engine) }
@@ -734,7 +736,11 @@ final class EditorModelTests: XCTestCase {
         await model.release(reason: "memory pressure")
         let state = await model.state
         XCTAssertEqual(state, .unloaded)
-        XCTAssertEqual(ledger.clears, 1)
+        // The cache is cleared holding the MLX lane, so a moment after the
+        // release rather than inside it.
+        let until = Date().addingTimeInterval(2)
+        while ledger.lock.withLock({ ledger.clears }) == 0, Date() < until { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(ledger.lock.withLock { ledger.clears }, 1)
     }
 
     func testAStuckAnswerIsAbandoned() async {

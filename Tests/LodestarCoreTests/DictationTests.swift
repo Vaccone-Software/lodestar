@@ -169,6 +169,20 @@ final class DictationTests: XCTestCase {
         XCTAssertEqual(sure.text, "clear cache first", "a word the recognizer was sure of stays")
     }
 
+    /// A span too short to sound like anything is skipped for the entry it
+    /// cannot be compared with, and every later entry still gets its casing
+    /// and alias checks. "mm" and "ooh" are a single sound each.
+    func testAShortSpanStillGetsALaterEntrysCasingAndAlias() {
+        XCTAssertLessThan(Self.pronouncer.phones("mm").count, 2)
+        XCTAssertLessThan(Self.pronouncer.phones("ooh").count, 2)
+        let casing = matcher(["Lodestar", "MM"])
+        XCTAssertEqual(casing.apply("it is 4 mm wide").text, "it is 4 MM wide",
+                       "Lodestar comes first and cannot be compared with one sound")
+        let alias = NameMatcher(terms: [.init("Lodestar"), .init("Uber", aliases: [["ooh"]])], pronouncer: Self.pronouncer,
+                                isCommon: { CommonWords.isCommon($0) }, isFrequent: { CommonWords.isFrequent($0) })
+        XCTAssertEqual(alias.apply("call an ooh now").text, "call an Uber now")
+    }
+
     func testPunctuationRidesAlong() {
         let m = matcher(names)
         XCTAssertEqual(m.apply("open ghosty, then (lodestar).").text, "open Ghostty, then (Lodestar).")

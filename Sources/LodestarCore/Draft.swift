@@ -295,6 +295,65 @@ public enum Draft {
             lastGrain = nil
         }
 
+        // MARK: Moving by the eye's lines
+
+        /// ↑ one line of the panel, where `lines` can say and the logical
+        /// line's move where it cannot. On the first line the cursor goes
+        /// to the text's start, as a Mac field's does.
+        public mutating func moveVisualUp(_ lines: Lines?) {
+            collapse(toEnd: false)
+            guard let lines, let line = lines.bounds(self, cursor) else { moveUp(); return }
+            if line.lowerBound == 0 { cursor = 0; anchor = nil; lastGrain = nil; return }
+            guard let landed = lines.move(self, cursor, false) else { moveUp(); return }
+            cursor = max(0, min(landed, characters.count))
+            anchor = nil
+            lastGrain = nil
+        }
+
+        /// ↓ one line of the panel; on the last line, to the text's end.
+        public mutating func moveVisualDown(_ lines: Lines?) {
+            collapse(toEnd: true)
+            guard let lines, let line = lines.bounds(self, cursor) else { moveDown(); return }
+            if line.upperBound >= characters.count { cursor = characters.count; anchor = nil; lastGrain = nil; return }
+            guard let landed = lines.move(self, cursor, true) else { moveDown(); return }
+            cursor = max(0, min(landed, characters.count))
+            anchor = nil
+            lastGrain = nil
+        }
+
+        /// ⌘← and ⌃a: the start of the panel's line the cursor stands on.
+        public mutating func moveVisualLineStart(_ lines: Lines?) {
+            collapse(toEnd: false)
+            guard let lines, let line = lines.bounds(self, cursor) else { moveLineStart(); return }
+            cursor = line.lowerBound
+            lastGrain = nil
+        }
+
+        /// ⌘→ and ⌃e: the end of the panel's line, before the space a wrap
+        /// broke on, so the cursor stays on the line it was sent to.
+        public mutating func moveVisualLineEnd(_ lines: Lines?) {
+            collapse(toEnd: true)
+            guard let lines, let line = lines.bounds(self, cursor) else { moveLineEnd(); return }
+            cursor = line.upperBound
+            lastGrain = nil
+        }
+
+        /// ⌘⌫: back to the start of the panel's line. From a line's very
+        /// start it takes the line before it, down to the logical line's
+        /// start, so the key never stands dead in the middle of a paragraph.
+        public mutating func deleteToVisualLineStart(_ lines: Lines?) {
+            guard !deleteSelection() else { return }
+            guard let lines, let line = lines.bounds(self, cursor) else { deleteToLineStart(); return }
+            var start = max(line.lowerBound, lineStart(from: cursor))
+            if start == cursor, cursor > lineStart(from: cursor),
+               let before = lines.bounds(self, cursor - 1) {
+                start = max(before.lowerBound, lineStart(from: cursor))
+            }
+            guard start < cursor else { return }
+            characters.removeSubrange(start..<cursor)
+            cursor = start
+        }
+
         // MARK: Selecting
 
         /// The cursor goes where `move` takes it and the selection grows or
@@ -375,6 +434,28 @@ public enum Draft {
         }
     }
 
+    // MARK: - The eye's lines
+
+    /// Where the panel breaks the text into lines, asked of the layout that
+    /// draws them. A dictated paragraph is one logical line, so the keys a
+    /// Mac field answers by the line (↑ ↓ ⌘← ⌘→ ⌃a ⌃e ⌃n ⌃p ⌘⌫) need the
+    /// eye's lines and not the file's. Each answer is nil where the layout
+    /// has none (no panel up), and the logical line is the fallback.
+    public struct Lines {
+        /// Where one line up or down from a character index lands; nil at
+        /// the layout's edges.
+        public var move: (Buffer, Int, Bool) -> Int?
+        /// The characters of the line an index stands on, from its start
+        /// to its end before the space a wrap broke on or the newline.
+        public var bounds: (Buffer, Int) -> Range<Int>?
+
+        public init(move: @escaping (Buffer, Int, Bool) -> Int?,
+                    bounds: @escaping (Buffer, Int) -> Range<Int>?) {
+            self.move = move
+            self.bounds = bounds
+        }
+    }
+
     // MARK: - Joining speech to text
 
     /// What goes between what stands before the cursor and a settled
@@ -388,11 +469,33 @@ public enum Draft {
         guard let last = existing.last, let first = incoming.first else { return "" }
         if last.isWhitespace || last.isNewline { return "" }
         if attaching.contains(first) { return "" }
-        if last == "(" || last == "[" || last == "{" || last == "\"" || last == "'" { return "" }
+        if last == "(" || last == "[" || last == "{" || last == "“" || last == "‘" { return "" }
+        if (last == "\"" || last == "'") && opens(last, in: existing) { return "" }
         return " "
     }
 
-    private static let attaching: Set<Character> = [".", ",", ";", ":", "!", "?", ")", "]", "}"]
+    private static let attaching: Set<Character> = [".", ",", ";", ":", "!", "?", ")", "]", "}", "”", "’", "…", "%"]
+
+    /// Whether the straight quote ending `existing` opens a quotation: the
+    /// quotes of its kind before it pair off in twos, so it opens when an
+    /// even number came before and closes when an odd number did, and a
+    /// closing quote is followed by a space like any word. An apostrophe
+    /// inside a word ("don't") is not a quotation mark and is not counted.
+    private static func opens<C: BidirectionalCollection>(_ quote: Character, in existing: C) -> Bool
+    where C.Element == Character {
+        var count = 0
+        var i = existing.index(before: existing.endIndex)
+        while i > existing.startIndex {
+            i = existing.index(before: i)
+            guard existing[i] == quote else { continue }
+            if quote == "'" {
+                let after = existing[existing.index(after: i)]
+                if after.isLetter, i > existing.startIndex, existing[existing.index(before: i)].isLetter { continue }
+            }
+            count += 1
+        }
+        return count % 2 == 0
+    }
 
     /// The recognizer capitalizes the first word of every result, as if
     /// every result began a sentence. Landing mid-sentence — after a word,

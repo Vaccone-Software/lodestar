@@ -36,7 +36,13 @@ final class DraftController {
     /// that reaches back into it.
     private var lastSpoken: (range: Range<Int>, text: String)?
     /// The hand typed or moved since the last result landed.
-    private var handSinceSpeech = false
+    private var handSinceSpeech = false {
+        didSet { if !handSinceSpeech { resultStepOpen = true } }
+    }
+    /// A settled result stands as the last undo step and the hand has not
+    /// yet edited after it: the first edit closes that step first, so what
+    /// it types or takes back is its own step and ⌘Z leaves the result.
+    private var resultStepOpen = false
     /// The text as it stood when the hand began editing, until the edit
     /// ends (speech arrives, a pass rewrites, the draft lands or closes):
     /// what the hand changed between the two is what it corrected.
@@ -155,6 +161,12 @@ final class DraftController {
     /// The user picked an input on the foot; the app writes the
     /// config line (`draft.input`), nil meaning the system default.
     var chooseInput: ((String?) -> Void)?
+    /// Whether the microphone is allowed now, read without asking, and where
+    /// a refused one is allowed again: the grant is the person's, and its
+    /// switch is in Privacy & Security.
+    var microphoneGranted: () -> Bool = { AVCaptureDevicePermission.granted }
+    var openSettings: (URL) -> Void = { SystemEvents.open($0) }
+    static let microphoneSettings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
     /// Music steps aside while the mic is open on a shared Bluetooth
     /// radio; the draft only reports its edges.
     var playback: PlaybackPause?
@@ -372,6 +384,9 @@ final class DraftController {
     private var firstKeyAt: Date?
     private var firstWordAt: Date?
     private var wasWarm = false
+    /// The keyboard layout's say in what a key types, with its dead key kept
+    /// between presses.
+    var layoutTyper = LayoutTyper()
 
     /// Pulled or pasted text past this is refused: a draft is a message,
     /// not a document, and the panel lays the whole text out on every
@@ -603,6 +618,7 @@ final class DraftController {
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0; retries = 0
         resetPointer()
+        layoutTyper.reset()
 
         // What is under the cursor: a selection through either door, the
         // whole field through edit.
@@ -683,6 +699,7 @@ final class DraftController {
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
         resetPointer()
+        layoutTyper.reset()
         mode = .insert
         vim.startInsert(buffer)
         Log.info("draft", ["open": Draft.Door.clip.rawValue, "characters": text.count])
@@ -704,7 +721,14 @@ final class DraftController {
             // A session that has itself failed is asked again now; one
             // still starting after a retry is left to land, though the
             // line still shows the failure before it.
-            if !sessionStarted || (sessionSpoke && speechState?.retries == true) { listenAgain() }
+            // A refused microphone is not asked again, since asking changes
+            // nothing: `lode .` opens the setting that does, and once it has
+            // been switched on the same key listens.
+            if speechState == .denied, !microphoneGranted() {
+                openSettings(Self.microphoneSettings)
+            } else if !sessionStarted || speechState == .denied || (sessionSpoke && speechState?.retries == true) {
+                listenAgain()
+            }
             if mode != .insert { setMode(.insert) } else { resumeIfWanted() }
         case .edit, .clip:
             // The silent posture: the mic stops writing, the mode stays.
@@ -806,6 +830,7 @@ final class DraftController {
     func pointerDown(at point: NSPoint, clicks: Int, shift: Bool) {
         guard isOpen, !closing else { return }
         pointerActs += 1
+        layoutTyper.reset()
         settleGhostAsSeen()
         handActed()
         // The window as the hand left it, before it can be taken back.
@@ -1473,8 +1498,11 @@ final class DraftController {
     /// draft took it; false hands it to the system. ⌘ chords belong to
     /// the system — ⌘⇥ is how the destination changes — except the few
     /// that edit text, which would land in the app underneath and edit
-    /// the wrong thing.
-    func handleKey(_ key: String, shift: Bool, command: Bool, option: Bool, control: Bool) -> Bool {
+    /// the wrong thing. `keycode` is the key as the keyboard sent it, which
+    /// the layout types ⌥ characters and dead keys from; a key without one
+    /// is a name only, typed as the key tables type it.
+    func handleKey(_ key: String, shift: Bool, command: Bool, option: Bool, control: Bool,
+                   keycode: Int64? = nil) -> Bool {
         guard isOpen else { return false }
         // While the last words settle, keys are swallowed, not passed on: a
         // held ⏎ would reach the app ahead of the paste and send.
@@ -1493,7 +1521,7 @@ final class DraftController {
             // be drawn across them. Any shifted key settles them, as typing
             // it would.
             if shift { settleGhostAsSeen() }
-            if Draft.Standard.move(key, shift: shift, option: option, command: command, in: &buffer) {
+            if Draft.Standard.move(key, shift: shift, option: option, command: command, lines: eyeLines, in: &buffer) {
                 handActed()
                 caretMoved = true
                 render()
@@ -1501,6 +1529,7 @@ final class DraftController {
             }
         }
         if command {
+            layoutTyper.reset()
             // In normal mode the chords are the editor's own verbs, so
             // they are one undo step each and `.` knows them.
             if mode == .normal, let keys = Self.normalModeChord(key, shift: shift) {
@@ -1517,13 +1546,13 @@ final class DraftController {
                     // and is dropped rather than put back.
                     handActed()
                     settleGhostAsSeen()
-                    markSelectionStep(); buffer.deleteToLineStart(); backspaces += 1
+                    markSelectionStep(); buffer.deleteToVisualLineStart(panelLines); backspaces += 1
                 }
                 render(); return true
             case "left":
-                buffer.moveLineStart(); caretMoved = mode == .insert || caretMoved; render(); return true
+                buffer.moveVisualLineStart(eyeLines); caretMoved = mode == .insert || caretMoved; render(); return true
             case "right":
-                buffer.moveLineEnd(); caretMoved = mode == .insert || caretMoved; render(); return true
+                buffer.moveVisualLineEnd(eyeLines); caretMoved = mode == .insert || caretMoved; render(); return true
             case "v":
                 if mode == .normal {
                     // Through the editor, so it is one undo step and `.` knows it.
@@ -1587,7 +1616,7 @@ final class DraftController {
         }
         if firstKeyAt == nil, Keys.character(for: key, shift: shift) != nil { firstKeyAt = clock.now() }
         switch mode {
-        case .insert: return insertKey(key, shift: shift, option: option, control: control)
+        case .insert: return insertKey(key, shift: shift, option: option, control: control, keycode: keycode)
         case .normal: return normalKey(key, shift: shift, option: option, control: control)
         }
     }
@@ -1616,16 +1645,41 @@ final class DraftController {
         settler.handInterrupted()
     }
 
+    /// The lines the panel draws, which a dictated paragraph breaks into
+    /// though it is one logical line. The buffer arrives by value, as it
+    /// does for the editor's `j` and `k`: reading `self.buffer` from here
+    /// would collide with the `inout` hold the move has on it.
+    private var panelLines: Draft.Lines {
+        Draft.Lines(
+            move: { [weak self] buffer, index, down in self?.panel.caretMove(from: index, down: down, in: buffer) },
+            bounds: { [weak self] buffer, index in self?.panel.lineBounds(containing: index, in: buffer) })
+    }
+
+    /// The same, for the Mac's keys that walk by lines in insert mode, in
+    /// either style: under Vim they are insert mode's arrows, and the
+    /// draft already walks `j` and `k` by the eye's lines, because draft
+    /// prose makes a logical line an accident of width. Normal mode's own
+    /// motions (`0`, `$`, `dd`) keep the file's lines, as vim's do.
+    private var eyeLines: Draft.Lines? { panelLines }
+
     /// A Mac selection about to be replaced or deleted is its own undo
     /// step, so ⌘Z brings the text back. So is an edit made after the caret
-    /// moved.
+    /// moved, and the first edit after a settled result, which would
+    /// otherwise join the result's step and take it back with it.
     private func markSelectionStep() {
+        if resultStepOpen {
+            resultStepOpen = false
+            vim.markInsertBoundary(buffer)
+        }
         markCaretBoundary()
         if buffer.selection != nil { vim.markInsertBoundary(buffer) }
     }
 
-    private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool) -> Bool {
+    private func insertKey(_ key: String, shift: Bool, option: Bool, control: Bool, keycode: Int64?) -> Bool {
         handActed()
+        // A dead key waits for the key that completes it, and nothing else
+        // completes it: a move, a delete or a return lets it go.
+        if control || Keys.character(for: key, shift: false) == nil { layoutTyper.reset() }
         // Words still a ghost when the hand starts writing become text
         // on the spot, reserved where they stand: dictate, type, dictate
         // lands in the order it happened, and the final that arrives
@@ -1653,12 +1707,12 @@ final class DraftController {
         // rest of the line forward, the next character.
         if control {
             switch key {
-            case "a": buffer.moveLineStart(); caretMoved = true
-            case "e": buffer.moveLineEnd(); caretMoved = true
+            case "a": buffer.moveVisualLineStart(eyeLines); caretMoved = true
+            case "e": buffer.moveVisualLineEnd(eyeLines); caretMoved = true
             case "f": buffer.moveRight(); caretMoved = true
             case "b": buffer.moveLeft(); caretMoved = true
-            case "n": buffer.moveDown(); caretMoved = true
-            case "p": buffer.moveUp(); caretMoved = true
+            case "n": buffer.moveVisualDown(eyeLines); caretMoved = true
+            case "p": buffer.moveVisualUp(eyeLines); caretMoved = true
             case "d": buffer.deleteForward()
             case "h":
                 backspaces += 1
@@ -1705,15 +1759,23 @@ final class DraftController {
             if option { buffer.moveWordRight() } else { buffer.moveRight() }
             caretMoved = true
         case "up":
-            buffer.moveUp()
+            buffer.moveVisualUp(eyeLines)
             caretMoved = true
         case "down":
-            buffer.moveDown()
+            buffer.moveVisualDown(eyeLines)
             caretMoved = true
         case "tab":
             buffer.type("\t"); vim.typed("\t"); typedCharacters += 1
         default:
-            guard !control, let typed = Keys.character(for: key, shift: shift) else { return true }
+            guard !control, var typed = Keys.character(for: key, shift: shift) else { return true }
+            // Through the layout when ⌥ is held, a dead key is waiting or
+            // this key is one: ⌥e is an accent, ⌥⇧- a dash, and the key
+            // after a dead one completes it. Every other key is typed as
+            // the key tables type it.
+            if let keycode, let laid = layoutTyper.type(keycode: keycode, shift: shift, option: option) {
+                guard !laid.isEmpty else { render(); return true }
+                typed = laid
+            }
             // The editor hears exactly what the buffer took, separator
             // and all, or `.` would replay a word without its space.
             vim.typed(buffer.type(typed, joining: true))

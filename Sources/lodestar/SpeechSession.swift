@@ -103,7 +103,8 @@ enum SpeechState: Equatable {
     case paused
     /// The microphone grant was refused; the draft types only.
     case denied
-    /// No recognizer on this machine (macOS before 26, or no locale model).
+    /// No recognizer for this Mac's language: the system has no speech model
+    /// for the locale, or the analyzer reports itself unavailable.
     case unavailable
     case failed(String)
 

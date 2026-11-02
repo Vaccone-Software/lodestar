@@ -287,6 +287,12 @@ public struct Vim {
     /// means "take back what it just heard".
     public mutating func markInsertBoundary(_ buffer: Draft.Buffer) {
         guard mode == .insert, !replaying else { return }
+        // A step that begins where the last one began is the same step: it
+        // would leave a `u` in normal mode that restores what it already is.
+        if let last = undoStack.last, last.characters == buffer.characters, last.cursor == buffer.cursor {
+            redoStack = []
+            return
+        }
         snapshot(buffer)
     }
 

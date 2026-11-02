@@ -119,3 +119,26 @@ final class EditorFieldGateTests: XCTestCase {
         XCTAssertFalse(EditorAX.isReadable(role: "AXComboBox", subrole: "", valueSettable: true, rangeSettable: true))
     }
 }
+
+/// Which apps are fixed by typing into a selection instead of by writing
+/// the selected text: the ones that ignore the write, so the editor does
+/// not wait on it with the word left selected.
+final class EditorTypedFixTests: XCTestCase {
+    func testChromiumElectronAndOutlookTakeTyping() {
+        XCTAssertTrue(EditorAX.fixesByTyping(bundleID: "com.brave.Browser", chromium: true, electron: false))
+        XCTAssertTrue(EditorAX.fixesByTyping(bundleID: "com.tinyspeck.slackmacgap", chromium: false, electron: true))
+        XCTAssertTrue(EditorAX.fixesByTyping(bundleID: "com.microsoft.Outlook", chromium: false, electron: false))
+    }
+
+    func testNativeTextTakesTheDirectWrite() {
+        XCTAssertFalse(EditorAX.fixesByTyping(bundleID: "com.apple.TextEdit", chromium: false, electron: false))
+        XCTAssertFalse(EditorAX.fixesByTyping(bundleID: "com.apple.mail", chromium: false, electron: false))
+        XCTAssertFalse(EditorAX.fixesByTyping(bundleID: nil, chromium: false, electron: false))
+    }
+
+    /// A running process answers from its bundle (here the test runner,
+    /// which ships neither a Chromium helper nor the Electron framework).
+    func testARunningNativeProcessIsRead() {
+        XCTAssertFalse(EditorAX.fixesByTyping(bundleID: "com.apple.dt.xctest", pid: getpid()))
+    }
+}

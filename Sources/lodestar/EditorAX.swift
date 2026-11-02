@@ -276,7 +276,16 @@ enum EditorAX {
     /// and put the caret back where the hand left it. Native text takes
     /// the replacement directly; Chromium, Electron and Outlook ignore
     /// that and take typing into a selection instead, which is also the
-    /// one road their own editors and undo understand.
+    /// one road their editors and undo understand.
+    ///
+    /// For those the write is not tried. It was, first, and waited a
+    /// third of a second to see whether it landed (some native apps apply
+    /// one that late), then typed for up to 0.6 s more: the word stood
+    /// selected for 0.3 to 0.9 s, and the hand's next character, struck
+    /// inside that time, replaced it. Going straight to the selection and
+    /// the typing leaves the word selected only for the typing itself: two
+    /// key events fifteen milliseconds apart, and the beat Chromium takes
+    /// to apply them.
     static func replace(_ range: NSRange, expected: String, with text: String, in field: EditorField,
                         post: (String) -> Void) -> Bool {
         dispatchPrecondition(condition: .onQueue(queue))
@@ -286,15 +295,20 @@ enum EditorAX {
         let before = selectedRange(field.element)
         let target = ns.replacingCharacters(in: range, with: text)
         guard select(field.element, range) else { return false }
-        _ = AXUIElementSetAttributeValue(field.element, kAXSelectedTextAttribute as CFString, text as CFString)
-        if !settles(field.element, to: target, within: 0.3) {
-            // The direct write was ignored: the selection stands, so type.
-            if AX.string(field.element, kAXValueAttribute as String) == current {
-                select(field.element, range)
-                post(text)
-                guard settles(field.element, to: target, within: 0.6) else { return false }
-            } else if AX.string(field.element, kAXValueAttribute as String) != target {
-                return false
+        if fixesByTyping(bundleID: field.bundleID, pid: field.pid) {
+            post(text)
+            guard settles(field.element, to: target, within: 0.6) else { return false }
+        } else {
+            _ = AXUIElementSetAttributeValue(field.element, kAXSelectedTextAttribute as CFString, text as CFString)
+            if !settles(field.element, to: target, within: 0.3) {
+                // The direct write was ignored: the selection stands, so type.
+                if AX.string(field.element, kAXValueAttribute as String) == current {
+                    select(field.element, range)
+                    post(text)
+                    guard settles(field.element, to: target, within: 0.6) else { return false }
+                } else if AX.string(field.element, kAXValueAttribute as String) != target {
+                    return false
+                }
             }
         }
         // The caret goes back where it was, moved by the change in length
@@ -304,6 +318,33 @@ enum EditorAX {
                                                          replacementLength: (text as NSString).length))
         }
         return true
+    }
+
+    // MARK: - Which apps take typing
+
+    /// Whether an app ignores a direct write to the selected text and
+    /// takes typing into a selection instead: Chromium, Electron and
+    /// Outlook, as probed. Pure, so the table is testable.
+    static func fixesByTyping(bundleID: String?, chromium: Bool, electron: Bool) -> Bool {
+        chromium || electron || bundleID?.lowercased() == "com.microsoft.outlook"
+    }
+
+    nonisolated(unsafe) private static var typed: [String: Bool] = [:]
+    private static let typedLock = NSLock()
+
+    /// The same question of a running app, read once per bundle: Chromium
+    /// browsers carry renderer helpers and Electron apps carry their
+    /// framework, both a directory listing away.
+    static func fixesByTyping(bundleID: String?, pid: pid_t) -> Bool {
+        guard let bundle = NSRunningApplication(processIdentifier: pid)?.bundleURL else {
+            return fixesByTyping(bundleID: bundleID, chromium: false, electron: false)
+        }
+        if let known = typedLock.withLock({ typed[bundle.path] }) { return known }
+        let electron = FileManager.default.fileExists(
+            atPath: bundle.appendingPathComponent("Contents/Frameworks/Electron Framework.framework").path)
+        let answer = fixesByTyping(bundleID: bundleID, chromium: AXWarmer.isChromiumBrowser(bundle), electron: electron)
+        typedLock.withLock { typed[bundle.path] = answer }
+        return answer
     }
 
     /// Put the caret back, and keep it there: Chromium applies typed text

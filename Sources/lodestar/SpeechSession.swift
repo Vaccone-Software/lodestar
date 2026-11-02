@@ -263,6 +263,22 @@ final class AudioInput: @unchecked Sendable {
     /// so a configuration change can rebuild it. nil between sessions.
     private var inFlight: (device: String?, sink: (AVAudioPCMBuffer) -> Void, lost: () -> Void)?
     private var rebuildPending = false
+    /// A radio's rate that an engine was bound to when the radio refused it
+    /// or moved under it, kept so the next build waits for the rate to
+    /// land instead of racing the flip again: a start that fails inside
+    /// the flip is retried by the session a beat later, and that retry
+    /// reads the same half-flipped radio. Touched only on `queue`.
+    private var refusal: (device: AudioDeviceID, rate: Double?, at: Date)?
+    /// How long a refusal is remembered; past that the radio has long
+    /// since landed, or gone back to music, and a wait would be for nothing.
+    static let refusalMemory: TimeInterval = 30
+    /// Bumped, from any thread, by every start and stop, so a wait on the
+    /// queue can see that the session it is for has been replaced and let
+    /// the queue go, instead of holding the next start behind it.
+    private let tickLock = NSLock()
+    private var tick = 0
+    private func bumpTick() { tickLock.lock(); tick += 1; tickLock.unlock() }
+    private func currentTick() -> Int { tickLock.lock(); defer { tickLock.unlock() }; return tick }
     /// Which session is in flight, by number: a rebuild waiting out its
     /// settle belongs to the session that asked for it, and must not
     /// rebuild, or tell lost, the one that replaced it.
@@ -484,6 +500,18 @@ final class AudioInput: @unchecked Sendable {
         dispatchPrecondition(condition: .onQueue(queue))
         guard inFlight != nil, session == sessionNumber, let engine else { rebuildPending = false; return }
         if engine.isRunning { rebuildPending = false; return }
+        // An engine bound to a rate the device has left cannot be started
+        // again in place: four restarts 0.65 s apart were each refused
+        // with -10868 in the log before the rebuild that was always going
+        // to be needed. The rebuild waits for the rate to land.
+        if let moved = Self.rateMoved(built: engineFormat, now: Self.reading(of: engine)) {
+            Log.info("draft", ["speech": "audio configuration changed", "stale": true,
+                               "fromHz": Int(moved.from), "toHz": Int(moved.to)])
+            if let device = engineDevice, Self.isBluetooth(device) { refusal = (device, moved.from, Date()) }
+            rebuildPending = false
+            rebuild(attempt: 1, session: session)
+            return
+        }
         engine.prepare()
         do {
             try engine.start()
@@ -671,6 +699,77 @@ final class AudioInput: @unchecked Sendable {
             || transport == kAudioDeviceTransportTypeBluetoothLE
     }
 
+    /// The device's nominal sample rate, the number a radio changes when
+    /// it flips profile (48 kHz on music, 24 kHz on hands-free).
+    static func nominalRate(of id: AudioDeviceID) -> Double? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &rate) == noErr, rate > 0
+        else { return nil }
+        return rate
+    }
+
+    /// What the engine's input node reports now.
+    private static func reading(of engine: AVAudioEngine) -> (rate: Double, channels: UInt32) {
+        let format = engine.inputNode.inputFormat(forBus: 0)
+        return (format.sampleRate, format.channelCount)
+    }
+
+    /// Whether the device's rate moved since the engine was built for it:
+    /// the engine is then bound to a rate the device has left, whether or
+    /// not it says so. Nothing is known about a rate that cannot be read.
+    static func rateMoved(built: (rate: Double, channels: UInt32)?,
+                          now: (rate: Double, channels: UInt32)?) -> (from: Double, to: Double)? {
+        guard let built, let now, built.rate > 0, now.rate > 0, built.rate != now.rate else { return nil }
+        return (built.rate, now.rate)
+    }
+
+    /// Whether a start owes the radio a wait before it builds: a refusal
+    /// of this device, remembered from a start or a restart that failed.
+    static func owesSettle(refusal: (device: AudioDeviceID, at: Date)?, device: AudioDeviceID?,
+                           now: Date) -> Bool {
+        guard let refusal, let device, refusal.device == device else { return false }
+        return now.timeIntervalSince(refusal.at) < refusalMemory
+    }
+
+    /// The engine's rate went stale across a profile flip, so its start
+    /// ran on a rate the radio had left.
+    struct StaleRate: LocalizedError {
+        let from: Double
+        let to: Double
+        var errorDescription: String? { "the input moved from \(Int(from)) Hz to \(Int(to)) Hz" }
+    }
+
+    /// Wait on the engine's queue for `device`'s rate to leave `stale` and
+    /// hold, bounded by `RateSettle.deadline`. A wait that ends unsettled
+    /// goes on regardless: -10868 has causes that are not a flip.
+    private func settle(_ device: AudioDeviceID, from stale: Double?, tick: Int) throws {
+        dispatchPrecondition(condition: .onQueue(queue))
+        let began = Date()
+        let outcome = RateSettle.wait(
+            from: stale, rate: { Self.nominalRate(of: device) },
+            superseded: { self.currentTick() != tick },
+            clock: { Date().timeIntervalSince(began) },
+            pause: { Thread.sleep(forTimeInterval: $0) })
+        switch outcome {
+        case .settled(let rate, let seconds):
+            Log.info("draft", ["speech": "input rate settled", "fromHz": Int(stale ?? 0),
+                               "toHz": Int(rate), "ms": Int(seconds * 1000)])
+        case .timedOut(let rate, let seconds):
+            Log.info("draft", ["speech": "input rate did not settle", "hz": Int(rate ?? 0),
+                               "ms": Int(seconds * 1000)])
+        case .unreadable:
+            break
+        case .superseded:
+            throw NSError(domain: "draft", code: 5,
+                          userInfo: [NSLocalizedDescriptionKey: "the start was replaced"])
+        }
+    }
+
     static func defaultInput() -> AudioDeviceID? {
         var device = AudioObjectID(0)
         var size = UInt32(MemoryLayout<AudioObjectID>.size)
@@ -717,6 +816,7 @@ final class AudioInput: @unchecked Sendable {
     func start(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
                lost: @escaping () -> Void = {},
                completion: @escaping (Result<(format: AVAudioFormat, name: String?), Error>) -> Void) {
+        bumpTick()
         queue.async {
             self.sessionNumber += 1
             self.keeper.sessionBegan()
@@ -794,6 +894,19 @@ final class AudioInput: @unchecked Sendable {
         dispatchPrecondition(condition: .onQueue(queue))
         var attempt = 0
         var format = AVAudioFormat()
+        // A radio is built for once its rate has landed. Its first start is
+        // what asks for the flip, and an engine built or started before
+        // the flip is done is refused (-10868) or deaf, so after a refusal
+        // the next build waits for the rate rather than racing it.
+        let tick = currentTick()
+        let device = target ?? Self.defaultInput()
+        let radio = device.map(Self.isBluetooth) ?? false
+        if radio, let device, Self.owesSettle(refusal: refusal.map { ($0.device, $0.at) },
+                                               device: device, now: Date()) {
+            let stale = refusal?.rate
+            refusal = nil
+            try settle(device, from: stale, tick: tick)
+        }
         while true {
             // A kept engine serves only the device and format it was built
             // for; anything else, and any failed start, gets a fresh one.
@@ -829,17 +942,33 @@ final class AudioInput: @unchecked Sendable {
             }
             tapInstalled = true
             engine.prepare()
+            let builtRate = engineFormat?.rate
+            let failure: Error
             do {
                 try engine.start()
-                break
+                // Running is not heard. An engine whose rate moved while it
+                // started is bound to the one the radio left, and in the
+                // log delivered nothing 8 times in 13, found by the silence
+                // watch four seconds later and rebuilt three after that.
+                guard radio, let moved = Self.rateMoved(built: engineFormat, now: Self.reading(of: engine))
+                else { break }
+                Log.info("draft", ["speech": "engine started across the flip", "attempt": attempt + 1,
+                                   "fromHz": Int(moved.from), "toHz": Int(moved.to)])
+                failure = StaleRate(from: moved.from, to: moved.to)
             } catch {
-                discard()
-                attempt += 1
-                Log.info("draft", ["speech": "engine start failed", "attempt": attempt,
+                Log.info("draft", ["speech": "engine start failed", "attempt": attempt + 1,
                                    "error": error.localizedDescription])
-                if attempt > 1 { throw error }
+                failure = error
             }
+            discard()
+            attempt += 1
+            if attempt > 1 {
+                if radio, let device { refusal = (device, builtRate, Date()) }
+                throw failure
+            }
+            if radio, let device { try settle(device, from: builtRate, tick: tick) }
         }
+        refusal = nil
         guard let engine else { throw NSError(domain: "draft", code: 3) }
         let input = engine.inputNode
         let name = input.audioUnit.flatMap(Self.device(of:)).flatMap(Self.name(of:))
@@ -927,6 +1056,7 @@ final class AudioInput: @unchecked Sendable {
     /// Idempotent. The engine object is kept; starting it again is the
     /// 70ms path, creating one is the second.
     func stop() {
+        bumpTick()
         queue.async { self.stopNow() }
     }
 

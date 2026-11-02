@@ -3,8 +3,11 @@ import LodestarCore
 import LodestarEars
 
 /// The draft's settling ear, chosen by tier and kept in memory only while
-/// it is wanted: loaded when dictation starts, let go five minutes after
-/// the draft closes, as the editor's model is. A model lives under
+/// it is wanted: loaded when dictation starts, let go thirty minutes after
+/// the draft closes, or at once when macOS says memory is critical. (Measured
+/// on the maker's record: kept five minutes, 62% of drafts found it warm;
+/// kept thirty, 83%. It is 2.5 GB, and the 35B model beside it is not kept
+/// that long.) A model lives under
 /// `~/.local/share/lodestar/ears/`; choosing Standard or Full in Settings
 /// fetches its pinned files (never on a metered connection), and
 /// Automatic uses the best one already there. With none, the draft runs
@@ -17,12 +20,25 @@ import LodestarEars
 /// loading a second.
 final class EarHost {
     static let folder = Paths.data.appendingPathComponent("ears", isDirectory: true)
-    static let idleSeconds: TimeInterval = 300
+    /// How long the ear stays after the draft closes.
+    static let idleSeconds: TimeInterval = 1800
+    /// How long the draft's own copy of the language model stays: its own
+    /// policy, shorter, since on Max it is 20 GB shared with the editor.
+    static let modelIdleSeconds: TimeInterval = 300
 
     private(set) var ear: SettlingEar?
     private(set) var tier: EarTier = .apple
     private var idle: DispatchWorkItem?
+    private var modelIdle: DispatchWorkItem?
     private var loading = false
+    /// Between dictation starting and the draft closing: the ear is being
+    /// used, whatever the memory says.
+    private var inUse = false
+    /// macOS said memory was short while the ear was in use: it goes the
+    /// moment the draft closes, not thirty minutes on.
+    private var pressed = false
+    private var pressure: DispatchSourceMemoryPressure?
+    private let clock: Clock
 
     /// Fetches a chosen tier's model; `ready` runs when it is whole.
     let download = EditorDownload(root: EarHost.folder)
@@ -43,6 +59,11 @@ final class EarHost {
     var cleanupChanged: () -> Void = {}
     /// The draft's own copy, when the editor does not hold the same.
     private(set) var draftModel: DraftModel?
+    /// The ear finished loading: a draft open at that moment hears again
+    /// the phrases the cold ear missed.
+    var loaded: () -> Void = {}
+    /// Whether a language model's weights are on this Mac.
+    var hasCleanup: (CleanupModel) -> Bool = { EditorModels.directory(for: $0.manifest) != nil }
 
     /// The model the tier this Mac settled on wants, here yet or not.
     var wantedCleanup: CleanupModel? { suited.cleanup }
@@ -50,7 +71,7 @@ final class EarHost {
     /// The model the tier in use writes what was meant with, when it is
     /// whole on this Mac.
     var cleanup: CleanupModel? {
-        guard let model = tier.cleanup, EditorModels.directory(for: model.manifest) != nil else { return nil }
+        guard let model = tier.cleanup, hasCleanup(model) else { return nil }
         return model
     }
 
@@ -66,7 +87,17 @@ final class EarHost {
         cleanupDownload.fetch(.cleanup(model))
     }
 
-    init() {
+    init(clock: Clock = .live) {
+        self.clock = clock
+        // The editor's model goes at once on a warning, and on Max that is
+        // the 20 GB the warning is about. The ear goes only when memory is
+        // critical: on the maker's Mac the editor was let go by a warning
+        // ninety times in twenty-two days, and an ear that went with it
+        // would be cold again for a quarter of the day's drafts.
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.critical], queue: .main)
+        pressure.setEventHandler { [weak self] in self?.memoryPressure() }
+        pressure.resume()
+        self.pressure = pressure
         download.finishedEar = { [weak self] tier in
             guard let self else { return }
             Log.info("draft", ["ear downloaded": tier.rawValue])
@@ -182,35 +213,86 @@ final class EarHost {
     }
 
     /// Dictation started: the ear loads now, off the main thread, if it
-    /// is not already in memory.
+    /// is not already in memory. The language model follows only once the
+    /// ear is in, or has failed: loaded together they fight for the same
+    /// disk and the same GPU, and the small one, the one that hears, took
+    /// ten seconds. Listening itself waits for neither.
     func warm() {
         idle?.cancel()
+        modelIdle?.cancel()
+        inUse = true
         fetchIfMissing()
-        if let model = cleanup {
-            if let draftModel { Task.detached { await draftModel.load() } } else if sharesEditor(model) { prepareShared() }
-        }
-        guard let ear, !ear.isLoaded, !loading else { return }
+        guard let ear, !ear.isLoaded else { loadModels(); return }
+        // A load already on its way starts the models when it is done.
+        guard !loading else { return }
         loading = true
         Task.detached { [weak self] in
             let began = Date()
+            let whole: Bool
             do {
                 try await ear.load()
+                whole = true
                 Log.info("draft", ["ear": ear.name, "loaded ms": Int(Date().timeIntervalSince(began) * 1000)])
             } catch {
+                whole = false
                 Log.info("draft", ["ear": ear.name, "load failed": "\(error)"])
             }
-            await MainActor.run { self?.loading = false }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.loading = false
+                if whole { self.loaded() }
+                self.loadModels()
+                // Memory ran short while it loaded and nothing is using it.
+                if self.pressed, !self.inUse { self.letGo() }
+            }
         }
     }
 
-    /// The draft closed: the ear lets its memory go after a while.
+    /// The language model for what was meant: loaded, or the editor's
+    /// copy of the same weights prepared.
+    private func loadModels() {
+        guard let model = cleanup else { return }
+        if let draftModel { Task.detached { await draftModel.load() } } else if sharesEditor(model) { prepareShared() }
+    }
+
+    /// The draft closed: the ear lets its memory go after a while, and the
+    /// language model, which is far larger, sooner.
     func rest() {
         idle?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.ear?.unload()
+        modelIdle?.cancel()
+        inUse = false
+        let models = DispatchWorkItem { [weak self] in
             if let model = self?.draftModel { Task { await model.release() } }
         }
-        idle = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.idleSeconds, execute: work)
+        modelIdle = models
+        clock.after(Self.modelIdleSeconds, models)
+        if pressed { letGo(); return }
+        let ears = DispatchWorkItem { [weak self] in self?.ear?.unload() }
+        idle = ears
+        clock.after(Self.idleSeconds, ears)
     }
+
+    /// macOS says memory is critical: a resting ear goes now. One in use goes
+    /// when its draft closes, so a dictation never loses its ear mid-
+    /// sentence to a signal that may have passed.
+    func memoryPressure() {
+        Log.info("draft", ["memory pressure": true, "ear in use": inUse || loading])
+        if inUse || loading { pressed = true } else { letGo() }
+    }
+
+    private func letGo() {
+        pressed = false
+        idle?.cancel()
+        guard !loading else { return }
+        ear?.unload()
+    }
+
+    #if DEBUG
+    /// A stage's ear and model, in place of what a tier's files would make.
+    func install(ear: SettlingEar?, tier: EarTier, model: DraftModel? = nil) {
+        self.ear = ear
+        self.tier = tier
+        draftModel = model
+    }
+    #endif
 }

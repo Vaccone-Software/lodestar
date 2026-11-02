@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var draftController: DraftController?
     /// The draft's dictation model, by tier (`draft.model`).
     private let earHost = EarHost()
+    /// The words of `draft.words` used or learned lately in this process,
+    /// most recent first: past thirty words, these are the ones the models
+    /// are told.
+    private var recentWords = RecentWords()
     private var editorController: EditorController?
     /// False until the boot's own apply, so the card greets a switch turned
     /// on, never a launch that found it on.
@@ -412,13 +416,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.codeRepository = { RepoNames.repository(pid: $0.pid, bundleID: $0.bundleID) }
         // The settling ear: chosen by tier, loaded when dictation starts.
         earHost.configure(config.draftModel)
-        draft.earContext = Array(config.draftWords.prefix(30))
+        draft.earContext = toldWords(config)
+        draft.onNamesUsed = { [weak self] terms in self?.recentWords.touch(terms) }
         draft.onListen = { [weak self, weak draft] in
             guard let self, let draft else { return }
             draft.ear = self.earHost.ear
+            self.refreshToldWords()
             self.earHost.warm()
         }
         draft.onClosed = { [weak self] in self?.earHost.rest() }
+        // An ear that was cold when the words were said hears them once it
+        // is in, if the draft is still open.
+        earHost.loaded = { [weak draft] in draft?.earLoaded() }
         draft.journal = DictationJournal.forThisBuild()
         earHost.editorFetching = { [weak self] in self?.editorDownload.engine.flatMap(EditorManifest.forEngine) }
         earHost.sharesEditor = { [weak self] model in
@@ -444,8 +453,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         draft.measuresVoice = config.observationsHealth
         draft.playback = PlaybackPause()
         // The in-flight stash: a crash mid-draft costs at most the last
-        // half second of words, recovered to the pasteboard at the next boot.
-        // A clean close always clears it. Sealed under the clipboard ring, so it
+        // half second of words, recovered at the next boot, whatever ended
+        // the run: a clean close always clears it, so one left is a draft
+        // cut off. It comes back as a clipboard card. Sealed under the clipboard ring, so it
         // is written only while the history's key is ready (a crash while the
         // history is unavailable recovers nothing), and read off the main thread.
         let clipboardStore = clipboardController.history
@@ -466,17 +476,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A compaction of the history retires the ring's old keys: the words
         // in flight are sealed again under the new one.
         clipboardStore.onCompacted = { stashQueue.async { stash.reseal() } }
-        let recovering = crashedLastRun
-        stashQueue.async { [weak draft, weak hud] in
+        stashQueue.async { [weak self, weak draft, weak hud] in
             let found = stash.recover()
             // Sealed and the key cannot be asked for: left where it is, for the launch that can.
             if found != .unavailable { stash.clear() }
             DispatchQueue.main.async {
                 switch found {
-                case .text(let stranded) where recovering:
-                    draft?.writePasteboard(stranded)
-                    hud?.flash("⌂ Your draft is on the clipboard")
-                    Log.info("draft", ["recovered": stranded.count])
+                case .text(let stranded):
+                    // Whatever ended the last run: a clean close clears the
+                    // stash, so a stash at launch is a draft cut off.
+                    DraftRecovery.restore(stranded,
+                                          keepCard: { self?.clipboardController?.keepRecovered($0) ?? false },
+                                          pasteboard: { draft?.writePasteboard($0) },
+                                          flash: { hud?.flash($0) })
                 case .unavailable:
                     Log.warning("draft: words were in flight and are sealed; the keychain did not open, so they are left for a later launch")
                 default:
@@ -519,6 +531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let inDraft = DraftEditor(proofreader: editor.proofreader)
             inDraft.observations = observationStore
             SurfaceWiring.wireEditors(engine: engine, draft: draft, app: editor, inDraft: inDraft) { [weak self] word in
+                self?.recentWords.touch([word])
                 self?.editorLearn(path: ["draft", "words", word], flash: "✓ \(word) is one of your words now")
             }
             draftEditor = inDraft
@@ -2400,13 +2413,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editorController?.refreshModel()
     }
 
+    /// The words the ear and the intent prompt are told: at most thirty,
+    /// those used or learned lately first, the rest alphabetical.
+    private func toldWords(_ config: Config) -> [String] {
+        DraftVocabulary.told(config.draftWords, recent: recentWords.order)
+    }
+
+    /// Dictation starts: the words in use since the last time lead the
+    /// list. The intent prompt is rebuilt only when the list differs, since
+    /// a new prompt is read again by the model.
+    private func refreshToldWords() {
+        let told = toldWords(config)
+        guard told != draftController?.earContext else { return }
+        draftController?.earContext = told
+        wireIntent(config)
+    }
+
     /// What was meant, from what was said: asked of Speak's tier's model,
     /// the editor's copy of it when the editor holds the same weights, the
     /// draft's own otherwise. Whenever that model is here; there is no switch.
     private func wireIntent(_ config: Config) {
         draftController?.intentNames = config.draftWords
         guard let model = earHost.cleanup else { draftController?.intend = nil; return }
-        let prompt = IntentPass.prompt(names: Array(config.draftWords.prefix(30)))
+        let prompt = IntentPass.prompt(names: toldWords(config))
         if earHost.sharesEditor(model), let proofreader = editorController?.proofreader {
             draftController?.intend = { text in await proofreader.rewrite(text, prompt: prompt) }
         } else if let own = earHost.draftModel {
@@ -2521,7 +2550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clipboardController.excludedApps = loaded.clipboardExcludedApps
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         draftController?.words = loaded.draftWords
-        draftController?.earContext = Array(loaded.draftWords.prefix(30))
+        draftController?.earContext = toldWords(loaded)
         earHost.configure(loaded.draftModel)
         applyEditor(loaded)
         draftController?.editingStyle = loaded.draftEditingStyle

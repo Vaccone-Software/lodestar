@@ -99,6 +99,10 @@ final class FakeSpeech: SpeechSession {
     /// Whether `stop` settles the standing ghost before completing, the
     /// way a real finalization does.
     var settlesOnStop = true
+    /// Finals the recognizer still owes when it is stopped, delivered
+    /// after the ghost's and before the completion, the way the stop's
+    /// drain hands them over.
+    var finalsOnStop: [Heard] = []
     /// Hold the listening state back, the way a model download or the
     /// first-run microphone prompt does; `ready()` releases it.
     var slowToListen = false
@@ -139,11 +143,18 @@ final class FakeSpeech: SpeechSession {
         }
         if settlesOnStop, let ghost { onSettled?(Heard(ghost)) }
         ghost = nil
+        drain()
         completion()
+    }
+    private func drain() {
+        let owed = finalsOnStop
+        finalsOnStop = []
+        for heard in owed { onSettled?(heard) }
     }
     func finish() {
         if settlesOnStop, let ghost { onSettled?(Heard(ghost)) }
         ghost = nil
+        drain()
         pendingStop?()
         pendingStop = nil
     }
@@ -229,6 +240,11 @@ final class Stage {
     var pasteboard: [String] = []
     /// What the stage's focused field holds, for the draft to pull.
     var field: DraftController.Field?
+    /// What the app in front shows as focused when ⏎ asks, and whether it
+    /// answers at all: a text field, unless a test says otherwise.
+    var target: Draft.Target = .focus(role: "AXTextField", text: true)
+    var targetAnswers = true
+    private(set) var targetAsks = 0
     /// Every input chosen on the register line (nil = system default).
     var chosenInputs: [String?] = []
     /// The playback world: which players say they are playing, whether
@@ -410,6 +426,10 @@ final class Stage {
         draft.postKey = { [unowned self] key, flags in self.posted.append((key, flags)) }
         draft.readField = { [unowned self] _, _ in self.field }
         draft.selectAll = { _ in true }
+        draft.probeTarget = { [unowned self] _, done in
+            self.targetAsks += 1
+            if self.targetAnswers { done(self.target) }
+        }
         draft.readPasteboard = { [unowned self] in self.pasteboard.last }
         draft.enumerateInputs = { done in done(["Stage Microphone", "Other Microphone"], "Stage Microphone") }
         draft.chooseInput = { [unowned self] name in self.chosenInputs.append(name) }

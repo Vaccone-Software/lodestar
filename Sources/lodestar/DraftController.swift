@@ -50,6 +50,10 @@ final class DraftController {
     /// A word learned from a correction goes into the vocabulary
     /// (`draft.words`), the same list the editor's keep writes to.
     var learnWord: (String) -> Void = { _ in }
+    /// The words of the list the matcher put back in a settled result, in
+    /// the order they were said: the app keeps which were used lately, to
+    /// tell the models those first.
+    var onNamesUsed: ([String]) -> Void = { _ in }
     /// Words a pass rewrote — the second ear or the intent pass — as they
     /// now stand, underlined quietly until the hand's next key, so a
     /// change made while the eye was elsewhere can be seen and undone.
@@ -74,14 +78,34 @@ final class DraftController {
     /// hears the whole thought, not the pieces the live recognizer cut it
     /// into at pauses (measured on the maker's voice: 8.7% error and 2 of
     /// 10 pauses read as sentence ends, against 9.1% and 4 phrase by
-    /// phrase). At most a minute: past that a new run begins.
-    private var run: (start: Int, time: Double)?
+    /// phrase). At most a minute: past that a new run begins. Kept whether
+    /// or not the ear is loaded, with where the last phrase ends in the
+    /// buffer and in the audio, so an ear that finishes loading while the
+    /// draft is open can hear the run from the audio the draft holds.
+    private var run: (start: Int, time: Double, upper: Int, end: Double, heard: Heard)?
     static let runSeconds: Double = 60
     /// Only the newest hearing of the run is taken; an older one finishing
     /// late would put back words a newer one already settled.
     private var earGeneration = 0
-    /// Phrases still being heard again, and what waits for them.
-    private var earPending = 0
+    /// One hearing runs on the ear at a time, and one waits behind it: the
+    /// newest. A phrase landing while the ear is busy replaces the one
+    /// waiting, since the run it describes contains it. (Every final used
+    /// to queue a whole run, the stale ones ran, and ⏎ waited for all of
+    /// them.)
+    private struct EarJob {
+        let ear: SettlingEar
+        let samples: [Float]
+        let context: [String]
+        let apple: Heard
+        let landed: (range: Range<Int>, text: String)
+        let session: Int
+        let generation: Int
+    }
+    private var earRunning = false
+    private var earNext: EarJob?
+    /// Phrases still being heard again: the one running and the one
+    /// waiting, and what waits for them.
+    private var earPending: Int { (earRunning ? 1 : 0) + (earNext == nil ? 0 : 1) }
     private var earWaiters: [() -> Void] = []
     /// How long ⏎ waits for the last phrase to be heard again before it
     /// lands what it has.
@@ -111,6 +135,15 @@ final class DraftController {
     private var intentSent: Set<String> = []
     /// How long ⏎ waits, after the ear, for a rewrite under way.
     static let intentWaitSeconds: TimeInterval = 0.6
+    /// How long the asks this process has made took to be answered, the
+    /// last twenty, in memory only. ⏎ waits for an ask under way only if
+    /// this record says it can finish inside the wait: the median ask
+    /// takes 1.6 s, and a wait of 0.6 s for one that will not make it
+    /// only delays the paste and loses anyway.
+    var intentTimes: [Double] = []
+    static let intentTimesKept = 20
+    /// When the ask under way was sent.
+    private var intentSentAt: Date?
     /// The most words sent at once: a result and the sentence before it,
     /// as measured, not a paragraph a single refusal would lose.
     static let intentWords = 60
@@ -139,6 +172,12 @@ final class DraftController {
     var readField: (pid_t, Bool) -> Field?
     /// Select a range in the origin field, for a whole-field replacement.
     var selectAll: (pid_t) -> Bool
+    /// What the app in front shows as focused, asked just before a paste
+    /// is posted into it: AX off the main thread in the app, answered on
+    /// the main thread; a stub on the stage.
+    var probeTarget: (pid_t, @escaping (Draft.Target) -> Void) -> Void
+    /// How long ⏎ waits for that answer before pasting as it always did.
+    static let targetWaitSeconds: TimeInterval = 0.5
     /// What `p` pastes: the pasteboard's text.
     var readPasteboard: () -> String?
     /// Settled speech is activity too, for the engine's idle clock.
@@ -294,10 +333,18 @@ final class DraftController {
     private var doorWidth: CGFloat?
     private var standsAbove: CGFloat = 0
     private var closing = false
+    /// ⏎ has been waiting longer than it takes to notice: the foot says
+    /// the draft is finishing, so the keys swallowed meanwhile are not a
+    /// freeze.
+    private var finishing = false
+    private var finishingWork: DispatchWorkItem?
+    static let finishingShownSeconds: TimeInterval = 0.15
+    /// What a second ⏎ runs while the first waits: the ghost settles as
+    /// seen and the draft lands with what stands.
+    private var landNow: (() -> Void)?
     /// Whether the panel shows the whole text or its last four lines:
     /// `zo` and `zc`, and the voice folds it.
     private var expanded = false
-    private var pendingSettle: (() -> Void)?
     /// The word that runs if the recognizer never says it is listening:
     /// the light would otherwise stay out forever, and the hand would
     /// talk into nothing. Past this the session is stopped and named
@@ -318,6 +365,17 @@ final class DraftController {
     /// while `closing` stands every key is swallowed, so a stop that
     /// hangs would take the keyboard with it.
     private var landBackstop: DispatchWorkItem?
+    /// Drafts esc has closed that are waiting out of sight for their last
+    /// words, by session number: the clipboard is written when the stop
+    /// completes, or at the bound. A draft opened again meanwhile has its
+    /// own number and never meets these.
+    private var departing: [Int: Departure] = [:]
+    /// How long esc waits for the last words before the clipboard is
+    /// given the text as it stood.
+    static let departBackstopSeconds: TimeInterval = 1.0
+    /// How many drafts have ended, so a departed one can tell whether
+    /// another has ended since.
+    private var endings = 0
     /// How long `⏎` waits for the recognizer's last words before landing
     /// what it has. The session's own finalize is bounded at 0.7s; this
     /// is the bound on the bound.
@@ -325,7 +383,10 @@ final class DraftController {
     /// Words that were still a ghost when insert mode ended were settled
     /// on the spot, as seen; the recognizer's final for them, if it still
     /// comes, replaces exactly that text and nothing else.
-    private var provisional: (range: Range<Int>, text: String)?
+    ///
+    /// `base` is the page as it stood when they were reserved, so the end
+    /// of the reservation can be found again after the hand has edited it.
+    private var provisional: (range: Range<Int>, text: String, base: [Character])?
     /// The last moment the microphone heard something louder than a
     /// quiet room, and the level that counts as something.
     private var lastVoiceAt: Date?
@@ -431,6 +492,7 @@ final class DraftController {
         postKey = Self.post
         readField = Self.readFieldAX
         selectAll = Self.selectAllAX
+        probeTarget = Self.probeTargetAX
         readPasteboard = { SystemEvents.pasteboard.string(forType: .string) }
         enumerateInputs = { done in
             Self.inputQueue.async {
@@ -569,6 +631,7 @@ final class DraftController {
         out["listening"] = listening
         out["silent"] = hearsNothing
         out["retrying"] = retrying
+        out["finishing"] = finishing
         out["mic"] = micWanted
         if let inputName { out["input"] = inputName }
         out["expanded"] = expanded
@@ -749,7 +812,7 @@ final class DraftController {
         let start = buffer.cursor
         buffer.settle(ghost)
         let text = buffer.slice(start..<buffer.cursor)
-        provisional = (start..<buffer.cursor, text)
+        provisional = (start..<buffer.cursor, text, buffer.characters)
         vim.typed(text)
     }
 
@@ -1092,6 +1155,7 @@ final class DraftController {
         if listens == 0 { journal?.begin(app: frontmost()?.name, at: clock.now()) }
         settler.reset()
         run = nil
+        earNext = nil
         lastSpoken = nil
         handSinceSpeech = false
         resetIntent()
@@ -1162,10 +1226,12 @@ final class DraftController {
             self.onActivity?()
             self.render()
         }, onSettled: { [weak self] heard in
-            guard let self, self.isOpen, self.session == mine else { return }
+            guard let self else { return }
+            // Finals for a draft esc has closed go to the copy of its text
+            // that waits for them.
+            if let leaving = self.departing[mine] { leaving.take(heard); return }
+            guard self.isOpen, self.session == mine else { return }
             self.settle(heard)
-            self.pendingSettle?()
-            self.pendingSettle = nil
         })
         listenWatchdog?.cancel()
         let watchdog = DispatchWorkItem { [weak self] in
@@ -1282,6 +1348,7 @@ final class DraftController {
         } ?? false
         let landing = settler.land(heard, after: before, typedBetween: handSinceSpeech, canReachBack: reachBack)
         settled.names += landing.names
+        if !landing.terms.isEmpty { onNamesUsed(landing.terms) }
         settled.ellipses += landing.ellipses
         settled.joins += landing.joins
         settled.fillers += landing.fillers
@@ -1289,28 +1356,16 @@ final class DraftController {
         return landing
     }
 
-    /// The text just before `point` changed as the settler decided: a
-    /// period dropped or added after the last non-space character.
+    /// The text just before `point` changed as the settler decided.
     /// Returns how many characters `point` moved by.
     private func applyBefore(_ change: Draft.Settler.Landing.Before, at point: Int) -> Int {
-        guard change != .unchanged else { return 0 }
-        var end = point
-        while end > 0, buffer.characters[end - 1].isWhitespace { end -= 1 }
-        guard end > 0 else { return 0 }
-        switch change {
-        case .dropPeriod:
-            guard buffer.characters[end - 1] == "." else { return 0 }
-            buffer.replace((end - 1)..<end, with: "")
-            return -1
-        case .addPeriod:
-            buffer.replace(end..<end, with: ".")
-            return 1
-        case .unchanged:
-            return 0
-        }
+        buffer.applyBefore(change, at: point)
     }
 
-    private func settle(_ heard: Heard) {
+    /// `beyondEdit` is a final's remainder placed after reserved words the
+    /// hand has since edited: it lands at the anchor set for it and is
+    /// never the voice taking a selection.
+    private func settle(_ heard: Heard, beyondEdit: Bool = false) {
         learnFromTheHand()
         let writing = mode == .insert && micWanted
         // Speaking over a selection, visual or a Mac's, is `c` with the
@@ -1319,7 +1374,7 @@ final class DraftController {
         // back as it stood. Not while words are reserved: that final is
         // theirs, and revises them in place below, taking any selection
         // with it.
-        if micWanted, listening, provisional == nil,
+        if micWanted, listening, provisional == nil, !beyondEdit,
            let range = vim.selection(in: buffer), !heard.text.trimmingCharacters(in: .whitespaces).isEmpty {
             settler.handInterrupted()
             let repaired = settler.land(heard, after: "", canReachBack: false).text
@@ -1340,12 +1395,21 @@ final class DraftController {
         // that no longer stand as they did, and inserting it would put
         // the whole utterance back on top of the edit. Delete a word from
         // what you just said and the recognizer's final would paste the
-        // entire session in again — the comment below always claimed this
-        // was dropped, and the branch underneath quietly inserted it.
+        // entire session in again, so the edit stands as the hand left it.
+        // What the final carries past the reserved words was never drawn,
+        // and lands after the edit's end, through the settler like any
+        // landing; a final that does not begin with them is dropped.
         if let standing = provisional, buffer.slice(standing.range) != standing.text {
             buffer.clearGhost()
             provisional = nil
             speechAnchor = nil
+            if writing, let rest = Draft.Reserved.remainder(of: heard, after: standing.text) {
+                let end = Draft.Reserved.end(of: standing.range, was: standing.base, now: buffer.characters)
+                Log.info("draft", ["speech": "final kept past the edit", "words": rest.text.split(whereSeparator: \.isWhitespace).count])
+                speechAnchor = (end, clock.now())
+                settle(rest, beyondEdit: true)
+                return
+            }
             Log.info("draft", ["speech": "final dropped", "reason": "reserved words were edited"])
             render()
             return
@@ -1398,6 +1462,7 @@ final class DraftController {
             let anchor = freshSpeechAnchor()
             var resume = buffer.cursor
             var point = anchor ?? buffer.cursor
+            let cursorAfterPoint = resume >= point
             let landing = self.landing(heard, at: point)
             journal?.heard(heard, landed: landing.text, at: clock.now())
             spokenWords += landing.text.split(whereSeparator: \.isWhitespace).count
@@ -1435,7 +1500,7 @@ final class DraftController {
                     buffer.replace(at..<at, with: " ")
                     grew += 1
                 }
-                buffer.setCursor(min(buffer.count, resume + grew))
+                buffer.setCursor(min(buffer.count, cursorAfterPoint ? resume + grew : resume))
                 lastSpoken = nil
             }
             handSinceSpeech = false
@@ -1500,13 +1565,19 @@ final class DraftController {
     /// that edit text, which would land in the app underneath and edit
     /// the wrong thing. `keycode` is the key as the keyboard sent it, which
     /// the layout types ⌥ characters and dead keys from; a key without one
-    /// is a name only, typed as the key tables type it.
+    /// is a name only, typed as the key tables type it. `repeating` is a
+    /// held key's autorepeat, which never counts as a second ⏎.
     func handleKey(_ key: String, shift: Bool, command: Bool, option: Bool, control: Bool,
-                   keycode: Int64? = nil) -> Bool {
+                   keycode: Int64? = nil, repeating: Bool = false) -> Bool {
         guard isOpen else { return false }
         // While the last words settle, keys are swallowed, not passed on: a
-        // held ⏎ would reach the app ahead of the paste and send.
-        if closing { return true }
+        // held ⏎ would reach the app ahead of the paste and send. A second
+        // ⏎, struck afresh and not repeated by a held key, lands now with
+        // what stands.
+        if closing {
+            if key == "return", !shift, !repeating, !command, !option, !control, let landNow { landNow() }
+            return true
+        }
         pasteRefused = false
         // A key ends the pointer's grain: a shift-click after one extends by
         // characters again. A key struck with the button still down ends
@@ -1848,20 +1919,45 @@ final class DraftController {
         guard isOpen, !closing else { return }
         closing = true
         if clipOrigin != nil { landClip(exit: "return", commit: true); return }
-        let finish = { [weak self] in self?.afterEars { self?.afterIntent { self?.land() } } }
-        if sessionStarted, listening, mode == .insert, micWanted {
-            // A ghost with no final behind it settles as what it was.
-            var landed = false
-            pendingSettle = { [weak self] in
-                // A final for an earlier segment is not the end: words still
-                // volatile settle on the stop, and the paste waits for them.
-                guard !landed, self?.buffer.ghost.isEmpty ?? true else { return }
-                landed = true
-                finish()
+        // The wait is named once it is long enough to be noticed.
+        let showing = DispatchWorkItem { [weak self] in
+            guard let self, self.isOpen, self.closing else { return }
+            self.finishing = true
+            self.render()
+        }
+        finishingWork = showing
+        clock.after(Self.finishingShownSeconds, showing)
+        // Every path ends in one landing, once: the waits that outlive it
+        // find it done.
+        var landedOnce = false
+        let land = { [weak self] in
+            guard !landedOnce else { return }
+            landedOnce = true
+            self?.land()
+        }
+        let finish = { [weak self] in self?.afterEars { self?.afterIntent { land() } } }
+        // A second ⏎ ends every wait: the ghost lands as seen, and so does
+        // whatever the ear and the pass have not yet answered.
+        var stopped = false
+        landNow = { [weak self] in
+            guard let self else { return }
+            if !stopped {
+                stopped = true
+                if !self.buffer.ghost.isEmpty { self.settle(Heard(self.buffer.ghost)) }
             }
+            Log.info("draft", ["commit": "landed by a second return"])
+            land()
+        }
+        if sessionStarted, listening, mode == .insert, micWanted {
+            // ⏎ lands when the stop completes, not on the first final: the
+            // stop drains the finals the recognizer still owes before it
+            // reports done, so each has settled by then. Landing on the
+            // first one left a second, outstanding, to be dropped.
+            var landed = false
             speech.stop { [weak self] in
-                guard let self, !landed else { return }
+                guard let self, !landed, !stopped else { return }
                 landed = true
+                // A ghost with no final behind it settles as what it was.
                 if !self.buffer.ghost.isEmpty { self.settle(Heard(self.buffer.ghost)) }
                 finish()
             }
@@ -1870,7 +1966,7 @@ final class DraftController {
             // would leave `closing` standing and every key swallowed.
             // Past this, the ghost lands as seen and the draft closes.
             let backstop = DispatchWorkItem { [weak self] in
-                guard let self, !landed else { return }
+                guard let self, !landed, !stopped else { return }
                 landed = true
                 Log.info("draft", ["commit": "landed by backstop", "ghost": !self.buffer.ghost.isEmpty])
                 if !self.buffer.ghost.isEmpty { self.settle(Heard(self.buffer.ghost)) }
@@ -1889,40 +1985,69 @@ final class DraftController {
     /// The phrase that just landed, heard again by the ear from the held
     /// audio, off the main thread.
     private func rehear(_ heard: Heard, landed: (range: Range<Int>, text: String)) {
-        guard let ear, ear.isLoaded, let start = heard.start, let end = heard.end, end > start else { return }
+        guard let start = heard.start, let end = heard.end, end > start else { return }
         // The run: begun by this phrase, or carried on from the ones before
-        // it while the hand stayed off the keys.
+        // it while the hand stayed off the keys. Kept while the ear is
+        // cold too, so the ear can catch up when it has loaded.
         if let current = run, current.start <= landed.range.lowerBound, end - current.time <= Self.runSeconds {
-            // carries on
+            run = (current.start, current.time, landed.range.upperBound, end, heard)
         } else {
-            run = (landed.range.lowerBound, start)
+            run = (landed.range.lowerBound, start, landed.range.upperBound, end, heard)
         }
-        guard let run else { return }
-        let range = run.start..<landed.range.upperBound
+        guard let ear, ear.isLoaded else { return }
+        hearRun(with: ear)
+    }
+
+    /// The second ear finished loading with the draft open: the run
+    /// stands as the live recognizer wrote it, and the audio is still
+    /// held, so it hears the run now, through the same path and with the
+    /// same guards as any phrase. Nothing is heard if the hand has touched
+    /// the words since (the run ends with the hand) or the run is gone.
+    func earLoaded() {
+        guard isOpen, sessionStarted, let ear, ear.isLoaded, run != nil else { return }
+        hearRun(with: ear)
+    }
+
+    /// The run so far, heard again from the held audio, off the main thread.
+    private func hearRun(with ear: SettlingEar) {
+        guard let run, run.upper <= buffer.count else { return }
+        let range = run.start..<run.upper
         let whole = (range: range, text: buffer.slice(range))
-        let samples = speech.held.slice(from: max(0, run.time - 0.2), to: end + 0.3)
+        let samples = speech.held.slice(from: max(0, run.time - 0.2), to: run.end + 0.3)
         // Under half a second is a word or a breath: not worth a second ear.
         guard samples.count >= 8_000 else { return }
-        let mine = session
-        let context = earContext
         earGeneration += 1
-        let generation = earGeneration
-        earPending += 1
+        let job = EarJob(ear: ear, samples: samples, context: earContext, apple: run.heard, landed: whole,
+                         session: session, generation: earGeneration)
+        // The ear is busy: this one waits, and takes the place of any that
+        // was waiting. The one running cannot be recalled, but its answer
+        // is stale now and is not taken (the generation moved on).
+        if earRunning { earNext = job } else { launch(job) }
+    }
+
+    private func launch(_ job: EarJob) {
+        earRunning = true
         Task.detached { [weak self] in
             let began = Date()
-            let again = try? await ear.transcribe(samples, context: context)
+            let again = try? await job.ear.transcribe(job.samples, context: job.context)
             let seconds = Date().timeIntervalSince(began)
             await MainActor.run {
-                self?.earHeard(again, apple: heard, landed: whole, session: mine, generation: generation,
-                               seconds: seconds)
+                self?.earHeard(again, apple: job.apple, landed: job.landed, session: job.session,
+                               generation: job.generation, seconds: seconds)
             }
         }
     }
 
     private func earHeard(_ again: Heard?, apple: Heard, landed: (range: Range<Int>, text: String),
                           session mine: Int, generation: Int, seconds: Double) {
-        earPending = max(0, earPending - 1)
+        earRunning = false
         defer {
+            // The newest waiting hearing starts as this one ends, unless
+            // the draft it was for has gone.
+            if let next = earNext {
+                earNext = nil
+                if isOpen, next.session == session { launch(next) }
+            }
             if earPending == 0 {
                 // The ear is done: the pass reads its words, and starts
                 // before ⏎'s wait for the ear lets go.
@@ -2046,6 +2171,7 @@ final class DraftController {
         guard IntentPass.wants(core), !intentSent.contains(core) else { return }
         intentSent.insert(core)
         intentInFlight = true
+        intentSentAt = clock.now()
         intentGeneration += 1
         let generation = intentGeneration
         let mine = session
@@ -2066,6 +2192,12 @@ final class DraftController {
     private func intentHeard(_ answer: String?, judged: (text: String?, verdict: IntentChecker.Verdict?),
                              sent: (range: Range<Int>, text: String), lead: String, session mine: Int,
                              generation: Int, ears: Int, seconds: Double) {
+        // Every answer says how long an ask takes, a late one most of all:
+        // it is the answer ⏎ did not wait for.
+        if answer != nil {
+            intentTimes.append(seconds)
+            if intentTimes.count > Self.intentTimesKept { intentTimes.removeFirst(intentTimes.count - Self.intentTimesKept) }
+        }
         guard generation == intentGeneration else { return }
         intentInFlight = false
         defer {
@@ -2110,9 +2242,21 @@ final class DraftController {
         render()
     }
 
-    /// ⏎ waits for a rewrite under way, a little.
+    /// ⏎ waits for a rewrite under way, a little: only when the record of
+    /// answers says it can finish inside the wait. Otherwise it lands now,
+    /// and the answer, if it comes, finds the draft gone. With no record
+    /// yet, it waits as it always did.
     private func afterIntent(_ then: @escaping () -> Void) {
         guard intentInFlight else { then(); return }
+        if let median = Self.median(intentTimes) {
+            let elapsed = intentSentAt.map { clock.now().timeIntervalSince($0) } ?? 0
+            if median - elapsed > Self.intentWaitSeconds {
+                Log.info("draft", ["intent wait": "skipped", "median ms": Int(median * 1000),
+                                   "elapsed ms": Int(elapsed * 1000)])
+                then()
+                return
+            }
+        }
         var done = false
         let go = {
             guard !done else { return }
@@ -2121,6 +2265,13 @@ final class DraftController {
         }
         intentWaiters.append(go)
         clock.after(Self.intentWaitSeconds, DispatchWorkItem { go() })
+    }
+
+    static func median(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        return sorted.count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
     }
 
     private func land() {
@@ -2132,6 +2283,28 @@ final class DraftController {
             hasDestination: destination != nil,
             destinationIsOrigin: destination?.pid == origin?.pid,
             pulledFromOrigin: origin?.pulled ?? false)
+        // A plain paste into another app is the one ending that can land
+        // on nothing: the app may have no focused element, or a list. It is
+        // asked off the main thread before the key is posted; a replace
+        // goes back into the field the words came from and needs no asking.
+        if !text.isEmpty, ending == .paste, let pid = destination?.pid {
+            var answered = false
+            let answer: (Draft.Target) -> Void = { [weak self] target in
+                guard !answered else { return }
+                answered = true
+                self?.finishLanding(text: text, destination: destination, ending: ending, target: target)
+            }
+            probeTarget(pid, answer)
+            // An answer that never comes is an uncertain one.
+            clock.after(Self.targetWaitSeconds, DispatchWorkItem { answer(.unknown) })
+            return
+        }
+        finishLanding(text: text, destination: destination, ending: ending, target: nil)
+    }
+
+    private func finishLanding(text: String, destination: Destination?, ending: Draft.Ending,
+                               target: Draft.Target?) {
+        guard isOpen else { return }
         var action = "empty"
         var row: String? = nil
         if !text.isEmpty {
@@ -2147,6 +2320,13 @@ final class DraftController {
             case _ where secure:
                 flash?("press ⌘V to paste, this field blocks synthetic input")
                 action = "copied"; row = "secure"
+            case .paste where target.map({ !Draft.pastes(into: $0) }) ?? false:
+                // The app is there and nothing in it takes text: a paste
+                // would be a key struck into the air, with the confirming
+                // sound over it. The words are on the pasteboard, and the
+                // flash says where they went.
+                flash?("⌂ copied, no field there takes a paste")
+                action = "copied"; row = "no field"
             case .replace where origin?.wholeField == true
                 && origin.flatMap({ readField($0.pid, false) })?.token != origin?.token:
                 // The same app, a different field: a paste there, and the
@@ -2182,15 +2362,49 @@ final class DraftController {
         closing = true
         learnFromTheHand()
         if clipOrigin != nil { landClip(exit: reason, commit: false); return }
-        if sessionStarted { speech.stop {} }
         let text = buffer.text + (buffer.ghost.isEmpty ? "" : Draft.separator(after: buffer.characters, before: buffer.ghost) + buffer.ghost)
         let destination = frontmost()
-        if !text.isEmpty {
-            writePasteboard(text)
-            if reason == "escape" { flash?("⌂ draft kept in the clipboard") }
+        // A quit waits for nothing: the process is going.
+        if sessionStarted, listening, mode == .insert, micWanted, reason != "quit" {
+            // The panel closes now; the last second of speech is still in
+            // the recognizer, and the clip is written once the stop has
+            // delivered it, into a copy of the text.
+            let mine = session
+            let endedBefore = endings
+            let leaving = Departure(buffer: buffer, settler: settler, provisional: provisional,
+                                    anchor: freshSpeechAnchor())
+            departing[mine] = leaving
+            var kept = false
+            let keep = { [weak self] in
+                guard let self, !kept else { return }
+                kept = true
+                self.departing[mine] = nil
+                self.keepDeparted(leaving.text, reason: reason, endedBefore: endedBefore)
+            }
+            speech.stop { keep() }
+            clock.after(Self.departBackstopSeconds, DispatchWorkItem { keep() })
+        } else {
+            if sessionStarted { speech.stop {} }
+            if !text.isEmpty {
+                writePasteboard(text)
+                if reason == "escape" { flash?("⌂ draft kept in the clipboard") }
+            }
         }
         close()
         record(action: text.isEmpty ? "empty" : "cancelled", row: reason, destination: destination)
+    }
+
+    /// The clipboard given a departed draft's text, with its flash.
+    /// Skipped when a later draft has already ended: its landing is the
+    /// newer thing on the pasteboard and this would take it back.
+    private func keepDeparted(_ text: String, reason: String, endedBefore: Int) {
+        guard !text.isEmpty else { return }
+        guard endings <= endedBefore + 1 else {
+            Log.info("draft", ["cancel": "clip not written", "reason": "a later draft has ended"])
+            return
+        }
+        writePasteboard(text)
+        if reason == "escape" { flash?("⌂ draft kept in the clipboard") }
     }
 
     /// The clip door's ending, into the history and never the pasteboard.
@@ -2216,7 +2430,12 @@ final class DraftController {
 
     private func close() {
         defer { onClosed?() }
+        endings += 1
         isOpen = false
+        finishing = false
+        finishingWork?.cancel()
+        finishingWork = nil
+        landNow = nil
         clipOrigin = nil
         doorWidth = nil
         standsAbove = 0
@@ -2242,8 +2461,9 @@ final class DraftController {
         speechAnchor = nil
         lastVoiceAt = nil
         session += 1
+        earNext = nil
+        run = nil
         resetIntent()
-        pendingSettle = nil
         resetPointer()
         panel.hide()
     }
@@ -2331,7 +2551,7 @@ final class DraftController {
             editorMarks: buffer.ghost.isEmpty ? editorMarks : [],
             pending: vim.isPending, speech: speechState, input: inputName, level: level,
             inputs: inputs, systemInput: systemInputName, chosenInput: inputDevice,
-            micOn: micWanted, silent: hearsNothing, retrying: retrying,
+            micOn: micWanted, silent: hearsNothing, retrying: retrying, finishing: finishing,
             destination: card == nil ? front.map { ($0.name, $0.icon) } : nil,
             replacing: (origin?.pulled ?? false) && front?.pid == origin?.pid,
             card: card, width: doorWidth, standsAbove: standsAbove, expanded: expanded,
@@ -2414,6 +2634,59 @@ final class DraftController {
             }
         }
         return field
+    }
+
+    private static let targetQueue = DispatchQueue(label: "com.vaccone.lodestar.draft-target", qos: .userInitiated)
+
+    /// Ask the app what has the focus, off the main thread, and answer on
+    /// it. Positive only when the app answered "nothing" and still speaks
+    /// Accessibility; an error, a timeout or an app that does not answer
+    /// is `.unknown`, and the paste is posted as it always was.
+    private static func probeTargetAX(pid: pid_t, done: @escaping (Draft.Target) -> Void) {
+        targetQueue.async {
+            // A web engine builds its tree only when asked and tears it down
+            // when idle, and in between answers "nothing has the focus" with
+            // its composer focused: Slack, Brave and Claude would be refused
+            // a paste. Its answer is never positive, so it is not asked.
+            if let bundle = NSRunningApplication(processIdentifier: pid)?.bundleURL, hostsWebEngine(bundle) {
+                DispatchQueue.main.async { done(.unknown) }
+                return
+            }
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, axTimeout)
+            var target = Draft.Target.unknown
+            var ref: CFTypeRef?
+            switch AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &ref) {
+            case .success:
+                if let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() {
+                    let focused = ref as! AXUIElement
+                    AXUIElementSetMessagingTimeout(focused, axTimeout)
+                    if let role = AX.string(focused, kAXRoleAttribute) {
+                        var settable: DarwinBoolean = false
+                        let takesValue = AXUIElementIsAttributeSettable(focused, kAXValueAttribute as CFString, &settable) == .success
+                            && settable.boolValue
+                        let hasCaret = AX.copy(focused, kAXSelectedTextRangeAttribute) != nil
+                        target = .focus(role: role, text: takesValue || hasCaret)
+                    }
+                }
+            case .noValue:
+                if AX.string(app, kAXRoleAttribute) != nil { target = .noFocus }
+            default:
+                break
+            }
+            DispatchQueue.main.async { done(target) }
+        }
+    }
+
+    /// Electron, a Chromium browser or a Gecko one (Firefox, Mullvad):
+    /// each keeps its accessibility tree lazily.
+    static func hostsWebEngine(_ bundle: URL) -> Bool {
+        let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
+        if FileManager.default.fileExists(atPath: frameworks.appendingPathComponent("Electron Framework.framework").path)
+            || FileManager.default.fileExists(atPath: bundle.appendingPathComponent("Contents/MacOS/XUL").path) {
+            return true
+        }
+        return AXWarmer.isChromiumBrowser(bundle)
     }
 
     private static func selectAllAX(pid: pid_t) -> Bool {

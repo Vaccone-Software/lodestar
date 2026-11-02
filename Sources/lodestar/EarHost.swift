@@ -4,7 +4,7 @@ import LodestarEars
 
 /// The draft's settling ear, chosen by tier and kept in memory only while
 /// it is wanted: loaded when dictation starts, let go thirty minutes after
-/// the draft closes, or at once when macOS says memory is short. (Measured
+/// the draft closes, or at once when macOS says memory is critical. (Measured
 /// on the maker's record: kept five minutes, 62% of drafts found it warm;
 /// kept thirty, 83%. It is 2.5 GB, and the 35B model beside it is not kept
 /// that long.) A model lives under
@@ -89,9 +89,12 @@ final class EarHost {
 
     init(clock: Clock = .live) {
         self.clock = clock
-        // The editor's model goes at once on this signal. So does the ear,
-        // the one thing here kept long enough for it to matter.
-        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        // The editor's model goes at once on a warning, and on Max that is
+        // the 20 GB the warning is about. The ear goes only when memory is
+        // critical: on the maker's Mac the editor was let go by a warning
+        // ninety times in twenty-two days, and an ear that went with it
+        // would be cold again for a quarter of the day's drafts.
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.critical], queue: .main)
         pressure.setEventHandler { [weak self] in self?.memoryPressure() }
         pressure.resume()
         self.pressure = pressure
@@ -269,7 +272,7 @@ final class EarHost {
         clock.after(Self.idleSeconds, ears)
     }
 
-    /// macOS says memory is short: a resting ear goes now. One in use goes
+    /// macOS says memory is critical: a resting ear goes now. One in use goes
     /// when its draft closes, so a dictation never loses its ear mid-
     /// sentence to a signal that may have passed.
     func memoryPressure() {

@@ -2751,6 +2751,8 @@ extension HotkeyEngine: EngineWorld {
 
     func pasteQueryIsEmpty() -> Bool { (pasteQuery ?? "").isEmpty }
 
+    func pasteBestMatchExists() -> Bool { strip.shownRecents.indices.contains(pasteSelection) }
+
     func bringCardExists(_ label: String) -> Bool {
         guard let index = ClipboardStrip.labels.firstIndex(of: label) else { return false }
         return strip.shownBring.indices.contains(index)

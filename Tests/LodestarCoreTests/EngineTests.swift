@@ -115,6 +115,10 @@ final class WorldStub: EngineWorld {
     var readings: Set<String>?
     func pasteReadingExists(address: String?) -> Bool { readings?.contains(address ?? "best") ?? true }
 
+    /// Whether the search has a best match for ⏎ to take.
+    var bestMatch = true
+    func pasteBestMatchExists() -> Bool { bestMatch }
+
     /// Whether Keep's search is empty.
     var queryEmpty = true
     func pasteQueryIsEmpty() -> Bool { queryEmpty }

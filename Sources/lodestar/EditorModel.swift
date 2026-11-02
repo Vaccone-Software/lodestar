@@ -191,10 +191,16 @@ protocol EditorProofreader: Sendable {
     /// Dictation as it was meant, or nil when this engine does not offer
     /// it or did not answer in time. Unchecked: the caller checks.
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String?
+    /// Can the model answer now? Cheap and synchronous, for whatever tells
+    /// the hand once that it cannot: `.unable` from the load that failed or
+    /// ran out of time, or the generation that never came back, until the
+    /// next answer. A fake that never fails need not say.
+    var ability: ModelAbility { get }
 }
 
 extension EditorProofreader {
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String? { nil }
+    var ability: ModelAbility { .able }
 }
 
 enum EditorModelError: Error, CustomStringConvertible {
@@ -223,6 +229,17 @@ enum EditorModelError: Error, CustomStringConvertible {
 /// of 3 — the memory-pressure release is what keeps that affordable. An answer that has not
 /// come in eight seconds is abandoned: a stuck model costs one sentence,
 /// never the rest of the field.
+///
+/// The eight seconds are the model's own, counted from the moment it holds
+/// the process's MLX lane (`MLXGate`, shared with the dictation ear), not
+/// from the moment the sentence was asked: a question that cannot start
+/// within `gateWait` is nil at once and costs nothing, and a generation
+/// that overruns is cancelled and stops. If one still has not stopped
+/// twenty seconds later the model was lost: the backend is let go, the next
+/// sentence loads a fresh one, and the log says so once. Before this the
+/// model stayed wedged until the app restarted (42 times in three weeks,
+/// up to 50 minutes, with no word to the hand), and a load had no deadline
+/// at all.
 actor EditorModel: EditorProofreader {
     typealias Loader = @Sendable (EditorEngine) async throws -> any EditorBackend
     enum State: Equatable { case unloaded, loading, ready, failed(String) }
@@ -243,19 +260,41 @@ actor EditorModel: EditorProofreader {
     private let clearCache: @Sendable () -> Void
     let idleRelease: TimeInterval
     let answerDeadline: TimeInterval
+    /// How long a sentence waits for the GPU before it gives up. The
+    /// dictation ear's phrases take 0.5 s and the slowest logged were nine,
+    /// so a sentence this late would be stale anyway.
+    let gateWait: TimeInterval
+    /// A load's own deadline, and its wait for the GPU. The slowest logged
+    /// load took 52 s (the 20 GB model, cold).
+    let loadDeadline: TimeInterval
+    private let calls: ModelCalls
+    /// A prompt's beginning is read once with a deadline of its own, the
+    /// model's 2.5 s on Full being the longest measured.
+    static let warmDeadline: TimeInterval = 30
+    static let warmWait: TimeInterval = 3
+    /// The intent pass waits less for the GPU than a sentence check does,
+    /// for the same reason it waits less for an answer.
+    static let rewriteWait: TimeInterval = 1
     /// The intent pass waits less than a sentence check: an answer this
     /// late would land after the words it rewrites were read.
     static let rewriteDeadline: TimeInterval = 4
 
     init(engine: EditorEngine, idleRelease: TimeInterval = 20 * 60, answerDeadline: TimeInterval = 8,
+         gateWait: TimeInterval = 3, loadDeadline: TimeInterval = 60, stuckAfter: TimeInterval = 20,
+         gate: MLXGate = .shared,
          loader: @escaping Loader = EditorModel.load,
          clearCache: @escaping @Sendable () -> Void = { MLX.GPU.clearCache() }) {
         self.engine = engine
         self.idleRelease = idleRelease
         self.answerDeadline = answerDeadline
+        self.gateWait = gateWait
+        self.loadDeadline = loadDeadline
+        self.calls = ModelCalls(name: "editor.model", gate: gate, stuckAfter: stuckAfter)
         self.loader = loader
         self.clearCache = clearCache
     }
+
+    nonisolated var ability: ModelAbility { calls.ability }
 
     private var instructions = EditorPrompt.instructions
 
@@ -281,9 +320,15 @@ actor EditorModel: EditorProofreader {
                                     "engine": engine.rawValue]) }
         guard let backend = await loaded() else { return nil }
         let instructions = self.instructions
-        let answer = await Self.within(answerDeadline) { try? await backend.respond(to: sentence, instructions: instructions) }
-        if answer == nil { Log.info("editor", ["unanswered": sentence.count, "engine": engine.rawValue]) }
-        return answer
+        let asked = await calls.ask(deadline: answerDeadline, wait: gateWait, gated: backendEngine != .minimal) {
+            try? await backend.respond(to: sentence, instructions: instructions)
+        }
+        switch asked {
+        case .answer: break
+        case .unanswered: Log.info("editor", ["unanswered": sentence.count, "engine": engine.rawValue])
+        case .busy: Log.info("editor", ["busy": sentence.count, "engine": engine.rawValue])
+        }
+        return asked.value
     }
 
     /// Only the models on this Mac: Apple's gained little once checked
@@ -293,29 +338,32 @@ actor EditorModel: EditorProofreader {
     /// is read the first time with no deadline (2.5 s on Full), so the
     /// deadline only ever bounds the answer.
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String? {
+        recoverIfStuck()
         guard engine == .standard || engine == .full, let backend,
               backendEngine == .standard || backendEngine == .full else { return nil }
         scheduleRelease()
         if !warmed.contains(prompt) {
             let started = Date()
-            do {
-                try await backend.warm(prompt)
-                warmed.insert(prompt)
-                Log.info("intent", ["warmed": Int(Date().timeIntervalSince(started) * 1000), "engine": engine.rawValue])
-            } catch {
-                return nil
+            let read = await calls.ask(deadline: Self.warmDeadline, wait: Self.warmWait) {
+                (try? await backend.warm(prompt)).map { true }
             }
+            guard read.value != nil else { return nil }
+            warmed.insert(prompt)
+            Log.info("intent", ["warmed": Int(Date().timeIntervalSince(started) * 1000), "engine": engine.rawValue])
             // Released or switched while it read: not this model's answer.
             guard self.backend != nil, backendEngine == .standard || backendEngine == .full else { return nil }
         }
         let started = Date()
-        let answer = await Self.within(Self.rewriteDeadline) { try? await backend.rewrite(text, prompt: prompt) }
+        let answer = await calls.ask(deadline: Self.rewriteDeadline, wait: Self.rewriteWait) {
+            try? await backend.rewrite(text, prompt: prompt)
+        }.value
         Log.info("intent", ["asked": text.count, "answered": answer != nil,
                             "ms": Int(Date().timeIntervalSince(started) * 1000), "engine": engine.rawValue])
         return answer
     }
 
     private func loaded() async -> (any EditorBackend)? {
+        recoverIfStuck()
         if let backend { return backend }
         if let loading {
             if case .success(let backend) = await loading.value { return backend }
@@ -325,8 +373,21 @@ actor EditorModel: EditorProofreader {
         let started = Date()
         let engine = self.engine
         let loader = self.loader
+        let calls = self.calls
+        let deadline = loadDeadline
+        // Under the lane and a deadline of its own: a load that hangs must
+        // not keep every question waiting on it for ever.
         let task = Task { () -> Result<any EditorBackend, Error> in
-            do { return .success(try await loader(engine)) } catch { return .failure(error) }
+            let asked = await calls.ask(deadline: deadline, wait: deadline, gated: engine != .minimal) { () -> Result<any EditorBackend, Error>? in
+                do { return .success(try await loader(engine)) } catch { return .failure(error) }
+            }
+            switch asked {
+            case .answer(let result): return result
+            case .unanswered:
+                return .failure(EditorModelError.unavailable("the model did not load in \(Int(deadline)) seconds"))
+            case .busy:
+                return .failure(EditorModelError.unavailable("the GPU stayed busy for \(Int(deadline)) seconds"))
+            }
         }
         loading = task
         let result = await task.value
@@ -338,13 +399,26 @@ actor EditorModel: EditorProofreader {
             backend = loaded
             backendEngine = engine
             state = .ready
+            calls.backendReplaced()
+            calls.loadEnded(succeeded: true)
             Log.info("editor", ["loaded": engine.rawValue, "ms": Int(Date().timeIntervalSince(started) * 1000)])
             return loaded
         case .failure(let error):
             state = .failed("\(error)")
+            calls.loadEnded(succeeded: false)
             Log.error("editor: model load failed: \(error)")
             return nil
         }
+    }
+
+    /// A generation that overran and has not stopped in twenty seconds
+    /// means the backend it ran on cannot be trusted: let it go, so the
+    /// next sentence loads another, on a ledger label of its own.
+    private func recoverIfStuck() {
+        let lost = calls.recoverIfStuck()
+        guard lost > 0 else { return }
+        dropBackend()
+        Log.info("editor", ["recovered": "the model stopped answering", "generations": lost, "engine": engine.rawValue])
     }
 
     private func scheduleRelease() {
@@ -359,12 +433,17 @@ actor EditorModel: EditorProofreader {
 
     func release(reason: String) {
         guard backend != nil else { return }
+        dropBackend()
+        Log.info("editor", ["released": reason])
+    }
+
+    private func dropBackend() {
         backend = nil
         warmed = []
         if backendEngine != .minimal { clearCache() }
         backendEngine = nil
         state = .unloaded
-        Log.info("editor", ["released": reason])
+        calls.backendReplaced()
     }
 
     /// `work`'s answer, or nil when it has not come by the deadline — the
@@ -377,11 +456,16 @@ actor EditorModel: EditorProofreader {
     /// A generation still running is on the ledger, and the label refuses
     /// a third while two have not come back, so a model that has stopped
     /// answering is not asked again and again; the refusal reads as nil,
-    /// like any other answer that did not come.
-    static func within<T: Sendable>(_ seconds: TimeInterval,
+    /// like any other answer that did not come. The label belongs to one
+    /// backend (`ModelCalls.label`): a fresh one is not refused for what the
+    /// last one left outstanding.
+    ///
+    /// The deadline counts from here, so callers take the MLX lane first
+    /// (`ModelCalls.ask`) and a question never spends it standing in line.
+    static func within<T: Sendable>(_ seconds: TimeInterval, label: String = "editor.model",
                                     _ work: @escaping @Sendable () async -> T?) async -> T? {
         do throws(PolicyError<Never>) {
-            return try await abandoningAsyncAfter(.seconds(seconds), label: "editor.model", limit: 3) {
+            return try await abandoningAsyncAfter(.seconds(seconds), label: label, limit: 3) {
                 await work()
             }
         } catch {
@@ -530,8 +614,14 @@ private final class MLXBackend: EditorBackend, @unchecked Sendable {
                 input: LMInput(tokens: MLXArray(rest)), cache: cache, parameters: parameters, context: context)
             var text = ""
             for await generation in stream {
+                // A generation given up on (its deadline passed, or a
+                // new backend replaced this one) stops at the next token,
+                // so the GPU is free for whoever is next on the lane. Leaving
+                // the loop ends the stream, which stops the generation.
+                if Task.isCancelled { break }
                 if case .chunk(let chunk) = generation { text += chunk }
             }
+            try Task.checkCancellation()
             return text
         }
     }

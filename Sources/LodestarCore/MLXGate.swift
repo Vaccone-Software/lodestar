@@ -70,6 +70,9 @@ public final class MLXGate: Sendable {
     ///
     /// The wait is timed on the ambient clock, so a test spends none of it.
     public func acquire(within wait: Duration? = nil) async -> Permit? {
+        // A free lane is taken without a timer (and without a suspension
+        // in which a cancel could be missed): the common case costs nothing.
+        if !Task.isCancelled, let permit = takeIfFree() { return permit }
         let id = state.withLock { state -> UInt64 in
             state.nextID += 1
             state.pending.insert(state.nextID)
@@ -142,6 +145,15 @@ public final class MLXGate: Sendable {
     }
 
     // MARK: - The queue
+
+    private func takeIfFree() -> Permit? {
+        state.withLock { state in
+            guard state.holder == nil, state.queue.isEmpty else { return nil }
+            state.nextID += 1
+            state.holder = state.nextID
+            return Permit(id: state.nextID)
+        }
+    }
 
     /// Takes the lane if it is free and nobody is ahead, else queues.
     private func enqueue(_ id: UInt64, _ resume: @escaping @Sendable (Permit?) -> Void) {

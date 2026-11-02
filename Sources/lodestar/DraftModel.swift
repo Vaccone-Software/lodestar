@@ -67,6 +67,11 @@ extension EarTier {
 /// The draft's own copy of its model, held as the ear is: loaded when
 /// dictation starts, let go when the ear rests. Used only when the editor
 /// does not already hold the same weights.
+///
+/// Its loads, readings and rewrites take the process's MLX lane as the
+/// editor's do (`ModelCalls`), so neither reads at the same moment as the
+/// other or as the ear, and a generation that never comes back is let go of
+/// with its backend rather than wedging the intent pass.
 actor DraftModel {
     typealias Loader = @Sendable (CleanupModel) async throws -> any EditorBackend
     let model: CleanupModel
@@ -75,10 +80,16 @@ actor DraftModel {
     private var warmed: Set<IntentPass.Prompt> = []
     private let loader: Loader
     private let clearCache: @Sendable () -> Void
+    private let calls: ModelCalls
+    /// A load's own deadline and wait for the GPU, as the editor's.
+    let loadDeadline: TimeInterval
 
-    init(model: CleanupModel, loader: @escaping Loader = DraftModel.load,
+    init(model: CleanupModel, loadDeadline: TimeInterval = 60, stuckAfter: TimeInterval = 20,
+         gate: MLXGate = .shared, loader: @escaping Loader = DraftModel.load,
          clearCache: @escaping @Sendable () -> Void = { MLX.Memory.clearCache() }) {
         self.model = model
+        self.loadDeadline = loadDeadline
+        self.calls = ModelCalls(name: "intent.model", gate: gate, stuckAfter: stuckAfter)
         self.loader = loader
         self.clearCache = clearCache
     }
@@ -95,38 +106,65 @@ actor DraftModel {
 
     /// Dictation started: the weights load now, once.
     func load() async {
+        recoverIfStuck()
         if backend != nil { return }
         if let loading { _ = await loading.value; return }
         let began = Date()
         let model = self.model
         let loader = self.loader
+        let calls = self.calls
+        let deadline = loadDeadline
         let task = Task { () -> (any EditorBackend)? in
-            do { return try await loader(model) } catch {
-                Log.info("intent", ["model": model.rawValue, "load failed": "\(error)"])
-                return nil
+            let asked = await calls.ask(deadline: deadline, wait: deadline) { () -> Result<any EditorBackend, Error>? in
+                do { return .success(try await loader(model)) } catch { return .failure(error) }
             }
+            switch asked {
+            case .answer(.success(let backend)): return backend
+            case .answer(.failure(let error)):
+                Log.info("intent", ["model": model.rawValue, "load failed": "\(error)"])
+            case .unanswered, .busy:
+                Log.info("intent", ["model": model.rawValue, "load failed": "no answer in \(Int(deadline)) seconds"])
+            }
+            return nil
         }
         loading = task
         backend = await task.value
         loading = nil
+        calls.loadEnded(succeeded: backend != nil)
         if backend != nil {
+            calls.backendReplaced()
             Log.info("intent", ["model": model.rawValue, "loaded ms": Int(Date().timeIntervalSince(began) * 1000)])
         }
+    }
+
+    /// A generation that overran and has not stopped: its backend goes, and
+    /// the next dictation loads another.
+    private func recoverIfStuck() {
+        let lost = calls.recoverIfStuck()
+        guard lost > 0 else { return }
+        backend = nil
+        warmed = []
+        clearCache()
+        Log.info("intent", ["model": model.rawValue, "recovered": "the model stopped answering", "generations": lost])
     }
 
     /// As `EditorModel.rewrite`: never a load, the prompt's beginning read
     /// once with no deadline, then the answer under one.
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String? {
+        recoverIfStuck()
         guard let backend else { return nil }
         if !warmed.contains(prompt) {
-            do { try await backend.warm(prompt) } catch { return nil }
+            let read = await calls.ask(deadline: EditorModel.warmDeadline, wait: EditorModel.warmWait) {
+                (try? await backend.warm(prompt)).map { true }
+            }
+            guard read.value != nil else { return nil }
             warmed.insert(prompt)
             guard self.backend != nil else { return nil }
         }
         let began = Date()
-        let answer = await EditorModel.within(EditorModel.rewriteDeadline) {
+        let answer = await calls.ask(deadline: EditorModel.rewriteDeadline, wait: EditorModel.rewriteWait) {
             try? await backend.rewrite(text, prompt: prompt)
-        }
+        }.value
         Log.info("intent", ["asked": text.count, "answered": answer != nil,
                             "ms": Int(Date().timeIntervalSince(began) * 1000), "engine": model.rawValue])
         return answer
@@ -137,6 +175,7 @@ actor DraftModel {
         backend = nil
         warmed = []
         clearCache()
+        calls.backendReplaced()
         Log.info("intent", ["model": model.rawValue, "released": true])
     }
 }

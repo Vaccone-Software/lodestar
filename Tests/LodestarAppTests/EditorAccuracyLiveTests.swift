@@ -24,7 +24,10 @@ final class EditorAccuracyLiveTests: XCTestCase {
         }
         guard engine.usesModel else { throw XCTSkip("Spelling has no model to record: the core test scores it") }
         let recording = env["LODESTAR_EDITOR_RECORD"] != nil
-        var fixture = try JSONDecoder().decode(EditorBench.Fixture.self, from: Data(contentsOf: Self.fixture))
+        // LODESTAR_EDITOR_FIXTURE scores another fixture (text kept off the
+        // repository, such as one's own writing); it is never written.
+        let other = env["LODESTAR_EDITOR_FIXTURE"].map { URL(fileURLWithPath: $0) }
+        var fixture = try JSONDecoder().decode(EditorBench.Fixture.self, from: Data(contentsOf: other ?? Self.fixture))
         // LODESTAR_EDITOR_ONLY=prompt,hand scores a few sources, for trying a
         // prompt quickly; it never writes.
         let only = env["LODESTAR_EDITOR_ONLY"].map { Set($0.split(separator: ",").map(String.init)) }
@@ -53,7 +56,7 @@ final class EditorAccuracyLiveTests: XCTestCase {
                 print("  asked   \(item.text)\n  replied \(item.answers[engine.rawValue]?.values.joined(separator: " | ") ?? "")")
             }
         }
-        if recording && only == nil {
+        if recording && only == nil && other == nil {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
             try encoder.encode(fixture).write(to: Self.fixture)

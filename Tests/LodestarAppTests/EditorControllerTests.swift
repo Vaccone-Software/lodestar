@@ -455,7 +455,7 @@ final class EditorControllerTests: XCTestCase {
         rig.controller.undoLastFix { again = $0 }
         rig.settle("nothing left") { again != nil }
         XCTAssertEqual(again, false, "one undo per fix")
-        XCTAssertEqual(rig.events.map(\.action), ["shown", "applied", "undone"])
+        XCTAssertEqual(rig.events.map(\.action), ["stood", "applied", "undone"])
     }
 
     func testAFixWhoseWordsMovedIsRefused() {
@@ -524,6 +524,9 @@ final class EditorControllerTests: XCTestCase {
         }
     }
 
+    /// A mark is a line in the record when it ends, not when it is placed:
+    /// standing through any number of beats writes nothing, and leaving
+    /// the field writes it once.
     func testAMarkIsCountedShownOnce() {
         let rig = EditorRig()
         rig.type("We need to recieve them.")
@@ -533,7 +536,10 @@ final class EditorControllerTests: XCTestCase {
             rig.beat()
             rig.drain()
         }
-        XCTAssertEqual(rig.events.filter { $0.action == "shown" }.count, 1)
+        XCTAssertTrue(rig.events.isEmpty, "a mark still standing has not ended")
+        rig.type("All is well here.", pid: 5151, app: "Notes", bundle: "com.apple.Notes")
+        rig.drain()
+        XCTAssertEqual(rig.events.map(\.action), ["stood", "left"])
     }
 
     /// Spelling asks no model: the spell checker and the rules mark, and

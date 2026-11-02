@@ -47,6 +47,7 @@ final class EditorController: EditorLens {
         let range: NSRange          // where the replacement now stands
         let original: String
         let replacement: String
+        let kind: EditorIssue.Kind
         /// Fixes made by one ⏎ share a batch, and one ⌫ takes them all.
         let batch: Int
     }
@@ -121,8 +122,14 @@ final class EditorController: EditorLens {
     private var geometryGeneration = 0
     private var fixes: [Fix] = []
     private var batches = 0
-    /// The mark counted as shown once per issue, for the record.
-    private var countedShown: Set<String> = []
+    /// Every mark's life, so each ends in one outcome in the record: shown
+    /// only if it stood, and counted once however the text around it moves.
+    private var ledger = EditorMarkLedger()
+    /// When the last read of the field answered, and when the reads that
+    /// followed stopped: a field that answers nothing for a moment and then
+    /// answers again is the same field, and its state is kept through it.
+    private var lastRead = Date.distantPast
+    private var silentSince: Date?
 
     /// Longest field read, in UTF-16 units: the editor is for messages
     /// and mail, not for documents.
@@ -133,6 +140,12 @@ final class EditorController: EditorLens {
     /// and scrolling, which no app announces. It was every 0.2 seconds
     /// before the editor listened.
     static let beat: TimeInterval = 1.0
+    /// A field that answers nothing for less than this, or comes back as a
+    /// new accessibility element with the text it had, is the same field.
+    /// The log has the field vanish and return inside three seconds 682
+    /// times in Slack, 385 in Brave and 232 in Claude, and Chromium builds
+    /// its elements again behind the same text.
+    static let grace: TimeInterval = 1.5
 
     init(source: EditorFieldSource = AXFieldSource(), queue: DispatchQueue = EditorAX.queue,
          proofreader: EditorProofreader = EditorModel(engine: .standard),
@@ -306,8 +319,12 @@ final class EditorController: EditorLens {
                             "max-ms": Int(s.max.rounded()), "total-ms": Int(s.totalMs.rounded())])
     }
 
-    /// Nothing to read: every mark and card about the last field goes.
+    /// Nothing to read: every mark and card about the last field goes, and
+    /// each mark still standing ends as left.
     private func clearField() {
+        if let field { record(ledger.clear(text: field.text, all: issues, at: clock.now()), app: field.appName) }
+        ledger = EditorMarkLedger()
+        silentSince = nil
         field = nil
         issues = []
         issuesText = ""
@@ -349,13 +366,42 @@ final class EditorController: EditorLens {
 
     func receive(_ read: EditorField?) {
         guard enabled else { return }
-        if read == nil, field != nil { Log.info("editor", ["field": "none"]) }
+        let now = clock.now()
+        // Nothing has answered for longer than the grace: the field is gone.
+        if let silent = silentSince, now.timeIntervalSince(silent) >= Self.grace {
+            Log.info("editor", ["field": "none"])
+            clearField()
+        }
         guard var read, reads(read) else {
-            if field != nil { clearField() }
+            guard field != nil else { return }
+            if read == nil {
+                // Not yet gone: the marks hide, and the state waits.
+                if silentSince == nil {
+                    silentSince = now
+                    holdMarks()
+                }
+            } else {
+                clearField()
+            }
             return
         }
-        let now = clock.now()
-        if field.map({ !$0.isSame(as: read) }) ?? true {
+        var resumed = silentSince != nil
+        let continues = field.map { $0.isSame(as: read) || Self.continues($0, read, silent: now.timeIntervalSince(lastRead)) }
+        if continues == true {
+            // The same field, new element or not: what is known of it stays.
+            if field.map({ !$0.isSame(as: read) }) == true { resumed = true }
+            silentSince = nil
+            if read.text != fieldTextSeen {
+                if Self.similar(fieldTextSeen, read.text) {
+                    ledger.edit(from: fieldTextSeen, to: read.text, at: now)
+                } else {
+                    // Sent, cleared or replaced whole: the marks were left
+                    // standing, not edited into something.
+                    record(ledger.clear(text: fieldTextSeen, all: issues, at: now), app: read.appName)
+                    ledger = EditorMarkLedger()
+                }
+            }
+        } else {
             Log.info("editor", ["field": read.appName, "chars": read.text.utf16.count,
                                 "caret": read.caret.map(String.init) ?? "selection",
                                 "framed": read.frame != nil, "window": read.windowFrame != nil])
@@ -363,8 +409,9 @@ final class EditorController: EditorLens {
             // marks go now rather than when the new ones are placed.
             clearField()
             lastTextChange = now
-            countedShown = []
+            resumed = false
         }
+        lastRead = now
         if read.text != fieldTextSeen {
             lastTextChange = now
             // Typing: load the model now, so the sentence's end does not
@@ -387,11 +434,45 @@ final class EditorController: EditorLens {
             // Typing moves on: a card about the old text goes.
             if read.text != issuesText { hover?.hide() }
             issuesText = read.text
-        } else if now.timeIntervalSince(lastGeometry) > 0.5 {
-            // Nothing typed: follow scrolling and moving windows.
+        }
+        if resumed || (!changed && now.timeIntervalSince(lastGeometry) > 0.5) {
+            // Back from a gap, or nothing typed: place the marks again, and
+            // follow scrolling and moving windows.
             placeMarks()
         }
         compute(read, issues: changed, paused: paused)
+    }
+
+    /// Is `read` the field `field` was, seen again? Another accessibility
+    /// element in the same app, within the grace, with the text it had
+    /// (give or take what the hand typed since): Chromium rebuilds its
+    /// elements, and a field that is rebuilt is not a field left.
+    static func continues(_ field: EditorField, _ read: EditorField, silent: TimeInterval) -> Bool {
+        field.pid == read.pid && field.bundleID == read.bundleID && silent <= grace
+            && similar(field.text, read.text)
+    }
+
+    /// Mostly the same text: the common start and end of the two make up
+    /// four fifths of the longer.
+    static func similar(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        let x = Array(a.utf16), y = Array(b.utf16)
+        let longer = max(x.count, y.count)
+        guard longer > 0 else { return true }
+        var p = 0
+        while p < x.count, p < y.count, x[p] == y[p] { p += 1 }
+        var s = 0
+        while s < x.count - p, s < y.count - p, x[x.count - 1 - s] == y[y.count - 1 - s] { s += 1 }
+        return (p + s) * 5 >= longer * 4
+    }
+
+    /// The field stopped answering: its marks are hidden, not cleared, in
+    /// case it is back in a moment. What is known about it stays.
+    private func holdMarks() {
+        marks = []
+        geometryGeneration += 1
+        drawing.hide()
+        hover?.hide()
     }
 
     /// The marks and the sentences to send, worked out off the main thread
@@ -468,7 +549,7 @@ final class EditorController: EditorLens {
     }
 
     private func placeMarks() {
-        guard let field else { return }
+        guard let field, silentSince == nil else { return }
         lastGeometry = clock.now()
         geometryGeneration += 1
         let expected = geometryGeneration
@@ -477,6 +558,7 @@ final class EditorController: EditorLens {
             marks = []
             drawing.hide()
             hover?.marksChanged()
+            stand(drawn: [], all: [])
             return
         }
         let source = self.source
@@ -485,7 +567,7 @@ final class EditorController: EditorLens {
             DispatchQueue.main.async {
                 guard let self, self.geometryGeneration == expected, self.enabled else { return }
                 self.marks = zip(issues, rects).compactMap { issue, rect in rect.map { Mark(issue: issue, rect: $0) } }
-                self.countShown()
+                self.stand(drawn: self.marks.map(\.issue), all: issues)
                 self.hover?.marksChanged()
                 self.redraw(over: field)
             }
@@ -502,14 +584,39 @@ final class EditorController: EditorLens {
         }
     }
 
-    private func countShown() {
+    /// The marks as they stand now go to the ledger: those that ended are
+    /// recorded, and a mark drawn for the first time lets the walk know.
+    private func stand(drawn: [EditorIssue], all: [EditorIssue]) {
         guard let field else { return }
-        for mark in marks {
-            let key = "\(mark.issue.original)→\(mark.issue.replacement)@\(mark.issue.range.location)"
-            if countedShown.insert(key).inserted {
-                observations?.edited(action: "shown", kind: mark.issue.kind.rawValue, app: field.appName,
-                                     at: clock.now())
-                onMarked()
+        let now = clock.now()
+        let quiet = now.timeIntervalSince(lastTextChange) >= Self.pause
+        let result = ledger.sync(drawn: drawn, all: all, text: field.text, caret: field.caret, quiet: quiet, at: now)
+        record(result.endings, app: field.appName)
+        for _ in 0..<result.appeared { onMarked() }
+    }
+
+    /// Each mark that ended is one outcome in the record: that it stood,
+    /// unless the editor took it back itself, and how it ended. Never the
+    /// words.
+    private func record(_ endings: [EditorMarkLedger.Ending], app: String) {
+        let now = clock.now()
+        for ending in endings {
+            let kind = ending.kind.rawValue
+            if ending.shown { observations?.edited(action: "stood", kind: kind, app: app, at: now) }
+            switch ending.outcome {
+            case .fixed(let via):
+                observations?.edited(action: "applied", kind: kind, app: app, via: via, stood: ending.stood, at: now)
+            case .answered(let learned, let via):
+                observations?.edited(action: "dismissed", kind: learned ? "name" : "sentence", app: app, via: via,
+                                     mark: kind, stood: ending.stood, at: now)
+            case .byHand:
+                observations?.edited(action: "byhand", kind: kind, app: app, stood: ending.stood, at: now)
+            case .edited:
+                observations?.edited(action: "changed", kind: kind, app: app, stood: ending.stood, at: now)
+            case .withdrawn:
+                observations?.edited(action: "withdrawn", kind: kind, app: app, stood: ending.stood, at: now)
+            case .left:
+                observations?.edited(action: "left", kind: kind, app: app, stood: ending.stood, at: now)
             }
         }
     }
@@ -556,14 +663,14 @@ final class EditorController: EditorLens {
                                           range: NSRange(location: issue.range.location,
                                                          length: (issue.replacement as NSString).length),
                                           original: issue.original, replacement: issue.replacement,
-                                          batch: self.batches))
+                                          kind: issue.kind, batch: self.batches))
                     self.trimFixes()
                     self.marks.removeAll { $0.issue == issue }
+                    self.issues.removeAll { $0 == issue }
                     self.hover?.marksChanged()
                     self.redraw(over: field)
                     self.issuesText = ""
-                    self.observations?.edited(action: "applied", kind: issue.kind.rawValue, app: field.appName,
-                                              via: via, at: self.clock.now())
+                    self.record([self.ledger.answer(issue, .fixed(via: via), at: self.clock.now())], app: field.appName)
                     self.onFixed()
                 } else {
                     self.flash("✕ The text changed before the fix landed")
@@ -595,12 +702,13 @@ final class EditorController: EditorLens {
                 for (issue, range) in zip(landed, Self.settled(landed)) {
                     self.fixes.append(Fix(pid: field.pid, element: field.element, range: range,
                                           original: issue.original, replacement: issue.replacement,
-                                          batch: self.batches))
-                    self.observations?.edited(action: "applied", kind: issue.kind.rawValue, app: field.appName,
-                                              via: "all", at: self.clock.now())
+                                          kind: issue.kind, batch: self.batches))
                 }
+                self.record(landed.map { self.ledger.answer($0, .fixed(via: "all"), at: self.clock.now()) },
+                            app: field.appName)
                 self.trimFixes()
                 self.marks.removeAll { mark in landed.contains(mark.issue) }
+                self.issues.removeAll { landed.contains($0) }
                 self.hover?.marksChanged()
                 self.redraw(over: field)
                 self.issuesText = ""
@@ -665,11 +773,11 @@ final class EditorController: EditorLens {
             axQueue.async { session.dismissOnce(issue, in: text) }
         }
         marks.removeAll { $0.issue == issue }
+        issues.removeAll { $0 == issue }
         hover?.marksChanged()
         redraw(over: field)
         issuesText = ""
-        observations?.edited(action: "dismissed", kind: learns ? "name" : "sentence", app: field.appName,
-                             via: via, at: clock.now())
+        record([ledger.answer(issue, .answered(learned: learns, via: via), at: clock.now())], app: field.appName)
     }
 
     /// The issue's words without the punctuation that rides along.
@@ -703,7 +811,13 @@ final class EditorController: EditorLens {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
-                if done { self.observations?.edited(action: "undone", kind: nil, app: field.appName, at: self.clock.now()) }
+                // One for each fix taken back, so what is fixed is what is left fixed.
+                if done {
+                    for fix in reverts {
+                        self.observations?.edited(action: "undone", kind: fix.kind.rawValue, app: field.appName,
+                                                  at: self.clock.now())
+                    }
+                }
                 self.issuesText = ""
                 completion(done)
             }

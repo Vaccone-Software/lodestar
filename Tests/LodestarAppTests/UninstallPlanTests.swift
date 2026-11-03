@@ -254,12 +254,15 @@ final class UninstallPlanTests: XCTestCase {
         XCTAssertEqual(arguments?.prefix(2), ["/bin/sh", "-c"])
         XCTAssertEqual(arguments?.last, "/Users/someone/Applications/lodestar.app/Contents/MacOS/lodestar",
                        "the path is an argument, never interpolated into the script")
-        XCTAssertTrue(LoginAgent.stub.hasPrefix("if [ -x \"$1\" ]; then exec \"$1\"; fi"),
+        XCTAssertTrue(LoginAgent.stub().hasPrefix("if [ -x \"$1\" ]; then exec \"$1\"; fi"),
                       "with the app in place the stub is the app, under launchd's own pid")
-        XCTAssertTrue(LoginAgent.stub.contains("Library/Sounds/Lodestar.aiff"))
-        XCTAssertTrue(LoginAgent.stub.contains("launchctl bootout"))
+        XCTAssertTrue(LoginAgent.stub().contains("Library/Sounds/Lodestar.aiff"))
+        XCTAssertTrue(LoginAgent.stub().contains("launchctl bootout"))
         XCTAssertEqual(job["Label"] as? String, "com.vaccone.lodestar")
         XCTAssertEqual((job["KeepAlive"] as? [String: Bool])?["SuccessfulExit"], false)
+        XCTAssertEqual(job["ProcessType"] as? String, "Interactive",
+                       "without it launchd throttles the job and every thread sits at priority 20")
+        XCTAssertEqual(arguments?.dropFirst(4).first, arguments?.last, "dev-build.sh reads the binary at index 4")
     }
 }
 
@@ -302,10 +305,10 @@ final class LoginAgentStubRunTests: XCTestCase {
         """)
     }
 
-    private func run(binary: String) throws -> (status: Int32, calls: [String]) {
+    private func run(binary: String, patience: Int = 0) throws -> (status: Int32, calls: [String]) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = Array((LoginAgent.job(binary: binary)["ProgramArguments"] as? [String] ?? []).dropFirst())
+        process.arguments = Array((LoginAgent.job(binary: binary, patience: patience)["ProgramArguments"] as? [String] ?? []).dropFirst())
         process.environment = ["HOME": home.path, "PATH": home.appendingPathComponent("bin").path + ":/usr/bin:/bin"]
         try process.run()
         process.waitUntilExit()
@@ -336,11 +339,130 @@ final class LoginAgentStubRunTests: XCTestCase {
         XCTAssertTrue(result.calls.contains { $0.hasPrefix("launchctl bootout gui/") && $0.hasSuffix("/\(UninstallPlan.agentLabel)") })
     }
 
+    /// A package manager removes the app before it copies the new one, and
+    /// a crash in between brought the stub here mid-install.
+    func testAnAppThatComesBackWhileTheStubWaitsIsRunAndNothingIsRemoved() throws {
+        try alertSelection(sound.path)
+        let ran = home.appendingPathComponent("app-ran")
+        let binary = home.appendingPathComponent("arriving")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { [self] in
+            try? executable("arriving", "#!/bin/sh\ntouch \"\(ran.path)\"\nexit 0\n")
+        }
+        let result = try run(binary: binary.path, patience: 60)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ran.path), "the app ran once it arrived")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plist.path), "the agent stays")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sound.path), "the sound stays")
+        XCTAssertEqual(result.calls, [], "nothing asked of launchd or the defaults")
+    }
+
+    func testTheStubWaitsLongerThanAnyInstallBeforeBelievingTheTrash() {
+        XCTAssertGreaterThanOrEqual(LoginAgent.patience, 60)
+        XCTAssertTrue(LoginAgent.stub().contains("-lt \(LoginAgent.patience)"))
+    }
+
     func testAnAlertThePersonChoseElsewhereIsLeftAlone() throws {
         try alertSelection("/System/Library/Sounds/Boop.aiff")
         let result = try run(binary: home.appendingPathComponent("gone/lodestar").path)
         XCTAssertEqual(result.status, 0)
         XCTAssertFalse(result.calls.contains { $0.hasPrefix("defaults delete") }, "\(result.calls)")
         XCTAssertFalse(FileManager.default.fileExists(atPath: plist.path))
+    }
+}
+
+/// Loading the agent's new definition, run with `launchctl` recorded.
+final class LoginAgentReloadRunTests: XCTestCase {
+    private var directory: URL!
+    private var calls: URL { directory.appendingPathComponent("calls.log") }
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("reload-run-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() { try? FileManager.default.removeItem(at: directory) }
+
+    /// A `launchctl` that refuses its first `refusals` bootstraps.
+    private func run(refusals: Int) throws -> (status: Int32, calls: [String]) {
+        let count = directory.appendingPathComponent("count")
+        let fake = directory.appendingPathComponent("launchctl")
+        try """
+        #!/bin/sh
+        echo "$1 $2 $3" >> "\(calls.path)"
+        [ "$1" = bootstrap ] || exit 0
+        n=$(cat "\(count.path)" 2>/dev/null || echo 0)
+        echo $((n + 1)) > "\(count.path)"
+        [ "$n" -ge \(refusals) ]
+        """.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", LoginAgent.reload, "lodestar", "/agent.plist"]
+        process.environment = ["PATH": directory.path + ":/usr/bin:/bin"]
+        try process.run()
+        process.waitUntilExit()
+        let log = (try? String(contentsOf: calls, encoding: .utf8)) ?? ""
+        return (process.terminationStatus, log.split(separator: "\n").map(String.init))
+    }
+
+    func testTheJobIsUnloadedThenLoadedFromTheFile() throws {
+        let uid = getuid()
+        let result = try run(refusals: 0)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(result.calls, ["bootout gui/\(uid)/\(UninstallPlan.agentLabel) ",
+                                      "bootstrap gui/\(uid) /agent.plist"])
+    }
+
+    /// launchd refuses the load while the old process is still shutting down.
+    func testARefusedLoadIsAskedAgain() throws {
+        let result = try run(refusals: 2)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(result.calls.filter { $0.hasPrefix("bootstrap") }.count, 3, "\(result.calls)")
+    }
+}
+
+/// The updater's swap on a real file system.
+final class UpdateSwapTests: XCTestCase {
+    private var parent: URL!
+    private var staged: URL { parent.appendingPathComponent("staged.app") }
+    private var install: URL { parent.appendingPathComponent("lodestar.app") }
+    private var previous: URL { parent.appendingPathComponent("lodestar.app.previous") }
+
+    override func setUpWithError() throws {
+        parent = FileManager.default.temporaryDirectory.appendingPathComponent("swap-\(UUID().uuidString)")
+        let files = FileManager.default
+        for (bundle, name) in [(staged, "new"), (install, "old")] {
+            try files.createDirectory(at: bundle, withIntermediateDirectories: true)
+            try name.write(to: bundle.appendingPathComponent("build"), atomically: true, encoding: .utf8)
+        }
+    }
+
+    override func tearDown() { try? FileManager.default.removeItem(at: parent) }
+
+    private func build(_ bundle: URL) -> String? {
+        try? String(contentsOf: bundle.appendingPathComponent("build"), encoding: .utf8)
+    }
+
+    func testTheNewBuildTakesThePlaceAndTheOldIsKept() throws {
+        try UpdateController.swapIn(staged, at: install, keepingOldAt: previous)
+        XCTAssertEqual(build(install), "new")
+        XCTAssertEqual(build(previous), "old", "kept for the watchdog to roll back to")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path))
+    }
+
+    /// The old build has nowhere to go. Everything goes back.
+    func testAFailureLeavesTheInstallAsItWas() throws {
+        let nowhere = parent.appendingPathComponent("missing/lodestar.app.previous")
+        XCTAssertThrowsError(try UpdateController.swapIn(staged, at: install, keepingOldAt: nowhere))
+        XCTAssertEqual(build(install), "old")
+        XCTAssertEqual(build(staged), "new")
+    }
+
+    /// Nothing staged: an exchange refused, then a move refused, and the
+    /// install is put back from where the first move left it.
+    func testAMissingStagedBuildLeavesTheInstall() throws {
+        try FileManager.default.removeItem(at: staged)
+        XCTAssertThrowsError(try UpdateController.swapIn(staged, at: install, keepingOldAt: previous))
+        XCTAssertEqual(build(install), "old")
     }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import LodestarCore
 import Stoic
+import StoicStore
 
 /// Silent self-update for the installed app. The cycle: check the releases
 /// feed daily, download and unpack the zip in the background, verify it,
@@ -623,14 +624,8 @@ final class UpdateController {
         Log.info("update", ["phase": "applying", "to": version])
 
         do {
-            try FileManager.default.moveItem(at: installURL, to: previous)
-            try FileManager.default.moveItem(at: bundle, to: installURL)
+            try Self.swapIn(bundle, at: installURL, keepingOldAt: previous)
         } catch {
-            // Put the world back exactly as it was and stand down.
-            if !FileManager.default.fileExists(atPath: installURL.path),
-               FileManager.default.fileExists(atPath: previous.path) {
-                try? FileManager.default.moveItem(at: previous, to: installURL)
-            }
             Log.error("update swap failed: \(error)")
             standDown(force: force, note: "✕ The update did not install")
             return
@@ -651,6 +646,38 @@ final class UpdateController {
         // instance would just come forward, the pid file would never
         // change hands, and the watchdog would roll the swap back.
         SystemEvents.openApplication(at: installURL, configuration: Self.successorLaunch) { _, _ in }
+    }
+
+    /// The new build into the install's place, the old one kept at
+    /// `previous`. In one step wherever the file system allows it, so there
+    /// is no moment with no app at the path: a crash in that moment would
+    /// leave no Lodestar to relaunch, and a login agent that reads a missing
+    /// app as an uninstall. A failure puts everything back as it was.
+    static func swapIn(_ bundle: URL, at install: URL, keepingOldAt previous: URL) throws {
+        let files = FileManager.default
+        do {
+            try PosixFileSystem().exchange(bundle.path, install.path)
+        } catch {
+            // Another volume, or one that cannot exchange: two moves.
+            Log.info("update", ["swap": "two moves", "reason": "\(error)"])
+            do {
+                try files.moveItem(at: install, to: previous)
+                try files.moveItem(at: bundle, to: install)
+            } catch {
+                if !files.fileExists(atPath: install.path), files.fileExists(atPath: previous.path) {
+                    try? files.moveItem(at: previous, to: install)
+                }
+                throw error
+            }
+            return
+        }
+        // The new build is in place, and the old one sits where it was staged.
+        do {
+            try files.moveItem(at: bundle, to: previous)
+        } catch {
+            try? PosixFileSystem().exchange(bundle.path, install.path)
+            throw error
+        }
     }
 
     /// How the successor is launched. A new instance, for the reason above,
@@ -685,7 +712,7 @@ final class UpdateController {
         Self.writeMarker(Self.watchdogScript, to: path, what: "the watchdog script",
                          consequence: "the swap has no one to roll it back, or an older script runs in its place")
         let pidFile = Paths.pidFile
-        spawnDetached(["/bin/bash", path.path, app.path, previous.path,
+        DetachedProcess.spawn(["/bin/bash", path.path, app.path, previous.path,
                        "\(ProcessInfo.processInfo.processIdentifier)", version,
                        Self.directory.path, pidFile.path,
                        requiresRouting() ? "1" : "0"])
@@ -743,19 +770,4 @@ final class UpdateController {
     # -g: behind the app in front, so keys typed meanwhile never reach it.
     open -g -n "$APP"
     """
-
-    /// posix_spawn with SETSID: the child leads its own session, immune to
-    /// the process-group teardown launchd performs when this job exits.
-    private func spawnDetached(_ arguments: [String]) {
-        var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
-        var pid: pid_t = 0
-        var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) }
-        argv.append(nil)
-        let result = posix_spawn(&pid, arguments[0], nil, &attributes, &argv, environ)
-        argv.forEach { free($0) }
-        posix_spawnattr_destroy(&attributes)
-        if result != 0 { Log.error("update watchdog spawn failed (\(result))") }
-    }
 }

@@ -2775,15 +2775,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 Log.error("login-item", ["error": "could not build the job description"])
                 return
             }
+            var rewritten = false
             if (try? Data(contentsOf: agent)) != plist {
                 do {
                     try plist.write(to: agent, options: .atomic)
                     Log.info("login-item", ["action": exists ? "updated" : "installed"])
+                    rewritten = exists
                 } catch {
                     Log.error("login-item", ["write-failed": "\(error)"])
                 }
             }
-            readoptIfUnsupervised(agent: agent)
+            readoptIfUnsupervised(agent: agent, definitionChanged: rewritten)
         } else if !config.startAtLogin && exists {
             // Delete the plist without unloading: the running session
             // continues; nothing loads at the next login.
@@ -2819,9 +2821,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// launchd: the instance it starts takes over through the pid file,
     /// this one bows out, and the resident lodestar is always the one
     /// that comes back on its own within ten seconds of dying.
-    private func readoptIfUnsupervised(agent: URL) {
+    ///
+    /// A definition rewritten just now is not in launchd yet (see
+    /// `LoginAgent.reload`), so that job is loaded again, even when it is
+    /// the one running us: this instance goes down with it and launchd
+    /// starts the next from the new definition, which then matches the
+    /// file, so this happens once. A kickstart here would start the old
+    /// definition, and after a moved app that is the old path, which the
+    /// stub takes for an uninstall.
+    private func readoptIfUnsupervised(agent: URL, definitionChanged: Bool) {
         let me = ProcessInfo.processInfo.processIdentifier
-        switch agentJobPid() {
+        let job = agentJobPid()
+        if definitionChanged, job != nil {
+            Log.info("login-item", ["action": "loading the new definition", "agent-pid": job ?? 0])
+            reloadAgent(agent)
+            return
+        }
+        switch job {
         case .some(let pid) where pid == me:
             return
         case .some(let pid):
@@ -2837,6 +2853,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // successor never came, and re-announce the update every boot.
         if !handingOverToLaunchd {
             Log.error("login-item", ["handover": "failed, staying resident"])
+        }
+    }
+
+    /// The agent unloaded and loaded again by a process that survives this
+    /// one. Its answer comes later than launch can wait, and is only ever
+    /// bad news: then launchd has no job, this instance is still the one
+    /// running, and it stays, as any refused handover does. The next boot
+    /// finds no job and bootstraps it.
+    private func reloadAgent(_ agent: URL) {
+        guard let helper = DetachedProcess.spawn(["/bin/sh", "-c", LoginAgent.reload, "lodestar", agent.path]) else {
+            Log.error("login-item", ["handover": "failed, staying resident"])
+            return
+        }
+        handingOverToLaunchd = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var status: Int32 = 0
+            guard waitpid(helper, &status, 0) == helper, status != 0 else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                Log.error("login-item", ["handover": "failed, staying resident", "status": status])
+                self.handingOverToLaunchd = false
+                self.updater.acknowledgeBoot()
+            }
         }
     }
 
@@ -3218,6 +3257,11 @@ if let stray = cliArguments.first(where: { !$0.hasPrefix("-NS") && !$0.hasPrefix
     printUsage()
     exit(64)
 }
+
+// The tap and everything the hand is waiting on run on this thread, so it
+// goes first when the Mac is busy. launchd's Interactive job allows this, up
+// to priority 37; a plain daemon's request is clamped (see `LoginAgent`).
+pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

@@ -281,31 +281,97 @@ struct UninstallPlan {
 
 /// The login agent's job description. The program is a stub: with the
 /// app in place it becomes the app (`exec`, so launchd's pid is the
-/// app's); with the app gone, the Trash was the uninstall, and the stub
-/// takes the agent and the alert sound with it and stops, instead of
-/// asking launchd for a missing binary every ten seconds until the end
-/// of time. The app puts both back the next time it boots from
-/// anywhere, so a moved app heals itself.
+/// app's); with the app gone for longer than any install takes, the Trash
+/// was the uninstall, and the stub takes the agent and the alert sound
+/// with it and stops, instead of asking launchd for a missing binary
+/// every ten seconds until the end of time. The app puts both back the
+/// next time it boots from anywhere, so a moved app heals itself.
+///
+/// `Interactive`, because the hand is waiting on this process. With no
+/// ProcessType launchd runs a job as a throttled daemon: every thread at
+/// priority 20, under the 31 of any ordinary process, and QoS asked from
+/// inside clamped to it. On a Mac at load 170 the same main-thread work
+/// took 6.1 s that way and 0.92 s as Interactive with a user-interactive
+/// main thread (2026-11-03), and at load 450 a launch starved past the
+/// watchdog's ceiling and the keys were gone for 87 s.
 enum LoginAgent {
-    static let stub = """
-    if [ -x "$1" ]; then exec "$1"; fi
-    plist="$HOME/Library/LaunchAgents/\(UninstallPlan.agentLabel).plist"
-    sound="$HOME/Library/Sounds/\(AlertSound.name).aiff"
-    if [ "$(defaults read -g \(AlertSound.selectionKey) 2>/dev/null)" = "$sound" ]; then
-        defaults delete -g \(AlertSound.selectionKey)
-    fi
-    rm -f "$plist" "$sound"
-    launchctl bootout "gui/$(id -u)/\(UninstallPlan.agentLabel)"
-    exit 0
-    """
+    /// How long a missing app is waited for, in seconds. A package manager
+    /// replaces the app by removing it first, and a crash during that
+    /// removal brought the stub here with the install still under way: it
+    /// took the agent with it, and nothing brought Lodestar back. A real
+    /// uninstall loses nothing by waiting.
+    static let patience = 120
 
-    static func job(binary: String) -> [String: Any] {
+    static func stub(patience: Int = patience) -> String {
+        """
+        if [ -x "$1" ]; then exec "$1"; fi
+        waited=0
+        while [ "$waited" -lt \(patience) ]; do
+            /bin/sleep 1
+            waited=$((waited + 1))
+            if [ -x "$1" ]; then exec "$1"; fi
+        done
+        plist="$HOME/Library/LaunchAgents/\(UninstallPlan.agentLabel).plist"
+        sound="$HOME/Library/Sounds/\(AlertSound.name).aiff"
+        if [ "$(defaults read -g \(AlertSound.selectionKey) 2>/dev/null)" = "$sound" ]; then
+            defaults delete -g \(AlertSound.selectionKey)
+        fi
+        rm -f "$plist" "$sound"
+        launchctl bootout "gui/$(id -u)/\(UninstallPlan.agentLabel)"
+        exit 0
+        """
+    }
+
+    static func job(binary: String, patience: Int = patience) -> [String: Any] {
         [
             "Label": UninstallPlan.agentLabel,
-            "ProgramArguments": ["/bin/sh", "-c", stub, "lodestar", binary],
+            "ProgramArguments": ["/bin/sh", "-c", stub(patience: patience), "lodestar", binary],
             "RunAtLoad": true,
             "KeepAlive": ["SuccessfulExit": false],
             "ThrottleInterval": 10,
+            "ProcessType": "Interactive",
         ]
+    }
+
+    /// launchd keeps the definition a job was loaded with, whatever the
+    /// file says now, and `kickstart` starts that one: a rewritten job
+    /// reaches launchd only by being unloaded and loaded again. Unloading
+    /// stops the job's process, which may be the one asking, so this runs
+    /// in a session of its own (see `DetachedProcess`). A process being
+    /// shut down holds the label until it is gone, which launchd allows
+    /// twenty seconds for, and a load before then is refused, so the load
+    /// is asked again until a minute has passed.
+    static let reload = """
+    launchctl bootout "gui/$(id -u)/\(UninstallPlan.agentLabel)" 2>/dev/null
+    tries=0
+    until launchctl bootstrap "gui/$(id -u)" "$1" 2>/dev/null; do
+        tries=$((tries + 1))
+        if [ "$tries" -ge 60 ]; then exit 1; fi
+        /bin/sleep 1
+    done
+    """
+}
+
+/// A process that outlives this one: `posix_spawn` with SETSID, so it
+/// leads its own session, immune to the process-group teardown launchd
+/// performs when this job exits.
+enum DetachedProcess {
+    /// The child's pid, or nil when it could not be started.
+    @discardableResult
+    static func spawn(_ arguments: [String]) -> pid_t? {
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
+        var pid: pid_t = 0
+        var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) }
+        argv.append(nil)
+        let result = posix_spawn(&pid, arguments[0], nil, &attributes, &argv, environ)
+        argv.forEach { free($0) }
+        posix_spawnattr_destroy(&attributes)
+        guard result == 0 else {
+            Log.error("detached spawn failed", ["program": arguments[0], "errno": result])
+            return nil
+        }
+        return pid
     }
 }

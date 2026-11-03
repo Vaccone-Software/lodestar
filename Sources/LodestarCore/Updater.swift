@@ -12,9 +12,9 @@ public enum Updater {
         public let version: [Int]
         public let zipName: String
         public let zipURL: String
-        /// What GitHub says the zip hashes to, `sha256:<hex>`, when the feed
-        /// carries it. The zip is checked against it as it downloads; the
-        /// codesign checks stay the gate that matters.
+        /// What GitHub says the zip hashes to, `sha256:<hex>`. Preview is
+        /// not taken without one. The file is checked against it before it
+        /// is unpacked; the codesign checks are the gate on what was unpacked.
         public let zipDigest: String?
 
         public init(tag: String, version: [Int], zipName: String, zipURL: String, zipDigest: String? = nil) {
@@ -43,9 +43,22 @@ public enum Updater {
     /// included: the zip would fail it, and the update with it).
     public static let stableURL = URL(string: "https://lodestar.vaccone.software/api/stable")!
 
-    /// Where every release's files live. The site's zip URL must be exactly
-    /// the one GitHub serves for the tag it names.
+    /// Where every release's files live. A zip URL, stable or preview, is
+    /// accepted only when it is exactly the one GitHub serves for that tag.
     static let downloads = Lodestar.repository + "/releases/download/"
+
+    /// `lodestar-<version>.zip` at `downloads/<tag>/`. One rule for both
+    /// channels, so a preview asset is not a second way to name a host.
+    static func acceptsReleaseZip(name: String, url: String, tag: String, version: String) -> Bool {
+        let zip = "lodestar-\(version).zip"
+        return name == zip && url == downloads + tag + "/" + zip
+    }
+
+    /// `v1.47.1` and `1.47.1` name one version. The caller has already
+    /// required `parseVersion` to accept the tag.
+    static func versionLabel(_ tag: String) -> String {
+        tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+    }
 
     /// The release a channel's answer points at, or nil for anything that
     /// is not a clean answer: then this check is a failed one, and the
@@ -76,19 +89,21 @@ public enum Updater {
         guard let answer = try? JSONDecoder().decode(Answer.self, from: data),
               let version = parseVersion(answer.version),
               answer.tag == "v" + answer.version,
-              answer.zip.name == "lodestar-\(answer.version).zip",
-              answer.zip.url == downloads + answer.tag + "/" + answer.zip.name
+              acceptsReleaseZip(name: answer.zip.name, url: answer.zip.url,
+                                tag: answer.tag, version: answer.version)
         else { return nil }
         return Release(tag: answer.tag, version: version, zipName: answer.zip.name, zipURL: answer.zip.url,
                        zipDigest: answer.zip.digest)
     }
 
-    /// The newest release carrying a lodestar zip: the preview channel,
+    /// The newest release carrying this app's zip: the preview channel,
     /// from the releases list (releases?per_page=10 — never
     /// releases/latest, which excludes prereleases, and every release
     /// before 1.0 is one). The whole list rather than the first entry, so
-    /// the skip can skip: a newest entry with no zip, or a tag that is not
-    /// a version, falls through to the one before it.
+    /// the skip can skip: a newest entry with no acceptable zip, or a tag
+    /// that is not a version, falls through to the one before it. An
+    /// acceptable zip is the same one stable accepts — the tag's own
+    /// download URL — and it carries a sha256.
     public static func parseFeed(_ data: Data) -> Release? {
         releases(in: data).first
     }
@@ -109,10 +124,13 @@ public enum Updater {
         }
         guard let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return [] }
         return entries.compactMap { entry in
-            guard entry.draft != true, let version = parseVersion(entry.tag_name),
-                  let zip = (entry.assets ?? []).first(where: {
-                      $0.name.hasPrefix("lodestar-") && $0.name.hasSuffix(".zip")
-                  }) else { return nil }
+            guard entry.draft != true, let version = parseVersion(entry.tag_name) else { return nil }
+            let label = versionLabel(entry.tag_name)
+            guard let zip = (entry.assets ?? []).first(where: {
+                acceptsReleaseZip(name: $0.name, url: $0.browser_download_url,
+                                  tag: entry.tag_name, version: label)
+                    && UpdateArchive.isSHA256($0.digest)
+            }) else { return nil }
             return Release(tag: entry.tag_name, version: version,
                            zipName: zip.name, zipURL: zip.browser_download_url, zipDigest: zip.digest)
         }
@@ -177,10 +195,34 @@ public enum Updater {
     /// login item and the CLI link, and only it updates itself: a signed
     /// build run from dist/ once pointed the login item at itself, and one
     /// older than the latest release would have replaced itself in dist/.
+    ///
+    /// The path is standardized before the comparison: `.` and `..` are
+    /// collapsed, and nothing is asked of the disk, so
+    /// `/Applications/../tmp/lodestar.app` is not an install.
     public static func isInstalled(bundlePath: String, home: String) -> Bool {
-        (bundlePath.hasPrefix("/Applications/") || bundlePath.hasPrefix(home + "/Applications/"))
-            && bundlePath.hasSuffix("lodestar.app")
-            && !bundlePath.contains("/AppTranslocation/")
+        guard bundlePath.hasPrefix("/") else { return false }
+        let path = standardPath(bundlePath)
+        guard path.hasSuffix("lodestar.app"), !path.contains("/AppTranslocation/") else { return false }
+        if path.hasPrefix("/Applications/") { return true }
+        guard home.hasPrefix("/") else { return false }
+        return path.hasPrefix(standardPath(home) + "/Applications/")
+    }
+
+    /// `.` and `..` and repeated separators collapsed. A relative path is
+    /// returned unchanged, which `isInstalled` has already refused: this
+    /// does not prepend the working directory, and it does not follow a link.
+    static func standardPath(_ path: String) -> String {
+        guard path.hasPrefix("/") else { return path }
+        var parts: [Substring] = []
+        for part in path.split(separator: "/") {
+            if part == "." { continue }
+            if part == ".." {
+                if !parts.isEmpty { parts.removeLast() }
+                continue
+            }
+            parts.append(part)
+        }
+        return "/" + parts.joined(separator: "/")
     }
 
     /// "0.9.9" or "v0.9.9" → [0, 9, 9]. Nil for anything that is not

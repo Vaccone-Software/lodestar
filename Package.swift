@@ -31,10 +31,18 @@ let package = Package(
         .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.4.1"), traits: ["Crypto"]),
     ],
     targets: [
-        // The AX layer every slice builds on. Its one dependency is Stoic,
-        // for the robustness its files, waits, retries and the feedback
-        // note's trip to the site need.
+        // Raw deflate for an update zip, and the openat writes that keep
+        // the unpack inside one directory. Its own target: SwiftPM will
+        // not compile C beside the Swift in LodestarCore. libz is the
+        // system library; the call is lodestar_raw_inflate.
+        .target(name: "LodestarInflate", linkerSettings: [
+            .linkedLibrary("z"),
+        ]),
+        // The AX layer every slice builds on. Stoic is the robustness its
+        // files, waits, retries and the feedback note's trip to the site
+        // need. LodestarInflate unpacks an update zip.
         .target(name: "LodestarCore", dependencies: [
+            "LodestarInflate",
             .product(name: "Stoic", package: "stoic"),
             .product(name: "StoicFoundation", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),

@@ -18,9 +18,9 @@ import StoicStore
 ///
 /// What it is checked against is GitHub's own SHA-256 of the asset, when the
 /// feed carries it (the preview feed does; the site's stable answer passes it
-/// on). It is a check on the transfer, not on the release: the codesign
-/// checks that follow are the gate, and a digest that does not match fails the
-/// update as a download that failed does.
+/// on). A digest that does not match fails the download. Unpacking requires
+/// one that matches the file on disk, and the codesign checks are the gate
+/// on the unpacked bundle.
 public enum UpdateDownload {
     /// The most a zip may be.
     public static let byteLimit = 1 << 30
@@ -48,10 +48,10 @@ public enum UpdateDownload {
             headers: ["User-Agent": "lodestar/\(Lodestar.version)"], label: "update-download")
     }
 
-    /// The digest the feed names, if it names one this app can check: a
-    /// SHA-256. Anything else is not a check that can be made, and is not an
-    /// error: the update goes on to the signature checks as it did before the
-    /// feed said anything.
+    /// The digest the feed names, when it is a SHA-256 this app can check.
+    /// Anything else is not checked on the way down. Unpacking requires a
+    /// SHA-256 that matches the file, so a release that names none is not
+    /// extracted.
     public static func digest(of release: Updater.Release) -> ContentDigest? {
         guard let text = release.zipDigest, text.hasPrefix("sha256:") else { return nil }
         return try? .sha256(String(text.dropFirst("sha256:".count)))

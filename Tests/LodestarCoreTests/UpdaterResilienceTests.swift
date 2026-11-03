@@ -44,13 +44,31 @@ final class UpdaterResilienceTests: XCTestCase {
         XCTAssertFalse(Updater.isInstalled(bundlePath: "/private/var/folders/x/AppTranslocation/y/d/lodestar.app", home: home))
     }
 
+    /// `/Applications/../tmp/lodestar.app` is a path string that starts in
+    /// Applications and ends in the app. Standardized, it is `/tmp`.
+    func testInstalledComparesTheStandardizedPath() {
+        let home = "/Users/someone"
+        XCTAssertFalse(Updater.isInstalled(bundlePath: "/Applications/../tmp/lodestar.app", home: home))
+        XCTAssertFalse(Updater.isInstalled(bundlePath: "/Applications/foo/../../tmp/lodestar.app", home: home))
+        XCTAssertFalse(Updater.isInstalled(bundlePath: home + "/Applications/../tmp/lodestar.app", home: home))
+        XCTAssertFalse(Updater.isInstalled(bundlePath: "Applications/lodestar.app", home: home))
+        XCTAssertTrue(Updater.isInstalled(bundlePath: "/Applications/./lodestar.app", home: home))
+        XCTAssertTrue(Updater.isInstalled(bundlePath: "/Applications/foo/../lodestar.app", home: home))
+        XCTAssertTrue(Updater.isInstalled(bundlePath: "/tmp/../Applications/lodestar.app", home: home))
+        XCTAssertTrue(Updater.isInstalled(bundlePath: home + "/Applications/./lodestar.app", home: home))
+        XCTAssertTrue(Updater.isInstalled(bundlePath: "/Users/someone/../someone/Applications/lodestar.app",
+                                         home: "/Users/someone/../someone"))
+    }
+
     /// The newest entry without a zip no longer stops updates: the one
     /// before it is offered.
     func testANewestReleaseWithoutAZipFallsThroughToTheOneBefore() throws {
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+        let older = "https://github.com/Vaccone-Software/lodestar/releases/download/v0.39.8/lodestar-0.39.8.zip"
         let feed = """
         [{"tag_name": "v0.40.0-rc1", "draft": false, "assets": [{"name": "lodestar-0.40.0.zip", "browser_download_url": "u1"}]},
          {"tag_name": "v0.39.9", "draft": false, "assets": []},
-         {"tag_name": "v0.39.8", "draft": false, "assets": [{"name": "lodestar-0.39.8.zip", "browser_download_url": "u2"}]}]
+         {"tag_name": "v0.39.8", "draft": false, "assets": [{"name": "lodestar-0.39.8.zip", "browser_download_url": "\(older)", "digest": "\(digest)"}]}]
         """
         let release = try XCTUnwrap(Updater.parseFeed(Data(feed.utf8)))
         XCTAssertEqual(release.tag, "v0.39.8")

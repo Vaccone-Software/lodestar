@@ -75,22 +75,22 @@ final class UpdateDownloadTests: XCTestCase {
 
     func testThePreviewFeedCarriesGitHubsDigestOfTheZip() throws {
         let hex = String(repeating: "ab", count: 32)
+        let url = "https://github.com/Vaccone-Software/lodestar/releases/download/v0.9.9/lodestar-0.9.9.zip"
         let release = try XCTUnwrap(Updater.parseFeed(Data("""
         [{"tag_name": "v0.9.9", "draft": false, "assets": [
             {"name": "lodestar-0.9.9.dmg", "browser_download_url": "https://example.com/a.dmg", "digest": "sha256:\(String(repeating: "cd", count: 32))"},
-            {"name": "lodestar-0.9.9.zip", "browser_download_url": "https://example.com/a.zip", "digest": "sha256:\(hex)"}
+            {"name": "lodestar-0.9.9.zip", "browser_download_url": "\(url)", "digest": "sha256:\(hex)"}
         ]}]
         """.utf8)))
         XCTAssertEqual(release.zipDigest, "sha256:\(hex)", "the zip's, not the dmg's")
         XCTAssertEqual(UpdateDownload.digest(of: release)?.hex, hex)
     }
 
-    func testAZipWithNoDigestIsStillARelease() throws {
-        for asset in [#"{"name": "lodestar-0.9.9.zip", "browser_download_url": "https://example.com/a.zip", "digest": null}"#,
-                      #"{"name": "lodestar-0.9.9.zip", "browser_download_url": "https://example.com/a.zip"}"#] {
-            let release = try XCTUnwrap(Updater.parseFeed(Data(#"[{"tag_name": "v0.9.9", "assets": [\#(asset)]}]"#.utf8)))
-            XCTAssertNil(release.zipDigest)
-            XCTAssertNil(UpdateDownload.digest(of: release))
+    func testAPreviewZipWithoutASha256IsNotARelease() {
+        let url = "https://github.com/Vaccone-Software/lodestar/releases/download/v0.9.9/lodestar-0.9.9.zip"
+        for asset in [#"{"name": "lodestar-0.9.9.zip", "browser_download_url": "\#(url)", "digest": null}"#,
+                      #"{"name": "lodestar-0.9.9.zip", "browser_download_url": "\#(url)"}"#] {
+            XCTAssertNil(Updater.parseFeed(Data(#"[{"tag_name": "v0.9.9", "assets": [\#(asset)]}]"#.utf8)), asset)
         }
     }
 
@@ -138,7 +138,7 @@ final class UpdateDownloadTests: XCTestCase {
     func testAZipTheFeedNamesNoDigestForIsStillDelivered() async throws {
         try await run { _, _ in
             _ = try await fetch(release(digest: nil), transport([.serving(resource)]))
-            XCTAssertEqual(try Data(contentsOf: destination), Data(zip), "the signature checks are the gate")
+            XCTAssertEqual(try Data(contentsOf: destination), Data(zip), "the download delivers it; unpacking requires the digest")
         }
     }
 

@@ -1,7 +1,7 @@
 import XCTest
 @testable import lodestar
 
-/// ditto and codesign are waited on for a bounded time. A tool that never
+/// codesign is waited on for a bounded time. A tool that never
 /// exits used to hold the update's worker, and the update in `.checking`,
 /// for ever.
 final class UpdateToolDeadlineTests: XCTestCase {

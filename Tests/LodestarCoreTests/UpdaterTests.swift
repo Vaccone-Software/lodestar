@@ -45,38 +45,64 @@ final class UpdaterTests: XCTestCase {
 
     private func feed(_ json: String) -> Data { Data(json.utf8) }
 
+    private func canonicalZipURL(version: String, tag: String? = nil, name: String? = nil) -> String {
+        let tag = tag ?? "v\(version)"
+        let name = name ?? "lodestar-\(version).zip"
+        return "https://github.com/Vaccone-Software/lodestar/releases/download/\(tag)/\(name)"
+    }
+
+    /// One asset. `digest` is the whole field (`sha256:` plus hex), or nil
+    /// for a JSON null. The URL and the name default to the tag's own zip.
+    private func zipAsset(version: String, tag: String? = nil, name: String? = nil, url: String? = nil,
+                          digest: String? = "sha256:" + String(repeating: "ab", count: 32)) -> String {
+        let tag = tag ?? "v\(version)"
+        let name = name ?? "lodestar-\(version).zip"
+        let url = url ?? canonicalZipURL(version: version, tag: tag, name: name)
+        let digestJSON = digest.map { "\"digest\": \"\($0)\"" } ?? "\"digest\": null"
+        return "{\"name\": \"\(name)\", \"browser_download_url\": \"\(url)\", \(digestJSON)}"
+    }
+
+    private func previewEntry(version: String, tag: String? = nil, name: String? = nil, url: String? = nil,
+                              digest: String? = "sha256:" + String(repeating: "ab", count: 32)) -> String {
+        let tag = tag ?? "v\(version)"
+        return """
+        {"tag_name": "\(tag)", "draft": false, "assets": [\(zipAsset(version: version, tag: tag, name: name, url: url, digest: digest))]}
+        """
+    }
+
     func testPicksTheZipAmongAssets() {
         let release = Updater.parseFeed(feed("""
         [{"tag_name": "v0.9.9", "draft": false, "prerelease": true, "assets": [
             {"name": "lodestar-0.9.9.dmg", "browser_download_url": "https://example.com/lodestar-0.9.9.dmg"},
-            {"name": "lodestar-0.9.9.zip", "browser_download_url": "https://example.com/lodestar-0.9.9.zip"}
+            \(zipAsset(version: "0.9.9"))
         ]}]
         """))
         XCTAssertEqual(release?.tag, "v0.9.9")
         XCTAssertEqual(release?.version, [0, 9, 9])
         XCTAssertEqual(release?.zipName, "lodestar-0.9.9.zip")
-        XCTAssertEqual(release?.zipURL, "https://example.com/lodestar-0.9.9.zip")
+        XCTAssertEqual(release?.zipURL, canonicalZipURL(version: "0.9.9"))
+        XCTAssertEqual(release?.zipDigest, "sha256:\(String(repeating: "ab", count: 32))")
     }
 
     func testSkipsDraftsAndZiplessReleases() {
         XCTAssertNil(Updater.parseFeed(feed("""
         [{"tag_name": "v0.9.9", "draft": true, "assets": [
-            {"name": "lodestar-0.9.9.zip", "browser_download_url": "https://example.com/z.zip"}
+            \(zipAsset(version: "0.9.9"))
         ]}]
         """)))
         XCTAssertNil(Updater.parseFeed(feed("""
         [{"tag_name": "v0.9.9", "draft": false, "assets": [
-            {"name": "lodestar-0.9.9.dmg", "browser_download_url": "https://example.com/d.dmg"}
+            {"name": "lodestar-0.9.9.dmg", "browser_download_url": "\(canonicalZipURL(version: "0.9.9", name: "lodestar-0.9.9.dmg"))", "digest": "sha256:\(String(repeating: "ab", count: 32))"}
         ]}]
         """)))
     }
 
     func testIgnoresForeignAssetNames() {
         // Only lodestar-<version>.zip is the update artifact; anything
-        // else zipped on the release is not.
+        // else zipped on the release is not, even at that tag's download URL.
         XCTAssertNil(Updater.parseFeed(feed("""
         [{"tag_name": "v0.9.9", "draft": false, "assets": [
-            {"name": "symbols.zip", "browser_download_url": "https://example.com/s.zip"}
+            \(zipAsset(version: "0.9.9", name: "symbols.zip"))
         ]}]
         """)))
     }
@@ -107,12 +133,67 @@ final class UpdaterTests: XCTestCase {
 
     func testPreviewTakesTheNewestBuild() {
         let release = Updater.parse(feed("""
-        [{"tag_name": "v1.48.0", "draft": false, "assets": [
-            {"name": "lodestar-1.48.0.zip", "browser_download_url": "https://example.com/48.zip"}]},
-         {"tag_name": "v1.47.1", "draft": false, "assets": [
-            {"name": "lodestar-1.47.1.zip", "browser_download_url": "https://example.com/471.zip"}]}]
+        [\(previewEntry(version: "1.48.0")),
+         \(previewEntry(version: "1.47.1"))]
         """), channel: .preview)
         XCTAssertEqual(release?.tag, "v1.48.0")
+        XCTAssertEqual(release?.zipURL, canonicalZipURL(version: "1.48.0"))
+    }
+
+    func testPreviewRefusesAZipFromAnywhereButTheTagsDownloads() {
+        // The same strings stable refuses. Another host, another
+        // repository, another tag's folder, plain http, or a query are
+        // a failed check, and so is a name that is not the tag's zip.
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+        let urls = [
+            "https://example.com/lodestar-1.47.1.zip",
+            "https://github.com/someone/lodestar/releases/download/v1.47.1/lodestar-1.47.1.zip",
+            "https://github.com/Vaccone-Software/lodestar/releases/download/v1.48.0/lodestar-1.47.1.zip",
+            "http://github.com/Vaccone-Software/lodestar/releases/download/v1.47.1/lodestar-1.47.1.zip",
+            "https://github.com/Vaccone-Software/lodestar/releases/download/v1.47.1/lodestar-1.47.1.zip?x=1",
+        ]
+        for url in urls {
+            XCTAssertNil(Updater.parseFeed(feed("""
+            [\(previewEntry(version: "1.47.1", url: url, digest: digest))]
+            """)), url)
+        }
+        XCTAssertNil(Updater.parseFeed(feed("""
+        [\(previewEntry(version: "1.47.1", name: "lodestar-evil.zip", digest: digest))]
+        """)))
+        XCTAssertNil(Updater.parseFeed(feed("""
+        [\(previewEntry(version: "1.47.1", name: "lodestar-1.47.1.zip.txt", digest: digest))]
+        """)))
+    }
+
+    func testPreviewRequiresASha256() {
+        let hex = String(repeating: "ab", count: 32)
+        for digest in [nil as String?, "md5:\(hex)", "sha256:" + String(repeating: "a", count: 63), "sha256:xyz", ""] {
+            XCTAssertNil(Updater.parseFeed(feed("""
+            [\(previewEntry(version: "0.9.9", digest: digest))]
+            """)), String(describing: digest))
+        }
+        let upper = "sha256:" + String(repeating: "AB", count: 32)
+        let release = Updater.parseFeed(feed("""
+        [\(previewEntry(version: "0.9.9", digest: upper))]
+        """))
+        XCTAssertEqual(release?.zipDigest, upper)
+        XCTAssertTrue(UpdateArchive.isSHA256(release?.zipDigest))
+    }
+
+    func testPreviewSkipsADecoyAndADigestlessCanonicalZip() throws {
+        // The first asset used to win by name. A lodestar-*.zip at some
+        // other URL is not the release, and neither is the canonical zip
+        // when it names no sha256. The older release that satisfies both
+        // is the one offered.
+        let decoy = zipAsset(version: "1.48.0", name: "lodestar-evil.zip",
+                             url: "https://example.com/lodestar-evil.zip")
+        let digestless = zipAsset(version: "1.48.0", digest: nil)
+        let release = try XCTUnwrap(Updater.parseFeed(feed("""
+        [{"tag_name": "v1.48.0", "draft": false, "assets": [\(decoy), \(digestless)]},
+         \(previewEntry(version: "1.47.1"))]
+        """)))
+        XCTAssertEqual(release.tag, "v1.47.1")
+        XCTAssertEqual(release.zipURL, canonicalZipURL(version: "1.47.1"))
     }
 
     func testStableTakesTheSitesAnswer() {

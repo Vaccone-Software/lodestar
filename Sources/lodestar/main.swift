@@ -111,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// A crash is better than a freeze: see `MainThreadWatchdog`.
     private let watchdog = MainThreadWatchdog()
+    private let launchStages = LaunchStages.shared
     private var launchGuard: LaunchGuard?
     private var launchMode = RunMarker.Mode.normal
 
@@ -144,7 +145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("Lodestar \(Lodestar.version) starting (pid \(ProcessInfo.processInfo.processIdentifier))")
+        launchStages.enter("takeover")
         takeOverPidFile()
+        launchStages.enter("launch guard")
         beginLaunchGuard()
         watchdog.start()
         // Before any panel exists: the chords a text field answers are
@@ -152,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // until it makes one.
         EditMenu.install()
 
+        launchStages.enter("run marker")
         // The unclean-exit marker: written now, removed only by a graceful
         // shutdown. Found still standing once the takeover has settled,
         // the previous run died without one — say so in the log, and any
@@ -170,18 +174,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ])
         }
 
+        launchStages.enter("ax timeout")
         // One hung app must never freeze the switcher: one value, set once.
         setGlobalAXTimeout()
 
+        launchStages.enter("migrate")
         // Before anything opens a file: settle where files live.
         Paths.migrateIfNeeded()
         // The alert sound is Lodestar's, and Sound settings finds it here.
         AlertSound.installAtBoot()
+        launchStages.enter("config")
         var (loaded, problems) = Config.load()
+        launchStages.enter("browser profiles")
         // What the browsers actually have joins what the config references,
         // so pickers and most-recent resolution see every real profile.
         loaded.registerDetected(ChromiumProfiles.detected())
         config = loaded
+        launchStages.enter("keys")
         // Layout first, overrides second: both layers live in Keys, and
         // the config's `keys:` stays the user's last word over either.
         KeyboardLayout.install()
@@ -204,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // them. Anything that arrived before now goes out immediately.
         installClickHandler()
 
+        launchStages.enter("stores and model")
         model = WindowModel()
         // The serial queue is what takes the AX conversation off the tap's
         // run loop: a wedged app now stalls a retile, never the keyboard.
@@ -272,8 +282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             [weak observationStore] _ in
             observationStore?.rollupSoon()
         }
+        launchStages.enter("hud")
         hud = HUD()
 
+        launchStages.enter("state store")
         // The state is sealed: its key comes from the keychain, which answers in
         // milliseconds or is waiting on the person. What reads the state next
         // (the parked windows, the walk, the editor's consent) wants the real
@@ -301,6 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         actions.prewarmer = prewarmer
         prewarmer.boot()
         model.onTrace = { Log.info("model: \($0)") }
+        launchStages.enter("surfaces")
         searcher = SearcherController(appIndex: appIndex, actions: actions, model: model)
         searcher.observations = observationStore
         searcher.onAbandon = { [weak self] in self?.surfaceFade.stumbled(surface: "launcher") }
@@ -327,6 +340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // The history opens off the main thread: the strip says so until it has.
         clipboardController = ClipboardController(store: ClipboardStore(vault: vault))
+        launchStages.enter("clipboard handover")
         clipboardController.sweepHandover()
         clipboardController.flash = { [weak self] text in self?.hud.flash(text) }
         clipboardController.excludedApps = config.clipboardExcludedApps
@@ -752,6 +766,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                 presenting: { self.presenting.isOn },
                                 draft: { self.draftController }).run(arguments)
         }
+        launchStages.enter("control and windows")
         control.start()
         model.start()
         layout.reconcileDisplays() // learn the connected monitors' identities
@@ -769,6 +784,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         watchAppIcon()
         actions.revealLodestar = { [weak self] in self?.revealMenuBar() }
         engine.onExcludeApp = { [weak self] bundleID in self?.excludeAppFromClipboard(bundleID) }
+        launchStages.enter("signals and login item")
         installSignalHandler()
 
         ConfigDoctor.emitSchema()
@@ -801,6 +817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         updater.lightMark = { [weak self] share in self?.hud.lightMark(share) }
         updater.requiresRouting = { [weak self] in self?.config.webHandleClicks ?? false }
+        launchStages.enter("updater and settings")
         updater.start()
         // A note left waiting by the last run is tried again once things have
         // settled, and then on the queue's schedule while any remain. Costs
@@ -826,6 +843,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         installSettings()
         settleEditingStyle()
 
+        launchStages.enter("key tap")
         guard Permissions.isTrusted else {
             // A freshly installed bundle has its own TCC identity. Prompt,
             // then wake up on our own the moment the grant lands — no
@@ -845,6 +863,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 hud.showVoice(sentence: Self.accessibilityNote, detail: Self.accessibilityDetail,
                               rows: [], owner: .flash)
             }
+            launchStages.finish()
             trustPoll = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
                 guard let self, Permissions.isTrusted else { return }
                 self.trustPoll?.invalidate()
@@ -865,6 +884,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             hud.flash("⚠ Lodestar cannot hear the keyboard\nAllow it in Privacy & Security, under Accessibility")
         }
+        launchStages.finish()
         stateWarningFlashed = store.bootWarning
         for warning in [store.bootWarning, clipboardController?.bootWarning].compactMap({ $0 }) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [hud] in

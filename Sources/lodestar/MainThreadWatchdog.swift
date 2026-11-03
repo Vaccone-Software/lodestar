@@ -54,11 +54,11 @@ final class MainThreadWatchdog {
         if let onStall { onStall(seconds); return }
         switch response {
         case .abort:
-            Log.error("main thread stalled", ["seconds": seconds,
+            Log.error("main thread stalled", ["seconds": seconds, "stage": LaunchStages.shared.current ?? "run",
                                               "action": "aborting so launchd relaunches; see the crash report"])
             abort()
         case .logOnly:
-            Log.error("main thread stalled", ["seconds": seconds,
+            Log.error("main thread stalled", ["seconds": seconds, "stage": LaunchStages.shared.current ?? "run",
                                               "action": "safe mode: not aborting, the last launches did not finish"])
             onLogged?()
         }

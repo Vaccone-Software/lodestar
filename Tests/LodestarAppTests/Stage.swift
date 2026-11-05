@@ -255,6 +255,14 @@ final class Stage {
     var sharedRoute = false
     private(set) var pausedPlayers: [String] = []
     private(set) var playedPlayers: [String] = []
+    /// The browser: how many tabs are labelled as making sound, and what
+    /// the ⏯ does. By default it toggles one tab; a test that wants the
+    /// press to go elsewhere replaces it.
+    var audibleTabs = 0
+    private(set) var playPausePresses = 0
+    lazy var onPlayPause: () -> Void = { [unowned self] in
+        self.audibleTabs += self.audibleTabs > 0 ? -1 : 1
+    }
     private var outputRate: Double = 44_100
     private var rateWatcher: ((Double) -> Void)?
     /// The profile flips: the rate changes and any watcher hears it.
@@ -450,6 +458,11 @@ final class Stage {
                     self.playing.insert(id)
                 }
                 done(played)
+            },
+            audibleTabs: { [unowned self] done in done(self.audibleTabs) },
+            pressPlayPause: { [unowned self] in
+                self.playPausePresses += 1
+                self.onPlayPause()
             },
             outputRate: { [unowned self] done in done(self.outputRate) },
             watchRate: { [unowned self] onChange in

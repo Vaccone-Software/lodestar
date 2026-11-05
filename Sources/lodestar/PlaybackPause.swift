@@ -24,10 +24,22 @@ import LodestarCore
 /// directions: pause is pause, play is play, and only what said
 /// "playing" is ever owed a resume.
 ///
+/// A browser cannot be asked, but it does say: a tab making sound carries
+/// " - Audio playing" in its accessible name, the tab strip's own speaker
+/// icon, which never reads a keyboard click. So when no player said
+/// "playing" and a tab did, the ⏯ is pressed after all, and because it is
+/// still a blind toggle aimed at whoever owns Now Playing, the press is
+/// checked. The label outlives the sound by about three seconds (2.71,
+/// 3.15, 3.14 s measured on Brave 156, against fifteen for CoreAudio's
+/// silent stream), which sets when the check can believe it. A player
+/// that now says "playing" took the press, and is paused exactly. A label
+/// count that did not fall means the press started a video the hand had
+/// paused just before the draft, or reached nothing, and one more press
+/// undoes it. Either way nothing is owed.
+///
 /// Derived, never configured: it acts only when the input about to be
 /// read and the current output are the same Bluetooth radio, and it
-/// touches only players that answered. A browser tab cannot be asked
-/// and is left alone.
+/// touches only what said it was playing.
 final class PlaybackPause {
     /// The system's side, behind closures so the stage can play it.
     ///
@@ -54,6 +66,12 @@ final class PlaybackPause {
         /// debt, and a player quit meanwhile is left quit. Completes on
         /// main with who was actually played.
         var resumePlayers: ([String], @escaping ([String]) -> Void) -> Void
+        /// Off the main thread: how many browser tabs are labelled as
+        /// making sound, completing on main. The tab strip is a walk of
+        /// some hundreds of Accessibility calls.
+        var audibleTabs: (@escaping (Int) -> Void) -> Void
+        /// The ⏯, aimed at whoever owns Now Playing.
+        var pressPlayPause: () -> Void
         /// The default output's nominal sample rate right now, off the
         /// main thread and completing on main: read at the draft's close,
         /// which is when the radio flips back and the HAL answers late.
@@ -84,6 +102,13 @@ final class PlaybackPause {
                         DispatchQueue.main.async { done(played) }
                     }
                 },
+                audibleTabs: { done in
+                    queue.async {
+                        let audible = BrowserTabs.audibleCount()
+                        DispatchQueue.main.async { done(audible) }
+                    }
+                },
+                pressPlayPause: MediaKey.pressPlayPause,
                 outputRate: { done in
                     queue.async {
                         let rate = SystemAudio.outputRate() ?? 0
@@ -100,21 +125,41 @@ final class PlaybackPause {
     /// Hands-free profiles speak at 8 or 16 kHz; a rate at or above
     /// this is a music profile again.
     static let musicRate: Double = 32_000
+    /// How long after the ⏯ the tab labels can be believed: past the
+    /// three seconds the label outlives the sound, with room for a busy
+    /// Mac. A check that came early would read a good press as a failed
+    /// one, and its undo would restart the video.
+    static let tabCheck: TimeInterval = 4.0
+
+    /// What a resume has to give back.
+    private enum Owed {
+        /// These players said "playing" and were paused.
+        case players([String])
+        /// The ⏯ silenced a tab, and this many others stayed audible: only
+        /// more than these at the end means a hand pressed play.
+        case tab(left: Int)
+    }
 
     private enum State {
         case idle
-        /// The route, then the players, are being asked, off the main
-        /// thread.
+        /// The route, then the players, then the tabs, are being asked,
+        /// off the main thread.
         case asking
-        /// These players said "playing" and were paused; they are owed
-        /// a resume.
-        case paused([String])
+        /// The ⏯ went out for this many audible tabs, and is not yet
+        /// believed.
+        case pressed(audible: Int)
+        /// Something was paused and is owed a resume.
+        case paused(Owed)
     }
 
     private let world: World
     private let clock: Clock
     private var state: State = .idle
     private var draftOpen = false
+    /// The ⏯ has gone out for this draft. A session restart mid-draft
+    /// begins again, and must not press again a toggle that was just
+    /// undone.
+    private var pressedThisDraft = false
     /// The input the route is being asked about, and a newer one that
     /// arrived while it was. With the Mac's microphone standing in for a
     /// waking headset the draft begins twice — on the Mac's microphone,
@@ -144,6 +189,9 @@ final class PlaybackPause {
             cancelResume()
         case .asking:
             if input != askedInput { newerInput = .some(input) }
+        case .pressed:
+            // The check settles it, and its end honours this draft.
+            break
         case .idle:
             ask(input)
         }
@@ -176,6 +224,7 @@ final class PlaybackPause {
     /// finishes on its own and starts the resume itself.
     func dictationEnded() {
         draftOpen = false
+        pressedThisDraft = false
         guard case .paused = state else { return }
         beginResume()
     }
@@ -183,12 +232,55 @@ final class PlaybackPause {
     private func pausedPlayers(_ players: [String]) {
         guard case .asking = state else { return }
         guard !players.isEmpty else {
+            world.audibleTabs { [weak self] audible in self?.tabsAnswered(audible) }
+            return
+        }
+        state = .paused(.players(players))
+        Log.info("draft", ["playback": "paused", "players": players.joined(separator: " ")])
+        if !draftOpen { beginResume() }
+    }
+
+    private func tabsAnswered(_ audible: Int) {
+        guard case .asking = state else { return }
+        guard audible > 0, !pressedThisDraft else {
             state = .idle
             Log.info("draft", ["playback": "nothing playing"])
             return
         }
-        state = .paused(players)
-        Log.info("draft", ["playback": "paused", "players": players.joined(separator: " ")])
+        state = .pressed(audible: audible)
+        pressedThisDraft = true
+        world.pressPlayPause()
+        Log.info("draft", ["playback": "pressed", "audible": "\(audible)"])
+        clock.after(Self.tabCheck, DispatchWorkItem { [weak self] in self?.checkPress() })
+    }
+
+    /// Whether the press did what it was for. A player is asked first: it
+    /// answers exactly, and a stale label could otherwise fall on its own
+    /// while the press was starting music.
+    private func checkPress() {
+        guard case .pressed = state else { return }
+        world.pausePlaying { [weak self] strays in
+            guard let self, case .pressed = self.state else { return }
+            guard strays.isEmpty else {
+                self.state = .idle
+                Log.info("draft", ["playback": "press reached a player",
+                                   "players": strays.joined(separator: " ")])
+                return
+            }
+            self.world.audibleTabs { [weak self] audible in self?.tabsChecked(audible) }
+        }
+    }
+
+    private func tabsChecked(_ audible: Int) {
+        guard case .pressed(let before) = state else { return }
+        guard audible < before else {
+            state = .idle
+            world.pressPlayPause()
+            Log.info("draft", ["playback": "press undone", "audible": "\(audible)"])
+            return
+        }
+        state = .paused(.tab(left: audible))
+        Log.info("draft", ["playback": "paused", "players": "browser"])
         if !draftOpen { beginResume() }
     }
 
@@ -216,10 +308,23 @@ final class PlaybackPause {
     private func resume() {
         guard case .paused(let owed) = state else { return }
         cancelResume()
-        state = .idle
-        world.resumePlayers(owed) { played in
-            Log.info("draft", ["playback": played.isEmpty ? "resumed by hand" : "resumed",
-                               "players": played.joined(separator: " ")])
+        switch owed {
+        case .players(let players):
+            state = .idle
+            world.resumePlayers(players) { played in
+                Log.info("draft", ["playback": played.isEmpty ? "resumed by hand" : "resumed",
+                                   "players": played.joined(separator: " ")])
+            }
+        case .tab(let left):
+            // The debt stands while the tabs are read: a draft that opens
+            // meanwhile keeps the quiet, and its own end asks again.
+            world.audibleTabs { [weak self] audible in
+                guard let self, case .paused(.tab) = self.state, !self.draftOpen else { return }
+                self.state = .idle
+                let byHand = audible > left
+                if !byHand { self.world.pressPlayPause() }
+                Log.info("draft", ["playback": byHand ? "resumed by hand" : "resumed", "players": "browser"])
+            }
         }
     }
 
@@ -272,6 +377,67 @@ enum Players {
             return nil
         }
         return result?.stringValue
+    }
+}
+
+/// The browsers whose tab strip says which tabs are making sound. The
+/// label is the tab strip's own speaker icon, spoken: measured on Brave
+/// 156, and the same Chromium strings in Chrome. It is translated, so a
+/// browser in another language reads as silent and is left alone.
+enum BrowserTabs {
+    static let known = ["com.brave.Browser", "com.google.Chrome"]
+    static let audibleLabel = " - Audio playing"
+    /// Enough for a few hundred tabs; a walk that finds more has wandered.
+    private static let nodeLimit = 3_000
+
+    /// Not always the end of the name: "- Memory usage - 1.0 GB" can follow.
+    static func isAudible(_ name: String) -> Bool {
+        name.contains(audibleLabel)
+    }
+
+    /// A walk of about 630 calls and 330 ms over 84 tabs, so never on the
+    /// main thread. It stops at the page: only the strip is wanted.
+    static func audibleCount() -> Int {
+        known.flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0) }
+            .reduce(0) { $0 + audibleCount(in: AXUIElementCreateApplication($1.processIdentifier)) }
+    }
+
+    private static func audibleCount(in app: AXUIElement) -> Int {
+        var audible = 0
+        var nodes = 0
+        func walk(_ element: AXUIElement, inStrip: Bool) {
+            nodes += 1
+            guard nodes < nodeLimit else { return }
+            let role = AX.string(element, kAXRoleAttribute)
+            if role == "AXWebArea" { return }
+            if inStrip, role == kAXRadioButtonRole {
+                let names = [kAXTitleAttribute, kAXDescriptionAttribute].compactMap { AX.string(element, $0) }
+                if names.contains(where: isAudible) { audible += 1 }
+                return
+            }
+            for child in AX.elements(element, kAXChildrenAttribute) ?? [] {
+                walk(child, inStrip: inStrip || role == kAXTabGroupRole)
+            }
+        }
+        for window in AX.elements(app, kAXWindowsAttribute) ?? [] { walk(window, inStrip: false) }
+        return audible
+    }
+}
+
+/// The keyboard's ⏯, as the keyboard sends it: a system-defined event
+/// carrying the key and its state, down then up.
+enum MediaKey {
+    private static let playPause = 16 // NX_KEYTYPE_PLAY
+    private static let subtype: Int16 = 8 // NX_SUBTYPE_AUX_CONTROL_BUTTONS
+
+    static func pressPlayPause() {
+        for state in [0xa, 0xb] { // key down, key up
+            let event = NSEvent.otherEvent(with: .systemDefined, location: .zero,
+                                           modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state << 8)),
+                                           timestamp: 0, windowNumber: 0, context: nil, subtype: subtype,
+                                           data1: (playPause << 16) | (state << 8), data2: -1)
+            SystemEvents.post(event?.cgEvent, tap: .cghidEventTap)
+        }
     }
 }
 

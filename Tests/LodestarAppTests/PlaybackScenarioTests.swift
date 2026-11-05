@@ -232,14 +232,60 @@ final class BrowserPauseScenarioTests: XCTestCase {
         let stage = makeStage()
         stage.onPlayPause = { [unowned stage] in stage.playing.insert("com.apple.Music") }
         stage.lode(".")
-        stage.clock.advance(by: PlaybackPause.tabCheck)
-        XCTAssertEqual(stage.pausedPlayers, ["com.apple.Music"])
+        stage.clock.advance(by: PlaybackPause.playerCheck)
+        XCTAssertEqual(stage.pausedPlayers, ["com.apple.Music"], "caught at a second, not at the label's four")
         XCTAssertTrue(stage.playing.isEmpty)
         XCTAssertEqual(stage.playPausePresses, 1, "no second toggle")
         _ = stage.press("return")
         stage.clock.advance(by: 10)
         XCTAssertEqual(stage.playPausePresses, 1, "nothing is owed")
         XCTAssertTrue(stage.playedPlayers.isEmpty, "and Music was never playing to begin with")
+    }
+
+    /// A player slow to say "playing" is still caught at the label check.
+    func testAPlayerThatTookThePressLateIsStillCaught() {
+        let stage = makeStage()
+        stage.lode(".")
+        stage.clock.advance(by: PlaybackPause.playerCheck)
+        stage.playing = ["com.apple.Music"]
+        stage.audibleTabs = 0 // the label fell on its own, and proves nothing
+        stage.clock.advance(by: PlaybackPause.tabCheck)
+        XCTAssertEqual(stage.pausedPlayers, ["com.apple.Music"])
+        _ = stage.press("return")
+        stage.clock.advance(by: 10)
+        XCTAssertEqual(stage.playPausePresses, 1, "nothing is owed")
+    }
+
+    /// A player settled the press early, and the next draft pressed again:
+    /// the first press's label check must not judge the second too soon.
+    func testASettledPressLeavesNoCheckForTheNext() {
+        var reads = 0
+        var players: [String] = []
+        let clock = VirtualClock()
+        let world = PlaybackPause.World(
+            sharedRoute: { _, done in done(true) },
+            pausePlaying: { done in
+                let playing = players
+                players = []
+                done(playing)
+            },
+            resumePlayers: { owed, done in done(owed) },
+            audibleTabs: { done in reads += 1; done(1) },
+            pressPlayPause: { players = ["com.apple.Music"] },
+            outputRate: { done in done(44_100) }, watchRate: { _ in {} })
+        let pause = PlaybackPause(world: world, clock: clock.clock)
+        pause.dictationBegan(input: "Cypress")
+        XCTAssertEqual(reads, 1)
+        clock.advance(by: PlaybackPause.playerCheck)    // Music took it, and it is settled
+        players = []
+        pause.dictationEnded()
+        pause.dictationBegan(input: "Cypress")          // pressed again, Music takes it again
+        players = []                                    // but this time it stays quiet
+        XCTAssertEqual(reads, 2)
+        clock.advance(by: PlaybackPause.tabCheck - PlaybackPause.playerCheck)
+        XCTAssertEqual(reads, 2, "the first press's check was cancelled, not left to fire")
+        clock.advance(by: PlaybackPause.playerCheck)
+        XCTAssertEqual(reads, 3, "the second press is judged at its own four seconds")
     }
 
     /// A draft shorter than the check: the resume waits for the verdict.

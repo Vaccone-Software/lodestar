@@ -32,10 +32,13 @@ import LodestarCore
 /// checked. The label outlives the sound by about three seconds (2.71,
 /// 3.15, 3.14 s measured on Brave 156, against fifteen for CoreAudio's
 /// silent stream), which sets when the check can believe it. A player
-/// that now says "playing" took the press, and is paused exactly. A label
-/// count that did not fall means the press started a video the hand had
-/// paused just before the draft, or reached nothing, and one more press
-/// undoes it. Either way nothing is owed.
+/// that says "playing" took the press, and is paused exactly: it answers
+/// at once, so it is asked after a second, since the press reaches Music
+/// whenever Music started after the video, and measured at four seconds
+/// that was four seconds of Music. A label count that did not fall means
+/// the press started a video the hand had paused just before the draft,
+/// or reached nothing, and one more press undoes it. Either way nothing
+/// is owed.
 ///
 /// Derived, never configured: it acts only when the input about to be
 /// read and the current output are the same Bluetooth radio, and it
@@ -130,6 +133,10 @@ final class PlaybackPause {
     /// Mac. A check that came early would read a good press as a failed
     /// one, and its undo would restart the video.
     static let tabCheck: TimeInterval = 4.0
+    /// How soon a player that took the press is caught. A player's answer
+    /// has no such lag, and every moment here is music in the telephone
+    /// band.
+    static let playerCheck: TimeInterval = 1.0
 
     /// What a resume has to give back.
     private enum Owed {
@@ -160,6 +167,9 @@ final class PlaybackPause {
     /// begins again, and must not press again a toggle that was just
     /// undone.
     private var pressedThisDraft = false
+    /// The label check for the press standing, cancelled when a player
+    /// settles it first, so it cannot judge the next draft's press early.
+    private var tabCheckWork: DispatchWorkItem?
     /// The input the route is being asked about, and a newer one that
     /// arrived while it was. With the Mac's microphone standing in for a
     /// waking headset the draft begins twice — on the Mac's microphone,
@@ -251,23 +261,37 @@ final class PlaybackPause {
         pressedThisDraft = true
         world.pressPlayPause()
         Log.info("draft", ["playback": "pressed", "audible": "\(audible)"])
-        clock.after(Self.tabCheck, DispatchWorkItem { [weak self] in self?.checkPress() })
+        clock.after(Self.playerCheck, DispatchWorkItem { [weak self] in self?.askPlayersAfterPress {} })
+        let work = DispatchWorkItem { [weak self] in self?.checkPress() }
+        tabCheckWork = work
+        clock.after(Self.tabCheck, work)
     }
 
-    /// Whether the press did what it was for. A player is asked first: it
-    /// answers exactly, and a stale label could otherwise fall on its own
-    /// while the press was starting music.
-    private func checkPress() {
+    /// Whether a player took the press, which settles it: `otherwise` runs
+    /// only if none did.
+    private func askPlayersAfterPress(otherwise: @escaping () -> Void) {
         guard case .pressed = state else { return }
         world.pausePlaying { [weak self] strays in
             guard let self, case .pressed = self.state else { return }
             guard strays.isEmpty else {
                 self.state = .idle
+                self.tabCheckWork?.cancel()
+                self.tabCheckWork = nil
                 Log.info("draft", ["playback": "press reached a player",
                                    "players": strays.joined(separator: " ")])
                 return
             }
-            self.world.audibleTabs { [weak self] audible in self?.tabsChecked(audible) }
+            otherwise()
+        }
+    }
+
+    /// Whether the press did what it was for. A player is asked again
+    /// first: a stale label could otherwise fall on its own while the
+    /// press was starting music.
+    private func checkPress() {
+        tabCheckWork = nil
+        askPlayersAfterPress { [weak self] in
+            self?.world.audibleTabs { [weak self] audible in self?.tabsChecked(audible) }
         }
     }
 

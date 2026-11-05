@@ -105,7 +105,12 @@ install_published() {
     [ "$(version_of "$app")" = "$version" ] || { echo "✕ release $version's app says it is $(version_of "$app")"; return 1; }
     ! is_development "$app" || { echo "✕ release $version's app is a development build"; return 1; }
     codesign --verify --strict "$app" 2>/dev/null || { echo "✕ release $version's signature does not verify"; return 1; }
-    codesign -dv "$app" 2>&1 | grep -qx "TeamIdentifier=$TEAM" || { echo "✕ release $version is not signed by Lodestar's team"; return 1; }
+    # Read it all before comparing: grep -q leaves at its match, codesign
+    # dies writing the lines after it, and under pipefail a release that is
+    # Lodestar's reads as not (15 of 40 runs of v0.54.15).
+    local team
+    team=$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+    [ "$team" = "$TEAM" ] || { echo "✕ release $version is not signed by Lodestar's team"; return 1; }
     spctl --assess --type execute "$app" 2>/dev/null || { echo "✕ Gatekeeper refuses release $version"; return 1; }
     install_app "$app"
 }

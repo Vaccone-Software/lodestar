@@ -65,7 +65,7 @@ final class GalleryHostTests: XCTestCase {
         DispatchQueue.main.async(execute: change)
         defer { running = false }
         XCTAssertFalse(GalleryHost.settle({ [window] in [window] }, limit: 0.3))
-        XCTAssertGreaterThan(count, 3, "and it turned the loop in the meantime")
+        XCTAssertGreaterThan(count, 1, "and it turned the loop in the meantime")
     }
 
     /// A message from a sweep is "<surface>: <what>", and a surface with

@@ -119,15 +119,7 @@ public enum RecordExport {
     /// `events.jsonl` and `events-YYYY-MM.jsonl` (or the health log's).
     private static func lines(base: String, in data: URL, ring: Vault.Ring, fileSystem: any FileSystem,
                               put: Put, problem: Problem) {
-        var stems: Set<String> = []
-        for name in RecordFiles.names(in: data.path, fileSystem: fileSystem) {
-            guard name == base + ".sj" || name == base + ".jsonl"
-                    || (name.hasPrefix(base + "-") && (name.hasSuffix(".sj") || name.hasSuffix(".jsonl")))
-            else { continue }
-            let stem = name.hasSuffix(".sj") ? String(name.dropLast(3)) : String(name.dropLast(6))
-            if stem == base || EventLog.shardMonth(of: data.appendingPathComponent(stem + ".jsonl")) != nil { stems.insert(stem) }
-        }
-        for stem in stems.sorted() {
+        for stem in RecordFiles.lineStems(base: base, in: data, fileSystem: fileSystem) {
             let contents = LineStore.read(plaintext: data.appendingPathComponent(stem + ".jsonl"), ring: ring,
                                           fileSystem: fileSystem)
             guard contents.whole else {

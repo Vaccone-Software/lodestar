@@ -1408,38 +1408,3 @@ func runObservationsEngine(_ context: Advisor.Context) -> Never {
     print("")
     exit(0)
 }
-
-
-/// `lodestar health export <dir> [--logbook]`: the sealed record, decrypted
-/// to the plaintext formats it was kept in (`RecordExport`), into a new or
-/// empty folder, files 0600, and what was written said plainly. The same
-/// signed binary asks the same keychain; nothing is written into the data
-/// directory, and a record that does not open is reported, not exported as
-/// empty. Exit 0 when everything was written, 1 when something could not be
-/// read, 64 for usage, 69 when the keychain is not available.
-func runHealthVerb(_ arguments: [String]) -> Never {
-    Log.stdoutEnabled = false
-    let rest = Array(arguments.dropFirst())
-    guard rest.first == "export", rest.count >= 2, !rest[1].hasPrefix("--") else {
-        print("usage: lodestar health export <dir> [--logbook]")
-        print("  decrypts the health record (or, with --logbook, the logbook) to plaintext files in <dir>")
-        exit(64)
-    }
-    guard let vault = try? Vault.system() else {
-        print("✕ the keychain is not available to this process")
-        exit(69)
-    }
-    let destination = URL(fileURLWithPath: (rest[1] as NSString).expandingTildeInPath)
-    let logbook = rest.contains("--logbook")
-    do {
-        let report = try RecordExport.export(logbook: logbook, from: Paths.data, to: destination, vault: vault)
-        for file in report.written { print("wrote \(file.path) (\(file.bytes) bytes)") }
-        let total = report.written.reduce(0) { $0 + $1.bytes }
-        print("\(report.written.count) files, \(total) bytes, in \(destination.path) — plaintext: keep it where you keep the record's trust, and delete it when you are done")
-        for problem in report.problems { print("✕ \(problem)") }
-        exit(report.ok ? 0 : 1)
-    } catch {
-        print("✕ \(error)")
-        exit(1)
-    }
-}

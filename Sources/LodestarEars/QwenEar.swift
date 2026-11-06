@@ -43,6 +43,7 @@ public final class QwenEar: SettlingEar, @unchecked Sendable {
         try await onQueue {
             guard self.model == nil else { return }
             try MLXGate.shared.runBlocking {
+                MLXCap.apply()
                 let tokenizer = try QwenTokenizer.load(self.folder)
                 try QwenPrompt.check(tokenizer)
                 let model = try QwenASRModel.load(self.folder)

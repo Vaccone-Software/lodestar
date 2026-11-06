@@ -1,5 +1,6 @@
 import Foundation
 import LodestarCore
+import LodestarEars
 import MLX
 import MLXHuggingFace
 import MLXLLM
@@ -516,6 +517,7 @@ actor EditorModel: EditorProofreader {
     /// Any pinned model's weights, named for the log.
     static func load(fromDirectory directory: URL, label: String,
                      additionalContext: [String: any Sendable]?) async throws -> any EditorBackend {
+        MLXCap.apply()
         let container = try await LLMModelFactory.shared.loadContainer(
             from: directory, using: #huggingFaceTokenizerLoader())
         settleRandomState()

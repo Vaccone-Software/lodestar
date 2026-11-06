@@ -25,8 +25,9 @@
 # shard). A shard that runs no tests fails the run: a bad -XCTest name runs
 # nothing and exits 0. So does a total that does not match the test list,
 # a shard whose log has not moved in TEST_SHARD_SECONDS (300; its stack is
-# sampled to .build/test-shards/<shard>.hang.txt), and a skip that
-# Tests/allowed-skips.txt does not allow.
+# sampled to .build/test-shards/<shard>.hang.txt), a skip that
+# Tests/allowed-skips.txt does not allow, and a window that took the keys
+# from the person (TestKeys).
 #
 # Every run, passes too, leaves .build/test-results/junit.xml: one testcase
 # per test with its seconds, and a failure or skip with its message, read
@@ -301,6 +302,20 @@ if [ -n "$unexpected" ]; then
     echo "✕ skipped without a place in Tests/allowed-skips.txt (at the $where):"
     echo "$unexpected" | sed 's/^/    /'
     grep -hE -A1 "^Test Case .* skipped|: Test skipped" "${logs[@]}" | grep -F "$(echo "$unexpected" | head -3 | sed -E 's/.*\.//')" | head -6 | cut -c1-200
+    failed=1
+fi
+
+# A window that took the keys for real took them from the person: every key
+# they typed went to it (TestKeys in SystemEvents.swift writes the line, and
+# a test run's keys are otherwise the process's own). Named by the test that
+# was running, which is the one to fix.
+took=$(awk -v marker="LODESTAR-TOOK-THE-KEYS" '
+    /^Test Case .* started/ { test = $0; sub(/^Test Case .-\[[A-Za-z0-9_]+\./, "", test); sub(/\]. started.*/, "", test); sub(/ /, ".", test) }
+    index($0, marker) == 1 { print "    " (test == "" ? "(before the first test)" : test) ": " substr($0, length(marker) + 2) }
+' "${logs[@]}" | sort -u)
+if [ -n "$took" ]; then
+    echo "✕ a window took the keys from the person (it must not, under a test run):"
+    echo "$took"
     failed=1
 fi
 

@@ -217,6 +217,12 @@ final class ShowingPanel: CeramicPanel {
 }
 
 class CeramicPanel: NSPanel {
+    override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask,
+                  backing: NSWindow.BackingStoreType, defer flag: Bool) {
+        super.init(contentRect: contentRect, styleMask: style, backing: backing, defer: flag)
+        MainActor.assumeIsolated { TestKeys.watch() }
+    }
+
     /// A titled window is screen-constrained: AppKit slides it down until
     /// its title bar clears the menu bar, and never gives the height back.
     /// Select and hints hand their panel a whole display on purpose — the

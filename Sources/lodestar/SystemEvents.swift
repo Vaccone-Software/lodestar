@@ -95,3 +95,32 @@ enum SystemEvents {
         }
     }
 }
+
+/// The keys under a test run. A panel that takes the keys takes keyboard
+/// focus from whatever app is in front, without bringing Lodestar forward
+/// (a non-activating panel), and the suite took the person's that way:
+/// every key they typed while a test held a panel went to the panel. So a
+/// test run's keys are this process's own: a panel is told it has them,
+/// draws its caret, and is sent the notices a key window is sent, and the
+/// window server is never asked. The guard watches the rest: a window that
+/// takes the keys for real during a test run is written to the log with
+/// `marker`, and scripts/test.sh fails the run on it, naming the test.
+enum TestKeys {
+    /// The line the guard writes, which scripts/test.sh looks for.
+    static let marker = "LODESTAR-TOOK-THE-KEYS"
+    private static var watching = false
+
+    /// Starts the guard, once, under a test run.
+    @MainActor static func watch() {
+        guard TestRun.active, !watching else { return }
+        watching = true
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
+                                               queue: nil) { note in
+            // A real key window is AppKit's own: the run's keys are told to
+            // a panel alone, and NSApp never hears of them.
+            guard let window = note.object as? NSWindow, NSApp.keyWindow === window else { return }
+            let line = "\(marker) \(type(of: window)) \"\(window.title)\"\n"
+            FileHandle.standardError.write(Data(line.utf8))
+        }
+    }
+}

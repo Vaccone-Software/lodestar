@@ -11,8 +11,9 @@
 # The base (~/.local/share/lodestar-vm/base) is a macOS 27 bundle with Xcode,
 # an account `admin` that logs in by itself, passwordless sudo and Remote
 # Login: the Setup Assistant answered once, the one step that is not ours.
-# Nothing in the guest is granted by hand either, so the tests that need
-# Accessibility skip there (Tests/allowed-skips.txt, place `vm`). Runs use a
+# Cirrus Labs' Xcode images (macos-golden-gate-xcode) also grant
+# Accessibility, so the real-window tests run there as at the desk; what the
+# guest cannot do is in Tests/allowed-skips.txt, place `vm`. Runs use a
 # copy-on-write clone of the base, `test`, kept between runs so its build is
 # warm; --fresh throws it away. The guest gets 6 cores and 12 GB unless
 # LODESTAR_VM_CPUS / LODESTAR_VM_MEMORY_GB say otherwise, and runs only for

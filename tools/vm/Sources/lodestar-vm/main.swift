@@ -94,6 +94,13 @@ func run(_ bundle: URL, cpus: Int?, memoryGB: Int?, window: Bool) -> Never {
     vm.graphicsDevices = [graphics]
     vm.keyboards = [VZMacKeyboardConfiguration()]
     vm.pointingDevices = [VZMacTrackpadConfiguration()]
+    // A sound device, so the guest has the built-in microphone and speakers
+    // every Mac has (the dictation fallback is tested against one), joined
+    // to nothing here: its microphone hears silence and its speakers play to
+    // no one, never the person's.
+    let sound = VZVirtioSoundDeviceConfiguration()
+    sound.streams = [VZVirtioSoundDeviceInputStreamConfiguration(), VZVirtioSoundDeviceOutputStreamConfiguration()]
+    vm.audioDevices = [sound]
     vm.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
     vm.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
     do { try vm.validate() } catch { fail("the configuration is not valid: \(error.localizedDescription)") }

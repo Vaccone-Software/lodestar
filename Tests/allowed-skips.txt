@@ -28,9 +28,6 @@ any RenderGalleryTests.*
 # Real windows moved off every display: needs Accessibility, which a hosted
 # runner never has. The desk has it and must run them.
 ci RealWindowActionsTests.*
-# The virtual Mac's account has no Accessibility grant (it is given by hand in
-# System Settings, and the guest is set up without hands).
-vm RealWindowActionsTests.*
 # Real windows a person can see (a Dock tile, a second display): on demand,
 # LODESTAR_DESK_WINDOWS=1.
 any RealWindowDeskTests.*
@@ -51,6 +48,15 @@ ci OCRSenseTests.testGroundingRepairsTheGlyphConfusionRecognitionActuallyMakes
 ci OCRSenseTests.testIdentifiersSurviveWithoutLanguageCorrection
 ci OCRSenseTests.testRereadingACroppedLineReadsThatLine
 ci OCRSenseTests.testTerminalStyleLightOnDarkReads
+# The virtual Mac's Vision reads nothing with the accurate model either
+# (seen on its first run, 2026-11-06): it is a model the guest does not run.
+vm OCRSenseTests.testAnImageSaysWhatItShows
+vm OCRSenseTests.testCharacterRangeRectsAreNarrowerThanTheirLine
+vm OCRSenseTests.testCleanProseIsReadVerbatimWithHonestGeometry
+vm OCRSenseTests.testGroundingRepairsTheGlyphConfusionRecognitionActuallyMakes
+vm OCRSenseTests.testIdentifiersSurviveWithoutLanguageCorrection
+vm OCRSenseTests.testRereadingACroppedLineReadsThatLine
+vm OCRSenseTests.testTerminalStyleLightOnDarkReads
 
 # MLX needs a GPU, and a hosted runner's virtual machine has none.
 ci QwenEarTests.*

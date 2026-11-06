@@ -17,8 +17,10 @@ import Virtualization
 //   lodestar-vm clone <from> <to>      copy on write, with a MAC address of its own
 //   lodestar-vm ip <bundle>            the address the guest leased, once it has one
 //
-// `run` stays in the foreground until the guest stops; SIGINT or SIGTERM asks
-// the guest to shut down and stops it outright thirty seconds later.
+// `run` stays in the foreground until the guest stops. SIGINT, SIGTERM,
+// SIGHUP, or the process that started it going away, asks the guest to shut
+// down and stops it outright thirty seconds later: a script killed outright
+// never leaves a guest holding gigabytes of memory behind it.
 
 struct Config: Codable {
     var hardwareModel: String
@@ -88,11 +90,13 @@ func run(_ bundle: URL, cpus: Int?, memoryGB: Int?, window: Bool) -> Never {
     network.macAddress = mac
     vm.networkDevices = [network]
     // A screen and the keys of its own: the guest's window server, which the
-    // tests take instead of the person's.
+    // tests take instead of the person's. A laptop's screen by default,
+    // 1440 by 900 points at twice the pixels, so a surface is laid out as on
+    // a Mac rather than on a 960-point stand-in.
     let graphics = VZMacGraphicsDeviceConfiguration()
-    graphics.displays = [VZMacGraphicsDisplayConfiguration(widthInPixels: config.display?.width ?? 1920,
-                                                           heightInPixels: config.display?.height ?? 1200,
-                                                           pixelsPerInch: 144)]
+    graphics.displays = [VZMacGraphicsDisplayConfiguration(widthInPixels: config.display?.width ?? 2880,
+                                                           heightInPixels: config.display?.height ?? 1800,
+                                                           pixelsPerInch: 220)]
     vm.graphicsDevices = [graphics]
     vm.keyboards = [VZMacKeyboardConfiguration()]
     vm.pointingDevices = [VZMacTrackpadConfiguration()]
@@ -106,7 +110,6 @@ func run(_ bundle: URL, cpus: Int?, memoryGB: Int?, window: Bool) -> Never {
 
     let app = NSApplication.shared
     app.setActivationPolicy(window ? .regular : .prohibited)
-    var shown: NSWindow?
     if window {
         let view = VZVirtualMachineView()
         view.virtualMachine = machine
@@ -117,25 +120,31 @@ func run(_ bundle: URL, cpus: Int?, memoryGB: Int?, window: Bool) -> Never {
         w.contentView = view
         w.center()
         w.makeKeyAndOrderFront(nil)
-        shown = w
+        watcher.window = w
     }
-    _ = shown
 
-    // A signal asks the guest to stop, as its power button would, and stops
-    // it outright if it has not gone in thirty seconds.
-    for signo in [SIGINT, SIGTERM] {
+    // A signal, or the parent going away, asks the guest to stop as its power
+    // button would, and stops it outright if it has not gone in thirty seconds.
+    func stopping() {
+        guard !watcher.stopping else { return }
+        watcher.stopping = true
+        FileHandle.standardError.write(Data("stopping the guest\n".utf8))
+        try? machine.requestStop()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+            MainActor.assumeIsolated { machine.stop { _ in exit(0) } }
+        }
+    }
+    for signo in [SIGINT, SIGTERM, SIGHUP] {
         signal(signo, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: signo, queue: .main)
-        source.setEventHandler { MainActor.assumeIsolated {
-            FileHandle.standardError.write(Data("stopping the guest\n".utf8))
-            try? machine.requestStop()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
-                MainActor.assumeIsolated { machine.stop { _ in exit(0) } }
-            }
-        } }
+        source.setEventHandler { MainActor.assumeIsolated { stopping() } }
         source.resume()
         watcher.sources.append(source)
     }
+    let parent = DispatchSource.makeProcessSource(identifier: getppid(), eventMask: .exit, queue: .main)
+    parent.setEventHandler { MainActor.assumeIsolated { stopping() } }
+    parent.resume()
+    watcher.sources.append(parent)
 
     machine.start { result in
         switch result {
@@ -152,7 +161,9 @@ func run(_ bundle: URL, cpus: Int?, memoryGB: Int?, window: Bool) -> Never {
 
 @MainActor
 final class Watcher: NSObject, @preconcurrency VZVirtualMachineDelegate {
-    var sources: [DispatchSourceSignal] = []
+    var sources: [any DispatchSourceProtocol] = []
+    var window: NSWindow?
+    var stopping = false
 
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
         print("stopped")
@@ -167,41 +178,47 @@ final class Watcher: NSObject, @preconcurrency VZVirtualMachineDelegate {
 // MARK: - clone
 
 /// Every file copied on write (an APFS clone costs no space until written),
-/// then a MAC address of its own, so its lease is never the original's.
+/// then a MAC address of its own, so its lease is never the original's. Made
+/// beside its name and renamed into place whole: a clone that stopped halfway
+/// is never one a later run boots.
 func clone(_ from: URL, _ to: URL) {
     let fm = FileManager.default
     guard !fm.fileExists(atPath: to.path) else { fail("\(to.path) already exists") }
+    let partial = to.deletingLastPathComponent().appendingPathComponent(".\(to.lastPathComponent).partial")
+    try? fm.removeItem(at: partial)
     do {
-        try fm.createDirectory(at: to, withIntermediateDirectories: true)
+        try fm.createDirectory(at: partial, withIntermediateDirectories: true)
         for name in try fm.contentsOfDirectory(atPath: from.path) {
-            guard clonefile(from.appendingPathComponent(name).path, to.appendingPathComponent(name).path, 0) == 0 else {
+            guard clonefile(from.appendingPathComponent(name).path, partial.appendingPathComponent(name).path, 0) == 0 else {
                 throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
             }
         }
+        var (configURL, raw, _) = readConfig(partial)
+        raw["macAddress"] = VZMACAddress.randomLocallyAdministered().string
+        try JSONSerialization.data(withJSONObject: raw, options: [.prettyPrinted, .sortedKeys]).write(to: configURL)
+        try fm.moveItem(at: partial, to: to)
     } catch {
-        try? fm.removeItem(at: to)
+        try? fm.removeItem(at: partial)
         fail("could not clone: \(error.localizedDescription)")
     }
-    var (url, raw, _) = readConfig(to)
-    raw["macAddress"] = VZMACAddress.randomLocallyAdministered().string
-    guard let data = try? JSONSerialization.data(withJSONObject: raw, options: [.prettyPrinted, .sortedKeys]),
-          (try? data.write(to: url)) != nil else { fail("could not write the clone's config") }
-    url = to
-    print(url.path)
+    print(to.path)
 }
 
 // MARK: - ip
 
-/// The address the host's DHCP server leased to the bundle's MAC address,
-/// newest first. The leases file writes each byte without its leading zero.
+/// The address the host's DHCP server leased to the bundle's MAC address
+/// (the server keeps one entry per address and updates it in place). The
+/// leases file writes each byte without its leading zero.
 func ip(_ bundle: URL) {
     let mac = readConfig(bundle).config.macAddress.lowercased()
         .split(separator: ":").map { String(Int($0, radix: 16) ?? 0, radix: 16) }.joined(separator: ":")
     guard let leases = try? String(contentsOfFile: "/var/db/dhcpd_leases", encoding: .utf8) else { exit(2) }
     for block in leases.components(separatedBy: "}") {
         guard block.contains("hw_address=1,\(mac)\n") else { continue }
-        for line in block.split(separator: "\n") where line.trimmingCharacters(in: .whitespaces).hasPrefix("ip_address=") {
-            print(line.split(separator: "=")[1])
+        for line in block.split(separator: "\n") {
+            let field = line.trimmingCharacters(in: .whitespaces)
+            guard field.hasPrefix("ip_address="), field.count > "ip_address=".count else { continue }
+            print(field.dropFirst("ip_address=".count))
             exit(0)
         }
     }

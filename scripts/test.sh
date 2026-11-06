@@ -278,6 +278,9 @@ fi
 # Skips are in "Executed N"; each must be one the allowlist expects here.
 where=desk
 [ -n "${CI:-}" ] && where=ci
+# The virtual Mac of scripts/vm-test.sh: a place of its own, neither a desk nor
+# a hosted runner.
+[ -n "${LODESTAR_VM:-}" ] && where=vm
 grep -hE "^Test Case '-\[\S+ \S+\]' skipped" "${logs[@]}" \
     | sed -E "s/^Test Case '-\[[A-Za-z0-9_]+\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\]'.*/\1.\2/" | sort -u > "$OUT/skipped.txt"
 skipped=$(wc -l < "$OUT/skipped.txt" | tr -d ' ')

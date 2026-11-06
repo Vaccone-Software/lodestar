@@ -6,6 +6,9 @@
 #   <where> <Class>.<test>   or   <where> <Class>.*
 #   where: any (at the desk and on CI) | ci (only on CI; the desk must run it)
 #          | desk (only off CI; CI must run it)
+#          | vm (only in scripts/vm-test.sh's virtual Mac). A vm line is added
+#            once a run there has shown the skip, with the reason: the guest is
+#            not assumed to lack what a hosted runner lacks (it has a GPU).
 
 # Live tests: run on demand against a real model, microphone, app or dataset.
 any EditorAccuracyLiveTests.testTheModelAgainstTheFixture
@@ -25,6 +28,9 @@ any RenderGalleryTests.*
 # Real windows moved off every display: needs Accessibility, which a hosted
 # runner never has. The desk has it and must run them.
 ci RealWindowActionsTests.*
+# The virtual Mac's account has no Accessibility grant (it is given by hand in
+# System Settings, and the guest is set up without hands).
+vm RealWindowActionsTests.*
 # Real windows a person can see (a Dock tile, a second display): on demand,
 # LODESTAR_DESK_WINDOWS=1.
 any RealWindowDeskTests.*
@@ -33,6 +39,8 @@ any RealWindowDeskTests.*
 # runs it when LODESTAR_DATASETS is set (tools/health/fetch-datasets.sh).
 desk ReplayTests.testTheAUCArithmeticReproducesThePapersOwnIndex
 desk ReplayTests.testTheWindowCodeReproducesTheLogFluctuationIndex
+vm ReplayTests.testTheAUCArithmeticReproducesThePapersOwnIndex
+vm ReplayTests.testTheWindowCodeReproducesTheLogFluctuationIndex
 
 # Vision's accurate text model reads nothing on a hosted runner's macOS 27
 # image (the fast pass still reads); the desk must run these.

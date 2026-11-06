@@ -47,6 +47,31 @@ public enum RecordFiles {
         (try? fileSystem.list(directory: directory)) ?? []
     }
 
+    /// The stems of one event log's files, oldest shard first and the live
+    /// file last: `events` and `events-YYYY-MM` (or the health log's), in
+    /// either form, each named once whether it is a journal or plaintext.
+    static func lineStems(base: String, in directory: URL, fileSystem: any FileSystem) -> [String] {
+        var stems: Set<String> = []
+        for name in names(in: directory.path, fileSystem: fileSystem) {
+            guard name == base + journalSuffix || name == base + ".jsonl"
+                    || (name.hasPrefix(base + "-") && (name.hasSuffix(journalSuffix) || name.hasSuffix(".jsonl")))
+            else { continue }
+            let stem = name.hasSuffix(journalSuffix) ? String(name.dropLast(journalSuffix.count)) : String(name.dropLast(6))
+            if stem == base || EventLog.shardMonth(of: directory.appendingPathComponent(stem + ".jsonl")) != nil {
+                stems.insert(stem)
+            }
+        }
+        return stems.filter { $0 != base }.sorted() + (stems.contains(base) ? [base] : [])
+    }
+
+    /// The health archive months beside the logs (`health-YYYY-MM.jsonl.z`,
+    /// sealed or not), by their plaintext name.
+    static func healthArchives(in directory: URL, fileSystem: any FileSystem) -> [String] {
+        Set(names(in: directory.path, fileSystem: fileSystem).filter(isHealthArchive).map {
+            $0.hasSuffix(archiveSealedSuffix) ? String($0.dropLast(archiveSealedSuffix.count)) : $0
+        }).sorted()
+    }
+
     static func isSealedFile(_ path: String, fileSystem: any FileSystem) -> Bool {
         guard let file = try? fileSystem.open(path, mode: .read) else { return false }
         defer { _ = try? fileSystem.close(file) }

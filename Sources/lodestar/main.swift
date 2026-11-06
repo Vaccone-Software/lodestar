@@ -3099,6 +3099,8 @@ func printUsage() {
       observations         what Lodestar has noticed about how you reach things
       observations engine  the fitted models behind it, working shown
       observations clear   delete both records (--logbook or --health for one)
+      health <grain>       the health record as JSON lines, for analysis (health schema)
+      health export <dir>  the health record decrypted to plaintext files
       config-path      print the config file path
       apps             list every app name the graph can bind
       editor check     load the editor's model and ask it one sentence

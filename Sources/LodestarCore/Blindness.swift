@@ -185,13 +185,20 @@ public enum BlindSummary {
     }
 
     public static func rows(events: [ObservationEvent], days: Int, now: Date = Date()) -> [Row] {
-        let since = now.addingTimeInterval(-Double(days) * 86_400)
+        rows(events: events, from: now.addingTimeInterval(-Double(days) * 86_400), to: now)
+    }
+
+    /// The spans that overlap `[from, to)`, each counted for the part of it
+    /// inside: a night asleep across midnight belongs to both days, in parts.
+    public static func rows(events: [ObservationEvent], from: Date, to: Date) -> [Row] {
         var spans: [String: Int] = [:]
         var seconds: [String: Double] = [:]
-        for event in events where event.kind == .blind && event.t >= since {
+        for event in events where event.kind == .blind {
             guard let span = event.blind else { continue }
+            let inside = min(span.end, to).timeIntervalSince(max(event.t, from))
+            guard inside > 0 || (event.t >= from && event.t < to) else { continue }
             spans[span.kind, default: 0] += 1
-            seconds[span.kind, default: 0] += max(0, span.end.timeIntervalSince(event.t))
+            seconds[span.kind, default: 0] += max(0, inside)
         }
         return spans.keys.map { Row(kind: $0, spans: spans[$0] ?? 0, seconds: seconds[$0] ?? 0) }
             .sorted { $0.seconds != $1.seconds ? $0.seconds > $1.seconds : $0.kind < $1.kind }

@@ -73,6 +73,60 @@ public enum Vigilance {
         var weight: Double
     }
 
+    /// One bout of continuous work as the pulses placed it.
+    public struct Bout: Equatable, Sendable {
+        /// The first pulse's start.
+        public var start: Date
+        /// How long the bout ran within these pulses, minutes: from the first
+        /// pulse's position in it to the last's, plus that one's active
+        /// minutes. For a bout the pulses join midway, only the part they hold.
+        public var minutes: Double
+        public var pulses = 0
+        public var keys = 0
+        public var backspaces = 0
+        public var holdN = 0
+        public var holdSum = 0.0
+        /// The record began inside this bout, so it may have started earlier.
+        public var joined = false
+    }
+
+    /// The bouts of a stretch of pulses, oldest first. Pulses written before
+    /// bouts existed carry no position and are not in any.
+    public static func bouts(events: [ObservationEvent]) -> [Bout] {
+        let pulses = events.filter { $0.kind == .pulse && $0.boutIndex != nil }.sorted { $0.t < $1.t }
+        var out: [Bout] = []
+        var offsets: [Double] = []
+        for (pulse, ordinal) in zip(pulses, boutOrdinals(pulses)) {
+            if ordinal == out.count {
+                out.append(Bout(start: pulse.t, minutes: 0, joined: pulse.boutIndex != 0))
+                offsets.append((pulse.boutSeconds ?? 0) / 60)
+            }
+            out[ordinal].minutes = max(out[ordinal].minutes, minutesInto(pulse) - offsets[ordinal])
+            out[ordinal].pulses += 1
+            out[ordinal].keys += pulse.keys ?? 0
+            out[ordinal].backspaces += pulse.backspaces ?? 0
+            out[ordinal].holdN += pulse.holdN ?? 0
+            out[ordinal].holdSum += pulse.holdSum ?? 0
+        }
+        return out
+    }
+
+    /// Each pulse's bout, counted from zero. A window at index zero opened a
+    /// bout; anything else continues the one in flight, and if none is, the
+    /// log starts mid-bout and that bout is joined where it is seen.
+    static func boutOrdinals(_ pulses: [ObservationEvent]) -> [Int] {
+        var bout = -1
+        return pulses.map { pulse in
+            if pulse.boutIndex == 0 || bout < 0 { bout += 1 }
+            return bout
+        }
+    }
+
+    /// How far into its bout a pulse's activity reached, minutes.
+    static func minutesInto(_ pulse: ObservationEvent) -> Double {
+        (pulse.boutSeconds ?? 0) / 60 + Double(pulse.activeMinutes ?? 0)
+    }
+
     public static func report(events: [ObservationEvent], days: Int,
                               now: Date = Date()) -> Report? {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
@@ -80,17 +134,12 @@ public enum Vigilance {
             .sorted { $0.t < $1.t }
         guard !pulses.isEmpty else { return nil }
 
+        let ordinals = boutOrdinals(pulses)
         var samples: [Sample] = []
-        var bout = -1
         var boutMinutes: [Int: Double] = [:]
-        for pulse in pulses {
-            // A window at index zero opened a bout. Anything else
-            // continues the one in flight — and if none is, the log
-            // starts mid-bout and that bout is joined where it is seen.
-            if pulse.boutIndex == 0 || bout < 0 { bout += 1 }
+        for (pulse, bout) in zip(pulses, ordinals) {
             let elapsed = pulse.boutSeconds ?? 0
-            let minutes = Double(pulse.activeMinutes ?? 0)
-            boutMinutes[bout] = max(boutMinutes[bout] ?? 0, elapsed / 60 + minutes)
+            boutMinutes[bout] = max(boutMinutes[bout] ?? 0, minutesInto(pulse))
 
             let keys = pulse.keys ?? 0
             let gaps = (pulse.ikN ?? 0) + (pulse.ikTailN ?? 0)

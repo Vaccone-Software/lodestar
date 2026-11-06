@@ -46,6 +46,7 @@ ci OCRSenseTests.testTerminalStyleLightOnDarkReads
 
 # MLX needs a GPU, and a hosted runner's virtual machine has none.
 ci QwenEarTests.*
+ci MLXCapTests.testTheLimitReachesMLX
 ci EditorRandomStateTests.*
 
 # The timing lane (TimingLane.swift in each test target, the one place a test

@@ -152,6 +152,18 @@ final class EarHostTests: XCTestCase {
         }
     }
 
+    /// `warm` starts the model's load on a task of its own, and on a slow
+    /// machine that task may not have run yet. Its load is the one waited
+    /// for: a second load here could finish first and leave it to arrive
+    /// after the release.
+    private func settleLoaded(_ model: DraftModel, file: StaticString = #filePath, line: UInt = #line) async {
+        let until = Date().addingTimeInterval(EditorRig.patience)
+        while await !model.isLoaded {
+            guard Date() < until else { XCTFail("the model never loaded", file: file, line: line); return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
     func testAWarningLetsTheRestingModelGoAndKeepsTheEar() async {
         let ear = SlowEar(loaded: true)
         let (host, model) = host(ear: ear, loads: Loads())
@@ -167,7 +179,7 @@ final class EarHostTests: XCTestCase {
         let ear = SlowEar(loaded: true)
         let (host, model) = host(ear: ear, loads: Loads())
         host.warm()
-        await model.load()
+        await settleLoaded(model)
         host.memoryWarning()
         let during = await model.isLoaded
         XCTAssertTrue(during, "not mid-sentence")
@@ -201,7 +213,7 @@ final class EarHostTests: XCTestCase {
         let ear = SlowEar(loaded: true)
         let (host, model) = host(ear: ear, loads: Loads())
         host.warm()
-        await model.load()
+        await settleLoaded(model)
         host.memoryPressure()
         let during = await model.isLoaded
         XCTAssertTrue(during, "not mid-sentence")
@@ -215,12 +227,12 @@ final class EarHostTests: XCTestCase {
         let ear = SlowEar(loaded: true)
         let (host, model) = host(ear: ear, loads: Loads())
         host.warm()
-        await model.load()
+        await settleLoaded(model)
         host.memoryWarning()
         host.rest()
         await settleReleased(model)
         host.warm()
-        await model.load()
+        await settleLoaded(model)
         host.rest()
         let after = await model.isLoaded
         XCTAssertTrue(after, "this draft's close is not the warning's")

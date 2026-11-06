@@ -28,12 +28,6 @@ struct Config: Codable {
     var macAddress: String
     var cpuCount: Int
     var memorySize: UInt64
-    var display: Display?
-
-    struct Display: Codable {
-        var width: Int
-        var height: Int
-    }
 }
 
 func fail(_ message: String) -> Never {
@@ -90,12 +84,12 @@ func run(_ bundle: URL, cpus: Int?, memoryGB: Int?, window: Bool) -> Never {
     network.macAddress = mac
     vm.networkDevices = [network]
     // A screen and the keys of its own: the guest's window server, which the
-    // tests take instead of the person's. A laptop's screen by default,
-    // 1440 by 900 points at twice the pixels, so a surface is laid out as on
-    // a Mac rather than on a 960-point stand-in.
+    // tests take instead of the person's. Always a laptop's screen, 1440 by
+    // 900 points at twice the pixels, so a surface is laid out as on a Mac.
+    // Not the bundle's `display`: Tart writes its own window's size there
+    // (1024 by 768), which would boot a screen no Mac has.
     let graphics = VZMacGraphicsDeviceConfiguration()
-    graphics.displays = [VZMacGraphicsDisplayConfiguration(widthInPixels: config.display?.width ?? 2880,
-                                                           heightInPixels: config.display?.height ?? 1800,
+    graphics.displays = [VZMacGraphicsDisplayConfiguration(widthInPixels: 2880, heightInPixels: 1800,
                                                            pixelsPerInch: 220)]
     vm.graphicsDevices = [graphics]
     vm.keyboards = [VZMacKeyboardConfiguration()]

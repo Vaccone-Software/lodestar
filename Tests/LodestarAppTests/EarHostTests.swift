@@ -140,6 +140,92 @@ final class EarHostTests: XCTestCase {
         XCTAssertFalse(ear.isLoaded, "the moment the draft closes")
     }
 
+    // MARK: - Memory and the language model
+
+    /// Is the model let go? The release runs on the model's actor, so a
+    /// moment after the signal rather than inside it.
+    private func settleReleased(_ model: DraftModel, file: StaticString = #filePath, line: UInt = #line) async {
+        let until = Date().addingTimeInterval(EditorRig.patience)
+        while await model.isLoaded {
+            guard Date() < until else { XCTFail("the model stayed", file: file, line: line); return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    func testAWarningLetsTheRestingModelGoAndKeepsTheEar() async {
+        let ear = SlowEar(loaded: true)
+        let (host, model) = host(ear: ear, loads: Loads())
+        await model.load()
+        host.rest()
+        host.memoryWarning()
+        await settleReleased(model)
+        XCTAssertTrue(ear.isLoaded, "the ear waits for critical")
+        XCTAssertEqual(ear.unloads, 0)
+    }
+
+    func testAWarningWhileDictatingWaitsForTheDraftToClose() async {
+        let ear = SlowEar(loaded: true)
+        let (host, model) = host(ear: ear, loads: Loads())
+        host.warm()
+        await model.load()
+        host.memoryWarning()
+        let during = await model.isLoaded
+        XCTAssertTrue(during, "not mid-sentence")
+        host.rest()
+        await settleReleased(model)
+        XCTAssertTrue(ear.isLoaded)
+    }
+
+    func testAWarningWithNothingLoadedAsksNothing() async {
+        let ear = SlowEar(loaded: true)
+        let loads = Loads()
+        let (host, model) = host(ear: ear, loads: loads)
+        host.rest()
+        host.memoryWarning()
+        let loaded = await model.isLoaded
+        XCTAssertFalse(loaded)
+        XCTAssertEqual(loads.count, 0)
+    }
+
+    func testCriticalLetsTheRestingModelGoToo() async {
+        let ear = SlowEar(loaded: true)
+        let (host, model) = host(ear: ear, loads: Loads())
+        await model.load()
+        host.rest()
+        host.memoryPressure()
+        await settleReleased(model)
+        XCTAssertFalse(ear.isLoaded)
+    }
+
+    func testCriticalWhileDictatingLetsTheModelGoWhenTheDraftCloses() async {
+        let ear = SlowEar(loaded: true)
+        let (host, model) = host(ear: ear, loads: Loads())
+        host.warm()
+        await model.load()
+        host.memoryPressure()
+        let during = await model.isLoaded
+        XCTAssertTrue(during, "not mid-sentence")
+        host.rest()
+        await settleReleased(model)
+    }
+
+    /// The next draft is not left to find a stale signal: nothing was
+    /// pressed once the last draft's close answered it.
+    func testTheSignalIsAnsweredOnce() async {
+        let ear = SlowEar(loaded: true)
+        let (host, model) = host(ear: ear, loads: Loads())
+        host.warm()
+        await model.load()
+        host.memoryWarning()
+        host.rest()
+        await settleReleased(model)
+        host.warm()
+        await model.load()
+        host.rest()
+        let after = await model.isLoaded
+        XCTAssertTrue(after, "this draft's close is not the warning's")
+    }
+
     // MARK: - The order of loading
 
     func testTheModelLoadsOnlyAfterTheEar() {

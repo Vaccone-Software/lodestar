@@ -37,6 +37,8 @@ final class EarHost {
     /// macOS said memory was short while the ear was in use: it goes the
     /// moment the draft closes, not thirty minutes on.
     private var pressed = false
+    /// The same, for the language model, which goes on a warning too.
+    private var modelPressed = false
     private var pressure: DispatchSourceMemoryPressure?
     private let clock: Clock
 
@@ -89,13 +91,18 @@ final class EarHost {
 
     init(clock: Clock = .live) {
         self.clock = clock
-        // The editor's model goes at once on a warning, and on Max that is
-        // the 20 GB the warning is about. The ear goes only when memory is
-        // critical: on the maker's Mac the editor was let go by a warning
-        // ninety times in twenty-two days, and an ear that went with it
-        // would be cold again for a quarter of the day's drafts.
-        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.critical], queue: .main)
-        pressure.setEventHandler { [weak self] in self?.memoryPressure() }
+        // The language model goes on a warning, the editor's copy by the
+        // editor's own handler and the draft's copy here, and on Max that is
+        // the 20 GB the warning is about. It costs little, since it is cold
+        // for any draft five minutes after the last. The ear goes only when
+        // memory is critical: on the maker's Mac the editor was let go by a
+        // warning ninety times in twenty-two days, and an ear that went with
+        // it would be cold again for a quarter of the day's drafts.
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        pressure.setEventHandler { [weak self, weak pressure] in
+            guard let event = pressure?.data else { return }
+            if event.contains(.critical) { self?.memoryPressure() } else { self?.memoryWarning() }
+        }
         pressure.resume()
         self.pressure = pressure
         download.finishedEar = { [weak self] tier in
@@ -244,6 +251,7 @@ final class EarHost {
                 self.loadModels()
                 // Memory ran short while it loaded and nothing is using it.
                 if self.pressed, !self.inUse { self.letGo() }
+                if self.modelPressed, !self.inUse { self.letModelGo() }
             }
         }
     }
@@ -266,18 +274,40 @@ final class EarHost {
         }
         modelIdle = models
         clock.after(Self.modelIdleSeconds, models)
+        if modelPressed { letModelGo() }
         if pressed { letGo(); return }
         let ears = DispatchWorkItem { [weak self] in self?.ear?.unload() }
         idle = ears
         clock.after(Self.idleSeconds, ears)
     }
 
-    /// macOS says memory is critical: a resting ear goes now. One in use goes
-    /// when its draft closes, so a dictation never loses its ear mid-
-    /// sentence to a signal that may have passed.
+    /// macOS says memory is critical: a resting ear and language model go
+    /// now. Ones in use go when their draft closes, so a dictation never loses
+    /// its ear mid-sentence to a signal that may have passed.
     func memoryPressure() {
         Log.info("draft", ["memory pressure": true, "ear in use": inUse || loading])
-        if inUse || loading { pressed = true } else { letGo() }
+        if inUse || loading {
+            pressed = true
+            modelPressed = true
+        } else {
+            letGo()
+            letModelGo()
+        }
+    }
+
+    /// macOS says memory is short: the draft's own language model goes now,
+    /// not when its idle time is up, or when its draft closes if one is open.
+    /// The ear stays. See `init`.
+    func memoryWarning() {
+        Log.info("draft", ["memory warning": true, "in use": inUse || loading])
+        if inUse || loading { modelPressed = true } else { letModelGo() }
+    }
+
+    /// The idle timer is left to run: it finds nothing to do, unless a load
+    /// was still on its way when this asked, and then it is what lets go.
+    private func letModelGo() {
+        modelPressed = false
+        if let model = draftModel { Task { await model.release() } }
     }
 
     private func letGo() {

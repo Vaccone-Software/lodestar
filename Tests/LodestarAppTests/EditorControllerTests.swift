@@ -149,6 +149,9 @@ final class EditorRig {
     let controller: EditorController
     var flashes: [String] = []
     var names: [String] = []
+    /// The system's word on memory, as the rig's controller hears it.
+    final class Level { var now: MemoryLevel = .normal }
+    let level = Level()
 
     init(hover: Bool = false, skipApps: Set<String> = []) {
         directory = FileManager.default.temporaryDirectory
@@ -156,9 +159,11 @@ final class EditorRig {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         observations = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
                                         log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
+        let level = self.level
         controller = EditorController(source: source, queue: queue, proofreader: reader, drawing: drawing,
                                       hover: hover ? EditorHover(clock: clock.clock) : nil,
-                                      clock: clock.clock, polls: false, modelReady: { $0.usesModel })
+                                      clock: clock.clock, polls: false, modelReady: { $0.usesModel },
+                                      memoryLevel: { level.now })
         controller.observations = observations
         // A fixed front app, never whichever terminal runs the tests.
         controller.frontmostApp = { (4242, "com.apple.TextEdit", "TextEdit") }
@@ -566,6 +571,78 @@ final class EditorControllerTests: XCTestCase {
         XCTAssertEqual(rig.reader.engines, [.full])
         XCTAssertEqual(Set(rig.reader.released), ["memory pressure", "editor off"])
         XCTAssertNil(rig.controller.field)
+    }
+
+    // MARK: - After a memory warning
+
+    /// A few beats and the time for the sentence to reach the model if it
+    /// were going to: the fakes answer on a real queue.
+    private func beatAFew(_ rig: EditorRig) {
+        for _ in 0..<3 {
+            rig.clock.advance(by: 2)
+            rig.beat()
+            rig.drain()
+        }
+    }
+
+    func testTheModelStaysAwayAfterAWarningWhileTheSpellCheckerGoesOn() {
+        let rig = EditorRig()
+        rig.controller.memoryPressure()
+        rig.settle("told") { rig.reader.released == ["memory pressure"] }
+        rig.type("We need to to recieve them. Their going now.")
+        rig.settle("the spell checker's marks") { rig.controller.lensMarks.count == 2 }
+        beatAFew(rig)
+        XCTAssertTrue(rig.reader.asked.isEmpty, "a question would load the weights")
+        XCTAssertEqual(rig.reader.prepared, 0, "and so would typing's early load")
+        XCTAssertEqual(rig.controller.lensMarks.count, 2)
+    }
+
+    func testTheSentencesThatWaitedAreAskedOnceTheQuietHasLasted() {
+        let rig = EditorRig()
+        rig.controller.memoryPressure()
+        rig.type("Their going now.")
+        beatAFew(rig)
+        XCTAssertTrue(rig.reader.asked.isEmpty)
+        rig.clock.advance(by: ModelHold.quiet)
+        rig.settleBeating("asked") { rig.reader.asked == ["Their going now."] }
+    }
+
+    func testAnUnrecoveredLevelKeepsTheModelAwayUntilTheCeiling() {
+        let rig = EditorRig()
+        rig.controller.memoryPressure()
+        rig.level.now = .warning
+        rig.type("Their going now.")
+        rig.clock.advance(by: ModelHold.quiet)
+        beatAFew(rig)
+        XCTAssertTrue(rig.reader.asked.isEmpty, "the quiet is over and memory is still short")
+        rig.clock.advance(by: ModelHold.longest - ModelHold.quiet)
+        rig.settleBeating("asked at the ceiling") { !rig.reader.asked.isEmpty }
+    }
+
+    func testALevelWithoutASignalHoldsNothing() {
+        let rig = EditorRig()
+        rig.level.now = .warning
+        rig.type("Their going now.")
+        rig.clock.advance(by: 2)
+        rig.settleBeating("asked") { !rig.reader.asked.isEmpty }
+    }
+
+    /// A question already queued when the warning comes must not be the one
+    /// that loads the weights straight back.
+    func testWhatWasQueuedWaitsToo() {
+        let rig = EditorRig()
+        rig.reader.hold()
+        rig.type("Their going now. Your late again.")
+        rig.clock.advance(by: 2)
+        rig.settleBeating("the first asked") { rig.reader.waitingCount == 1 }
+        rig.controller.memoryPressure()
+        rig.settle("told") { rig.reader.released == ["memory pressure"] }
+        rig.reader.letGo()
+        rig.settle("the first answered") { rig.reader.waitingCount == 0 }
+        beatAFew(rig)
+        XCTAssertEqual(rig.reader.asked.count, 1, "the second waits")
+        rig.clock.advance(by: ModelHold.quiet)
+        rig.settleBeating("the second asked") { rig.reader.asked.count == 2 }
     }
 }
 

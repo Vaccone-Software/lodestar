@@ -111,6 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// A crash is better than a freeze: see `MainThreadWatchdog`.
     private let watchdog = MainThreadWatchdog()
+    /// What a freeze would otherwise take with it: see `MemoryWatch`.
+    private let memoryWatch = MemoryWatch()
     private let launchStages = LaunchStages.shared
     private var launchGuard: LaunchGuard?
     private var launchMode = RunMarker.Mode.normal
@@ -150,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launchStages.enter("launch guard")
         beginLaunchGuard()
         watchdog.start()
+        memoryWatch.start()
         // Before any panel exists: the chords a text field answers are
         // routed through the main menu, and an accessory app has none
         // until it makes one.

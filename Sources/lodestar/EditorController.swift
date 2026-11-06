@@ -96,6 +96,10 @@ final class EditorController: EditorLens {
 
     private var timer: DispatchSourceTimer?
     private var pressure: DispatchSourceMemoryPressure?
+    /// A warning sent the model away: it waits here before it may load again.
+    private var hold = ModelHold()
+    private var heldBefore = false
+    private let memoryLevel: () -> MemoryLevel
     private let watch: EditorWatch
     /// A read is on its way: notifications arrive in bursts (a keystroke
     /// is a value change and a caret move), and one read answers them all
@@ -158,7 +162,9 @@ final class EditorController: EditorLens {
          proofreader: EditorProofreader = EditorModel(engine: .standard),
          drawing: EditorMarksDrawing = EditorMarks(), hover: EditorHover? = EditorHover(),
          clock: Clock = .live, polls: Bool = true,
-         modelReady: @escaping (EditorEngine) -> Bool = EditorModels.isReady) {
+         modelReady: @escaping (EditorEngine) -> Bool = EditorModels.isReady,
+         memoryLevel: @escaping () -> MemoryLevel = { .current }) {
+        self.memoryLevel = memoryLevel
         self.source = source
         self.watch = EditorWatch(queue: queue)
         self.modelReady = modelReady
@@ -248,9 +254,25 @@ final class EditorController: EditorLens {
 
     /// macOS says memory is short: the model goes now, not at its idle
     /// release twenty minutes on. The long hold is affordable because of this.
+    /// And it stays gone for a while, or the next keystroke brings it back
+    /// into the same shortage (`ModelHold`). The spell checker and the rules
+    /// go on, and the sentences wait unasked, as they do for a download.
     func memoryPressure() {
+        hold.pressed(at: clock.now())
         let proofreader = self.proofreader
         Task { await proofreader.release(reason: "memory pressure") }
+    }
+
+    /// Is the model waiting out a warning? Said in the log when it starts and
+    /// when it ends: no surface tells the hand, since the wait is minutes and
+    /// the spell checker still speaks.
+    private func modelHeld(at now: Date) -> Bool {
+        let held = hold.holds(at: now, level: memoryLevel())
+        if held != heldBefore {
+            heldBefore = held
+            Log.info("editor", ["held": held ? "memory pressure" : "over"])
+        }
+        return held
     }
 
     // MARK: - The field
@@ -426,7 +448,7 @@ final class EditorController: EditorLens {
             // Typing: load the model now, so the sentence's end does not
             // wait on the load. Loaded, this only keeps it from its idle
             // release.
-            if modelReadyNow, now.timeIntervalSince(lastPrepare) > 20 {
+            if modelReadyNow, !modelHeld(at: now), now.timeIntervalSince(lastPrepare) > 20 {
                 lastPrepare = now
                 let proofreader = self.proofreader
                 Task { await proofreader.prepare() }
@@ -494,10 +516,11 @@ final class EditorController: EditorLens {
         }
         computing = true
         let session = self.session
-        // Spelling reads without a model, and a model still downloading
-        // cannot answer: the spell checker and the rules are all of it,
-        // and the sentences wait unasked until the model is here.
-        let modelReady = modelReadyNow
+        // Spelling reads without a model, and a model still downloading or
+        // waiting out a memory warning cannot answer: the spell checker and
+        // the rules are all of it, and the sentences wait unasked until the
+        // model is here.
+        let modelReady = modelReadyNow && !modelHeld(at: clock.now())
         axQueue.async { [weak self] in
             let issues = wantIssues ? session.issues(text: read.text, caret: read.caret) : nil
             let toCheck = modelReady ? session.sentencesToCheck(text: read.text, caret: read.caret, paused: paused) : []
@@ -526,7 +549,8 @@ final class EditorController: EditorLens {
     /// One sentence at a time through the model; a sentence no longer in
     /// the field is skipped when its turn comes.
     private func drain() {
-        guard !working, let next = queue.first else { return }
+        // Asking would load the weights: what is queued waits with the rest.
+        guard !working, !modelHeld(at: clock.now()), let next = queue.first else { return }
         queue.removeFirst()
         guard field?.text.contains(next) == true else {
             inFlight.remove(next)

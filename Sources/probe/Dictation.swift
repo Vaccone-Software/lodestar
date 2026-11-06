@@ -287,17 +287,7 @@ func samples16k(_ url: URL) throws -> [Float] {
 /// This process's physical footprint now and at its peak, in MB: what
 /// Activity Monitor calls Memory. Weights the Neural Engine holds are not
 /// charged to it.
-private func footprintMB() -> (now: Int, peak: Int) {
-    var info = task_vm_info_data_t()
-    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
-    let result = withUnsafeMutablePointer(to: &info) {
-        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
-        }
-    }
-    guard result == KERN_SUCCESS else { return (-1, -1) }
-    return (Int(info.phys_footprint >> 20), Int(info.ledger_phys_footprint_peak >> 20))
-}
+private func footprintMB() -> (now: Int, peak: Int) { MemoryReport.ownFootprintMB() }
 
 private func dictationEar(_ options: [String: String]) {
     guard let engine = options["engine"], let model = options["model"], let manifestPath = options["manifest"],

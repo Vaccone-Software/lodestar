@@ -19,13 +19,19 @@ public enum HealthRecord {
     public static func read(in data: URL, ring: Vault.Ring,
                             fileSystem: any FileSystem = PosixFileSystem()) -> Contents {
         var out = Contents()
-        var events: [ObservationEvent] = []
+        var logged: [Data] = []
         for stem in RecordFiles.lineStems(base: ObservationStore.healthLogBase, in: data, fileSystem: fileSystem) {
             let contents = LineStore.read(plaintext: data.appendingPathComponent(stem + ".jsonl"), ring: ring,
                                           fileSystem: fileSystem)
             if !contents.whole { out.problems.append(problem(stem, unavailable: contents.unavailable, failures: contents.failures)) }
-            events += EventLog.events(in: contents.bytes)
+            logged += LineStore.lines(contents.bytes)
         }
+        // An archive month and the log can both hold a line, when a
+        // retirement stopped between its two writes: the same line twice is
+        // one event. Never the same instant and kind: one quarter hour's
+        // clicks are one event per app, all stamped at its start.
+        let inLog = Set(logged)
+        var archived: [Data] = []
         for name in RecordFiles.healthArchives(in: data, fileSystem: fileSystem) {
             let sealed = SealedValueFile(url: data.appendingPathComponent(name + RecordFiles.archiveSealedSuffix),
                                          ring: ring, fileSystem: fileSystem)
@@ -41,15 +47,12 @@ public enum HealthRecord {
                 out.problems.append("\(name): did not inflate")
                 continue
             }
-            events += EventLog.events(in: lines)
+            archived += LineStore.lines(lines).filter { !inLog.contains($0) }
         }
-        // An archive month and the log can both hold an event (a retirement
-        // interrupted between its two writes); one instant of one kind is
-        // one event.
-        var seen: Set<String> = []
-        out.events = events.sorted { $0.t < $1.t }.filter {
-            seen.insert("\($0.t.timeIntervalSince1970)|\($0.kind.rawValue)").inserted
-        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        out.events = (archived + logged).compactMap { try? decoder.decode(ObservationEvent.self, from: $0) }
+            .sorted { $0.t < $1.t }
         return out
     }
 

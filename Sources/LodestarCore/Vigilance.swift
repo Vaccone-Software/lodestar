@@ -77,8 +77,9 @@ public enum Vigilance {
     public struct Bout: Equatable, Sendable {
         /// The first pulse's start.
         public var start: Date
-        /// How long the bout ran, minutes: the last pulse's position in it
-        /// plus that pulse's active minutes.
+        /// How long the bout ran within these pulses, minutes: from the first
+        /// pulse's position in it to the last's, plus that one's active
+        /// minutes. For a bout the pulses join midway, only the part they hold.
         public var minutes: Double
         public var pulses = 0
         public var keys = 0
@@ -94,11 +95,13 @@ public enum Vigilance {
     public static func bouts(events: [ObservationEvent]) -> [Bout] {
         let pulses = events.filter { $0.kind == .pulse && $0.boutIndex != nil }.sorted { $0.t < $1.t }
         var out: [Bout] = []
+        var offsets: [Double] = []
         for (pulse, ordinal) in zip(pulses, boutOrdinals(pulses)) {
             if ordinal == out.count {
                 out.append(Bout(start: pulse.t, minutes: 0, joined: pulse.boutIndex != 0))
+                offsets.append((pulse.boutSeconds ?? 0) / 60)
             }
-            out[ordinal].minutes = max(out[ordinal].minutes, minutesInto(pulse))
+            out[ordinal].minutes = max(out[ordinal].minutes, minutesInto(pulse) - offsets[ordinal])
             out[ordinal].pulses += 1
             out[ordinal].keys += pulse.keys ?? 0
             out[ordinal].backspaces += pulse.backspaces ?? 0

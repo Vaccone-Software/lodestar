@@ -31,9 +31,15 @@ grains: summary day week month · pulse window bout blind voice click era · pre
   JSON lines on standard output, nothing written to disk. The first line says
   what was read; every row says how it was measured. `schema` explains each
   field. `press` is the raw press record and needs --include-presses.
+  export writes the whole record as plaintext files, the press record included.
 """
 
 private func runHealthQuery(_ grain: HealthQuery.Grain, _ flags: [String]) -> Never {
+    // Standard output carries rows only; what went wrong goes to standard error.
+    func fail(_ message: String, _ code: Int32) -> Never {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
+        exit(code)
+    }
     var days = HealthQuery.Days()
     var includePresses = false
     var index = 0
@@ -42,8 +48,7 @@ private func runHealthQuery(_ grain: HealthQuery.Grain, _ flags: [String]) -> Ne
         switch flag {
         case "--since", "--until":
             guard index + 1 < flags.count, HealthQuery.Days.isDay(flags[index + 1], calendar: .current) else {
-                print("✕ \(flag) takes a day: YYYY-MM-DD")
-                exit(64)
+                fail("✕ \(flag) takes a day: YYYY-MM-DD", 64)
             }
             if flag == "--since" { days.since = flags[index + 1] } else { days.until = flags[index + 1] }
             index += 2
@@ -51,61 +56,55 @@ private func runHealthQuery(_ grain: HealthQuery.Grain, _ flags: [String]) -> Ne
             includePresses = true
             index += 1
         default:
-            print("✕ unknown flag \(flag)\n\n" + healthUsage)
-            exit(64)
+            fail("✕ unknown flag \(flag)\n\n" + healthUsage, 64)
         }
     }
     if grain == .press, !includePresses {
-        print("""
+        fail("""
         ✕ the press record is held back unless asked for by flag.
           Each row is one keystroke: its hand, finger, class and timing, never the key.
           That still sorts letters into groups, so with the gaps between words it is a
           partial transcript of what was typed. Anything it is piped to can read that.
-          Run again with --include-presses to read it.
-        """)
-        exit(64)
+          A program running this for someone asks them first. To read it, run again
+          with --include-presses.
+        """, 64)
     }
-    guard let vault = try? Vault.system() else {
-        print("✕ the keychain is not available to this process")
-        exit(69)
-    }
+    guard let vault = try? Vault.system() else { fail("✕ the keychain is not available to this process", 69) }
     let calendar = Calendar.current
     let ring = vault.ring(.health)
     let record = HealthRecord.read(in: Paths.data, ring: ring)
     if case .paused(let why) = ring.availability {
-        print("✕ the health record is sealed and its key is unavailable (\(why.words)); nothing was read")
-        exit(69)
+        fail("✕ the health record is sealed and its key is unavailable (\(why.words)); nothing was read", 69)
     }
     let timeline = HealthMeasurement.Timeline(events: record.events)
     var problems = record.problems
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .secondsSince1970
     encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    var rows = 0
     func emit(_ row: some Encodable) {
         guard let data = try? encoder.encode(row) else { return }
         FileHandle.standardOutput.write(data + Data([0x0A]))
+        rows += 1
     }
 
+    emit(HealthQuery.header(grain: grain, days: days, timeline: timeline, problems: problems, calendar: calendar))
     switch grain {
     case .press:
-        var rows: [HealthQuery.Press] = []
+        // A day at a time: a year of presses is millions of rows.
         for day in HealthRecord.pressDays(in: Paths.data) where days.contains(day: day) {
             let read = HealthRecord.presses(day: day, in: Paths.data, ring: ring)
             if let problem = read.problem { problems.append(problem) }
-            rows += HealthQuery.presses(read.presses, day: day, timeline: timeline)
+            HealthQuery.presses(read.presses, day: day, timeline: timeline).forEach(emit)
         }
-        emit(HealthQuery.header(grain: grain, days: days, timeline: timeline, problems: problems, calendar: calendar))
-        rows.forEach(emit)
     case .bout:
-        emit(HealthQuery.header(grain: grain, days: days, timeline: timeline, problems: problems, calendar: calendar))
         HealthQuery.bouts(events: record.events, timeline: timeline, days: days, calendar: calendar).forEach(emit)
     case .summary, .day, .week, .month:
-        emit(HealthQuery.header(grain: grain, days: days, timeline: timeline, problems: problems, calendar: calendar))
         HealthQuery.periods(grain, events: record.events, timeline: timeline, days: days, calendar: calendar).forEach(emit)
     case .pulse, .window, .blind, .voice, .click, .era:
-        emit(HealthQuery.header(grain: grain, days: days, timeline: timeline, problems: problems, calendar: calendar))
         HealthQuery.events(grain, events: record.events, timeline: timeline, days: days, calendar: calendar).forEach(emit)
     }
+    emit(HealthQuery.Trailer(rows: rows - 1, problems: problems))
     exit(problems.isEmpty ? 0 : 1)
 }
 
@@ -154,6 +153,11 @@ What this is
   that runs past midnight stays one day. Durations end in their unit (Ms,
   Seconds, Minutes, Hours); a share or rate is a fraction from 0 to 1.
 
+The last line (row "end")
+  rows            how many rows came between the header and it
+  problems        everything that did not open, the header's and any found after
+                  it (a day of presses). No end line: the output was cut short
+
 The first line (row "header")
   problems        files that did not open; if any, the rows are not the whole record
   measurements    each change in anything a period reads, oldest first, with the
@@ -197,9 +201,11 @@ measurement (on period rows)
                   and is null when the share is 0
 
 Periods: summary, day, week (Monday to Sunday), month
-  One row per period that holds any record; summary is the whole span. A
-  period that crosses a change in what its numbers mean is cut there: each
-  part is its own row with split true. Sections are null when not measured.
+  One row per period that holds any record, blind time included; a period
+  still running ends now, so its shares are of time that has passed. summary
+  is the whole span. A period that crosses a change in what its numbers mean
+  is cut there: each part is its own row with split true. Sections are null
+  when not measured.
   firstDay lastDay start end   the part's bounds
   builds          every build that wrote in it
   activeDays      days with any typing or pointing
@@ -220,20 +226,23 @@ Periods: summary, day, week (Monday to Sunday), month
                   holdSDSpreadMs is the SD of the windows' SDs
   bouts           a bout ends after 10 minutes without input: count, meanMinutes,
                   longestMinutes, and drift per hour into a bout for corrections,
-                  pauses and hold, fitted within bouts, with its standard error;
-                  distinguishable means it clears twice its error
+                  pauses and hold, fitted within bouts, with its standard error.
+                  No verdict: each row is one test, and across many day rows some
+                  slopes will clear twice their error by chance
   rhythm          on two or more active days: interdailyStability (0 to 1, alike
                   days), intradailyVariability (0 to 2, broken up),
                   relativeAmplitude, m10/l5 (most and least active hours),
                   onset/offset/midpoint hours (may pass 24), socialJetlagHours
                   (weekday vs weekend midpoint, of activity, not sleep)
-  pointer         clicks, clicksPosted (not the hand's), scrolls and their
+  pointer         clicks, clicksPosted (not the hand's; null when the period has
+                  click events but no pulses), scrolls and their
                   seconds, scrollPreciseShare (trackpad), scrollMomentumShare,
                   fromKeysShare, and a reach measured: homing, travel, settle,
                   press and return seconds, pathPoints, straightness, drags
   voice           medians across spoken drafts: f0Hz, jitter, shimmer, hnrDb,
-                  wordsPerSecond. From live speech through whatever mic was in
-                  use: not comparable with clinical sustained-vowel norms
+                  wordsPerSecond, and mics (drafts per microphone: a headset's
+                  codec alone moves jitter, shimmer and hnr). From live speech:
+                  not comparable with clinical sustained-vowel norms
   blind           seconds unseen by kind (asleep, secureInput, notRunning,
                   tapOff, untrusted, healthOff, keyUnavailable), spans cut to the
                   period, over the share measurement.recorded.blindSpans says
@@ -249,8 +258,8 @@ Events: pulse, window, blind, voice, click, era
 
 bout
   One row per bout: day, start, minutes, pulses, keys, correctionRate,
-  holdMeanMs; joined means the record began inside it or a change in
-  measurement cut it.
+  holdMeanMs. joined: it began before this row (the record's start, --since or
+  a change in measurement cut it), and minutes counts only this row's part.
 
 press (needs --include-presses)
   One row per keystroke, never the key itself: down, holdMs (null: no release

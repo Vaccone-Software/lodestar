@@ -534,7 +534,7 @@ public final class EventLog: @unchecked Sendable {
         Self.events(in: LineStore.read(plaintext: url, ring: ring, fileSystem: fileSystem).bytes)
     }
 
-    static func events(in bytes: Data) -> [ObservationEvent] {
+    private static func events(in bytes: Data) -> [ObservationEvent] {
         let decoder = makeDecoder()
         return LineStore.lines(bytes).compactMap { try? decoder.decode(ObservationEvent.self, from: $0) }
     }

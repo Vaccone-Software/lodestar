@@ -22,8 +22,6 @@ public enum HealthQuery {
         /// and by flag.
         case press
 
-        var isPeriod: Bool { [.summary, .day, .week, .month].contains(self) }
-
         /// The event kind behind a one-event-per-row grain.
         var eventKind: ObservationEvent.Kind? {
             switch self {
@@ -89,6 +87,20 @@ public enum HealthQuery {
         public struct Stretch: Encodable {
             @Nullable public var start: Double? = nil
             public var measurement: HealthMeasurement
+        }
+    }
+
+    /// The last line of every answer: how many rows came before it, and
+    /// everything that did not open, found before the header or after it.
+    /// An answer without one was cut short.
+    public struct Trailer: Encodable {
+        public let row = "end"
+        public var rows: Int
+        public var problems: [String]
+
+        public init(rows: Int, problems: [String]) {
+            self.rows = rows
+            self.problems = problems
         }
     }
 
@@ -177,19 +189,18 @@ public enum HealthQuery {
         public var holdDrift: Drift
     }
 
-    /// Change per hour into a bout, fitted within bouts.
+    /// Change per hour into a bout, fitted within bouts, with its error and
+    /// no verdict: a row is one test among many, and whether a slope is real
+    /// is the reader's question, asked across rows.
     public struct Drift: Encodable {
         @Nullable public var perHour: Double? = nil
         @Nullable public var standardError: Double? = nil
         public var fitted: Int
-        /// Clears twice its own error.
-        public var distinguishable: Bool
 
         init(_ drift: Vigilance.Drift) {
             perHour = drift.perHour
             standardError = drift.standardError
             fitted = drift.fitted
-            distinguishable = drift.isDistinguishable
         }
     }
 
@@ -210,7 +221,8 @@ public enum HealthQuery {
 
     public struct Pointer: Encodable {
         public var clicks: Int
-        public var clicksPosted: Int
+        /// From the pulses: null in a period that has click events but none.
+        @Nullable public var clicksPosted: Int? = nil
         public var scrolls: Int
         public var scrollSeconds: Double
         @Nullable public var scrollPreciseShare: Double? = nil
@@ -236,6 +248,10 @@ public enum HealthQuery {
         @Nullable public var shimmer: Double? = nil
         @Nullable public var hnrDb: Double? = nil
         @Nullable public var wordsPerSecond: Double? = nil
+        /// Drafts by the microphone they were spoken into: a headset's codec
+        /// alone moves jitter, shimmer and harmonics, so a change of mic can
+        /// read as a change of voice.
+        public var mics: [String: Int]
     }
 
     public struct Quality: Encodable {
@@ -264,7 +280,8 @@ public enum HealthQuery {
         public var keys: Int
         @Nullable public var correctionRate: Double? = nil
         @Nullable public var holdMeanMs: Double? = nil
-        /// The record began inside it, or a measurement change cut it.
+        /// It began before this row: the record, `--since` or a change in
+        /// measurement cut it, and `minutes` counts only this row's part.
         public var joined: Bool
         public var measurement: HealthMeasurement.Period
     }
@@ -371,11 +388,22 @@ public enum HealthQuery {
     /// The periods of a grain that hold any of the record, each cut where
     /// the measurement changed.
     public static func periods(_ grain: Grain, events: [ObservationEvent], timeline: HealthMeasurement.Timeline,
-                               days: Days, calendar: Calendar) -> [Period] {
+                               days: Days, calendar: Calendar, now: Date = Date()) -> [Period] {
         let blind = events.filter { $0.kind == .blind }
-        let dayEvents = Dictionary(grouping: events) { DayFile.day(of: $0.t, calendar: calendar) }
-            .filter { days.contains(day: $0.key) }
-        let present = dayEvents.keys.sorted()
+        // A day is in the record if anything happened in it, or if the
+        // instrument said it could not see it: a day asleep from end to end
+        // is a day of blind time, not a missing day.
+        var touched = Set(events.map { DayFile.day(of: $0.t, calendar: calendar) })
+        for span in blind.compactMap({ event in event.blind.map { (event.t, $0.end) } }) {
+            var day = span.0
+            while day < span.1 {
+                touched.insert(DayFile.day(of: day, calendar: calendar))
+                guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+                day = next
+            }
+            touched.insert(DayFile.day(of: span.1.addingTimeInterval(-1), calendar: calendar))
+        }
+        let present = touched.filter { days.contains(day: $0) }.sorted()
         guard let firstPresent = present.first, let lastPresent = present.last else { return [] }
         var groups: [(first: String, last: String)] = []
         switch grain {
@@ -395,15 +423,20 @@ public enum HealthQuery {
             return []
         }
         return groups.flatMap { group -> [Period] in
+            // A period still running ends now: its shares are of time that
+            // has passed.
             guard let start = DayFile.dayStart(of: group.first, calendar: calendar),
                   let lastStart = DayFile.dayStart(of: group.last, calendar: calendar),
-                  let end = calendar.date(byAdding: .day, value: 1, to: lastStart) else { return [] }
+                  let periodEnd = calendar.date(byAdding: .day, value: 1, to: lastStart), start < now else { return [] }
+            let end = min(periodEnd, now)
             let inside = events.filter { $0.t >= start && $0.t < end }
             let pieces = timeline.pieces(from: start, to: end)
             return pieces.compactMap { piece in
                 let slice = inside.filter { $0.t >= piece.start && $0.t < piece.end }
-                // An era alone is the instrument starting, not a period of the record.
-                guard slice.contains(where: { $0.kind != .era }) else { return nil }
+                // An era alone is the instrument starting, not a period of
+                // the record; a span it could not see is.
+                let unseen = blind.contains { ($0.blind?.end ?? $0.t) > piece.start && $0.t < piece.end }
+                guard unseen || slice.contains(where: { $0.kind != .era }) else { return nil }
                 return period(grain.rawValue, slice: slice, blind: blind, piece: piece,
                               split: pieces.count > 1, timeline: timeline, calendar: calendar)
             }
@@ -464,7 +497,7 @@ public enum HealthQuery {
                                   }))
             out.pointer = Pointer(clicks: h.clicks, clicksPosted: h.clicksPosted, scrolls: h.scrolls,
                                   scrollSeconds: h.scrollSeconds, scrollPreciseShare: h.scrollPreciseShare,
-                                  scrollMomentumShare: h.scrollMomentumShare, fromKeysShare: nil, drags: 0)
+                                  scrollMomentumShare: h.scrollMomentumShare, drags: 0)
         }
         if measurement.recorded.windows > 0, let w = WindowSummary.report(events: slice, days: span, now: now) {
             out.windows = Windows(total: w.windows, valid: w.valid, holdSDMedianMs: ms(w.holdSDMedian),
@@ -486,7 +519,8 @@ public enum HealthQuery {
         }
         if let clicks = Health.clicks(events: slice, days: span, now: now, calendar: calendar) {
             let p = clicks.pointer
-            var pointer = out.pointer ?? Pointer(clicks: 0, clicksPosted: 0, scrolls: 0, scrollSeconds: 0, drags: 0)
+            var pointer = out.pointer
+                ?? Pointer(clicks: clicks.clicks, scrolls: clicks.scrolls, scrollSeconds: clicks.scrollSeconds, drags: 0)
             pointer.fromKeysShare = clicks.fromKeysShare
             pointer.pointSeconds = p.pointMean
             pointer.travelSeconds = p.travelMean
@@ -502,8 +536,9 @@ public enum HealthQuery {
         }
         if measurement.recorded.voice > 0 {
             let v = VoiceStats.summary(events: slice, days: span, now: now)
+            let mics = Dictionary(slice.compactMap { $0.voice.map { ($0.mic ?? "unknown", 1) } }, uniquingKeysWith: +)
             out.voice = Voice(drafts: v?.drafts ?? 0, f0Hz: v?.f0, jitter: v?.jitter, shimmer: v?.shimmer,
-                              hnrDb: v?.hnr, wordsPerSecond: v?.rate)
+                              hnrDb: v?.hnr, wordsPerSecond: v?.rate, mics: mics)
         }
         if measurement.recorded.blindSpans > 0 {
             out.blind = Dictionary(uniqueKeysWithValues: BlindSummary.rows(events: blind, from: piece.start, to: piece.end)

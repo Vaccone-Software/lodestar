@@ -249,4 +249,84 @@ final class HealthQueryTests: XCTestCase {
         XCTAssertTrue(text.contains(#""holdMs":null"#), text)
         XCTAssertTrue(text.contains(#""keyboard":null"#), text)
     }
+
+    // MARK: What the reviews asked for
+
+    func testClicksInTwoAppsAtTheSameInstantAreBothRead() throws {
+        let vault = SealedFixture.vault(directory, custody: InMemoryKeyCustody())
+        let log = SealedFixture.eventLog(directory.appendingPathComponent("health-events.jsonl"), ring: .health)
+        for app in ["brave", "slack"] {
+            var clicks = ObservationEvent(t: at(0), kind: .clicks)
+            clicks.app = app
+            clicks.clicks = 3
+            log.append(clicks)
+        }
+        log.flush()
+        log.close()
+        let read = HealthRecord.read(in: directory, ring: vault.ring(.health))
+        XCTAssertEqual(read.events.compactMap(\.app).sorted(), ["brave", "slack"])
+    }
+
+    func testNothingToReadGivesNoRowsRatherThanEmptyOnes() {
+        let timeline = HealthMeasurement.Timeline(events: [])
+        for grain in [HealthQuery.Grain.summary, .day, .week, .month] {
+            XCTAssertTrue(HealthQuery.periods(grain, events: [], timeline: timeline, days: .init(), calendar: calendar).isEmpty)
+        }
+        let events = [pulse(at(0), hold: 0.09, stamped: true)]
+        let later = HealthQuery.Days(since: "2027-01-01")
+        XCTAssertTrue(HealthQuery.periods(.week, events: events, timeline: timeline, days: later, calendar: calendar).isEmpty)
+        XCTAssertTrue(HealthQuery.bouts(events: events, timeline: timeline, days: later, calendar: calendar).isEmpty)
+    }
+
+    func testADayEndsAtFourOnTheWallClockAcrossTheChangeOfTime() throws {
+        // New York leaves daylight time at 02:00 on 2026-11-01: the health day
+        // of Oct 31 runs 25 hours, and 03:30 that night is still Oct 31.
+        var york = Calendar(identifier: .gregorian)
+        york.timeZone = TimeZone(identifier: "America/New_York")!
+        let late = try XCTUnwrap(york.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 3, minute: 30)))
+        let events = [pulse(late.addingTimeInterval(-3 * 3600), hold: 0.09, stamped: true),
+                      pulse(late, hold: 0.09, stamped: true),
+                      pulse(late.addingTimeInterval(3 * 3600), hold: 0.09, stamped: true)]
+        let rows = HealthQuery.periods(.day, events: events, timeline: HealthMeasurement.Timeline(events: events),
+                                       days: .init(), calendar: york)
+        XCTAssertEqual(rows.map(\.firstDay), ["2026-10-31", "2026-11-01"])
+        XCTAssertEqual(rows[0].input?.keys, 200)
+        XCTAssertEqual(rows[0].end, rows[1].start)
+        XCTAssertEqual(rows[1].start, DayFile.dayStart(of: "2026-11-01", calendar: york))
+    }
+
+    func testADayAsleepFromEndToEndIsARowOfBlindTime() {
+        let events = [era(at(-1), "0.46.0"), pulse(at(0), hold: 0.09, stamped: true),
+                      blind(at(0, 10), hours: 48), pulse(at(2, 12), hold: 0.09, stamped: true)]
+        let timeline = HealthMeasurement.Timeline(events: events)
+        let rows = HealthQuery.periods(.day, events: events, timeline: timeline, days: .init(), calendar: calendar)
+        XCTAssertEqual(rows.map(\.firstDay), ["2026-09-14", "2026-09-15", "2026-09-16"])
+        XCTAssertEqual(rows[1].blind, ["asleep": 24 * 3600])
+        XCTAssertNil(rows[1].input)
+    }
+
+    func testABoutCutInTwoCountsOnlyEachRowsPart() {
+        let events = [pulse(at(0), hold: 0.09, bout: 0), pulse(at(0, 0.25), hold: 0.09, bout: 1),
+                      pulse(at(0, 0.5), hold: 0.09, stamped: true, bout: 2),
+                      pulse(at(0, 0.75), hold: 0.09, stamped: true, bout: 3)]
+        let rows = HealthQuery.bouts(events: events, timeline: HealthMeasurement.Timeline(events: events),
+                                     days: .init(), calendar: calendar)
+        XCTAssertEqual(rows.map(\.joined), [false, true])
+        XCTAssertEqual(rows.map(\.minutes), [15 + 10, 15 + 10], "never the first part twice")
+    }
+
+    func testAWeekStillRunningEndsNow() throws {
+        let events = [era(at(-1), "0.53.0"), pulse(at(0), hold: 0.09, stamped: true), era(at(1), "0.52.0")]
+        let now = at(2)
+        let row = try XCTUnwrap(HealthQuery.periods(.week, events: events, timeline: HealthMeasurement.Timeline(events: events),
+                                                    days: .init(), calendar: calendar, now: now).first)
+        XCTAssertEqual(row.end, now)
+        // Monday 04:00 to Wednesday noon is 56 hours; 0.53.0 recorded voice for 32 of them.
+        XCTAssertEqual(row.measurement.recorded.voice, 32.0 / 56, accuracy: 1e-9)
+    }
+
+    func testTheFourWeeksCountASpanThatBeganBeforeThemForThePartInside() {
+        let rows = BlindSummary.rows(events: [blind(at(-1), hours: 48)], days: 1, now: at(1))
+        XCTAssertEqual(rows.map(\.seconds), [24 * 3600])
+    }
 }

@@ -135,7 +135,8 @@ public enum MemoryReport {
             }
             guard read == 0 else { continue }
             guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { continue }
-            out.append((String(cString: buffer), usage.ri_phys_footprint))
+            let path = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+            out.append((String(decoding: path, as: UTF8.self), usage.ri_phys_footprint))
         }
         return out
     }

@@ -804,6 +804,7 @@ final class DesignDriftTests: XCTestCase {
             let shot = picture.shot, look = picture.look, root = picture.root
             let name = shot.name(in: look)
             func visit(_ view: NSView) {
+                if GalleryHost.isSystemCaret(view) { return }
                 if !view.isHidden {
                     checked += 1
                     if view.alphaValue < 1 { found.append("\(name): \(type(of: view)) at \(view.alphaValue)") }

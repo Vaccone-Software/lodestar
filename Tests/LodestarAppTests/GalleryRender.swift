@@ -66,46 +66,29 @@ enum GalleryRender {
 
     static let scale: CGFloat = 2
 
-    /// A window that has the keys while it is drawn, and where it came from.
+    /// A panel that has the keys while it is drawn.
     struct Keyed {
         let window: NSWindow
-        let origin: NSPoint
 
-        /// Put it away where it was.
-        func release() {
-            window.orderOut(nil)
-            window.setFrameOrigin(origin)
-        }
+        /// It gives them up.
+        func release() { MainActor.assumeIsolated { TestKeys.release(window) } }
     }
 
-    /// Where a window stands while it holds the keys for a picture: off every
-    /// display, so nothing reaches a screen.
+    /// Where a window stands when it is drawn in a window of its own: off
+    /// every display, so nothing reaches a screen.
     static let away = NSPoint(x: -30000, y: -30000)
 
     /// Whether a window that is typed in has the keys while it is drawn: a
     /// caret and a selection are drawn only in the key window, so a picture
-    /// of a field with the caret in it needs one. The panel is brought in
-    /// away from every display, drawn and put away, and the app is never
-    /// activated.
+    /// of a field with the caret in it needs one. The panel is given the
+    /// run's own keys (TestKeys): the window server is never asked, so no
+    /// app in front loses its keys to a picture, and no other shard waits
+    /// for them.
     static func holdingKeys(_ view: NSView) -> Keyed? {
-        guard let window = view.window, window.canBecomeKey, !window.isKeyWindow,
+        guard let window = view.window as? CeramicPanel, window.canBecomeKey, !window.isKeyWindow,
               window.firstResponder is WellText else { return nil }
-        let keyed = Keyed(window: window, origin: window.frame.origin)
-        window.setFrameOrigin(away)
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        // A panel that never activates the app takes the keys at once on a
-        // desk and some turns later on a runner half as fast; one that does
-        // activate it (Settings) never will here, so only the first is waited for.
-        if window.styleMask.contains(.nonactivatingPanel) {
-            let deadline = Date().addingTimeInterval(3)
-            while !window.isKeyWindow, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
-        }
-        // A window that activates the app (Settings) cannot take the keys
-        // while the app is not active: it stays away, and is drawn as a
-        // window nobody can see is (`WellText.holds`).
-        guard window.isKeyWindow else { keyed.release(); return nil }
-        return keyed
+        MainActor.assumeIsolated { TestKeys.give(window) }
+        return Keyed(window: window)
     }
     /// The grey a window stands on, neither the day's ground nor the night's.
     static let desktop = NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)
@@ -142,11 +125,9 @@ enum GalleryRender {
     /// as `bitmap(of:)` draws all of it: the same pixels, `scale` times its size,
     /// for a rule that reads a few rows of a picture and not all of it.
     ///
-    /// `keys`: whether a window that is typed in is brought in to hold the keys while it is drawn
-    /// (`holdingKeys`), so that its caret and selection are in the picture. Only one window in
-    /// the Mac has the keys, so a panel waits for them while any other process (a shard of
-    /// the suite, at the same time) holds them, up to three seconds a picture; a rule that
-    /// reads a slab, a face and the ink of words does not read a caret, and does not wait.
+    /// `keys`: whether a window that is typed in is given the keys while it is drawn
+    /// (`holdingKeys`), so that its caret and selection are in the picture; a rule that reads
+    /// a slab, a face and the ink of words does not read a caret, and leaves them.
     static func bitmap(of view: NSView, region: NSRect, scale: CGFloat = GalleryRender.scale,
                        keys: Bool = true) -> NSBitmapImageRep {
         let keyed = keys ? holdingKeys(view) : nil

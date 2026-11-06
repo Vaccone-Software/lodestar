@@ -208,14 +208,19 @@ enum GalleryHost {
     /// the picture it holds. Two readings that are the same are two turns of the
     /// loop that had nothing left to land, and two windows that read the same are
     /// the same surface.
+    /// The system's own caret indicator, which comes and goes with AppKit's
+    /// key window (a test run's keys are not AppKit's: TestKeys) and is set
+    /// clear: no part of what a surface shows, which draws `CaretMark`.
+    static func isSystemCaret(_ view: NSView) -> Bool {
+        let name = String(describing: type(of: view))
+        return name.hasPrefix("NSTextInsertionIndicator") || name.hasPrefix("NSTextIndicatorOverlay")
+    }
+
     static func appearance(of windows: [NSWindow]) -> Int {
         var hasher = Hasher()
         hasher.combine(windows.count)
         func visit(_ view: NSView) {
-            // The system's own caret indicator comes and goes with the key window,
-            // and is no part of what a surface shows.
-            if String(describing: type(of: view)).hasPrefix("NSTextInsertionIndicator")
-                || String(describing: type(of: view)).hasPrefix("NSTextIndicatorOverlay") { return }
+            if isSystemCaret(view) { return }
             hasher.combine(ObjectIdentifier(type(of: view)))
             hasher.combine(view.frame.origin.x)
             hasher.combine(view.frame.origin.y)

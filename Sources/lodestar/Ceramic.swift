@@ -223,6 +223,38 @@ class CeramicPanel: NSPanel {
         MainActor.assumeIsolated { TestKeys.watch() }
     }
 
+    // Under a test run the keys are the process's own (TestKeys): the panel
+    // is told it has them, and the window server, which would take them
+    // from the app in front, is never asked. Outside one, AppKit's.
+
+    override var isKeyWindow: Bool {
+        guard TestRun.active else { return super.isKeyWindow }
+        return MainActor.assumeIsolated { TestKeys.holder === self }
+    }
+
+    override func makeKey() {
+        guard TestRun.active else { return super.makeKey() }
+        MainActor.assumeIsolated { TestKeys.give(self) }
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        guard TestRun.active else { return super.makeKeyAndOrderFront(sender) }
+        orderFront(sender)
+        MainActor.assumeIsolated { TestKeys.give(self) }
+    }
+
+    override func orderOut(_ sender: Any?) {
+        super.orderOut(sender)
+        guard TestRun.active else { return }
+        MainActor.assumeIsolated { TestKeys.release(self) }
+    }
+
+    override func close() {
+        super.close()
+        guard TestRun.active else { return }
+        MainActor.assumeIsolated { TestKeys.release(self) }
+    }
+
     /// A titled window is screen-constrained: AppKit slides it down until
     /// its title bar clears the menu bar, and never gives the height back.
     /// Select and hints hand their panel a whole display on purpose — the

@@ -110,6 +110,29 @@ enum TestKeys {
     static let marker = "LODESTAR-TOOK-THE-KEYS"
     private static var watching = false
 
+    /// The panel that has the run's keys: what `isKeyWindow` says of a
+    /// Lodestar panel under a test run (CeramicPanel).
+    @MainActor static weak var holder: NSWindow?
+
+    /// The panel has the keys, and the one that had them does not, each
+    /// sent the notice AppKit would send it (a bar closes when it loses
+    /// them; a well redraws its caret).
+    @MainActor static func give(_ window: NSWindow) {
+        guard holder !== window else { return }
+        let previous = holder
+        holder = window
+        if let previous { NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: previous) }
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+    }
+
+    /// The panel gives the keys up (it was put away), as a key window that
+    /// is ordered out does.
+    @MainActor static func release(_ window: NSWindow) {
+        guard holder === window else { return }
+        holder = nil
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+    }
+
     /// Starts the guard, once, under a test run.
     @MainActor static func watch() {
         guard TestRun.active, !watching else { return }

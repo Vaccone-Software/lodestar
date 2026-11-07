@@ -92,6 +92,20 @@ final class ScrollController {
     /// has no pointer to move.
     var sink: ((_ dx: Int32, _ dy: Int32) -> Void)?
 
+    /// A session the world agreed to start: the window it reads, or, when
+    /// the model has none yet, the app in front.
+    enum Opening {
+        case window(WindowModel.Window)
+        case front(NSRunningApplication)
+    }
+
+    /// Whether scroll can start, and from what. Nothing is touched.
+    func opening() -> Opening? {
+        if let focused = model.focusedWindowNow() { return .window(focused) }
+        guard let front = NSWorkspace.shared.frontmostApplication else { return nil }
+        return .front(front)
+    }
+
     /// Enter immediately — warp to the window center now; pane discovery
     /// runs off the main thread and refines Tab targets when it lands.
     ///
@@ -105,7 +119,7 @@ final class ScrollController {
     /// already committed fell through to the graph as "j is not on the
     /// graph": a keystroke landing in the wrong register, over a mode the
     /// user had validly entered. That is the trust bug this closes.
-    func enter() -> Bool {
+    func start(_ opening: Opening) {
         panes = []
         aimPoint = nil
         aimLabel = nil
@@ -119,20 +133,19 @@ final class ScrollController {
         aimsLanded = 0
         aimsAway = 0
         discoveryGeneration += 1
-        if let focused = model.focusedWindowNow() {
+        switch opening {
+        case .window(let focused):
             appName = focused.appName
             appIcon = NSRunningApplication(processIdentifier: focused.pid)?.icon
             windowFrame = focused.frame
             discoverPanes(of: focused.element, began: Date())
             warpToCurrent()
-            return true
+        case .front(let front):
+            appName = front.localizedName ?? "App"
+            appIcon = front.icon
+            windowFrame = .zero
+            retryDiscovery(generation: discoveryGeneration, began: Date(), attempts: 0)
         }
-        guard let front = NSWorkspace.shared.frontmostApplication else { return false }
-        appName = front.localizedName ?? "App"
-        appIcon = front.icon
-        windowFrame = .zero
-        retryDiscovery(generation: discoveryGeneration, began: Date(), attempts: 0)
-        return true
     }
 
     /// Ask the model again until the focused window exists, then discover

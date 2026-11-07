@@ -1007,6 +1007,7 @@ final class HotkeyEngine {
         select.keyFlags = keepFlags
         stripClosing = held ? "lode" : key == "escape" ? "escape" : nil
         defer { stripClosing = nil }
+        pendingEntry = nil
         let effects = core.keyDown(key: key, held: held, shift: effectiveShift,
                                    command: keepFlags.contains(.maskCommand),
                                    option: keepFlags.contains(.maskAlternate),
@@ -1162,6 +1163,21 @@ final class HotkeyEngine {
         return verdict
     }
 
+    /// The lens a world callback agreed to start during the core's call.
+    /// The callbacks answer whether a session can start and record which;
+    /// the session starts here, once every effect of the list has run, so
+    /// the lens that was ending has ended first and nothing it tears down
+    /// belongs to the one beginning. The core's call is a mutating access
+    /// to `core`, and a session started inside it could read none of it.
+    private var pendingEntry: (() -> Void)?
+    private var applyDepth = 0
+
+    private func runPendingEntry() {
+        guard let entry = pendingEntry else { return }
+        pendingEntry = nil
+        entry()
+    }
+
     /// Execute the core's decisions, in order. The one routing effect:
     /// .passThrough hands the event back to the system.
     /// Which Settings place the surface in front belongs to, read before
@@ -1271,6 +1287,11 @@ final class HotkeyEngine {
     }
 
     private func apply(_ effects: [EngineEffect], event: CGEvent?) -> Unmanaged<CGEvent>? {
+        applyDepth += 1
+        defer {
+            applyDepth -= 1
+            if applyDepth == 0 { runPendingEntry() }
+        }
         let scopeAtKey = settingsScope
         var pass = false
         for effect in effects {
@@ -1640,9 +1661,11 @@ final class HotkeyEngine {
             case .maximizeFocused(let beside):
                 actions.maximizeFocused(beside: beside)
             case .enterScroll:
-                // Entry happened in the world callback; state is the
-                // record. What starts here is the watch for the hand
-                // leaving the keys.
+                // The session starts here, after the exit of the one it
+                // replaces (`lode backtick` inside scroll) and before the guide
+                // that reads it. Then the watch for the hand leaving the
+                // keys.
+                runPendingEntry()
                 watchScrollInterrupts()
             case .scrollGuide:
                 showScrollPill()
@@ -2994,8 +3017,13 @@ extension HotkeyEngine: EngineWorld {
     /// hints controller keeps only its harvest and its press, both
     /// borrowed by the door for entry chips and the commit layer.
     func enterHints(sticky: Bool) -> Bool {
-        select.letters = KeyboardLayout.chipAlphabet()
-        return select.enter(door: .click, sticky: sticky)
+        guard let opening = select.opening(door: .click, sticky: sticky) else { return false }
+        pendingEntry = { [weak self] in
+            guard let self else { return }
+            self.select.letters = KeyboardLayout.chipAlphabet()
+            self.select.start(opening)
+        }
+        return true
     }
 
     func hintType(_ letter: String, shift: Bool, control: Bool) -> HintStep {
@@ -3013,18 +3041,29 @@ extension HotkeyEngine: EngineWorld {
     var editorActive: Bool { currentEditor?.enabled == true }
 
     func enterEditor() -> Bool {
-        select.editor = currentEditor
-        select.letters = KeyboardLayout.chipAlphabet()
-        return select.enter(door: .editor, sticky: true)
+        guard let opening = select.opening(door: .editor, sticky: true, editor: currentEditor) else {
+            return false
+        }
+        pendingEntry = { [weak self] in
+            guard let self else { return }
+            self.select.letters = KeyboardLayout.chipAlphabet()
+            self.select.start(opening)
+        }
+        return true
     }
 
     func enterSelect() -> Bool {
-        select.letters = KeyboardLayout.chipAlphabet()
-        select.commitOnUnique = config.selectCommitOnUnique
-        // Read at mode entry, the way scroll reads its physics: a reload
-        // mid-session is honored by the next `lode /`.
-        select.copyOnComplete = config.selectCopyOnComplete
-        return select.enter()
+        guard let opening = select.opening() else { return false }
+        pendingEntry = { [weak self] in
+            guard let self else { return }
+            self.select.letters = KeyboardLayout.chipAlphabet()
+            self.select.commitOnUnique = self.config.selectCommitOnUnique
+            // Read at mode entry, the way scroll reads its physics: a reload
+            // mid-session is honored by the next `lode /`.
+            self.select.copyOnComplete = self.config.selectCopyOnComplete
+            self.select.start(opening)
+        }
+        return true
     }
 
     func selectCopy() -> SelectStep {
@@ -3042,10 +3081,15 @@ extension HotkeyEngine: EngineWorld {
     }
 
     func enterScroll() -> Bool {
-        scroller.step = config.scrollStep
-        scroller.smooth = config.scrollSmooth
-        scroller.speed = config.scrollSpeed
-        return scroller.enter()
+        guard let opening = scroller.opening() else { return false }
+        pendingEntry = { [weak self] in
+            guard let self else { return }
+            self.scroller.step = self.config.scrollStep
+            self.scroller.smooth = self.config.scrollSmooth
+            self.scroller.speed = self.config.scrollSpeed
+            self.scroller.start(opening)
+        }
+        return true
     }
 
     /// Scroll mode's `/`: the same machine as `lode /`, at the door whose
@@ -3053,10 +3097,14 @@ extension HotkeyEngine: EngineWorld {
     /// as it does at the anchor door, because landing a pointer early
     /// costs nothing.
     func enterScrollAim() -> Bool {
-        select.letters = KeyboardLayout.chipAlphabet()
-        select.commitOnUnique = config.selectCommitOnUnique
-        guard select.enter(door: .aim) else { return false }
-        scroller.noteAimOpened()
+        guard let opening = select.opening(door: .aim) else { return false }
+        pendingEntry = { [weak self] in
+            guard let self else { return }
+            self.select.letters = KeyboardLayout.chipAlphabet()
+            self.select.commitOnUnique = self.config.selectCommitOnUnique
+            self.select.start(opening)
+            self.scroller.noteAimOpened()
+        }
         return true
     }
 

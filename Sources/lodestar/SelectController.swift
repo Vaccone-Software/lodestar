@@ -250,18 +250,68 @@ final class SelectController {
 
     // MARK: - Lifecycle
 
+    /// What runs off the tap once a session is entered: the capture and
+    /// the reads, given the window and the session's generation. Nil is
+    /// the real sensing. A seam for the scenarios, which have no screen.
+    var sensing: ((WindowModel.Window, Int) -> Void)?
+
+    /// A session the world agreed to start: the door, the window or canvas
+    /// it reads, and for the editor's door the marks it letters. Decided
+    /// once by `opening`, so that a refusal has no effect and what starts
+    /// is what was agreed to.
+    struct Opening {
+        fileprivate let door: Door
+        fileprivate let sticky: Bool
+        fileprivate let window: WindowModel.Window?
+        fileprivate let canvas: CGRect?
+        fileprivate let editor: EditorLens?
+        fileprivate let marks: [EditorController.Mark]
+    }
+
+    /// Whether a session can start at `door`, and the one that would.
+    /// Nothing is touched: the answer is the only effect.
+    func opening(door: Door = .anchor, sticky: Bool = false, editor lens: EditorLens? = nil) -> Opening? {
+        if door == .editor {
+            guard let editor = lens ?? self.editor else { return nil }
+            let marks = editor.lensMarks
+            guard !marks.isEmpty else { return nil }
+            // The draft's lens draws over the draft, whatever window is or
+            // is not beneath it.
+            if let canvas = editor.lensCanvas {
+                return Opening(door: door, sticky: sticky, window: nil, canvas: canvas,
+                               editor: editor, marks: marks)
+            }
+            guard let window = model.focusedWindowNow() else { return nil }
+            return Opening(door: door, sticky: sticky, window: window, canvas: nil,
+                           editor: editor, marks: marks)
+        }
+        guard let window = model.focusedWindowNow() else { return nil }
+        return Opening(door: door, sticky: sticky, window: window, canvas: nil, editor: nil, marks: [])
+    }
+
     func enter(door: Door = .anchor, sticky: Bool = false) -> Bool {
+        guard let opening = opening(door: door, sticky: sticky) else { return false }
+        start(opening)
+        return true
+    }
+
+    func start(_ opening: Opening) {
+        let door = opening.door
+        let sticky = opening.sticky
         // A new aim, or another door, replaces the last aim's line.
         aimMark = nil
-        // The draft's lens draws over the draft, whatever window is or is
-        // not beneath it.
-        if door == .editor, let editor, let canvas = editor.lensCanvas {
-            begin(door: door, sticky: sticky, frame: canvas, appName: "Lodestar", pid: getpid())
-            guard !editor.lensMarks.isEmpty else { return false }
-            labelEditor(editor.lensMarks)
-            return true
+        if door == .editor {
+            editor = opening.editor
+            if let canvas = opening.canvas {
+                begin(door: door, sticky: sticky, frame: canvas, appName: "Lodestar", pid: getpid())
+            } else if let window = opening.window {
+                begin(door: door, sticky: sticky, frame: window.frame, appName: window.appName, pid: window.pid)
+            }
+            // The marks are already placed: the lens only letters them.
+            labelEditor(opening.marks)
+            return
         }
-        guard let window = model.focusedWindowNow() else { return false }
+        guard let window = opening.window else { return }
         begin(door: door, sticky: sticky, frame: window.frame, appName: window.appName, pid: window.pid)
         if door == .click {
             let expected = generation
@@ -284,14 +334,6 @@ final class SelectController {
             }
         }
 
-        if door == .editor {
-            // The marks are already placed: the lens only letters them.
-            guard let editor, !editor.lensMarks.isEmpty else { return false }
-            if let canvas = editor.lensCanvas { windowFrame = canvas }
-            labelEditor(editor.lensMarks)
-            return true
-        }
-
         // Everything above is bookkeeping in memory and stays here, because
         // the keys that follow read it: `key` refuses to act while `core` is
         // nil, and that has to be true the instant the mode is entered.
@@ -306,6 +348,7 @@ final class SelectController {
         let expected = generation
         OffTap.run { [weak self] in
             guard let self, self.generation == expected else { return }
+            if let sensing = self.sensing { sensing(window, expected); return }
             AXWarmer.warm(window.pid)
             // The scope is the whole active display: pixels do not care which
             // window has focus, and neither do the eyes — a reference window
@@ -342,7 +385,6 @@ final class SelectController {
             }
             self.harvest(window: window, generation: expected, attempt: 1)
         }
-        return true
     }
 
     func exit() {

@@ -253,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // the view is read, and the plaintext an earlier build left sealed,
         // once their state is settled. See `Vault`.
         let loadsView = !clears.logbook
+        if loadsView { observationStore.expectLoad() }
         DispatchQueue.global(qos: .utility).async { [weak self, vault, observationStore, health] in
             vault.settle()
             let person = PersonFile(ring: vault.ring(.health)).read()

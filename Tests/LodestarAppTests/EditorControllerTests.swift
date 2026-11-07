@@ -118,6 +118,7 @@ final class FakeProofreader: EditorProofreader, @unchecked Sendable {
         }
     }
 
+    let memoryHold = EditorHold()
     func setEngine(_ engine: EditorEngine) async { lock.withLock { _engines.append(engine) } }
     private var _languages: [String] = []
     func setLanguage(_ language: String) async { lock.withLock { _languages.append(language) } }

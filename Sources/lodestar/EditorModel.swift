@@ -6,6 +6,7 @@ import MLXHuggingFace
 import MLXLLM
 import MLXLMCommon
 import Stoic
+import Synchronization
 import Tokenizers
 #if canImport(FoundationModels)
 import FoundationModels
@@ -192,6 +193,10 @@ protocol EditorProofreader: Sendable {
     /// Dictation as it was meant, or nil when this engine does not offer
     /// it or did not answer in time. Unchecked: the caller checks.
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String?
+    /// How long a warning keeps the weights away. The proofreader is shared
+    /// (the field's editor, the draft's, the dictation start), so the hold is
+    /// its fact and not any asker's.
+    nonisolated var memoryHold: EditorHold { get }
     /// Can the model answer now? Cheap and synchronous, for whatever tells
     /// the hand once that it cannot: `.unable` from the load that failed or
     /// ran out of time, or the generation that never came back, until the
@@ -202,6 +207,37 @@ protocol EditorProofreader: Sendable {
 extension EditorProofreader {
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String? { nil }
     var ability: ModelAbility { .able }
+}
+
+/// `ModelHold`, kept where the proofreader is, so that every road to the
+/// weights meets the same wait: a warning sent the model away, and the next
+/// keystroke, dictation start or sentence must not bring it straight back.
+/// It says in the log when the wait starts and when it ends, once, whoever
+/// asked.
+final class EditorHold: Sendable {
+    private struct State {
+        var hold = ModelHold()
+        var announced = false
+    }
+    private let state = Mutex(State())
+
+    init() {}
+
+    func pressed(at now: Date) {
+        state.withLock { $0.hold.pressed(at: now) }
+    }
+
+    /// Is the model waiting out a warning? No surface tells the hand, since
+    /// the wait is minutes and the spell checker still speaks.
+    func holds(at now: Date, level: @autoclosure () -> MemoryLevel) -> Bool {
+        let (held, changed) = state.withLock { state -> (Bool, Bool) in
+            let held = state.hold.holds(at: now, level: level())
+            defer { state.announced = held }
+            return (held, held != state.announced)
+        }
+        if changed { Log.info("editor", ["held": held ? "memory pressure" : "over"]) }
+        return held
+    }
 }
 
 enum EditorModelError: Error, CustomStringConvertible {
@@ -272,6 +308,11 @@ actor EditorModel: EditorProofreader {
     private var loadsBegun = 0
     private let loader: Loader
     private let clearCache: @Sendable () -> Void
+    /// A warning's wait: nothing loads the weights while it holds, whoever
+    /// asks. A backend already here may still answer.
+    nonisolated let memoryHold = EditorHold()
+    private let holdClock: @Sendable () -> Date
+    private let memoryLevel: @Sendable () -> MemoryLevel
     let idleRelease: TimeInterval
     let answerDeadline: TimeInterval
     /// How long a sentence waits for the GPU before it gives up. The
@@ -297,8 +338,12 @@ actor EditorModel: EditorProofreader {
          gateWait: TimeInterval = 3, loadDeadline: TimeInterval = 60, stuckAfter: TimeInterval = 20,
          gate: MLXGate = .shared,
          loader: @escaping Loader = EditorModel.load,
-         clearCache: @escaping @Sendable () -> Void = { MLX.GPU.clearCache() }) {
+         clearCache: @escaping @Sendable () -> Void = { MLX.GPU.clearCache() },
+         holdClock: @escaping @Sendable () -> Date = { Date() },
+         memoryLevel: @escaping @Sendable () -> MemoryLevel = { .current }) {
         self.engine = engine
+        self.holdClock = holdClock
+        self.memoryLevel = memoryLevel
         self.idleRelease = idleRelease
         self.answerDeadline = answerDeadline
         self.gateWait = gateWait
@@ -380,6 +425,8 @@ actor EditorModel: EditorProofreader {
         recoverIfStuck()
         while true {
             if let backend { return backend }
+            // Held away by a warning: not a failure, and nothing is loaded.
+            if memoryHold.holds(at: holdClock(), level: memoryLevel()) { return nil }
             guard let load = loading else { return await beginLoad() }
             if load.engine == engine {
                 if !load.wanted {

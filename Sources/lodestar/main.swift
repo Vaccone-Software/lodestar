@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var appIndex: AppIndex!
     private var store: StateStore!
     private var observationStore: ObservationStore!
+    /// Asks the draft stash, on its queue, to read words stranded under a key that may be back.
+    private var stashKeyMayHaveReturned: (() -> Void)?
     private var hud: HUD!
     private var actions: Actions!
     private var searcher: SearcherController!
@@ -253,6 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // the view is read, and the plaintext an earlier build left sealed,
         // once their state is settled. See `Vault`.
         let loadsView = !clears.logbook
+        if loadsView { observationStore.expectLoad() }
         DispatchQueue.global(qos: .utility).async { [weak self, vault, observationStore, health] in
             vault.settle()
             let person = PersonFile(ring: vault.ring(.health)).read()
@@ -476,8 +479,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // is written only while the history's key is ready (a crash while the
         // history is unavailable recovers nothing), and read off the main thread.
         let clipboardStore = clipboardController.history
+        // Words a draft left in flight come back the same way whenever they are
+        // read: at launch, or later when the key they are sealed under returns.
+        let restoreStranded: @Sendable (String) -> Void = { [weak self, weak draft, weak hud] stranded in
+            DispatchQueue.main.async {
+                // Whatever ended the last run: a clean close clears the
+                // stash, so a stash at launch is a draft cut off.
+                DraftRecovery.restore(stranded,
+                                      keepCard: { self?.clipboardController?.keepRecovered($0) ?? false },
+                                      pasteboard: { draft?.writePasteboard($0) },
+                                      flash: { hud?.flash($0) })
+            }
+        }
         let stash = DraftStash(directory: Paths.data, ring: vault.ring(.clipboard),
-                               allowed: { [clipboardStore] in clipboardStore.sealing.withLock { $0 } })
+                               allowed: { [clipboardStore] in clipboardStore.sealing.withLock { $0 } },
+                               handOver: restoreStranded)
         // Written off the main thread, in order: the tap lives on main,
         // and a disk that pauses must never hold a keystroke.
         let stashQueue = DispatchQueue(label: "com.vaccone.lodestar.draft-stash", qos: .utility)
@@ -493,24 +509,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A compaction of the history retires the ring's old keys: the words
         // in flight are sealed again under the new one.
         clipboardStore.onCompacted = { stashQueue.async { stash.reseal() } }
-        stashQueue.async { [weak self, weak draft, weak hud] in
+        stashKeyMayHaveReturned = { stashQueue.async { stash.keyMayHaveReturned() } }
+        stashQueue.async {
             let found = stash.recover()
-            // Sealed and the key cannot be asked for: left where it is, for the launch that can.
+            // Sealed and the key cannot be asked for: left where it is, and
+            // read again whenever the key may be back (`keyMayHaveReturned`).
             if found != .unavailable { stash.clear() }
-            DispatchQueue.main.async {
-                switch found {
-                case .text(let stranded):
-                    // Whatever ended the last run: a clean close clears the
-                    // stash, so a stash at launch is a draft cut off.
-                    DraftRecovery.restore(stranded,
-                                          keepCard: { self?.clipboardController?.keepRecovered($0) ?? false },
-                                          pasteboard: { draft?.writePasteboard($0) },
-                                          flash: { hud?.flash($0) })
-                case .unavailable:
-                    Log.warning("draft: words were in flight and are sealed; the keychain did not open, so they are left for a later launch")
-                default:
-                    break
-                }
+            switch found {
+            case .text(let stranded):
+                restoreStranded(stranded)
+            case .unavailable:
+                Log.warning("draft: words were in flight and are sealed; the keychain did not open, so they are kept until it does")
+            default:
+                break
             }
         }
         draft.chooseInput = { [weak self] name in
@@ -1695,6 +1706,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func keychainMayHaveUnlocked() {
         // The clipboard's own ring: a history paused for a locked keychain asks again.
         clipboardController?.keychainMayHaveUnlocked()
+        // After it: the draft stash is sealed under that ring.
+        stashKeyMayHaveReturned?()
         // The state file's own ring: a state paused for a locked keychain asks again.
         store?.retryIfPaused()
         let rings = [Vault.RingName.health, .logbook].map { vault.ring($0) }

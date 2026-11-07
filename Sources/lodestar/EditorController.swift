@@ -96,9 +96,6 @@ final class EditorController: EditorLens {
 
     private var timer: DispatchSourceTimer?
     private var pressure: DispatchSourceMemoryPressure?
-    /// A warning sent the model away: it waits here before it may load again.
-    private var hold = ModelHold()
-    private var heldBefore = false
     private let memoryLevel: () -> MemoryLevel
     private let watch: EditorWatch
     /// A read is on its way: notifications arrive in bursts (a keystroke
@@ -258,21 +255,15 @@ final class EditorController: EditorLens {
     /// into the same shortage (`ModelHold`). The spell checker and the rules
     /// go on, and the sentences wait unasked, as they do for a download.
     func memoryPressure() {
-        hold.pressed(at: clock.now())
         let proofreader = self.proofreader
+        proofreader.memoryHold.pressed(at: clock.now())
         Task { await proofreader.release(reason: "memory pressure") }
     }
 
-    /// Is the model waiting out a warning? Said in the log when it starts and
-    /// when it ends: no surface tells the hand, since the wait is minutes and
-    /// the spell checker still speaks.
+    /// Is the model waiting out a warning? The hold is the proofreader's, one
+    /// fact for everything that shares it (`EditorHold`).
     private func modelHeld(at now: Date) -> Bool {
-        let held = hold.holds(at: now, level: memoryLevel())
-        if held != heldBefore {
-            heldBefore = held
-            Log.info("editor", ["held": held ? "memory pressure" : "over"])
-        }
-        return held
+        proofreader.memoryHold.holds(at: now, level: memoryLevel())
     }
 
     // MARK: - The field
@@ -563,7 +554,11 @@ final class EditorController: EditorLens {
             let corrected = await proofreader.correct(next)
             guard let self else { return }
             self.working = false
-            self.noteAnswer(corrected != nil)
+            // Nothing from a model that was held away is no failure of its
+            // own, and not the silence the hand is told of.
+            if corrected != nil || !self.modelHeld(at: self.clock.now()) {
+                self.noteAnswer(corrected != nil)
+            }
             // No answer is kept too, with a time to ask again (the session
             // waits ten seconds, then a minute, then gives up while the
             // text stands), so a model that is failing is not asked every

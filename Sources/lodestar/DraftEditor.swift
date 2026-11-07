@@ -22,6 +22,7 @@ final class DraftEditor: EditorLens {
     private let session = EditorSession()
     private let proofreader: EditorProofreader
     private let clock: Clock
+    private let memoryLevel: () -> MemoryLevel
 
     private var text = ""
     private var caret: Int?
@@ -34,9 +35,16 @@ final class DraftEditor: EditorLens {
     private var fixes: [(range: NSRange, original: String, replacement: String, kind: EditorIssue.Kind, batch: Int)] = []
     private var batches = 0
 
-    init(proofreader: EditorProofreader, clock: Clock = .live) {
+    init(proofreader: EditorProofreader, clock: Clock = .live, memoryLevel: @escaping () -> MemoryLevel = { .current }) {
         self.proofreader = proofreader
         self.clock = clock
+        self.memoryLevel = memoryLevel
+    }
+
+    /// Is the model waiting out a memory warning? The hold is the
+    /// proofreader's, shared with the field's editor (`EditorHold`).
+    private var modelHeld: Bool {
+        proofreader.memoryHold.holds(at: clock.now(), level: memoryLevel())
     }
 
     func apply(enabled: Bool, engine: EditorEngine, language: String, vocabulary: [String], modelReady: Bool) {
@@ -77,7 +85,7 @@ final class DraftEditor: EditorLens {
     }
 
     private func ask(paused: Bool) {
-        guard enabled, modelReady, !ghost else { return }
+        guard enabled, modelReady, !ghost, !modelHeld else { return }
         for sentence in session.sentencesToCheck(text: text, caret: caret, paused: paused)
         where !inFlight.contains(sentence) {
             inFlight.insert(sentence)
@@ -87,7 +95,8 @@ final class DraftEditor: EditorLens {
     }
 
     private func drain() {
-        guard !working, let next = queue.first else { return }
+        // Asking would load the weights: what is queued waits with the rest.
+        guard !working, !modelHeld, let next = queue.first else { return }
         queue.removeFirst()
         guard text.contains(next) else {
             inFlight.remove(next)
@@ -101,6 +110,10 @@ final class DraftEditor: EditorLens {
             guard let self else { return }
             self.working = false
             self.inFlight.remove(next)
+            // Nothing from a model that was held away is no answer: the
+            // sentence is not recorded, and is asked again once the hold is
+            // over.
+            if corrected == nil, self.modelHeld { return }
             self.session.record(sentence: next, corrected: corrected)
             self.refresh()
             self.drain()

@@ -27,10 +27,13 @@ public final class ObservationStore {
     private var viewFile: SealedValueFile {
         SealedValueFile(url: file, ring: vault.ring(.logbook), fileSystem: fileSystem)
     }
-    /// Set when a load found the view's file sealed and could not read it
-    /// (the key is unavailable): a save would write a fresh view over a sealed
-    /// one never read, so none is made until `resume` has read it. A store
-    /// that was never asked to load saves as it always did.
+    /// True while the view's file is unread, and no save replaces an unread
+    /// view: a save writes this run's events alone, and over a history never
+    /// read that is the history lost. It is set by `expectLoad` and by a load
+    /// that found the file sealed with the key unavailable, and it ends when
+    /// a load or `resume` has read the file (or replayed the log in its
+    /// place) or a clear has left nothing to read. A store never told to
+    /// expect a load (the command line's, a test's) saves as it always did.
     private let viewBlocked = Locked(false)
     /// Events recorded while the view was blocked, applied to it once it is read.
     private var heldForView: [ObservationEvent] = []
@@ -211,6 +214,13 @@ public final class ObservationStore {
         }
     }
 
+    /// A load is on its way: until it has read the view, nothing is saved
+    /// over it and what is recorded waits to join it. Called on main by the
+    /// one that will call `load`, before anything can record.
+    public func expectLoad() {
+        viewBlocked.withLock { $0 = true }
+    }
+
     /// The key came back (the keychain unlocked): read what the pause kept
     /// unread. Main thread, like `load`.
     public func resume() {
@@ -218,11 +228,14 @@ public final class ObservationStore {
         loadView()
     }
 
-    /// The view is read: what was recorded while it was blocked joins it.
+    /// The view is read: what was recorded while it was blocked joins it, and
+    /// is saved, because the saves it asked for were refused.
     private func settleView() {
         viewBlocked.withLock { $0 = false }
-        for event in heldForView { observations.apply(event) }
+        let held = heldForView
         heldForView = []
+        for event in held { observations.apply(event) }
+        if !held.isEmpty { saveSoon() }
     }
 
     // MARK: - Recording
@@ -731,6 +744,9 @@ public final class ObservationStore {
             self.pendingSave = nil
             self.log.flushSoon()
             guard self.enabled else { return }
+            // Judged here on main, where `settleView` runs: a snapshot taken
+            // of a view still unread would be written after the read.
+            guard !self.viewBlocked.withLock({ $0 }) else { return }
             // The snapshot is taken here on main; the encode and the disk
             // leave with it.
             let snapshot = self.observations

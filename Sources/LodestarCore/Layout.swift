@@ -48,13 +48,23 @@ public final class LayoutController {
     /// One gesture, one entry: a step is every display the gesture
     /// touched, snapshotted together — a cross-display move holds both
     /// its source and its destination, so one undo restores both.
-    private var undoStack: [Step] = []
+    private var undoStack: [Step] = [] { didSet { undoEdits &+= 1 } }
     private var redoStack: [Step] = []
-    /// The next recorded step joins the one before it: a chord's second
-    /// letter is the same gesture as its first, and one `lode ←` must
-    /// restore the stage the whole phrase changed. Consumed by the next
-    /// record, so a stray flag can never fold two real gestures.
-    public var coalesceNextStep = false
+    /// Counts every change to the undo stack, a push, a fold, a pop, a
+    /// drop or an old step aged out, so a step is known by the count it
+    /// was left at and never by the stack's depth, which stays the same
+    /// at the cap while the top changes.
+    private var undoEdits = 0
+    /// Set while one placement runs: whether it is a letter joining a chord
+    /// phrase. Nothing outside a placement joins or starts a phrase.
+    private var joiningPlacement: Bool?
+    /// The count the stack stood at when the phrase's own step was last
+    /// recorded or folded into. A joining letter folds into the top step
+    /// only while the stack still stands at this count: the phrase's step is
+    /// on top and nothing, undo and other gestures included, has touched the
+    /// stack since. Otherwise the letter records a step of its own, which
+    /// becomes the phrase's.
+    private var phraseEdits: Int?
     private var retileGenerations: [CGDirectDisplayID: Int] = [:]
     private var dormant: [String: DormantLayout] = [:]
     private var knownUUIDs: [CGDirectDisplayID: String] = [:]
@@ -377,6 +387,19 @@ public final class LayoutController {
         Snapshot(display: display, layout: layouts[display] ?? fresh(display))
     }
 
+    /// One placement, as the hand made it: every step it records is made
+    /// between this and `endPlacement`. A letter that joins a chord phrase
+    /// rides the phrase's step, so one `lode ←` restores the whole stage
+    /// the phrase changed; any other placement begins a phrase of its own.
+    public func beginPlacement(joining: Bool) {
+        joiningPlacement = joining
+        if !joining { phraseEdits = nil }
+    }
+
+    public func endPlacement() {
+        joiningPlacement = nil
+    }
+
     private func recordUndo(_ display: CGDirectDisplayID) {
         recordUndo([display])
     }
@@ -397,11 +420,10 @@ public final class LayoutController {
     private func recordUndo(_ displays: [CGDirectDisplayID],
                             unparking: [CGWindowID] = []) {
         let step = Step(snapshots: displays.map(current), unpark: unparking)
-        if coalesceNextStep, !undoStack.isEmpty {
-            coalesceNextStep = false
-            // The phrase's first step already holds the stage as it stood
+        if joiningPlacement == true, let mark = phraseEdits, mark == undoEdits {
+            // The phrase's own step already holds the stage as it stood
             // before the phrase; a display this letter touches that the
-            // first did not is snapshotted now, which is still before it.
+            // step did not is snapshotted now, which is still before it.
             var joined = undoStack.removeLast()
             for snapshot in step.snapshots
                 where !joined.snapshots.contains(where: { $0.display == snapshot.display }) {
@@ -409,14 +431,15 @@ public final class LayoutController {
             }
             joined.unpark += unparking
             undoStack.append(joined)
+            phraseEdits = undoEdits
             redoStack.removeAll()
             return
         }
-        coalesceNextStep = false
         if undoStack.last == step { return }
         undoStack.append(step)
         if undoStack.count > 20 { undoStack.removeFirst() }
         redoStack.removeAll()
+        if joiningPlacement != nil { phraseEdits = undoEdits }
     }
 
     private func apply(_ snapshot: Snapshot, keeping: Set<CGWindowID> = []) {

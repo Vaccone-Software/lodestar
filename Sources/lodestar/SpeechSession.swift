@@ -278,6 +278,38 @@ final class AudioInput: @unchecked Sendable {
     /// the queue go, instead of holding the next start behind it.
     private let tickLock = NSLock()
     private var tick = 0
+    /// Which session is whose, by ticket, in the order the sessions were
+    /// made (as `BridgeMic`'s bridges are). One is taken per session before
+    /// its first start, and a start or a stop that is not the newest
+    /// session's is the session's own business only while no newer one has
+    /// begun. `newestTicket` is the newest start asked for, from any thread;
+    /// `runningTicket` is the session the engine's queue last started, and
+    /// is touched only on `queue`.
+    private var nextTicket = 0
+    private var newestTicket = 0
+    private var runningTicket: Int?
+    func reserveTicket() -> Int {
+        tickLock.lock(); defer { tickLock.unlock() }
+        nextTicket += 1
+        return nextTicket
+    }
+    /// A call from a session a newer start has replaced must not count as
+    /// a start or a stop to the waits that watch `tick`.
+    private func supersededByNewer(_ ticket: Int) -> Bool {
+        tickLock.lock(); defer { tickLock.unlock() }
+        return ticket < newestTicket
+    }
+    private func asked(start ticket: Int) -> Bool {
+        tickLock.lock(); defer { tickLock.unlock() }
+        guard ticket >= newestTicket else { return false }
+        newestTicket = ticket
+        tick += 1
+        return true
+    }
+    /// A start a newer session has already begun: nothing was touched.
+    struct Superseded: Error, CustomStringConvertible {
+        var description: String { "a newer session began" }
+    }
     private func bumpTick() { tickLock.lock(); tick += 1; tickLock.unlock() }
     private func currentTick() -> Int { tickLock.lock(); defer { tickLock.unlock() }; return tick }
     /// Which session is in flight, by number: a rebuild waiting out its
@@ -410,6 +442,23 @@ final class AudioInput: @unchecked Sendable {
     }
 
     init() {}
+
+    #if DEBUG
+    /// For the tests: a script in place of the engine, so no device is read
+    /// and nothing opens. `start` answers a start after the last session was
+    /// stopped, as the engine's start would; `stopped` runs wherever the
+    /// engine would be stopped.
+    struct Stand {
+        var start: (_ device: String?) throws -> (format: AVAudioFormat, name: String?)
+        var stopped: () -> Void
+    }
+    var stand: Stand?
+    /// Everything asked of the engine's queue so far, done.
+    func drain() { queue.sync {} }
+    var tickForTests: Int { currentTick() }
+    /// Whether a session is in flight, asked of the queue.
+    var sessionInFlight: Bool { queue.sync { inFlight != nil } }
+    #endif
 
     /// Whether a kept engine can serve this start, or has to be replaced.
     ///
@@ -814,11 +863,20 @@ final class AudioInput: @unchecked Sendable {
     /// `lost` runs on the engine's queue, once, if the session's engine
     /// goes down mid-session and every restart and rebuild fails: the
     /// session is told, rather than left listening to nothing.
-    func start(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
+    ///
+    /// `ticket` is the session's. A start whose session a newer one has
+    /// replaced completes with `Superseded` and touches nothing: starting
+    /// stops the engine, and that engine is the newer session's.
+    func start(device: String?, ticket: Int, sink: @escaping (AVAudioPCMBuffer) -> Void,
                lost: @escaping () -> Void = {},
                completion: @escaping (Result<(format: AVAudioFormat, name: String?), Error>) -> Void) {
-        bumpTick()
+        _ = asked(start: ticket)
         queue.async {
+            if let running = self.runningTicket, ticket < running {
+                completion(.failure(Superseded()))
+                return
+            }
+            self.runningTicket = ticket
             self.sessionNumber += 1
             self.keeper.sessionBegan()
             completion(Result { try self.startNow(device: device, sink: sink, lost: lost) })
@@ -835,6 +893,9 @@ final class AudioInput: @unchecked Sendable {
         stopNow()
         inFlight = (device, sink, lost)
         deliveryLock.lock(); delivered = 0; signalled = false; deliveryLock.unlock()
+        #if DEBUG
+        if let stand { return try stand.start(device) }
+        #endif
         if fresh { discard() }
         let target = try resolveTarget(device: device, logs: true)
         return try startEngine(target: target, sink: sink)
@@ -1056,9 +1117,27 @@ final class AudioInput: @unchecked Sendable {
     /// change the device: a paused graph keeps the device it had.
     /// Idempotent. The engine object is kept; starting it again is the
     /// 70ms path, creating one is the second.
+    ///
+    /// Unscoped: whatever is running. Only `AnalyzerSpeechSession` says it,
+    /// at `listen` and at `stop`, both on the main thread ahead of anything
+    /// the next session queues (its start comes later, through a hop to the
+    /// main thread), so it can only be stopping the session it replaces or
+    /// ends. A session's own stops carry its ticket.
     func stop() {
         bumpTick()
         queue.async { self.stopNow() }
+    }
+
+    /// A session stopped by the session that started it. A session that has
+    /// been replaced says it late (its start returned after esc, or timed
+    /// out) and lands behind the successor's start: that stop is not the
+    /// successor's, and does nothing.
+    func stop(ticket: Int) {
+        if !supersededByNewer(ticket) { bumpTick() }
+        queue.async {
+            guard self.runningTicket == ticket else { return }
+            self.stopNow()
+        }
     }
 
     private func stopNow() {
@@ -1072,6 +1151,9 @@ final class AudioInput: @unchecked Sendable {
                                  signalled: heardSignal, window: { self.deafnessWindow },
                                  device: engineDevice, roster: { Set(Self.inputDevices().map(\.id)) }))
         inFlight = nil
+        #if DEBUG
+        stand?.stopped()
+        #endif
         guard let engine else { return }
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
@@ -1086,6 +1168,11 @@ final class AudioInput: @unchecked Sendable {
 private actor AnalyzerBox {
     private let microphone: AudioInput
     private let bridge: BridgeMic
+    /// This session's place on the microphone, taken when the box is made
+    /// (on the main thread, in the order the sessions began): its starts and
+    /// its stops are its own, and a session that has been replaced cannot
+    /// reach the one that replaced it.
+    private let micTicket: Int
     /// The ticket this session's bridge was asked for, if it asked.
     private var bridgeTicket: Int?
     private var analyzer: SpeechAnalyzer?
@@ -1103,6 +1190,7 @@ private actor AnalyzerBox {
 
     init(microphone: AudioInput, bridge: BridgeMic, held: HeldAudio) {
         self.microphone = microphone
+        self.micTicket = microphone.reserveTicket()
         self.bridge = bridge
         self.held = held
     }
@@ -1276,11 +1364,15 @@ private actor AnalyzerBox {
             let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
             guard remaining > 0.25 else { break }
             do {
-                started = try await Self.startMicrophone(microphone, device: wanted, within: remaining,
+                started = try await Self.startMicrophone(microphone, ticket: micTicket, device: wanted, within: remaining,
                                                          stillWanted: stillWanted,
                                                          lost: { [weak self] in Task { await self?.lost(gate: gate, say: say) } })
                                                          { buffer in gate.fromHeadset(buffer) }
             } catch is CancellationError {
+                stopOwnBridge()
+                return
+            } catch is AudioInput.Superseded {
+                // A newer session has the microphone, and this draft is gone.
                 stopOwnBridge()
                 return
             } catch let off as AudioInput.InputOff {
@@ -1321,7 +1413,7 @@ private actor AnalyzerBox {
                 // A start still out there must not come alive after the
                 // draft has said it failed.
                 stopOwnBridge()
-                microphone.stop()
+                microphone.stop(ticket: micTicket)
                 say(.failed("the microphone could not start"))
             }
             return
@@ -1337,7 +1429,7 @@ private actor AnalyzerBox {
         Log.info("draft", ["speech": "audio", "input": input ?? "unknown",
                            "hz": Int(started.format.sampleRate),
                            "channels": Int(started.format.channelCount)])
-        guard !stopped else { microphone.stop(); return }
+        guard !stopped else { microphone.stop(ticket: micTicket); return }
         say(.listening(input: input))
     }
 
@@ -1408,7 +1500,7 @@ private actor AnalyzerBox {
     /// because `stop` is queued from main too, a session superseded
     /// after that check still has its start queued ahead of the
     /// successor's stop, which then takes the tap off again.
-    private static func startMicrophone(_ microphone: AudioInput, device: String?, within seconds: TimeInterval,
+    private static func startMicrophone(_ microphone: AudioInput, ticket: Int, device: String?, within seconds: TimeInterval,
                                         stillWanted: @escaping @MainActor () -> Bool,
                                         lost: @escaping () -> Void,
                                         sink: @escaping (AVAudioPCMBuffer) -> Void) async throws
@@ -1429,7 +1521,7 @@ private actor AnalyzerBox {
                     guard stillWanted() else {
                         continuation.resume(throwing: CancellationError()); return
                     }
-                    microphone.start(device: device, sink: sink, lost: lost) { continuation.resume(with: $0) }
+                    microphone.start(device: device, ticket: ticket, sink: sink, lost: lost) { continuation.resume(with: $0) }
                 }
             }
         }

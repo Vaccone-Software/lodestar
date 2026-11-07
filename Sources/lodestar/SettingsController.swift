@@ -120,8 +120,17 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private var inlineEdit: (kind: String, key: String)?
     /// Keyboard focus within a list: (pane row, entry index).
     private var listFocus: (row: Int, entry: Int)?
-    /// A search landing armed this row: return activates it.
-    private var armedRow: Int?
+    /// A search landing armed this row: return activates it, and only where
+    /// it was armed. The arm names the place and page it was made in and the
+    /// row by index and config path, so a hand that has moved on, or rows a
+    /// render has changed, leave nothing for return to work.
+    private struct ArmedRow: Equatable {
+        var place: Int?
+        var page: String?
+        var row: Int
+        var path: String
+    }
+    private var armedRow: ArmedRow?
     /// Popup token tables, so a selected label resolves to its profile.
     private var popupTokens: [String: [String]] = [:]
     private var lastRenderedPane: Int? = -1
@@ -427,8 +436,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         if key == "return", let armed = armedRow {
             armedRow = nil
-            activate(row: armed)
-            return true
+            if armed.place == place, armed.page == openPage,
+               current.rows.indices.contains(armed.row), current.rows[armed.row].path == armed.path {
+                activate(row: armed.row)
+                return true
+            }
         }
         if key != "return" { armedRow = nil }
         if key == "escape" {
@@ -470,6 +482,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         inlineEdit = nil
         editing = [:]
         armedAction = nil
+        armedRow = nil
         layer = .browsing
         render()
         panel.makeFirstResponder(nil)
@@ -482,6 +495,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         highlightRow = nil
         listFocus = nil
         armedAction = nil
+        armedRow = nil
         render()
         panel.makeFirstResponder(nil)
     }
@@ -623,6 +637,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     // MARK: - Activation and writes
 
     private func activate(row index: Int) {
+        guard current.rows.indices.contains(index) else { return }
         let row = current.rows[index]
         if row.dimmed { return }
         switch row.control {
@@ -859,6 +874,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     @objc private func backPressed() {
+        armedRow = nil
         openPage = nil
         if let pageReturn { place = pageReturn }
         pageReturn = nil
@@ -1376,13 +1392,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 if index == highlightRow {
                     highlightRow = nil
                     let control = row.control
+                    let arm = ArmedRow(place: place, page: openPage, row: index, path: row.path)
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         switch control {
                         case .number, .text:
                             if let field = self.fields[index] { self.panel.makeFirstResponder(field) }
                         case .toggle, .choice:
-                            self.armedRow = index
+                            self.armedRow = arm
                         default:
                             break
                         }

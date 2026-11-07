@@ -41,12 +41,14 @@ final class DraftStashTests: XCTestCase {
         XCTAssertEqual(stash().recover(), .text(words))
     }
 
+    /// Words this launch wrote itself are not stranded: no `recover` found them
+    /// sealed with the key away, so a clean close removes them whatever the
+    /// key is doing (see DraftStashStrandedTests for words a crash left).
     func testACleanCloseRemovesItEvenWhileTheKeyIsUnavailable() throws {
         let first = stash()
         first.write("words")
         let locked = Vault(custody: LockedCustody(copying: custody), directory: directory)
         let second = stash(locked)
-        XCTAssertEqual(second.recover(), .unavailable, "sealed, and the key cannot be asked: left, not removed")
         XCTAssertTrue(FileManager.default.fileExists(atPath: second.url.path))
         second.clear()
         XCTAssertFalse(FileManager.default.fileExists(atPath: second.url.path), "a stale stash must not outlive a clean close")

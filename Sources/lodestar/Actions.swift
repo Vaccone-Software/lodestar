@@ -988,8 +988,9 @@ final class Actions {
                            "action": "\(action)", "display": active.id])
         let joining = joiningUntil.map { Date() < $0 } ?? false
         joiningUntil = nil
+        layout.beginPlacement(joining: joining)
+        defer { layout.endPlacement() }
         if joining {
-            layout.coalesceNextStep = true
             chordAt = Date()
             chordSummons = 0
         } else if let since = chordSummons {

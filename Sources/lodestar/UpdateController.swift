@@ -199,7 +199,8 @@ final class UpdateController {
     /// and bows out within a second, so a marker it consumed was gone
     /// before the resident booted, and the resident never knew it had
     /// updated (every update since readoption said "ready" and nothing
-    /// else). The instance that says ready retires them.
+    /// else). The instance that says ready retires them, and the rollback
+    /// marker is also retired by the instance that says the rollback.
     func acknowledgeBoot() {
         try? FileManager.default.removeItem(at: Self.updatedMarker)
         try? FileManager.default.removeItem(at: Self.rolledBackMarker)
@@ -230,15 +231,21 @@ final class UpdateController {
             }
         }
         if let version = try? String(contentsOf: rolledBack, encoding: .utf8) {
-            try? FileManager.default.removeItem(at: rolledBack)
             // The tombstone outlives the announcement: a release that could
             // not take the pid file must not be offered again, or every
             // check re-applies it and the watchdog rolls it back forever.
+            // Written by every instance that reads the marker, which is
+            // harmless: it holds the same tag.
             Self.writeMarker(version, to: Self.refusedFile, what: "the refusal tombstone",
                              consequence: "this release will be offered and rolled back again at the next check — a relaunch loop")
             Log.error("update rolled back: \(version) never took the pid file — refusing it until a newer release ships")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [flash] in
-                flash("⚠ \(version) did not start, so Lodestar went back to \(Lodestar.version)")
+            // The marker is retired when the message is said, not when it is
+            // read: an instance that exits before the four seconds (a relay)
+            // never says it, and leaves the marker for the one that stays.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                guard let self else { return }
+                self.flash("⚠ \(version) did not start, so Lodestar went back to \(Lodestar.version)")
+                try? FileManager.default.removeItem(at: rolledBack)
             }
         }
     }

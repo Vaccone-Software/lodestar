@@ -136,6 +136,49 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertEqual(actions(rig).prefix(2), ["stood", "changed"])
     }
 
+    // MARK: - A read that was on its way when the hand typed
+
+    /// A beat asks where the mark stands, and the hand changes the text while
+    /// that read is under way: the mark the read answers for is the hand's
+    /// edit's to judge, and the answer is about text no longer in the field.
+    private func handTypesDuringARead(_ text: String) -> EditorRig {
+        let rig = standing()
+        let held = DispatchSemaphore(value: 0)
+        rig.queue.async { held.wait() }
+        rig.clock.advance(by: 1)
+        rig.beat()
+        rig.type(text)
+        rig.clock.advance(by: 2)
+        held.signal()
+        return rig
+    }
+
+    func testAMarkEditedDuringAReadIsStillEdited() {
+        let rig = handTypesDuringARead("We need to recieved them.")
+        rig.settleBeating("judged") { rig.events.contains { $0.action == "changed" } }
+        XCTAssertEqual(actions(rig).prefix(2), ["stood", "changed"])
+    }
+
+    func testAMarkFixedDuringAReadIsStillFixedByHand() throws {
+        let rig = handTypesDuringARead("We need to receive them.")
+        rig.settleBeating("judged") { rig.events.contains { $0.action == "byhand" } }
+        XCTAssertEqual(actions(rig), ["stood", "byhand"])
+        XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 2.5, accuracy: 0.11, "how long it stood before the hand")
+    }
+
+    /// The read's answer is dropped only for text the hand has moved on from.
+    func testAReadOfTheSameTextStillPlacesTheMarks() {
+        let rig = standing()
+        let held = DispatchSemaphore(value: 0)
+        rig.queue.async { held.wait() }
+        rig.clock.advance(by: 1)
+        rig.drawing.hide()
+        rig.beat()
+        held.signal()
+        rig.settle("drawn again") { rig.drawing.shown.count == 1 }
+        XCTAssertEqual(rig.controller.lensMarks.count, 1)
+    }
+
     func testAMarkTheLensFixedIsOneFixAndNotAlsoLeftOrByHand() throws {
         let rig = standing()
         var done: Bool?

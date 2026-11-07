@@ -114,6 +114,9 @@ final class EditorController: EditorLens {
     private var caretSeen: Int?
     private var lastTextChange = Date.distantPast
     private(set) var issues: [EditorIssue] = []
+    /// The text `issues` were read from. Until the read of the field's own
+    /// text comes home they are about words the hand has changed.
+    private var issuesRead: String?
     private var issuesText = ""
     private var marks: [Mark] = []
     private var inFlight: Set<String> = []
@@ -349,6 +352,7 @@ final class EditorController: EditorLens {
         silentSince = nil
         field = nil
         issues = []
+        issuesRead = nil
         issuesText = ""
         marks = []
         geometryGeneration += 1
@@ -521,6 +525,7 @@ final class EditorController: EditorLens {
                 if self.enabled, self.field?.text == read.text {
                     if let issues {
                         self.issues = issues
+                        self.issuesRead = read.text
                         self.placeMarks()
                     }
                     for sentence in toCheck where !self.inFlight.contains(sentence) {
@@ -598,7 +603,7 @@ final class EditorController: EditorLens {
     }
 
     private func placeMarks() {
-        guard let field, silentSince == nil else { return }
+        guard let field, silentSince == nil, issuesRead == field.text else { return }
         lastGeometry = clock.now()
         geometryGeneration += 1
         let expected = geometryGeneration
@@ -614,7 +619,10 @@ final class EditorController: EditorLens {
         axQueue.async { [weak self] in
             let rects = source.rects(for: issues.map(\.range), in: field)
             DispatchQueue.main.async {
-                guard let self, self.geometryGeneration == expected, self.enabled else { return }
+                // Places found for text the hand has since changed say nothing
+                // of the marks in it, and the read of the new text is on its way.
+                guard let self, self.geometryGeneration == expected, self.enabled,
+                      self.field?.text == field.text else { return }
                 self.marks = zip(issues, rects).compactMap { issue, rect in rect.map { Mark(issue: issue, rect: $0) } }
                 self.stand(drawn: self.marks.map(\.issue), all: issues)
                 self.hover?.marksChanged()

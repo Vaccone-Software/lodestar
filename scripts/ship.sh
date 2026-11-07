@@ -332,5 +332,13 @@ fi
 STEP="the GitHub release"
 RELEASE_TARGET="$COMMIT" ./scripts/github-release.sh publish "$VERSION" "$NOTES" "$ZIP" "$DMG"
 
+# The release files are the release's now. They were kept here only so a
+# stopped ship could pick up without notarizing again, and once the release
+# is published there is nothing left to pick up: every zip and DMG goes, this
+# version's and any an earlier ship left (2.7 GB of them by 0.54.17, every
+# release since 0.10.0). The signed app stays, as the build the next smoke
+# marker is checked against.
+STEP="clearing the release files"
+find dist -maxdepth 1 -type f \( -name 'lodestar-[0-9]*.zip' -o -name 'lodestar-[0-9]*.dmg' \) -delete
 echo "✓ shipped v$VERSION to preview; stable follows on its own"
 ./scripts/channel.sh || true

@@ -12,6 +12,13 @@ final class LensTransitionTests: XCTestCase {
     private final class MarkLens: EditorLens {
         var enabled = true
         var lensMarks: [EditorController.Mark]
+        /// Fixes that have started and not reported, the way an app that
+        /// takes typing reports late.
+        var landing: [() -> Void] = []
+        var deferred = false
+        /// Takings back that have started and not reported.
+        var undoing: [() -> Void] = []
+        var deferUndo = false
         init(count: Int) {
             lensMarks = (0..<count).map { i in
                 EditorController.Mark(
@@ -23,15 +30,28 @@ final class LensTransitionTests: XCTestCase {
 
         func fix(_ mark: EditorController.Mark, completion: @escaping (Bool) -> Void) {
             lensMarks.removeAll { $0 == mark }
-            completion(true)
+            if deferred { landing.append { completion(true) } } else { completion(true) }
         }
         func fixAll(_ marks: [EditorController.Mark], completion: @escaping (Int) -> Void) {
             lensMarks.removeAll { marks.contains($0) }
-            completion(marks.count)
+            if deferred { landing.append { completion(marks.count) } } else { completion(marks.count) }
         }
         func ignore(_ mark: EditorController.Mark) { lensMarks.removeAll { $0 == mark } }
         func learn(_ mark: EditorController.Mark) { lensMarks.removeAll { $0 == mark } }
-        func undoLastFix(completion: @escaping (Bool) -> Void) { completion(true) }
+        func undoLastFix(completion: @escaping (Bool) -> Void) {
+            if deferUndo { undoing.append { completion(true) } } else { completion(true) }
+        }
+        /// Fresh marks to letter, as the field has more to say after a fix.
+        func refill(_ count: Int) {
+            lensMarks = MarkLens(count: count).lensMarks
+        }
+    }
+
+    /// What reached the app, and the completions the app still owes.
+    private final class App {
+        var log: [(pid: pid_t, keys: [SelectController.HeldKey], paced: Bool)] = []
+        var owed: [() -> Void] = []
+        var keys: [SelectController.HeldKey] { log.flatMap(\.keys) }
     }
 
     /// The sessions whose reading ran: each is the generation it ran for.
@@ -41,9 +61,9 @@ final class LensTransitionTests: XCTestCase {
         var runs: Int { generations.count }
     }
 
-    private func stand(_ stage: Stage) {
+    private func stand(_ stage: Stage, pid: pid_t = 1) {
         stage.model.stand(WindowModel.Window(
-            id: 9, element: AXUIElementCreateSystemWide(), pid: 1, appName: "Slack",
+            id: 9, element: AXUIElementCreateSystemWide(), pid: pid, appName: "Slack",
             bundleID: "com.tinyspeck.slackmacgap", title: "editor",
             frame: CGRect(x: 0, y: 0, width: 900, height: 700),
             isMinimized: false, isAlive: true, lastFocused: Date()))
@@ -387,6 +407,227 @@ final class LensTransitionTests: XCTestCase {
             stage.clock.advance(by: 2)
             stage.openStrip()
             XCTAssertTrue(state(stage).hasPrefix("chain"))
+        }
+    }
+
+    // MARK: - Typing held during a fix
+
+    /// A fix that lands late, in an app that takes typing; the typing the
+    /// hand does meanwhile is `typed`.
+    private func holding(_ stage: Stage, _ lens: MarkLens, _ app: App, typed: [String] = ["h", "i"]) throws {
+        lens.deferred = true
+        stage.engine.select.holdsFix = { _ in true }
+        stage.engine.select.replay = { pid, keys, paced, done in
+            app.log.append((pid, keys, paced))
+            app.owed.append(done)
+        }
+        stage.lode("tab")
+        stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+        for key in typed { stage.press(key) }
+        XCTAssertTrue(app.keys.isEmpty, "held while the fix lands")
+    }
+
+    /// Esc while the fix lands: the hold goes on by itself. The keys wait
+    /// for the fix (a character before it would replace the word still
+    /// selected), then go in once.
+    func testEscapeDuringALandingFixStillPutsTheTypingIn() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app)
+            stage.press("escape")
+            XCTAssertEqual(state(stage), "idle")
+            stage.settle(turns: 5)
+            XCTAssertTrue(app.keys.isEmpty, "not before the fix has landed")
+            lens.landing.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertEqual(app.keys, [.text("hi")], "what the hand typed reaches the app, once, after esc")
+            XCTAssertEqual(app.log.map(\.paced), [true], "behind the fix")
+        }
+    }
+
+    func testALodeGestureDuringALandingFixStillPutsTheTypingIn() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app)
+            stage.lode(";")
+            XCTAssertEqual(state(stage), "idle")
+            XCTAssertTrue(app.keys.isEmpty, "not before the fix has landed")
+            lens.landing.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertEqual(app.keys, [.text("hi")], "what the hand typed reaches the app, once, after lode ;")
+        }
+    }
+
+    /// The keys belong to the app the fix landed in, whichever window a
+    /// new session has since read.
+    func testADetachedHoldPutsItsKeysInTheAppItWasMadeFor() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app)
+            stage.press("escape")
+            stage.settle(turns: 3)
+            stand(stage, pid: 7)
+            stage.lode(";")
+            stage.settle(turns: 3)
+            XCTAssertEqual(state(stage), "hints")
+            lens.landing.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertEqual(app.log.map(\.pid), [1], "the app the fix was made in, not the one in front now")
+            XCTAssertEqual(app.keys, [.text("hi")])
+        }
+    }
+
+    /// A fix that never reports: the limit lifts a detached hold too.
+    func testADetachedHoldIsLiftedByTheLimitToo() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app)
+            stage.press("escape")
+            stage.pump(until: { !app.keys.isEmpty }, within: SelectController.settleLimit + 2)
+            XCTAssertEqual(app.keys, [.text("hi")])
+            lens.landing.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertEqual(app.keys, [.text("hi")], "and the fix reporting after the limit puts nothing in twice")
+        }
+    }
+
+    /// A new select session starts while the old fix is landing: the keys
+    /// go in after the landing, once, and the session stands.
+    func testANewSessionDoesNotFlushOrDropADetachedHold() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app)
+            stage.lode("/")
+            stage.settle(turns: 5)
+            XCTAssertEqual(state(stage), "select")
+            XCTAssertTrue(app.keys.isEmpty, "the new session did not flush the old hold")
+            lens.landing.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertEqual(app.keys, [.text("hi")], "and did not drop it")
+            app.owed.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertEqual(app.keys, [.text("hi")], "once")
+            XCTAssertEqual(state(stage), "select", "and the old hold finishing did not end the new session")
+        }
+    }
+
+    /// The old lens's last replay is still on the accessibility queue when
+    /// a new lens begins; its completion arrives into the new session.
+    func testAnOldReplayCompletingDoesNotEndANewerLens() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app)
+            lens.landing.forEach { $0() }
+            XCTAssertEqual(app.keys, [.text("hi")], "the fix landed and the typing is going in")
+            XCTAssertEqual(app.owed.count, 1)
+            stage.press("escape")
+            XCTAssertEqual(state(stage), "idle")
+            stage.lode(";")
+            stage.settle(turns: 5)
+            XCTAssertEqual(state(stage), "hints", "a click door session of its own")
+            app.owed.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertEqual(state(stage), "hints", "the old replay finishing is not this session's ending")
+        }
+    }
+
+    /// A detached hold that kept nothing is not a reason to end, or to
+    /// touch, anything.
+    func testADetachedHoldThatKeptNothingLeavesNothingBehind() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app, typed: [])
+            stage.press("escape")
+            stage.lode(";")
+            stage.settle(turns: 5)
+            XCTAssertEqual(state(stage), "hints")
+            lens.landing.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertEqual(state(stage), "hints", "the fix landing is not this session's ending")
+            XCTAssertTrue(app.log.isEmpty, "and nothing was put in")
+        }
+    }
+
+    /// The next session starts free of the hold the last one left: a key
+    /// it does not own is not kept for the old fix.
+    func testANewSessionDoesNotInheritTheLastHold() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app, typed: [])
+            stage.press("escape")
+            lens.refill(2)
+            stage.lode("tab")
+            XCTAssertTrue(state(stage).contains("hints"))
+            stage.press("1")
+            lens.landing.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertTrue(app.log.isEmpty, "the new lens's key was not held for the old fix")
+            XCTAssertTrue(state(stage).contains("hints"))
+            XCTAssertFalse(stage.engine.select.shownChips.isEmpty, "and its chips stand")
+        }
+    }
+
+    /// The new session's own hold is independent of the detached one.
+    func testANewSessionsOwnHoldIsIndependentOfTheDetachedOne() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app, typed: ["a"])
+            stage.press("escape")
+            lens.refill(1)
+            stage.lode("tab")
+            stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+            stage.press("b")
+            XCTAssertTrue(app.keys.isEmpty)
+            XCTAssertEqual(lens.landing.count, 2)
+            lens.landing[0]()
+            stage.settle(turns: 5)
+            XCTAssertEqual(app.keys, [.text("a")], "the old fix's landing puts the old keys in, and only those")
+            XCTAssertTrue(state(stage).contains("hints"), "while the new fix is still landing")
+            lens.landing[1]()
+            stage.settle(turns: 5)
+            XCTAssertEqual(app.keys, [.text("a"), .text("b")])
+        }
+    }
+
+    /// Typing that is not typing ends a live hold at once: what was typed
+    /// goes in first, and the hold does not put it in again.
+    func testANonTypingKeyEndsALiveHoldAndTheTypingGoesInFirst() throws {
+        let (stage, lens, _) = rig(marks: 1)
+        let app = App()
+        try withExtendedLifetime(lens) {
+            try holding(stage, lens, app)
+            XCTAssertFalse(stage.press("left"), "the arrow goes on to the app")
+            XCTAssertEqual(app.keys, [.text("hi")], "after what was typed")
+            XCTAssertEqual(app.log.map(\.paced), [false], "now, so it is in before the key")
+            lens.landing.forEach { $0() }
+            stage.settle(turns: 5)
+            XCTAssertEqual(app.keys, [.text("hi")], "and once")
+        }
+    }
+
+    /// A taking back that reports after its session ended belongs to that
+    /// session: it relabels nothing in the next.
+    func testAnOldTakingBackCompletingLettersNothingInTheNewSession() {
+        let (stage, lens, _) = rig(marks: 2)
+        withExtendedLifetime(lens) {
+            lens.deferUndo = true
+            stage.lode("tab")
+            stage.press("delete")
+            XCTAssertEqual(lens.undoing.count, 1)
+            stage.press("escape")
+            stage.lode("tab")
+            XCTAssertTrue(stage.engine.select.rescansSettled)
+            lens.undoing.forEach { $0() }
+            XCTAssertTrue(stage.engine.select.rescansSettled, "the old session's report started no look in this one")
         }
     }
 }

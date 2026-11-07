@@ -391,6 +391,8 @@ final class SelectController {
         generation += 1
         boundsGeneration += 1
         core = nil
+        // A fix still landing keeps its hold, which finishes on its own.
+        live = nil
         // The ghost outlives the mode by design — exit runs a beat AFTER a
         // committing pick (the engine's exitSelect follows the .done), so
         // hiding unconditionally here wiped the highlight the commit had
@@ -537,10 +539,11 @@ final class SelectController {
             } else {
                 // ⌫ with nothing typed: the last fix, taken back, and
                 // its words may be marked again.
+                let expected = generation
                 editor?.undoLastFix { [weak self] done in
-                    guard done else { return }
-                    self?.answered = []
-                    self?.relabelEditor(after: 0.35)
+                    guard done, let self, self.generation == expected else { return }
+                    self.answered = []
+                    self.relabelEditor(after: 0.35)
                 }
             }
             return
@@ -667,7 +670,9 @@ final class SelectController {
         entryTyped = ""
         answered = []
         shiftedFrom = [:]
-        settling = false
+        live = nil
+        editorMarks = []
+        handingBack = false
         entryChipsAtEntry = 0
         firstKeyAt = nil
         pendingKeys = []
@@ -774,11 +779,29 @@ final class SelectController {
     /// cannot keep the keys). A key that is not typing (an arrow, escape,
     /// anything with ⌘ ⌃ ⌥) ends the hold at once: what was typed is put in
     /// first, and the key goes on to the app after it.
-    private var settling = false
-    private var landed = false
-    private var held: [HeldKey] = []
-    private var heldAny = false
-    private var holdToken = 0
+    ///
+    /// The hold belongs to its fix, not to the session. When the session
+    /// ends with the fix still landing, the hold is let go of and goes on
+    /// by itself: it waits for the same fix (or the limit), puts what it
+    /// kept into the app it was made for, once, and never speaks for a
+    /// session again. Putting the keys in at the ending instead would let
+    /// a character replace the word still selected.
+    private final class Hold {
+        /// The app the fix is landing in, as it was when the hold began.
+        let pid: pid_t
+        var keys: [HeldKey] = []
+        /// The fix has reported, or the limit passed: the keys may go in.
+        var landed = false
+        /// Nothing more to do: the keys are in, or are being put in.
+        var ended = false
+        /// Some keys went in, so the lens has nothing left to do.
+        var typed = false
+        init(pid: pid_t) { self.pid = pid }
+    }
+
+    /// The hold of the session that stands, if its fix is still landing.
+    private var live: Hold?
+    private var settling: Bool { live != nil }
     static let settleLimit: TimeInterval = 1.5
     static let heldCapacity = 32
 
@@ -837,18 +860,12 @@ final class SelectController {
 
     /// Start holding, and return what lifts it.
     private func holdKeys() -> () -> Void {
-        settling = true
-        landed = false
-        held = []
-        heldAny = false
-        holdToken += 1
-        let token = holdToken
-        let expected = generation
+        let hold = Hold(pid: focusedPid)
+        live = hold
         let lift = { [weak self] in
-            guard let self, self.generation == expected, self.holdToken == token, self.settling,
-                  !self.landed else { return }
-            self.landed = true
-            self.drainHeld()
+            guard let self, !hold.landed, !hold.ended else { return }
+            hold.landed = true
+            self.drain(hold)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleLimit, execute: lift)
         return lift
@@ -857,34 +874,36 @@ final class SelectController {
     /// The fix has landed: what was typed goes in, in order. The hold stays
     /// until the last of it is in, so a key struck meanwhile queues behind
     /// it rather than ahead.
-    private func drainHeld() {
-        let keys = held
-        held = []
+    private func drain(_ hold: Hold) {
+        let keys = hold.keys
+        hold.keys = []
         guard !keys.isEmpty else {
-            settling = false
-            if heldAny, editorMarks.isEmpty { onLensDone?() }
+            hold.ended = true
+            // A hold the session let go of has no session to tell.
+            guard live === hold else { return }
+            live = nil
+            if hold.typed, editorMarks.isEmpty { onLensDone?() }
             return
         }
-        heldAny = true
-        let token = holdToken
-        replay(focusedPid, keys, true) { [weak self] in
-            guard let self, self.holdToken == token else { return }
-            self.drainHeld()
+        hold.typed = true
+        replay(hold.pid, keys, true) { [weak self] in
+            guard let self, !hold.ended else { return }
+            self.drain(hold)
         }
     }
 
     private func keep(_ key: HeldKey) -> Bool {
-        guard held.count < Self.heldCapacity else { return false }
-        if case .text(let more) = key, case .text(let before)? = held.last {
-            held[held.count - 1] = .text(before + more)
+        guard let hold = live, hold.keys.count < Self.heldCapacity else { return false }
+        if case .text(let more) = key, case .text(let before)? = hold.keys.last {
+            hold.keys[hold.keys.count - 1] = .text(before + more)
         } else {
-            held.append(key)
+            hold.keys.append(key)
         }
         return true
     }
 
     /// The count of keys held: a run of characters is one entry.
-    private var heldCount: Int { held.reduce(0) { $0 + $1.length } }
+    private var heldCount: Int { live?.keys.reduce(0) { $0 + $1.length } ?? 0 }
 
     private var keyIsPlain: Bool {
         !keyFlags.contains(.maskCommand) && !keyFlags.contains(.maskControl) && !keyFlags.contains(.maskAlternate)
@@ -909,20 +928,21 @@ final class SelectController {
         }
         // A ⌫ with a modifier is an edit the lens cannot keep in order;
         // what was typed goes in first and the ⌫ follows it, as struck.
+        let pid = live?.pid ?? focusedPid
         endHold()
-        AXFieldSource.strike(51, to: focusedPid, pace: 0, flags: keyFlags)
+        AXFieldSource.strike(51, to: pid, pace: 0, flags: keyFlags)
     }
 
     /// Put what was held in now and let the keys go, for a key that cannot
     /// wait for the fix.
     private func endHold() {
-        let keys = held
-        held = []
-        holdToken += 1
-        settling = false
-        landed = true
+        guard let hold = live else { return }
+        let keys = hold.keys
+        hold.keys = []
+        hold.ended = true
+        live = nil
         guard !keys.isEmpty else { return }
-        replay(focusedPid, keys, false) {}
+        replay(hold.pid, keys, false) {}
     }
 
     /// The marks after a fix, moved by the length it changed. A mark

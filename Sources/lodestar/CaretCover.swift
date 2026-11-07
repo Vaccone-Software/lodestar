@@ -31,17 +31,13 @@ enum CaretCover {
     /// The insertion point's own rectangle, where the field will draw one.
     private static func caretBounds(_ element: AXUIElement) -> CGRect? {
         guard let raw = AX.copy(element, kAXSelectedTextRangeAttribute as String),
-              CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
-        var range = CFRange()
-        guard AXValueGetValue(raw as! AXValue, .cfRange, &range) else { return nil }
+              let range = AX.range(raw) else { return nil }
         var probe = CFRange(location: range.location, length: max(range.length, 1))
         guard let parameter = AXValueCreate(.cfRange, &probe) else { return nil }
         var out: CFTypeRef?
         guard AXUIElementCopyParameterizedAttributeValue(
             element, kAXBoundsForRangeParameterizedAttribute as CFString, parameter, &out) == .success,
-              let value = out, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
-        var rect = CGRect.zero
-        guard AXValueGetValue(value as! AXValue, .cgRect, &rect) else { return nil }
+              let value = out, let rect = AX.rect(value) else { return nil }
         return rect
     }
 }

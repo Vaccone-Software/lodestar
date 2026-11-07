@@ -55,6 +55,7 @@ final class LensTransitionTests: XCTestCase {
         let lens = MarkLens(count: marks)
         stage.engine.appEditor = lens
         stage.engine.select.holdsFix = { _ in false }
+        stage.engine.select.observations = stage.observations
         let sensor = Sensor()
         stage.engine.select.sensing = { _, generation in sensor.generations.append(generation) }
         return (stage, lens, sensor)
@@ -64,6 +65,12 @@ final class LensTransitionTests: XCTestCase {
         stage.observations.flush()
         return stage.observations.log.recent(days: 30, now: stage.clock.now.addingTimeInterval(1))
             .filter { $0.kind == .scroll }
+    }
+
+    private func selects(_ stage: Stage) -> [ObservationEvent] {
+        stage.observations.flush()
+        return stage.observations.log.recent(days: 30, now: stage.clock.now.addingTimeInterval(1))
+            .filter { $0.kind == .select }
     }
 
     private func state(_ stage: Stage) -> String { stage.engine.stateDescription }
@@ -250,6 +257,136 @@ final class LensTransitionTests: XCTestCase {
             stage.lode("`")
             stage.pump(until: { discovered > 0 }, within: 5)
             XCTAssertGreaterThan(discovered, 0, "discovery of the new session was not cut off by the old one's exit")
+        }
+    }
+
+    // MARK: - Keep from a lens or a chain: the lens or chain ends first
+
+    func testKeepFromScrollEndsScroll() {
+        let (stage, lens, _) = rig()
+        withExtendedLifetime(lens) {
+            stage.seedClip("kept")
+            stage.lode("`")
+            stage.press("d")
+            XCTAssertTrue(stage.engine.pill.isVisible)
+            stage.openStrip()
+            XCTAssertTrue(state(stage).hasPrefix("paste"))
+            XCTAssertFalse(stage.engine.pill.isVisible, "scroll's pill goes when Keep comes")
+            XCTAssertEqual(scrolls(stage).map(\.action).count, 1, "scroll's session is recorded as it ends")
+            stage.press("escape")
+            XCTAssertEqual(state(stage), "idle")
+            XCTAssertFalse(stage.engine.pill.isVisible, "and stays gone when Keep closes")
+        }
+    }
+
+    func testKeepFromScrollAimEndsBoth() {
+        let (stage, lens, _) = rig()
+        withExtendedLifetime(lens) {
+            stage.seedClip("kept")
+            stage.lode("`")
+            stage.press("/")
+            stage.settle(turns: 5)
+            XCTAssertEqual(state(stage), "scroll+aim")
+            stage.openStrip()
+            XCTAssertTrue(state(stage).hasPrefix("paste"))
+            XCTAssertFalse(stage.engine.pill.isVisible, "the aim band's pill goes when Keep comes")
+            XCTAssertEqual(scrolls(stage).count, 1, "scroll's session is recorded as it ends")
+        }
+    }
+
+    func testKeepFromHintsEndsTheLens() {
+        let (stage, lens, _) = rig()
+        withExtendedLifetime(lens) {
+            stage.seedClip("kept")
+            stage.lode("tab")
+            XCTAssertFalse(stage.engine.select.shownChips.isEmpty)
+            stage.openStrip()
+            XCTAssertTrue(state(stage).hasPrefix("paste"))
+            XCTAssertTrue(stage.engine.select.shownChips.isEmpty, "the lens's chips go when Keep comes")
+            XCTAssertFalse(stage.engine.pill.isVisible, "and its pill")
+        }
+    }
+
+    func testKeepFromSelectEndsTheSession() {
+        let (stage, lens, _) = rig()
+        withExtendedLifetime(lens) {
+            stage.seedClip("kept")
+            stage.lode("/")
+            stage.settle(turns: 5)
+            XCTAssertEqual(state(stage), "select")
+            XCTAssertTrue(selects(stage).isEmpty)
+            stage.openStrip()
+            XCTAssertTrue(state(stage).hasPrefix("paste"))
+            XCTAssertEqual(selects(stage).count, 1, "select's session is ended, and recorded as it ends")
+        }
+    }
+
+    func testKeepFromAChainEndsTheChain() {
+        let (stage, lens, _) = rig()
+        withExtendedLifetime(lens) {
+            stage.seedClip("kept")
+            stage.lode("b")
+            stage.clock.advance(by: 2)
+            XCTAssertTrue(state(stage).hasPrefix("chain"))
+            XCTAssertEqual(stage.hud.owner, .guide, "the chain's guide stands")
+            stage.openStrip()
+            XCTAssertTrue(state(stage).hasPrefix("paste"))
+            XCTAssertNotEqual(stage.hud.owner, .guide, "the chain's guide goes when Keep comes")
+        }
+    }
+
+    /// A chain Keep ends is an abandoned chain in the record, as one the
+    /// escape key ends.
+    func testKeepFromAChainRecordsTheAbandon() {
+        let (stage, lens, _) = rig()
+        withExtendedLifetime(lens) {
+            stage.seedClip("kept")
+            stage.lode("b")
+            stage.clock.advance(by: 2)
+            stage.openStrip()
+            stage.observations.flush()
+            let abandons = stage.observations.log.recent(days: 30, now: stage.clock.now.addingTimeInterval(1))
+                .filter { $0.kind == .abandon }
+            XCTAssertEqual(abandons.count, 1, "the chain Keep ended is recorded as abandoned")
+            XCTAssertEqual(abandons.first?.chain ?? [], ["b"])
+        }
+    }
+
+    /// With nothing to paste Keep does not open, and whatever stood stays
+    /// exactly as it was.
+    func testKeepWithNothingToPasteLeavesScrollAlone() {
+        let (stage, lens, _) = rig()
+        withExtendedLifetime(lens) {
+            stage.lode("`")
+            stage.openStrip()
+            XCTAssertEqual(state(stage), "scroll")
+            XCTAssertTrue(stage.engine.pill.isVisible)
+            XCTAssertTrue(scrolls(stage).isEmpty, "the session goes on")
+            stage.wheel = []
+            XCTAssertTrue(stage.press("d"), "scroll's key is still scroll's")
+            stage.settle(turns: 5)
+            XCTAssertEqual(stage.wheel.count, 1)
+        }
+    }
+
+    func testKeepWithNothingToPasteLeavesTheEditorLensAlone() {
+        let (stage, lens, _) = rig()
+        withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.openStrip()
+            XCTAssertTrue(state(stage).contains("hints"))
+            XCTAssertFalse(stage.engine.select.shownChips.isEmpty)
+            XCTAssertTrue(stage.engine.pill.isVisible)
+        }
+    }
+
+    func testKeepWithNothingToPasteLeavesAChainAlone() {
+        let (stage, lens, _) = rig()
+        withExtendedLifetime(lens) {
+            stage.lode("b")
+            stage.clock.advance(by: 2)
+            stage.openStrip()
+            XCTAssertTrue(state(stage).hasPrefix("chain"))
         }
     }
 }

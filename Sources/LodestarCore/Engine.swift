@@ -454,8 +454,25 @@ public struct EngineCore {
             return [.exitBring]
         }
         guard world.enterPaste() else { return [.flash(world.historyNotice ?? "⌂ nothing copied yet")] }
+        // A lens or a chain in flight ends the way any other gesture ends
+        // it, before Keep begins: left standing, its pill, overlay,
+        // monitors or guide would outlive the engine's idea of it.
+        let ending = endingEffects(scroll: .verb)
         state = .paste(searching: false)
-        return [.hideBars, .enterPaste]
+        return ending + [.hideBars, .enterPaste]
+    }
+
+    /// What ends the chain or lens in flight, for a gesture about to take
+    /// its place. Nothing for any other state.
+    private func endingEffects(scroll reason: ScrollExit) -> [EngineEffect] {
+        switch state {
+        case .chain: return [.hideGuide]
+        case .scroll: return [.scrollExit(reason: reason), .hideGuide]
+        case .scrollAim: return [.scrollAimEnd, .scrollExit(reason: reason), .hideGuide]
+        case .hints: return [.exitHints]
+        case .select: return [.exitSelect]
+        default: return []
+        }
     }
 
     /// The hand reached for the pointer while the scroll lens was up — a
@@ -563,11 +580,7 @@ public struct EngineCore {
         phraseSummoned = false
         switch state {
         case .idle: return []
-        case .chain: effects = [.hideGuide]
-        case .scroll: effects = [.scrollExit(reason: .reset), .hideGuide]
-        case .scrollAim: effects = [.scrollAimEnd, .scrollExit(reason: .reset), .hideGuide]
-        case .hints: effects = [.exitHints]
-        case .select: effects = [.exitSelect]
+        case .chain, .scroll, .scrollAim, .hints, .select: effects = endingEffects(scroll: .reset)
         case .paste, .pastePanel: effects = [.exitPaste]
         case .pasteDoor: effects = [.pasteDoorClose(reason: "reset"), .exitPaste]
         case .pasteImage: effects = [.pasteImageClose(reason: "reset"), .exitPaste]

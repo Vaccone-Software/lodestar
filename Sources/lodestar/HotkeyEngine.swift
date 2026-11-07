@@ -945,7 +945,11 @@ final class HotkeyEngine {
             clipboard.capture()
             stripClosing = "toggle"
             defer { stripClosing = nil }
-            return dispatch(core.openPaste(world: self), event: event)
+            let effects = core.openPaste(world: self)
+            let arrived = clock.now()
+            let verdict = dispatch(effects, event: event)
+            observeChain(effects, key: key, at: arrived)
+            return verdict
         }
         // The clip door: every unheld key is the draft's, and the strip
         // beneath waits. A ⌘ chord the draft does not take is the strip's

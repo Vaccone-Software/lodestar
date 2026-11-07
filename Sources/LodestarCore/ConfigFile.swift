@@ -327,7 +327,7 @@ extension ConfigFile {
         Field("links", \.links, .lossyDictionary(of: linkSection), doc: "Named links.")
         Field("routes", \.routes,
               .lossyDictionary(of: .string(), valueDoc: "A profile as browser:name (brave:Work)."),
-              doc: "Substring pattern → profile; longest match wins.")
+              doc: "Pattern → profile; longest match wins. Hosts match on whole labels, searches on whole words.")
         Field("search-url", \.searchURL, .string(), doc: "Search template; %s becomes the encoded query.")
     }
     .readingNullAsEmpty()

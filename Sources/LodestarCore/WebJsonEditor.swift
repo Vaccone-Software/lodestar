@@ -44,9 +44,9 @@ public enum WebJsonEditor {
         })
     }
 
-    /// A pattern is matched as a substring of whatever you typed, so it keeps
-    /// the punctuation a host has and the spaces a phrase has — only case and
-    /// stray runs of whitespace go.
+    /// A pattern is matched against a host's labels or a query's words, so it
+    /// keeps the punctuation a host has and the spaces a phrase has — only
+    /// case and stray runs of whitespace go.
     public static func normalizePattern(_ raw: String) -> String {
         raw.lowercased().split(separator: " ", omittingEmptySubsequences: true)
             .joined(separator: " ")

@@ -231,9 +231,13 @@ final class ObservationViewLoadTests: XCTestCase {
         let second = ObservationStore(file: file, vault: vault)
         second.expectLoad()
         second.chainCompleted(["h"], gaps: [0.2], peeked: false, at: day.addingTimeInterval(10))
+        // A load slower than the save's five seconds, the case that matters:
+        // the save the event asked for comes due and is refused, so nothing
+        // is pending when the read arrives, and the read has to ask again.
+        RunLoop.current.run(until: Date().addingTimeInterval(5.5))
+        XCTAssertEqual(try Data(contentsOf: file), sealed, "the save came due while the view was unread")
         second.load()
-        // The real timer: the save the held event asked for, five seconds on.
-        let deadline = Date().addingTimeInterval(9)
+        let deadline = Date().addingTimeInterval(8)
         while Date() < deadline, (try? Data(contentsOf: file)) == sealed {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }

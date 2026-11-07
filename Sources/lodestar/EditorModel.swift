@@ -254,9 +254,22 @@ actor EditorModel: EditorProofreader {
     /// no MLX memory to clear.
     private var backendEngine: EditorEngine?
     private var releaseTask: Task<Void, Never>?
-    /// A load under way: whoever asks meanwhile waits on it, so typing's
-    /// early load and the first sentence never load the weights twice.
-    private var loading: Task<Result<any EditorBackend, Error>, Never>?
+    /// A load under way: whoever asks meanwhile for the same engine waits on
+    /// it, so typing's early load and the first sentence never load the
+    /// weights twice, and one for another engine waits for it to end, so two
+    /// copies never load at once. Whether its weights are kept is decided
+    /// once, when it ends (`settle`): a release asked for meanwhile, or an
+    /// engine changed, makes it unwanted, and a question for the same engine
+    /// asked after that wants it again.
+    private struct Load {
+        let id: Int
+        let engine: EditorEngine
+        var wanted = true
+        let started = Date()
+        let task: Task<(any EditorBackend)?, Never>
+    }
+    private var loading: Load?
+    private var loadsBegun = 0
     private let loader: Loader
     private let clearCache: @Sendable () -> Void
     let idleRelease: TimeInterval
@@ -365,13 +378,26 @@ actor EditorModel: EditorProofreader {
 
     private func loaded() async -> (any EditorBackend)? {
         recoverIfStuck()
-        if let backend { return backend }
-        if let loading {
-            if case .success(let backend) = await loading.value { return backend }
-            return nil
+        while true {
+            if let backend { return backend }
+            guard let load = loading else { return await beginLoad() }
+            if load.engine == engine {
+                if !load.wanted {
+                    loading?.wanted = true
+                    Log.info("editor", ["load wanted again": load.engine.rawValue])
+                }
+                return await load.task.value
+            }
+            // Another engine's weights are on their way: they end first, and
+            // `settle` has cleared `loading` by the time the value is here.
+            _ = await load.task.value
         }
+    }
+
+    private func beginLoad() async -> (any EditorBackend)? {
         state = .loading
-        let started = Date()
+        loadsBegun += 1
+        let id = loadsBegun
         let engine = self.engine
         let loader = self.loader
         let calls = self.calls
@@ -379,36 +405,57 @@ actor EditorModel: EditorProofreader {
         let deadline = loadDeadline
         // Under the lane and a deadline of its own: a load that hangs must
         // not keep every question waiting on it for ever.
-        let task = Task { () -> Result<any EditorBackend, Error> in
+        let task = Task { [self] () -> (any EditorBackend)? in
             let asked = await calls.ask(deadline: deadline, wait: deadline, gated: engine != .minimal) { () -> Result<any EditorBackend, Error>? in
                 // The cache of the backend let go of is cleared before this
                 // one loads, never after.
                 if engine != .minimal { calls.clearIfPending(clear) }
                 do { return .success(try await loader(engine)) } catch { return .failure(error) }
             }
+            let result: Result<any EditorBackend, Error>
             switch asked {
-            case .answer(let result): return result
+            case .answer(let answer): result = answer
             case .unanswered:
-                return .failure(EditorModelError.unavailable("the model did not load in \(Int(deadline)) seconds"))
+                result = .failure(EditorModelError.unavailable("the model did not load in \(Int(deadline)) seconds"))
             case .busy:
-                return .failure(EditorModelError.unavailable("the GPU stayed busy for \(Int(deadline)) seconds"))
+                result = .failure(EditorModelError.unavailable("the GPU stayed busy for \(Int(deadline)) seconds"))
             }
+            return await self.settle(id, result)
         }
-        loading = task
-        let result = await task.value
-        loading = nil
-        // The engine changed while this one loaded: it is not wanted.
-        guard engine == self.engine else { return nil }
+        loading = Load(id: id, engine: engine, task: task)
+        return await task.value
+    }
+
+    /// A load ended: keep its weights or let them go, once, here. Whoever
+    /// waited on it takes what this returns and nothing else, so no waiter
+    /// can hold weights that were not kept.
+    private func settle(_ id: Int, _ result: Result<any EditorBackend, Error>) -> (any EditorBackend)? {
+        let load = loading?.id == id ? loading : nil
+        if load != nil { loading = nil }
+        let engine = load?.engine ?? self.engine
+        let wanted = load.map { $0.wanted && $0.engine == self.engine } ?? false
+        let ms = Int(Date().timeIntervalSince(load?.started ?? Date()) * 1000)
         switch result {
         case .success(let loaded):
+            guard wanted else {
+                if backend == nil { state = .unloaded }
+                if engine != .minimal { calls.clearCacheSoon(clearCache) }
+                Log.info("editor", ["load dropped": engine.rawValue, "ms": ms])
+                return nil
+            }
             backend = loaded
             backendEngine = engine
             state = .ready
             calls.backendReplaced()
             calls.loadEnded(succeeded: true)
-            Log.info("editor", ["loaded": engine.rawValue, "ms": Int(Date().timeIntervalSince(started) * 1000)])
+            Log.info("editor", ["loaded": engine.rawValue, "ms": ms])
             return loaded
         case .failure(let error):
+            guard wanted else {
+                if backend == nil { state = .unloaded }
+                Log.info("editor", ["load dropped": engine.rawValue, "ms": ms])
+                return nil
+            }
             state = .failed("\(error)")
             calls.loadEnded(succeeded: false)
             Log.error("editor: model load failed: \(error)")
@@ -437,6 +484,10 @@ actor EditorModel: EditorProofreader {
     }
 
     func release(reason: String) {
+        if loading?.wanted == true {
+            loading?.wanted = false
+            Log.info("editor", ["load unwanted": reason])
+        }
         guard backend != nil else { return }
         dropBackend()
         Log.info("editor", ["released": reason])

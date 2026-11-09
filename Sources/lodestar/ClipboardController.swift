@@ -369,11 +369,6 @@ final class ClipboardController {
         // Clipboard, and marked concealed so every other clipboard tool
         // looks away. Keep itself already holds it; nothing else should.
         let secret = clip.kind == .text && clip.masked != nil
-        if secret {
-            board.prepareForNewContents(with: .currentHostOnly)
-        } else {
-            board.clearContents()
-        }
 
         // One board item per item copied, so three copied files arrive as
         // three files rather than as the first one three times.
@@ -435,7 +430,19 @@ final class ClipboardController {
             handedOverAsFile = true
         }
 
-        guard !items.isEmpty, board.writeObjects(items) else {
+        // The board is cleared only once there is something to put on it:
+        // a clip that would not open must leave what the hand copied last
+        // exactly where it was, not wipe it and then say it failed.
+        guard !items.isEmpty else {
+            flash("✕ That clip could not be read")
+            return
+        }
+        if secret {
+            board.prepareForNewContents(with: .currentHostOnly)
+        } else {
+            board.clearContents()
+        }
+        guard board.writeObjects(items) else {
             flash("✕ That clip could not be read")
             return
         }

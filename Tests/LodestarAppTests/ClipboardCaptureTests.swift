@@ -81,4 +81,29 @@ final class ClipboardCaptureTests: XCTestCase {
         let id = try XCTUnwrap(store.clips.first).id
         XCTAssertEqual(store.plainText(id), text)
     }
+
+    /// A card whose blob will not open pastes nothing, and the board keeps
+    /// what the hand copied last: the paste used to clear the board before
+    /// it knew it had anything to write, so a failed paste wiped it.
+    func testACardThatWillNotOpenLeavesTheBoardAsItWas() throws {
+        copy("the card that will not open")
+        store.flushIO()
+        let card = try XCTUnwrap(store.clips.first)
+        try FileManager.default.removeItem(at: try XCTUnwrap(store.blobURL(for: card.id)))
+        let board = SystemEvents.pasteboard
+        board.clearContents()
+        board.setString("what the hand copied last", forType: .string)
+        let before = board.changeCount
+        var flashed: [String] = []
+        controller.flash = { flashed.append($0) }
+        var posted = 0
+        controller.postPaste = { posted += 1 }
+
+        controller.paste(card, action: .plain)
+
+        XCTAssertEqual(flashed, ["✕ That clip could not be read"])
+        XCTAssertEqual(posted, 0, "nothing was pasted")
+        XCTAssertEqual(board.string(forType: .string), "what the hand copied last")
+        XCTAssertEqual(board.changeCount, before, "the board was never touched")
+    }
 }

@@ -1,13 +1,14 @@
+import AppKit
 import Foundation
 
 /// What a copy put on the board, read in one pass: every item's types,
 /// its plain text, its file address and the bytes of each richer form,
 /// with the board's change count at the read. It is what the clipboard
-/// reader hands back across its pipe, so it is plain data and nothing
-/// of AppKit: the reading happens in another process, on that process's
-/// main thread, because AppKit's pasteboard is main-thread only and a
-/// lazily provided type (a promise, a copy from another device) can make
-/// a read wait seconds on the app or network behind it.
+/// reader (an XPC service in the app's bundle) answers, so it is plain
+/// data: AppKit's pasteboard is main-thread only, and a lazily provided
+/// type (a promise, a Finder file, a copy from another device) can make a
+/// read wait seconds on the app or network behind it, so the read happens
+/// on the service's main thread, never on the app's.
 public struct PasteboardSnapshot: Codable, Sendable, Equatable {
     public struct Native: Codable, Sendable, Equatable {
         public var type: String
@@ -54,100 +55,112 @@ public struct PasteboardSnapshot: Codable, Sendable, Equatable {
     }
 }
 
-/// What the reader is asked: who was in front when the copy was noticed,
-/// and which apps are never read, so a refusal that hangs on the source
-/// is decided before any content leaves the board.
+/// What the reader is asked: which board (the general one in the app, a
+/// test run's own under the tests), who was in front when the copy was
+/// noticed, and which apps are never read, so a refusal that hangs on the
+/// source is decided before any content leaves the board.
 public struct PasteboardReadRequest: Codable, Sendable, Equatable {
-    public var id: Int
+    public var boardName: String
     public var sourceBundleID: String?
     public var excludedApps: [String]
 
-    public init(id: Int, sourceBundleID: String?, excludedApps: [String]) {
-        self.id = id
+    public init(boardName: String, sourceBundleID: String?, excludedApps: [String]) {
+        self.boardName = boardName
         self.sourceBundleID = sourceBundleID
         self.excludedApps = excludedApps
     }
 }
 
-/// The reader's answer to one request, by its id, so an answer from a
-/// reader that was given up on can never be taken for a later one.
-public struct PasteboardReadAnswer: Codable, Sendable, Equatable {
-    public var id: Int
-    public var snapshot: PasteboardSnapshot
+/// The reader's XPC interface. Requests and answers cross as property
+/// lists of the Codable types above.
+@objc public protocol PasteboardReaderXPC {
+    func read(_ request: Data, reply: @escaping @Sendable (Data?) -> Void)
+}
 
-    public init(id: Int, snapshot: PasteboardSnapshot) {
-        self.id = id
-        self.snapshot = snapshot
+public enum PasteboardRead {
+    /// The XPC service's bundle identifier, in `Contents/XPCServices`.
+    public static let serviceName = "com.vaccone.lodestar.clipboard-reader"
+
+    /// The board read in one pass: types for every item first, so one
+    /// concealed item conceals the whole copy before any content is read.
+    /// Main thread only, as AppKit's pasteboard is.
+    public static func snapshot(of board: NSPasteboard, sourceBundleID: String?,
+                                excludedApps: Set<String>) -> PasteboardSnapshot {
+        let changeCount = board.changeCount
+        guard let boardItems = board.pasteboardItems, !boardItems.isEmpty else {
+            return PasteboardSnapshot(changeCount: changeCount, items: [])
+        }
+        let types = boardItems.map { $0.types.map(\.rawValue) }
+        if let refusal = Clipboard.refusalBeforeReading(
+            types: types.flatMap { $0 }, sourceBundleID: sourceBundleID,
+            excludedApps: excludedApps, itemCount: boardItems.count
+        ) {
+            return PasteboardSnapshot(changeCount: changeCount,
+                                      items: types.map { PasteboardSnapshot.Item(types: $0) },
+                                      refusal: "\(refusal)")
+        }
+        let items = boardItems.enumerated().map { offset, item in
+            var natives: [PasteboardSnapshot.Native] = []
+            for type in types[offset] where type != NSPasteboard.PasteboardType.string.rawValue {
+                guard let data = item.data(forType: NSPasteboard.PasteboardType(type)) else { continue }
+                natives.append(.init(type: type, data: data))
+            }
+            return PasteboardSnapshot.Item(types: types[offset],
+                                           plain: item.string(forType: .string),
+                                           fileURL: item.string(forType: .fileURL),
+                                           natives: natives)
+        }
+        let sourceURL = boardItems[0].string(forType: NSPasteboard.PasteboardType(Clipboard.sourceURLType))
+        return PasteboardSnapshot(changeCount: changeCount, items: items, sourceURL: sourceURL)
     }
 }
 
-/// Length-prefixed frames over a pipe: eight bytes of length, little
-/// endian, then a binary property list. A property list carries `Data`
-/// as bytes, so a twenty-megabyte image crosses as twenty megabytes.
-public enum PipeFrames {
-    /// Larger than any copy the clipboard keeps; a length past it is a
-    /// broken stream, not a frame.
-    public static let maxFrameBytes = 1 << 30
+/// The object the XPC service exports. Each read runs on the service's
+/// main thread. A read that has not answered by `wedgedAfter` ends the
+/// service (`onWedged`): a client cannot end a service, and one whose main
+/// thread is stuck would hold every later read behind it, so the service
+/// ends itself, the client hears of it through its error handler, and
+/// launchd starts a fresh one for the next message.
+public final class PasteboardReaderService: NSObject, PasteboardReaderXPC, @unchecked Sendable {
+    public static let wedgedAfter: TimeInterval = 10
 
-    public static func encode<T: Encodable>(_ value: T) throws -> Data {
-        let encoder = PropertyListEncoder()
-        encoder.outputFormat = .binary
-        let body = try encoder.encode(value)
-        var length = UInt64(body.count).littleEndian
-        var frame = Data(bytes: &length, count: 8)
-        frame.append(body)
-        return frame
+    private let wedgedAfter: TimeInterval?
+    private let onWedged: @Sendable () -> Void
+
+    public init(wedgedAfter: TimeInterval? = PasteboardReaderService.wedgedAfter,
+                onWedged: @escaping @Sendable () -> Void = { exit(1) }) {
+        self.wedgedAfter = wedgedAfter
+        self.onWedged = onWedged
     }
 
-    public static func decode<T: Decodable>(_ type: T.Type, body: Data) throws -> T {
-        try PropertyListDecoder().decode(type, from: body)
-    }
-
-    /// Writes all of it, or says it could not (the other end is gone).
-    public static func write(_ data: Data, to fd: Int32) -> Bool {
-        data.withUnsafeBytes { raw -> Bool in
-            guard var pointer = raw.baseAddress else { return true }
-            var left = raw.count
-            while left > 0 {
-                let wrote = Foundation.write(fd, pointer, left)
-                if wrote < 0 {
-                    if errno == EINTR { continue }
-                    return false
-                }
-                left -= wrote
-                pointer += wrote
+    public func read(_ request: Data, reply: @escaping @Sendable (Data?) -> Void) {
+        guard let request = try? PropertyListDecoder().decode(PasteboardReadRequest.self, from: request) else {
+            return reply(nil)
+        }
+        let answered = Answered()
+        if let wedgedAfter {
+            let onWedged = self.onWedged
+            DispatchQueue.global().asyncAfter(deadline: .now() + wedgedAfter) {
+                if !answered.value { onWedged() }
             }
-            return true
+        }
+        DispatchQueue.main.async {
+            let board = NSPasteboard(name: NSPasteboard.Name(request.boardName))
+            let snapshot = PasteboardRead.snapshot(of: board, sourceBundleID: request.sourceBundleID,
+                                                   excludedApps: Set(request.excludedApps))
+            answered.value = true
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            reply(try? encoder.encode(snapshot))
         }
     }
 
-    /// The next frame's body, or nil at the end of the stream or on a
-    /// frame that cannot be one.
-    public static func readBody(from fd: Int32) -> Data? {
-        guard let header = readExactly(8, from: fd) else { return nil }
-        let length = header.withUnsafeBytes { UInt64(littleEndian: $0.loadUnaligned(as: UInt64.self)) }
-        guard length <= UInt64(maxFrameBytes) else { return nil }
-        return readExactly(Int(length), from: fd)
-    }
-
-    private static func readExactly(_ count: Int, from fd: Int32) -> Data? {
-        var data = Data(count: count)
-        guard count > 0 else { return data }
-        let ok = data.withUnsafeMutableBytes { raw -> Bool in
-            guard var pointer = raw.baseAddress else { return false }
-            var left = count
-            while left > 0 {
-                let got = Foundation.read(fd, pointer, left)
-                if got < 0 {
-                    if errno == EINTR { continue }
-                    return false
-                }
-                if got == 0 { return false }
-                left -= got
-                pointer += got
-            }
-            return true
+    private final class Answered: @unchecked Sendable {
+        private let lock = NSLock()
+        private var answered = false
+        var value: Bool {
+            get { lock.withLock { answered } }
+            set { lock.withLock { answered = newValue } }
         }
-        return ok ? data : nil
     }
 }

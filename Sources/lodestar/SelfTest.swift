@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import LodestarCore
@@ -82,6 +83,43 @@ enum SelfTest {
         print(ok
               ? "self-test ok: \(mouseCalls) mouse reports, \(keyCalls) key reports, main answered \(pings) times"
               : "self-test FAILED: finished=\(finished) stalled=\(stalled) mouse=\(mouseCalls) keys=\(keyCalls)")
+        return clipboardReader() && ok
+    }
+
+    /// The clipboard reader the bundle carries, launched by launchd by its
+    /// name and asked to read a board of the self-test's own. The tests
+    /// host the service's object behind an anonymous listener; only the
+    /// signed bundle can prove the service is found, starts and reads.
+    /// Outside an app bundle there is no service to find, and it says so.
+    static func clipboardReader(timeout: TimeInterval = 10) -> Bool {
+        let bundle = Bundle.main.bundleURL
+        guard bundle.pathExtension == "app" else {
+            print("self-test: the clipboard reader is skipped outside an app bundle")
+            return true
+        }
+        let service = bundle.appendingPathComponent("Contents/XPCServices/LodestarClipboardReader.xpc")
+        guard FileManager.default.fileExists(atPath: service.path) else {
+            print("self-test FAILED: the bundle carries no clipboard reader at \(service.path)")
+            return false
+        }
+        let board = NSPasteboard(name: NSPasteboard.Name("lodestar.self-test.\(getpid())"))
+        defer { board.releaseGlobally() }
+        let text = "self-test \(UUID().uuidString)"
+        board.clearContents()
+        board.setString(text, forType: .string)
+        let reader = XPCPasteboardReader(boardName: board.name.rawValue, deadline: timeout)
+        var answer: PasteboardSnapshot??
+        let started = Date()
+        reader.read(sourceBundleID: nil, excludedApps: []) { answer = .some($0) }
+        while answer == nil, Date().timeIntervalSince(started) < timeout + 1 {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+        reader.stop()
+        let read = answer.flatMap { $0 }?.items.first?.plain
+        let ok = read == text
+        let ms = Int(Date().timeIntervalSince(started) * 1000)
+        print(ok ? "self-test ok: the clipboard reader service answered in \(ms) ms"
+                 : "self-test FAILED: the clipboard reader service read \(read.map { "\"\($0)\"" } ?? "nothing") in \(ms) ms")
         return ok
     }
 

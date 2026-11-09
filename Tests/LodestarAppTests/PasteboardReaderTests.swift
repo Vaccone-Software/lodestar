@@ -3,37 +3,67 @@ import XCTest
 @testable import lodestar
 @testable import LodestarCore
 
-/// The clipboard's reads happen in `lodestar __clipboard-reader`, the built
-/// binary run against this test run's own board, so the main thread never
-/// waits on a copy. What it reads must be exactly what a read on main would.
+/// The clipboard reads through an XPC service. Here the service's own
+/// object is hosted behind an anonymous listener, the way XPC services are
+/// tested: every request and answer crosses real XPC, with its error and
+/// interruption handling, and only the launch by name is left to the
+/// signed app's self-test (`SelfTest.clipboardReader`).
 final class PasteboardReaderTests: XCTestCase {
-    private var readers: [ProcessPasteboardReader] = []
-
-    override func tearDown() {
-        readers.forEach { $0.stop() }
-        readers = []
-    }
-
-    /// The `lodestar` the test bundle was built beside.
-    private var binary: URL {
-        get throws {
-            let url = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("lodestar")
-            guard FileManager.default.isExecutableFile(atPath: url.path) else {
-                throw XCTSkip("unreachable: the lodestar binary is built with the tests (\(url.path))")
-            }
-            return url
+    /// Hosts whatever the test exports, a fresh object per connection.
+    private final class Host: NSObject, NSXPCListenerDelegate {
+        let listener = NSXPCListener.anonymous()
+        var exported: (Int) -> NSObject
+        private(set) var connections = 0
+        init(_ exported: @escaping (Int) -> NSObject) {
+            self.exported = exported
+            super.init()
+            listener.delegate = self
+            listener.resume()
+        }
+        func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
+            connections += 1
+            connection.exportedInterface = NSXPCInterface(with: PasteboardReaderXPC.self)
+            connection.exportedObject = exported(connections)
+            connection.resume()
+            return true
         }
     }
 
-    private func reader(_ executable: URL? = nil, deadline: TimeInterval = 15) throws -> ProcessPasteboardReader {
-        let reader = ProcessPasteboardReader(executable: try executable ?? binary,
-                                             boardName: SystemEvents.pasteboard.name.rawValue,
-                                             deadline: deadline)
-        readers.append(reader)
-        return reader
+    /// Never answers.
+    private final class Silent: NSObject, PasteboardReaderXPC {
+        func read(_ request: Data, reply: @escaping @Sendable (Data?) -> Void) {}
     }
 
-    private func read(_ reader: ProcessPasteboardReader, source: String? = nil,
+    /// Ends its connection mid-read, as a service that crashed would.
+    private final class Ending: NSObject, PasteboardReaderXPC {
+        func read(_ request: Data, reply: @escaping @Sendable (Data?) -> Void) {
+            NSXPCConnection.current()?.invalidate()
+        }
+    }
+
+    private var hosts: [Host] = []
+    private var readers: [XPCPasteboardReader] = []
+
+    override func tearDown() {
+        readers.forEach { $0.stop() }
+        hosts.forEach { $0.listener.invalidate() }
+        readers = []
+        hosts = []
+    }
+
+    private func reader(deadline: TimeInterval = 15,
+                        exporting exported: @escaping (Int) -> NSObject = { _ in
+                            PasteboardReaderService(wedgedAfter: nil) }) -> (XPCPasteboardReader, Host) {
+        let host = Host(exported)
+        let reader = XPCPasteboardReader(boardName: SystemEvents.pasteboard.name.rawValue, deadline: deadline) {
+            NSXPCConnection(listenerEndpoint: host.listener.endpoint)
+        }
+        hosts.append(host)
+        readers.append(reader)
+        return (reader, host)
+    }
+
+    private func read(_ reader: XPCPasteboardReader, source: String? = nil,
                       excluded: Set<String> = [], timeout: TimeInterval = 20) -> PasteboardSnapshot?? {
         var answer: PasteboardSnapshot??
         reader.read(sourceBundleID: source, excludedApps: excluded) { answer = .some($0) }
@@ -48,9 +78,11 @@ final class PasteboardReaderTests: XCTestCase {
         XCTAssertTrue(condition(), what)
     }
 
-    /// Two items, rich forms, raw bytes and a browser's page: the reader's
-    /// answer is the read main would have made, byte for byte.
-    func testTheReaderReadsWhatMainWould() throws {
+    // MARK: - What crosses
+
+    /// Two items, rich forms, raw bytes and a browser's page: the answer
+    /// that crossed XPC is the read main would have made, byte for byte.
+    func testTheServiceReadsWhatMainWould() throws {
         let board = SystemEvents.pasteboard
         board.clearContents()
         let first = NSPasteboardItem()
@@ -62,11 +94,9 @@ final class PasteboardReaderTests: XCTestCase {
         second.setData(Data((0..<200_000).map { UInt8($0 & 0xff) }), forType: NSPasteboard.PasteboardType("com.example.raw"))
         XCTAssertTrue(board.writeObjects([first, second]))
 
-        let reader = try reader()
-        let answer = try XCTUnwrap(read(reader), "answered")
-        let snapshot = try XCTUnwrap(answer, "and read")
-        XCTAssertNotNil(reader.pid, "by a reader process")
-        XCTAssertNotEqual(reader.pid, getpid())
+        let (reader, host) = reader()
+        let snapshot = try XCTUnwrap(try XCTUnwrap(read(reader), "answered"), "and read")
+        XCTAssertEqual(host.connections, 1, "through the service")
         XCTAssertEqual(snapshot, PasteboardRead.snapshot(of: board, sourceBundleID: nil, excludedApps: []))
         XCTAssertEqual(snapshot.items.count, 2)
         XCTAssertEqual(snapshot.items[1].natives.first { $0.type == "com.example.raw" }?.data.count, 200_000)
@@ -83,7 +113,7 @@ final class PasteboardReaderTests: XCTestCase {
         item.setString("hunter2", forType: .string)
         item.setData(Data(), forType: NSPasteboard.PasteboardType(ClipboardController.concealed))
         board.writeObjects([item])
-        let reader = try reader()
+        let (reader, _) = reader()
         let concealed = try XCTUnwrap(try XCTUnwrap(read(reader)))
         XCTAssertNotNil(concealed.refusal)
         XCTAssertTrue(concealed.items.allSatisfy { $0.plain == nil && $0.natives.isEmpty }, "nothing read")
@@ -96,7 +126,9 @@ final class PasteboardReaderTests: XCTestCase {
         XCTAssertNil(excluded.items.first?.plain)
     }
 
-    /// With the reader in place a copy is noticed on main and filed when
+    // MARK: - The capture around it
+
+    /// With the service in place a copy is noticed on main and filed when
     /// the answer lands; the poll itself never waits for the read.
     func testACaptureDoesNotWaitForTheRead() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("reader-\(UUID().uuidString)")
@@ -104,20 +136,20 @@ final class PasteboardReaderTests: XCTestCase {
         let store = SealedFixture.clipboardStore(directory)
         defer { store.close() }
         let controller = ClipboardController(store: store)
-        controller.reader = try reader()
+        controller.reader = reader().0
         SystemEvents.pasteboard.clearContents()
-        SystemEvents.pasteboard.setString("read in another process", forType: .string)
+        SystemEvents.pasteboard.setString("read by the service", forType: .string)
 
         controller.capture()
         XCTAssertTrue(store.clips.isEmpty, "the poll returned before the read answered")
         XCTAssertTrue(controller.reader.busy)
-        wait("the copy is filed when the answer lands") { store.clips.first?.preview == "read in another process" }
+        wait("the copy is filed when the answer lands") { store.clips.first?.preview == "read by the service" }
         XCTAssertEqual(store.clips.count, 1)
     }
 
     /// A reader that answers when the test says, with what the board held
     /// when it was asked, and refuses a second read while one is under way,
-    /// as the process reader does.
+    /// as the service reader does.
     private final class HeldReader: PasteboardReading {
         var asked: [(snapshot: PasteboardSnapshot, done: (PasteboardSnapshot?) -> Void)] = []
         var busy: Bool { !asked.isEmpty }
@@ -159,43 +191,118 @@ final class PasteboardReaderTests: XCTestCase {
         XCTAssertEqual(store.clips.map(\.preview), ["the second copy", "the first copy"])
     }
 
-    /// The reader goes when Lodestar lets it go, and a reader that died is
-    /// replaced by the next read.
-    func testTheReaderEndsWithItsAppAndComesBackAfterDying() throws {
+    // MARK: - When the service fails
+
+    /// A service that ends mid-read is heard at once through the error
+    /// handler, well inside the deadline, and the connection, only
+    /// interrupted, reaches a fresh service with the next read.
+    func testAServiceThatEndsMidReadIsHeardAtOnceAndReplaced() throws {
         SystemEvents.pasteboard.clearContents()
         SystemEvents.pasteboard.setString("one", forType: .string)
-        let reader = try reader()
-        XCTAssertNotNil(try XCTUnwrap(read(reader)))
-        let first = try XCTUnwrap(reader.pid)
-        kill(first, SIGKILL)
-        wait("the death is noticed") { reader.pid == nil }
-        let again = try XCTUnwrap(read(reader))
-        XCTAssertEqual(again?.items.first?.plain, "one", "a fresh reader read the next copy")
-        let second = try XCTUnwrap(reader.pid)
-        XCTAssertNotEqual(first, second)
-        reader.stop()
-        wait("stopped, the reader is gone") { kill(second, 0) != 0 }
-        XCTAssertFalse(reader.fellBack, "one death is not a reader that keeps failing")
+        let (reader, host) = reader(deadline: 60) { connection in
+            connection == 1 ? Ending() : PasteboardReaderService(wedgedAfter: nil)
+        }
+        let lost = try XCTUnwrap(read(reader, timeout: 5), "the ended read answered before the deadline")
+        XCTAssertNil(lost, "with nothing")
+        XCTAssertFalse(reader.busy)
+        let again = try XCTUnwrap(read(reader, timeout: 5))
+        XCTAssertEqual(again?.items.first?.plain, "one", "the next read reached a fresh service")
+        XCTAssertEqual(host.connections, 2)
+        XCTAssertFalse(reader.fellBack, "one end is not a reader that keeps failing")
     }
 
-    /// A reader that never answers is given up on at its deadline, and one
-    /// that keeps failing hands the reads back to main rather than leave
-    /// the clipboard recording nothing.
-    func testAReaderThatNeverAnswersIsGivenUpOnThenSetAside() throws {
-        let silent = FileManager.default.temporaryDirectory.appendingPathComponent("silent-\(UUID().uuidString).sh")
-        try "#!/bin/bash\nexec cat >/dev/null\n".write(to: silent, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: silent.path)
-        defer { try? FileManager.default.removeItem(at: silent) }
+    /// A connection that cannot reach its service is invalidated, and the
+    /// reader lets it go: the next read makes a new one.
+    func testAnInvalidatedConnectionIsReplacedByTheNextRead() throws {
+        SystemEvents.pasteboard.clearContents()
+        SystemEvents.pasteboard.setString("two", forType: .string)
+        let gone = Host { _ in PasteboardReaderService(wedgedAfter: nil) }
+        gone.listener.invalidate()
+        let working = Host { _ in PasteboardReaderService(wedgedAfter: nil) }
+        hosts += [gone, working]
+        var made = 0
+        let reader = XPCPasteboardReader(boardName: SystemEvents.pasteboard.name.rawValue, deadline: 60) {
+            made += 1
+            return NSXPCConnection(listenerEndpoint: (made == 1 ? gone : working).listener.endpoint)
+        }
+        readers.append(reader)
+        let lost = try XCTUnwrap(read(reader, timeout: 5), "a service that cannot be reached answers at once")
+        XCTAssertNil(lost)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1)) // the invalidation handler's hop to main
+        let again = try XCTUnwrap(read(reader, timeout: 5))
+        XCTAssertEqual(again?.items.first?.plain, "two", "read through a new connection")
+        XCTAssertEqual(made, 2)
+    }
+
+    /// A service that never answers is given up on at the deadline, and
+    /// one that keeps failing hands the reads back to main rather than
+    /// leave the clipboard recording nothing.
+    func testAServiceThatNeverAnswersIsGivenUpOnThenSetAside() throws {
         SystemEvents.pasteboard.clearContents()
         SystemEvents.pasteboard.setString("still recorded", forType: .string)
-        let reader = try reader(silent, deadline: 0.3)
-        for attempt in 1..<ProcessPasteboardReader.failuresBeforeFallingBack + 1 {
+        let (reader, _) = reader(deadline: 0.3) { _ in Silent() }
+        for attempt in 1...XPCPasteboardReader.failuresBeforeFallingBack {
             let answer = try XCTUnwrap(read(reader, timeout: 5), "attempt \(attempt) ended")
-            XCTAssertNil(answer, "nothing came back from a reader that never answers")
+            XCTAssertNil(answer, "nothing came back from a service that never answers")
             XCTAssertFalse(reader.busy, "and the read is over")
         }
         XCTAssertTrue(reader.fellBack)
         let main = try XCTUnwrap(read(reader))
         XCTAssertEqual(main?.items.first?.plain, "still recorded", "read on main from here on")
+    }
+
+    /// The service ends itself when a read wedges its main thread, since
+    /// no client can end it; a read that answers in time ends nothing.
+    func testTheServiceEndsItselfWhenAReadWedgesItsMainThread() throws {
+        SystemEvents.pasteboard.clearContents()
+        SystemEvents.pasteboard.setString("slow", forType: .string)
+        let body = try PropertyListEncoder().encode(
+            PasteboardReadRequest(boardName: SystemEvents.pasteboard.name.rawValue, sourceBundleID: nil, excludedApps: []))
+        final class Flag: @unchecked Sendable {
+            private let lock = NSLock()
+            private var raised = 0
+            func raise() { lock.withLock { raised += 1 } }
+            var count: Int { lock.withLock { raised } }
+        }
+
+        let quick = Flag(), quickReplies = Flag()
+        PasteboardReaderService(wedgedAfter: 0.3, onWedged: { quick.raise() }).read(body) { _ in quickReplies.raise() }
+        wait("a quick read answers") { quickReplies.count == 1 }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(quick.count, 0, "and ends nothing")
+
+        let wedged = Flag(), wedgedReplies = Flag()
+        PasteboardReaderService(wedgedAfter: 0.2, onWedged: { wedged.raise() }).read(body) { _ in wedgedReplies.raise() }
+        Thread.sleep(forTimeInterval: 0.6) // the service's main thread, stuck
+        XCTAssertEqual(wedged.count, 1, "a read stuck past its limit ends the service")
+    }
+
+    // MARK: - The bundle
+
+    /// The service ships in the bundle under the name the app asks for, as
+    /// an application-type service with a run loop on its main thread, and
+    /// it is signed before the app that holds it.
+    func testTheServiceIsPackagedUnderTheNameTheAppAsksFor() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let plist = try XCTUnwrap(NSDictionary(contentsOf: root.appendingPathComponent("packaging/ClipboardReader-Info.plist")))
+        XCTAssertEqual(plist["CFBundleIdentifier"] as? String, PasteboardRead.serviceName)
+        XCTAssertEqual(plist["CFBundleExecutable"] as? String, "LodestarClipboardReader")
+        XCTAssertEqual(plist["CFBundlePackageType"] as? String, "XPC!")
+        let service = try XCTUnwrap(plist["XPCService"] as? [String: Any])
+        XCTAssertEqual(service["ServiceType"] as? String, "Application")
+        XCTAssertEqual(service["RunLoopType"] as? String, "NSRunLoop")
+        XCTAssertEqual(service["JoinExistingSession"] as? Bool, true, "the pasteboard is a per-session service")
+
+        let makeApp = try String(contentsOf: root.appendingPathComponent("scripts/make-app.sh"), encoding: .utf8)
+        XCTAssertTrue(makeApp.contains("Contents/XPCServices/LodestarClipboardReader.xpc"))
+        for script in ["scripts/make-app.sh", "scripts/release.sh"] {
+            let lines = try String(contentsOf: root.appendingPathComponent(script), encoding: .utf8)
+                .split(separator: "\n").map(String.init)
+            let signsService = lines.firstIndex { $0.contains("--sign") && ($0.contains("\"$XPC\"") || $0.contains("LodestarClipboardReader.xpc\"")) }
+            let signsApp = lines.firstIndex { $0.contains("--sign") && $0.hasSuffix("\"$APP\"") }
+            let service = try XCTUnwrap(signsService, "\(script) signs the service")
+            let app = try XCTUnwrap(signsApp, "\(script) signs the app")
+            XCTAssertLessThan(service, app, "\(script): inside out, the service before the app")
+        }
     }
 }

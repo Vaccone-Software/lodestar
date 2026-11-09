@@ -87,6 +87,10 @@ let package = Package(
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
         ]),
+        // The clipboard's reader: an XPC service the app carries in
+        // Contents/XPCServices (scripts/make-app.sh assembles it), so a copy
+        // whose read waits never waits on the app's main thread.
+        .executableTarget(name: "LodestarClipboardReader", dependencies: ["LodestarCore"]),
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars"]),
         // A stand-in app with plain windows, for the tests that move real

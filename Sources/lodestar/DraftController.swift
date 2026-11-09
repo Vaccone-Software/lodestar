@@ -770,8 +770,13 @@ final class DraftController {
     }
 
     /// The door keys inside the bar set posture, idempotently.
+    ///
+    /// Not while the draft is ending: the posture it ends in is the one
+    /// its words were said into. A mic asked for then would outlive the
+    /// panel, and a mute would drop the finals the stop still owes.
     func posture(door: Draft.Door) {
         guard isOpen else { open(door: door); return }
+        guard !closing else { return }
         // The clip door has no microphone to set: `lode .` says so, and
         // `lode ⇧.` asks for the silence it already has.
         if self.door == .clip {

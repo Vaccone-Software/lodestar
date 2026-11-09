@@ -167,7 +167,11 @@ final class ClipboardController {
         }
         let board = SystemEvents.pasteboard
         let count = board.changeCount
-        guard count != lastChangeCount else { return }
+        // A change already read is read again only while it read as
+        // nothing yet (see `unfilled`), and only so many times.
+        let rereading = unfilled.map { $0.count == count && $0.rereads < Self.unfilledRereads } ?? false
+        guard count != lastChangeCount || rereading else { return }
+        if rereading { unfilled?.rereads += 1 }
         // One read at a time. The count is left unseen, so the next tick
         // asks again once the read under way has answered.
         guard !reader.busy else { return }
@@ -194,7 +198,24 @@ final class ClipboardController {
         }
     }
 
-    /// Where the reads happen: in the reader process in the app, here on
+    /// A change that read as nothing yet: the board cleared and not yet
+    /// written, or items whose data their app had not provided. Writing
+    /// after a clear does not move the change count (measured), so a read
+    /// that spent the change there never saw the copy that followed. Such a
+    /// change is read again on the next ticks, `unfilledRereads` times at
+    /// most (about seven seconds at the poll's pace), and then let be.
+    private var unfilled: (count: Int, rereads: Int)?
+    static let unfilledRereads = 20
+
+    /// A copy's types for the log, each named once, at most a dozen.
+    static func typeList(_ items: [PasteboardSnapshot.Item]) -> String {
+        var seen: [String] = []
+        for type in items.flatMap(\.types) where !seen.contains(type) { seen.append(type) }
+        let shown = seen.prefix(12).joined(separator: ",")
+        return seen.count > 12 ? shown + ",+\(seen.count - 12)" : shown
+    }
+
+    /// Where the reads happen: in the reader service in the app, here on
     /// main under the tests, whose copies are read the moment they are made.
     lazy var reader: PasteboardReading = InProcessPasteboardReader()
 
@@ -211,7 +232,17 @@ final class ClipboardController {
         // of what was copied — a card that pasted one file where three
         // were meant, which is worse than the copy having missed.
         let boardItems = snapshot.items
-        guard !boardItems.isEmpty else { return }
+        // Nothing readable yet: the change is read again rather than spent.
+        let hasData = boardItems.contains { $0.plain != nil || $0.fileURL != nil || !$0.natives.isEmpty }
+        guard snapshot.refusal != nil || hasData else {
+            if unfilled?.count != snapshot.changeCount { unfilled = (snapshot.changeCount, 0) }
+            if unfilled!.rereads >= Self.unfilledRereads {
+                Log.info("clipboard", ["unread": boardItems.isEmpty ? "empty board" : "no data",
+                                       "types": Self.typeList(boardItems), "source": source?.bundleIdentifier ?? "none"])
+            }
+            return
+        }
+        unfilled = nil
 
         // Before a single byte: a concealed clip, or one from an app the
         // user excluded, is none of our business and was never read at
@@ -219,7 +250,8 @@ final class ClipboardController {
         // the types, with every item's types in hand before any content,
         // so one concealed item conceals the whole copy.
         if let refusal = snapshot.refusal {
-            Log.info("clipboard", ["refused": refusal])
+            Log.info("clipboard", ["refused": refusal, "types": Self.typeList(boardItems),
+                                   "source": source?.bundleIdentifier ?? "none"])
             return
         }
         let types = boardItems.flatMap(\.types)
@@ -259,7 +291,8 @@ final class ClipboardController {
             maxItemBytes: maxItemBytes
         ) {
             // Never log the content — only why it was refused.
-            Log.info("clipboard", ["refused": "\(refusal)"])
+            Log.info("clipboard", ["refused": "\(refusal)", "types": Self.typeList(boardItems),
+                                   "source": source?.bundleIdentifier ?? "none"])
             return
         }
 
@@ -317,6 +350,11 @@ final class ClipboardController {
                      sourceAppName: source?.localizedName,
                      sourceHost: sourceHost,
                      lines: counted?.lines, characters: counted?.characters)
+        // Every copy leaves one line, kept or refused or unread, so a copy
+        // that never reached Keep says why. What the copy was, never what
+        // it said: the kind, its types and the app it came from.
+        Log.info("clipboard", ["kept": "\(kind)", "items": boardItems.count, "types": Self.typeList(boardItems),
+                               "source": source?.bundleIdentifier ?? "none"])
         if long { store.count(id: id, text: readable) }
         store.trim(maxBytes: maxBytes, maxItems: maxItems)
         // A copy is a moment the files of older cards may have been deleted.

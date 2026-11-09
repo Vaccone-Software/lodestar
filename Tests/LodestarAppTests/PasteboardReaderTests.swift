@@ -228,27 +228,30 @@ final class PasteboardReaderTests: XCTestCase {
         XCTAssertFalse(reader.fellBack, "one end is not a reader that keeps failing")
     }
 
-    /// A connection that cannot reach its service is invalidated, and the
-    /// reader lets it go: the next read makes a new one.
+    /// When its connection is invalidated, the reader lets it go and the
+    /// next read makes a new one. Invalidated here from the client side,
+    /// which runs the invalidation handler for certain; how soon XPC
+    /// invalidates a connection on its own is not something to time.
     func testAnInvalidatedConnectionIsReplacedByTheNextRead() throws {
         SystemEvents.pasteboard.clearContents()
         SystemEvents.pasteboard.setString("two", forType: .string)
-        let gone = Host { _ in PasteboardReaderService(wedgedAfter: nil) }
-        gone.listener.invalidate()
-        let working = Host { _ in PasteboardReaderService(wedgedAfter: nil) }
-        hosts += [gone, working]
-        var made = 0
+        let host = Host { _ in PasteboardReaderService(wedgedAfter: nil) }
+        hosts.append(host)
+        var made: [NSXPCConnection] = []
         let reader = XPCPasteboardReader(boardName: SystemEvents.pasteboard.name.rawValue, deadline: 60) {
-            made += 1
-            return NSXPCConnection(listenerEndpoint: (made == 1 ? gone : working).listener.endpoint)
+            let connection = NSXPCConnection(listenerEndpoint: host.listener.endpoint)
+            made.append(connection)
+            return connection
         }
         readers.append(reader)
-        let lost = try XCTUnwrap(read(reader, timeout: 5), "a service that cannot be reached answers at once")
-        XCTAssertNil(lost)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1)) // the invalidation handler's hop to main
+        XCTAssertEqual(try XCTUnwrap(read(reader, timeout: 5))?.items.first?.plain, "two")
+        XCTAssertTrue(reader.holdsConnection)
+        made[0].invalidate()
+        wait("the invalidated connection is let go", until: { !reader.holdsConnection })
         let again = try XCTUnwrap(read(reader, timeout: 5))
         XCTAssertEqual(again?.items.first?.plain, "two", "read through a new connection")
-        XCTAssertEqual(made, 2)
+        XCTAssertEqual(made.count, 2)
+        XCTAssertFalse(reader.fellBack)
     }
 
     /// A service that never answers is given up on at the deadline, and

@@ -66,6 +66,9 @@ final class XPCPasteboardReader: PasteboardReading {
 
     var busy: Bool { pending != nil }
 
+    /// A connection is held, made and not yet let go: for the tests.
+    var holdsConnection: Bool { connection != nil }
+
     func read(sourceBundleID: String?, excludedApps: Set<String>,
               done: @escaping (PasteboardSnapshot?) -> Void) {
         dispatchPrecondition(condition: .onQueue(.main))
@@ -77,8 +80,19 @@ final class XPCPasteboardReader: PasteboardReading {
         nextID += 1
         let id = nextID
         pending = (id, done)
-        let proxy = live().remoteObjectProxyWithErrorHandler { [weak self] error in
-            DispatchQueue.main.async { self?.failed(id, "\((error as NSError).code)") }
+        let connection = live()
+        let proxy = connection.remoteObjectProxyWithErrorHandler { [weak self, weak connection] error in
+            let code = (error as NSError).code
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // An invalid connection is let go here, in the hop that ends
+                // the read, so the next read makes a new one whatever order
+                // the invalidation handler's own hop arrives in.
+                if code == NSXPCConnectionInvalid, let connection, self.connection === connection {
+                    self.connection = nil
+                }
+                self.failed(id, "\(code)")
+            }
         } as? PasteboardReaderXPC
         guard let proxy else { return failed(id, "no proxy") }
         // The reply arrives on XPC's queue; the reader is only ever touched

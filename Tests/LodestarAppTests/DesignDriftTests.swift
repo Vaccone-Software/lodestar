@@ -601,10 +601,13 @@ final class DesignDriftTests: XCTestCase {
     }
 
     /// A process that acts on the Mac starts through SystemEvents.run.
-    /// Two only read: `launchctl list` for the login item, and the
-    /// updater's checks of a downloaded bundle.
+    /// Three only read: `launchctl list` for the login item, the updater's
+    /// checks of a downloaded bundle, and the clipboard's reader, which
+    /// only reads the board it is named (a test run's own under the tests)
+    /// and writes nothing anywhere.
     func testAProcessThatActsOnTheMacStartsThroughSystemEvents() throws {
-        let allowed: Set<String> = ["main.swift", "UpdateController.swift", "SystemEvents.swift"]
+        let allowed: Set<String> = ["main.swift", "UpdateController.swift", "SystemEvents.swift",
+                                    "PasteboardReader.swift"]
         let files = Self.swiftFiles(under: Self.appSources).filter { !allowed.contains($0.lastPathComponent) }
         let hits = try offenders(#"(process|task)\.run\(\)"#, in: files)
         XCTAssertEqual(hits, [], "start it with SystemEvents.run")

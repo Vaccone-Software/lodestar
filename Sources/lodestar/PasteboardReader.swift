@@ -62,8 +62,9 @@ enum PasteboardRead {
                 if getppid() != parent { exit(0) }
             }
         }
-        let board = boardName == NSPasteboard.Name.general.rawValue
-            ? NSPasteboard.general : NSPasteboard(name: NSPasteboard.Name(boardName))
+        // By the name the app gave, which is the general board's in the app
+        // and a test run's own under the tests: the reader never chooses.
+        let board = NSPasteboard(name: NSPasteboard.Name(boardName))
         while let body = PipeFrames.readBody(from: STDIN_FILENO) {
             guard let request = try? PipeFrames.decode(PasteboardReadRequest.self, body: body) else { exit(2) }
             let snapshot = snapshot(of: board, sourceBundleID: request.sourceBundleID,

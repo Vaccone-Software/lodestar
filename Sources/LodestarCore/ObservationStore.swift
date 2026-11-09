@@ -55,6 +55,14 @@ public final class ObservationStore {
     /// JSON every few busy seconds is exactly the bill the tap's run loop
     /// must never pay.
     private let saveQueue = DispatchQueue(label: "lodestar.observations", qos: .utility)
+    /// Where the monthly archive is rolled, cleared and sealed: a queue of
+    /// its own, because a roll reads every month the logs hold and the quit
+    /// save must never stand behind it. Abandoning a roll at quit loses
+    /// nothing: it is add-only, written whole or not at all, and the next
+    /// one does it again.
+    private let rollupQueue = DispatchQueue(label: "lodestar.observations.rollup", qos: .utility)
+    /// Runs on the rollup queue just before a roll: a seam for the tests.
+    var rollupWillRun: (@Sendable () -> Void)?
 
     public init(file: URL = ObservationStore.defaultFile, vault: Vault, log: EventLog? = nil,
                 healthLog: EventLog? = nil, fileSystem: any FileSystem = OwnerOnly.fileSystem) {
@@ -143,6 +151,22 @@ public final class ObservationStore {
         }
     }
 
+    /// The logs' upkeep: the monthly archive rolled and each log's ring
+    /// rotated, queued and never awaited. Each log is tended only while its
+    /// switch is on: off means the files are left exactly as they were.
+    /// The app starts this once it is the resident instance and has
+    /// settled, never on the launch path: a rotation is a full decode and
+    /// rewrite on the log's own queue, and a relay that launchd's instance
+    /// replaced a moment after it booted waited behind it to quit, every
+    /// update, until the successor gave up on it at five seconds.
+    public func tendSoon() {
+        if enabled {
+            rollupSoon()
+            log.compactSoon()
+        }
+        if healthEnabled { healthLog.compactSoon() }
+    }
+
     /// Read the store.
     ///
     /// `compacting` is false for read-only callers — the `observations`
@@ -157,15 +181,7 @@ public final class ObservationStore {
         // rotated file. The archive rides the same moment: every
         // completed month is rolled up before its days start falling out
         // of the ring's window.
-        if compacting {
-            // Each log is tended only while its switch is on: off means
-            // the files are left exactly as they were.
-            if enabled {
-                rollupSoon()
-                log.compactSoon()
-            }
-            if healthEnabled { healthLog.compactSoon() }
-        }
+        if compacting { tendSoon() }
         loadView()
     }
 
@@ -625,7 +641,8 @@ public final class ObservationStore {
     /// crosses month ends.
     public func rollupSoon(now: Date = Date()) {
         guard enabled else { return }
-        saveQueue.async { [rollupFile, fileSystem, ring = vault.ring(.logbook), log, healthLog] in
+        rollupQueue.async { [rollupFile, fileSystem, ring = vault.ring(.logbook), log, healthLog, rollupWillRun] in
+            rollupWillRun?()
             let outcome = Rollup.roll(events: Self.allEvents(log, healthLog), file: rollupFile, ring: ring,
                                       fileSystem: fileSystem, now: now)
             if !outcome.added.isEmpty {
@@ -668,7 +685,7 @@ public final class ObservationStore {
             try? fileSystem.removeTree(root + "/" + name)
         }
         for stray in ["era.json.sealing", "blind.json.sealing", Person.file + ".sealing"] { try? fileSystem.remove(root + "/" + stray) }
-        saveQueue.sync {
+        rollupQueue.sync {
             if !Rollup.clearHealth(file: rollupFile, ring: vault.ring(.logbook), fileSystem: fileSystem) {
                 Log.error("observations: the monthly rollup could not be read, so its health summaries were left in it")
             }
@@ -687,6 +704,7 @@ public final class ObservationStore {
         // would land after the removal and quietly resurrect the history
         // the user just asked to be rid of.
         saveQueue.sync {}
+        rollupQueue.sync {}
         log.clear()
         try? fileSystem.remove(file.path)
         // The archive is history too: cleared means cleared, months and
@@ -793,9 +811,9 @@ public final class ObservationStore {
     public func migrateLegacy() -> RecordMigration {
         var total = log.migrateLegacy() + healthLog.migrateLegacy() + healthLog.migrateArchives()
         let (fileSystem, vault) = (self.fileSystem, self.vault)
-        let files = saveQueue.sync { () -> RecordMigration in
+        func seal(_ url: URL, ring: Vault.Ring) -> RecordMigration {
             var outcome = RecordMigration()
-            for (url, ring) in [(file, vault.ring(.logbook)), (rollupFile, vault.ring(.logbook))] {
+            do {
                 let name = url.lastPathComponent
                 switch SealedValueFile(url: url, ring: ring, fileSystem: fileSystem).migrate() {
                 case .nothing: break
@@ -813,7 +831,9 @@ public final class ObservationStore {
             }
             return outcome
         }
-        total += files
+        let ring = vault.ring(.logbook)
+        total += saveQueue.sync { seal(file, ring: ring) }
+        total += rollupQueue.sync { seal(rollupFile, ring: ring) }
         return total
     }
 }

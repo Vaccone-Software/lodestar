@@ -261,7 +261,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let person = PersonFile(ring: vault.ring(.health)).read()
             let scrubbed = ConfigHistory.scrubPersonal()
             DispatchQueue.main.async {
-                if loadsView { observationStore?.load() }
+                if loadsView {
+                    // Read now; tended once this instance has settled and is
+                    // the one staying (BootUpkeep), never on the launch path.
+                    observationStore?.load(compacting: false)
+                    BootUpkeep.schedule(isResident: { [weak self] in self?.handingOverToLaunchd == false },
+                                        tend: { [weak observationStore] in observationStore?.tendSoon() })
+                }
                 self?.reportSealedRecord()
                 self?.personRead(person, scrubbed: scrubbed)
             }

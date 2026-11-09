@@ -4,8 +4,8 @@ import Foundation
 /// each was said. Times are seconds into the session's audio; a result
 /// without them (a test, a recognizer that gives none) has nil times and
 /// is joined by its words alone.
-public struct Heard: Equatable, Sendable {
-    public struct Word: Equatable, Sendable {
+public struct Heard: Equatable, Sendable, Codable {
+    public struct Word: Equatable, Sendable, Codable {
         public let text: String
         public let start: Double?
         public let end: Double?

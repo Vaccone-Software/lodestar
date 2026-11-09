@@ -15,7 +15,7 @@ import Foundation
 public enum IntentPass {
     /// A chat prompt the model reads: its instructions, worked examples as
     /// real turns, then the text.
-    public struct Prompt: Hashable, Sendable {
+    public struct Prompt: Hashable, Sendable, Codable {
         public let instructions: String
         public let examples: [Example]
 
@@ -24,7 +24,7 @@ public enum IntentPass {
             self.examples = examples
         }
 
-        public struct Example: Hashable, Sendable {
+        public struct Example: Hashable, Sendable, Codable {
             public let said: String
             public let meant: String
 

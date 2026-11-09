@@ -73,4 +73,36 @@ final class DraftEndingScenarioTests: XCTestCase {
         XCTAssertEqual(landed.pasteboard, kept.pasteboard, "⏎ lands the words esc would keep")
         XCTAssertEqual(landed.speech.openSessions, 0)
     }
+
+    // MARK: - A quit while esc waits
+
+    func testAQuitWhileEscWaitsKeepsTheText() {
+        let stage = standard()
+        stage.speech.slowToStop = true
+        stage.lode(".")
+        stage.speech.settle("Meet at noon")
+        stage.speech.hear("by the door")
+        stage.press("escape")
+        XCTAssertFalse(stage.draft.isOpen)
+        XCTAssertTrue(stage.pasteboard.isEmpty, "esc waits for the stop")
+        stage.draft.cancel(reason: "quit")
+        XCTAssertEqual(stage.pasteboard, ["Meet at noon by the door"],
+                       "the process is going: what esc promised is written now")
+        stage.speech.finish()
+        stage.clock.advance(by: DraftController.departBackstopSeconds + 0.1)
+        XCTAssertEqual(stage.pasteboard.count, 1, "written once")
+    }
+
+    func testAQuitWithADraftOpenAgainKeepsBothNewestLast() {
+        let stage = standard()
+        stage.speech.slowToStop = true
+        stage.lode(".")
+        stage.speech.settle("Old words")
+        stage.press("escape")
+        stage.speech.slowToStop = false
+        stage.lode(".", shift: true)
+        stage.press("n"); stage.press("e"); stage.press("w")
+        stage.draft.cancel(reason: "quit")
+        XCTAssertEqual(stage.pasteboard, ["Old words", "new"], "the open draft is the newer clip")
+    }
 }

@@ -346,11 +346,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // The history opens off the main thread: the strip says so until it has.
         clipboardController = ClipboardController(store: ClipboardStore(vault: vault))
-        // The board is read in a process of its own (PasteboardReader), so a
-        // copy that makes the read wait never holds the key tap.
-        if !TestRun.active, let executable = Bundle.main.executableURL {
-            clipboardController.reader = ProcessPasteboardReader(
-                executable: executable, boardName: SystemEvents.pasteboard.name.rawValue)
+        // The board is read by the clipboard reader, an XPC service in the
+        // bundle (PasteboardReader), so a copy that makes the read wait
+        // never holds the key tap.
+        if !TestRun.active {
+            clipboardController.reader = XPCPasteboardReader(boardName: SystemEvents.pasteboard.name.rawValue)
         }
         launchStages.enter("clipboard handover")
         clipboardController.sweepHandover()
@@ -3145,12 +3145,6 @@ func printUsage() {
 
 if !cliArguments.isEmpty {
     Log.stdoutEnabled = false // CLI verbs own stdout
-}
-// `lodestar __clipboard-reader <board>`: the clipboard's reader, started by
-// the app itself over a pipe (PasteboardReader). First, before anything a
-// CLI verb or the app would set up, because it is neither.
-if cliArguments.first == "__clipboard-reader" {
-    PasteboardRead.runReader(boardName: cliArguments.dropFirst().first ?? NSPasteboard.Name.general.rawValue)
 }
 // Bare `lodestar` from a shell or script is a CLI asking for help; only
 // launchd starts the app (LaunchAgent, Finder, `open` — all ppid 1).

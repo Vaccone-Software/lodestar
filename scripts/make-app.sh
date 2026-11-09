@@ -96,16 +96,29 @@ if [ "$ANNOUNCED" != "$VERSION" ]; then
 fi
 cp "$BIN" "$APP/Contents/MacOS/lodestar"
 
+# The clipboard's reader, an XPC service the app connects to by its bundle
+# identifier (PasteboardRead.serviceName): built beside the app's binary,
+# carried in Contents/XPCServices, stamped with the same version.
+XPC="$APP/Contents/XPCServices/LodestarClipboardReader.xpc"
+mkdir -p "$XPC/Contents/MacOS"
+cp packaging/ClipboardReader-Info.plist "$XPC/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$XPC/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$VERSION" "$XPC/Contents/Info.plist"
+cp "$(dirname "$BIN")/LodestarClipboardReader" "$XPC/Contents/MacOS/LodestarClipboardReader"
+
 # LODESTAR_SIGN_IDENTITY overrides the choice. Worth reaching for when the
 # app already installed was signed with a different certificate: the
 # Accessibility grant is keyed to the signature, so testing a dev build over
 # a Developer ID install means re-granting unless you match it.
 IDENTITY="${LODESTAR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
     | awk -F'"' '/Apple Development/ {print $2; exit}')}"
+# Inside out: the service first, then the app that holds it.
 if [ -n "${IDENTITY:-}" ]; then
+    codesign --force --options runtime --sign "$IDENTITY" "$XPC"
     codesign --force --options runtime --sign "$IDENTITY" "$APP"
     echo "signed with: $IDENTITY"
 else
+    codesign --force --sign - "$XPC"
     codesign --force --sign - "$APP"
     echo "signed ad-hoc (Accessibility grant will not survive rebuilds)"
 fi

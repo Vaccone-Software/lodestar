@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The clipboard's reader: an XPC service in Contents/XPCServices.
+	     Its bundle identifier is the name the app connects to
+	     (PasteboardRead.serviceName). An application-type service with a
+	     run loop on its main thread, because AppKit's pasteboard is read
+	     there. make-app.sh stamps the versions. -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Lodestar Clipboard Reader</string>
+	<key>CFBundleExecutable</key>
+	<string>LodestarClipboardReader</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.vaccone.lodestar.clipboard-reader</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>LodestarClipboardReader</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0</string>
+	<key>CFBundleVersion</key>
+	<string>0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>27.0</string>
+	<key>XPCService</key>
+	<dict>
+		<key>ServiceType</key>
+		<string>Application</string>
+		<key>RunLoopType</key>
+		<string>NSRunLoop</string>
+		<!-- Apple: true "if the service needs to access the user's
+		     keychain, the pasteboard, or other per-session resources". -->
+		<key>JoinExistingSession</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

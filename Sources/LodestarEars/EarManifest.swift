@@ -34,7 +34,9 @@ public struct EarManifest: Equatable, Sendable {
     }
 }
 
-extension QwenEar {
+/// Qwen3-ASR's pinned files. The ear itself runs on MLX, in the models
+/// service (LodestarMLX); its files are fetched by the app.
+public enum QwenEarFiles {
     /// The ear's pinned files by its factory name.
     public static func manifest(for name: String) -> EarManifest? {
         switch name {

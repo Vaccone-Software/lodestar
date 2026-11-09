@@ -10,7 +10,8 @@ let package = Package(
     ],
     // The one exception to zero dependencies: Apple's MLX, which runs the
     // editor's language model on the GPU, and the tokenizer and loader its
-    // Swift layer is built against. Everything Lodestar is, it still owns.
+    // Swift layer is built against (linked by the models service alone).
+    // Everything Lodestar is, it still owns.
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift-lm", .upToNextMinor(from: "3.31.3")),
         // The same MLX the editor's package is built on, named so the
@@ -59,26 +60,31 @@ let package = Package(
             .swiftLanguageMode(.v6),
         ]),
         // Dictation's settling ears: second recognizers that re-hear a
-        // phrase, on MLX (Qwen3-ASR) or the Neural Engine (Parakeet, Core
-        // ML, a system framework).
-        .target(name: "LodestarEars", dependencies: [
+        // phrase. Parakeet runs here, on the Neural Engine (Core ML, a system
+        // framework); Qwen3-ASR's files are named here and it runs on MLX,
+        // in the models service (LodestarMLX).
+        .target(name: "LodestarEars", dependencies: ["LodestarCore"]),
+        // Everything that evaluates on MLX: the editor's and dictation's
+        // language models and the Qwen3-ASR ear. Linked by the models
+        // service and the probe, never by the app.
+        .target(name: "LodestarMLX", dependencies: [
             "LodestarCore",
+            "LodestarEars",
             .product(name: "MLX", package: "mlx-swift"),
             .product(name: "MLXNN", package: "mlx-swift"),
             .product(name: "MLXFast", package: "mlx-swift"),
             .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
             .product(name: "MLXLLM", package: "mlx-swift-lm"),
-            .product(name: "Tokenizers", package: "swift-transformers"),
-        ]),
-        // The product: menu-bar app, hotkeys, searcher, graph, breaths.
-        .executableTarget(name: "lodestar", dependencies: [
-            "LodestarCore",
-            "LodestarEars",
-            .product(name: "MLXLLM", package: "mlx-swift-lm"),
-            .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
             .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
             .product(name: "HuggingFace", package: "swift-huggingface"),
             .product(name: "Tokenizers", package: "swift-transformers"),
+        ]),
+        // The product: menu-bar app, hotkeys, searcher, graph, breaths. It
+        // links no MLX: its models run in the models service, so its own
+        // exit never runs one of MLX's destructors.
+        .executableTarget(name: "lodestar", dependencies: [
+            "LodestarCore",
+            "LodestarEars",
             .product(name: "OrderedCollections", package: "swift-collections"),
             .product(name: "Stoic", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
@@ -91,8 +97,12 @@ let package = Package(
         // Contents/XPCServices (scripts/make-app.sh assembles it), so a copy
         // whose read waits never waits on the app's main thread.
         .executableTarget(name: "LodestarClipboardReader", dependencies: ["LodestarCore"]),
+        // The models service: an XPC service the app carries in
+        // Contents/XPCServices (scripts/make-app.sh assembles it, with MLX's
+        // kernels in its own Resources), the one process that runs MLX.
+        .executableTarget(name: "LodestarModels", dependencies: ["LodestarCore", "LodestarMLX"]),
         // Slice 0: the window-identity probe. Throwaway by design.
-        .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars"]),
+        .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars", "LodestarMLX"]),
         // A stand-in app with plain windows, for the tests that move real
         // windows with Lodestar's own actions. Built beside the tests,
         // never shipped.
@@ -118,6 +128,10 @@ let package = Package(
         // world that never moves a window.
         .testTarget(name: "LodestarAppTests", dependencies: [
             "lodestar", "LodestarCore",
+            // The MLX code the models service runs, tested where it lives.
+            "LodestarMLX",
+            .product(name: "MLX", package: "mlx-swift"),
+            .product(name: "MLXNN", package: "mlx-swift"),
             .product(name: "StoicTesting", package: "stoic"),
             .product(name: "StoicHTTP", package: "stoic"),
             .product(name: "StoicDownloads", package: "stoic"),

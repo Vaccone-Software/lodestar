@@ -3,6 +3,7 @@ import Foundation
 import LodestarCore
 import Speech
 import LodestarEars
+import LodestarMLX
 
 /// Dictation, measured the way the draft does it.
 ///
@@ -292,7 +293,8 @@ private func footprintMB() -> (now: Int, peak: Int) { MemoryReport.ownFootprintM
 private func dictationEar(_ options: [String: String]) {
     guard let engine = options["engine"], let model = options["model"], let manifestPath = options["manifest"],
           let out = options["out"] else { dictationUsage(); exit(64) }
-    guard let ear = EarFactory.make(engine, folder: URL(fileURLWithPath: (model as NSString).expandingTildeInPath)) else {
+    guard let ear = EarFactory.make(engine, folder: URL(fileURLWithPath: (model as NSString).expandingTildeInPath),
+                                    qwen: { QwenEar(name: $0, folder: $1) }) else {
         print("ear: no engine \(engine)"); exit(64)
     }
     let root = options["root"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
@@ -354,7 +356,8 @@ private func dictationEar(_ options: [String: String]) {
 private func dictationDraft(_ options: [String: String]) {
     guard let runs = options["runs"], let manifestPath = options["manifest"], let out = options["out"],
           let engine = options["engine"], let model = options["model"] else { dictationUsage(); exit(64) }
-    guard let ear = EarFactory.make(engine, folder: URL(fileURLWithPath: (model as NSString).expandingTildeInPath)) else {
+    guard let ear = EarFactory.make(engine, folder: URL(fileURLWithPath: (model as NSString).expandingTildeInPath),
+                                    qwen: { QwenEar(name: $0, folder: $1) }) else {
         print("draft: no engine \(engine)"); exit(64)
     }
     let terms = loadTerms(options["words"])

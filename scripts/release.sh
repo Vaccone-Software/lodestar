@@ -39,10 +39,14 @@ if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     ./scripts/make-app.sh --release >/dev/null
 
     echo "→ signing with: $IDENTITY"
-    # Inside out: the clipboard reader service first, with no entitlements
-    # of its own (it reads the pasteboard and nothing else), then the app.
+    # Inside out: the services first, with no entitlements of their own
+    # (the clipboard reader reads the pasteboard; the models service reads
+    # model files and runs MLX on the GPU, which the hardened runtime
+    # allows), then the app.
     codesign --force --options runtime --timestamp \
         --sign "$IDENTITY" "$APP/Contents/XPCServices/LodestarClipboardReader.xpc"
+    codesign --force --options runtime --timestamp \
+        --sign "$IDENTITY" "$APP/Contents/XPCServices/LodestarModels.xpc"
     codesign --force --options runtime --timestamp \
         --entitlements packaging/lodestar.entitlements --sign "$IDENTITY" "$APP"
     codesign --verify --strict "$APP"

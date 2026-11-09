@@ -178,6 +178,9 @@ final class UpdateController {
                 let previous = install.deletingLastPathComponent()
                     .appendingPathComponent("lodestar.app.previous")
                 try? FileManager.default.removeItem(at: previous)
+                // And the failed build a rollback set aside, if the
+                // watchdog stopped before deleting it.
+                try? FileManager.default.removeItem(at: previous.appendingPathExtension("failed"))
             }
             self.check(force: false)
         }
@@ -769,12 +772,24 @@ final class UpdateController {
     # If .previous is gone, another actor already resolved this swap —
     # deleting the app with nothing to put back is never the answer.
     [ -d "$PREVIOUS" ] || exit 0
-    rm -rf "$APP"
-    mv "$PREVIOUS" "$APP"
+    # The failed build steps aside, and is deleted only once the old one
+    # stands in its place. Deleting it first left no app at the path for
+    # as long as the delete took, and a watchdog stopped inside it left
+    # half an app with the old build stranded beside it. If the old build
+    # will not move back, the failed one returns: an app at the path,
+    # even the wrong one, is still something to launch.
+    FAILED="$PREVIOUS.failed"
+    rm -rf "$FAILED"
+    mv "$APP" "$FAILED" || exit 1
+    if ! mv "$PREVIOUS" "$APP"; then
+        mv "$FAILED" "$APP"
+        exit 1
+    fi
     printf '%s' "$VERSION" > "$MARKERS/rolled-back"
     # -n: launch a fresh instance even though the old process may still
     # be running — its boot takes the pid file and announces the marker.
     # -g: behind the app in front, so keys typed meanwhile never reach it.
     open -g -n "$APP"
+    rm -rf "$FAILED"
     """
 }

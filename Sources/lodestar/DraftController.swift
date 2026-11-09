@@ -368,8 +368,9 @@ final class DraftController {
     /// Drafts esc has closed that are waiting out of sight for their last
     /// words, by session number: the clipboard is written when the stop
     /// completes, or at the bound. A draft opened again meanwhile has its
-    /// own number and never meets these.
-    private var departing: [Int: Departure] = [:]
+    /// own number and never meets these. `keep` writes it now, once: a
+    /// quit cannot wait for the stop.
+    private var departing: [Int: (copy: Departure, keep: () -> Void)] = [:]
     /// How long esc waits for the last words before the clipboard is
     /// given the text as it stood.
     static let departBackstopSeconds: TimeInterval = 1.0
@@ -770,8 +771,13 @@ final class DraftController {
     }
 
     /// The door keys inside the bar set posture, idempotently.
+    ///
+    /// Not while the draft is ending: the posture it ends in is the one
+    /// its words were said into. A mic asked for then would outlive the
+    /// panel, and a mute would drop the finals the stop still owes.
     func posture(door: Draft.Door) {
         guard isOpen else { open(door: door); return }
+        guard !closing else { return }
         // The clip door has no microphone to set: `lode .` says so, and
         // `lode ⇧.` asks for the silence it already has.
         if self.door == .clip {
@@ -1229,7 +1235,7 @@ final class DraftController {
             guard let self else { return }
             // Finals for a draft esc has closed go to the copy of its text
             // that waits for them.
-            if let leaving = self.departing[mine] { leaving.take(heard); return }
+            if let leaving = self.departing[mine] { leaving.copy.take(heard); return }
             guard self.isOpen, self.session == mine else { return }
             self.settle(heard)
         })
@@ -1976,6 +1982,12 @@ final class DraftController {
             clock.after(Self.landBackstopSeconds, backstop)
         } else {
             if sessionStarted { speech.stop {} }
+            // A ghost standing between sessions (a new input not yet
+            // listening) has no final coming: it lands as seen, as esc
+            // would keep it. Only then: a session still listening (muted,
+            // or in normal mode) may yet deliver the final for those words,
+            // and settling them here as well would land them twice.
+            if !listening, !buffer.ghost.isEmpty { settle(Heard(buffer.ghost)) }
             finish()
         }
     }
@@ -2358,6 +2370,12 @@ final class DraftController {
     /// Anything but `⏎`: the text stays on the pasteboard, the draft
     /// goes away. `reason` is for the log and the record only.
     func cancel(reason: String) {
+        // A quit waits for nothing, a draft esc has already closed
+        // included: what it holds goes to the pasteboard now, ahead of a
+        // draft still open, which is the newer.
+        if reason == "quit" {
+            for mine in departing.keys.sorted() { departing[mine]?.keep() }
+        }
         guard isOpen, !closing else { return }
         closing = true
         learnFromTheHand()
@@ -2373,7 +2391,6 @@ final class DraftController {
             let endedBefore = endings
             let leaving = Departure(buffer: buffer, settler: settler, provisional: provisional,
                                     anchor: freshSpeechAnchor())
-            departing[mine] = leaving
             var kept = false
             let keep = { [weak self] in
                 guard let self, !kept else { return }
@@ -2381,6 +2398,7 @@ final class DraftController {
                 self.departing[mine] = nil
                 self.keepDeparted(leaving.text, reason: reason, endedBefore: endedBefore)
             }
+            departing[mine] = (leaving, keep)
             speech.stop { keep() }
             clock.after(Self.departBackstopSeconds, DispatchWorkItem { keep() })
         } else {

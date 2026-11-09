@@ -169,6 +169,54 @@ final class UpdateWatchdogRunTests: XCTestCase {
         XCTAssertNil(rolledBack)
     }
 
+    /// `rm` and `mv` stand-ins that record each call, then do the real
+    /// thing; `mv` refuses to move the old build when `failing` is set.
+    private func recordRemovesAndMoves(failingToMoveTheOldBuild failing: Bool = false) throws {
+        let log = root.appendingPathComponent("calls.log").path
+        try executable("bin/rm", "#!/bin/bash\necho \"rm $*\" >> \"\(log)\"\nexec /bin/rm \"$@\"\n")
+        let refuse = failing ? "[ \"$1\" = \"\(previous.path)\" ] && exit 1\n" : ""
+        try executable("bin/mv", "#!/bin/bash\necho \"mv $*\" >> \"\(log)\"\n\(refuse)exec /bin/mv \"$@\"\n")
+    }
+
+    private var calls: [String] {
+        ((try? String(contentsOf: root.appendingPathComponent("calls.log"), encoding: .utf8)) ?? "")
+            .split(separator: "\n").map(String.init)
+    }
+
+    /// The rollback never deletes the install itself: the failed build
+    /// steps aside and is deleted only once the old one stands in its
+    /// place. Deleting first left no app at the path for as long as the
+    /// delete took, and a watchdog stopped inside it left half an app.
+    func testTheRollbackNeverLeavesThePathWithoutAnApp() throws {
+        try successorAnswers(0)
+        try recordRemovesAndMoves()
+        XCTAssertEqual(try run(pid: "1"), 0)
+        XCTAssertEqual(which, "old")
+        XCTAssertEqual(rolledBack, "0.0.2")
+        XCTAssertFalse(calls.contains { $0.hasPrefix("rm") && $0.hasSuffix(" \(app.path)") },
+                       "the install path is never removed: \(calls)")
+        let stepAside = try XCTUnwrap(calls.firstIndex { $0.hasPrefix("mv \(app.path) ") }, "\(calls)")
+        let putBack = try XCTUnwrap(calls.firstIndex(of: "mv \(previous.path) \(app.path)"), "\(calls)")
+        XCTAssertLessThan(stepAside, putBack)
+        let removesOfTheFailed = calls.indices.filter { calls[$0].hasPrefix("rm") && calls[$0].contains("failed") && $0 > stepAside }
+        XCTAssertFalse(removesOfTheFailed.isEmpty, "the failed build is deleted: \(calls)")
+        XCTAssertTrue(removesOfTheFailed.allSatisfy { $0 > putBack }, "only after the old one is back: \(calls)")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.contains("failed") }
+        XCTAssertEqual(leftovers, [], "nothing of the failed build is left behind")
+    }
+
+    /// The old build will not move back: the failed one returns to the
+    /// path, so there is still an app there, and no rollback is claimed.
+    func testARollbackThatCannotMoveTheOldBuildPutsTheAppBack() throws {
+        try successorAnswers(0)
+        try recordRemovesAndMoves(failingToMoveTheOldBuild: true)
+        XCTAssertNotEqual(try run(pid: "1"), 0)
+        XCTAssertEqual(which, "new", "an app still stands at the path")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: previous.path), "and the old build is kept")
+        XCTAssertNil(rolledBack)
+        XCTAssertEqual(opens, [])
+    }
+
     /// Another actor already resolved the swap: with nothing to put back,
     /// the app is never deleted.
     func testWithNothingToPutBackTheAppIsLeftAlone() throws {

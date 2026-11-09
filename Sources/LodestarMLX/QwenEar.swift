@@ -1,5 +1,6 @@
 import Foundation
 import LodestarCore
+import LodestarEars
 import MLX
 import Tokenizers
 
@@ -12,6 +13,7 @@ import Tokenizers
 /// peak; 0.6B 8-bit, 8.0% and 78%, 0.22 s, 2.2 GB. The same as the Python
 /// probe (mlx-audio) on the same weights, within a word or two.
 ///
+/// It runs in the models service (LodestarModels), never in the app.
 /// Everything MLX touches runs on one serial queue, so a load, the
 /// phrases, and an unload never overlap one another, and each holds the
 /// process's MLX lane (`MLXGate`) while it works, so none overlaps the

@@ -83,7 +83,59 @@ enum SelfTest {
         print(ok
               ? "self-test ok: \(mouseCalls) mouse reports, \(keyCalls) key reports, main answered \(pings) times"
               : "self-test FAILED: finished=\(finished) stalled=\(stalled) mouse=\(mouseCalls) keys=\(keyCalls)")
-        return clipboardReader() && ok
+        let reader = clipboardReader()
+        return modelsService() && reader && ok
+    }
+
+    /// The models service the bundle carries, launched by launchd by its
+    /// name and asked to evaluate four squares on the GPU: proof that it
+    /// starts and that MLX finds its device and the kernels in the
+    /// service's own Resources. No model loads (`editor check` does that).
+    /// The tests host the service's object with a fake engine; only the
+    /// signed bundle can prove the rest. Outside an app bundle there is no
+    /// service to find, and it says so.
+    static func modelsService(timeout: TimeInterval = 30) -> Bool {
+        let bundle = Bundle.main.bundleURL
+        guard bundle.pathExtension == "app" else {
+            print("self-test: the models service is skipped outside an app bundle")
+            return true
+        }
+        let service = bundle.appendingPathComponent("Contents/XPCServices/LodestarModels.xpc")
+        guard FileManager.default.fileExists(atPath: service.path) else {
+            print("self-test FAILED: the bundle carries no models service at \(service.path)")
+            return false
+        }
+        let client = ModelsClient()
+        let started = Date()
+        let answer = Box<Result<ModelsCheck, Error>>()
+        let task = Task.detached {
+            do { answer.set(.success(try await client.check())) } catch { answer.set(.failure(error)) }
+        }
+        while answer.value == nil, Date().timeIntervalSince(started) < timeout {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+        task.cancel()
+        client.end(reason: "self-test done")
+        let ms = Int(Date().timeIntervalSince(started) * 1000)
+        switch answer.value {
+        case .success(let check) where check.pid != getpid():
+            print("self-test ok: the models service (pid \(check.pid)) answered in \(ms) ms: \(check.answer)")
+            return true
+        case .success(let check):
+            print("self-test FAILED: the models check ran in this process (\(check.answer))")
+        case .failure(let error):
+            print("self-test FAILED: the models service did not evaluate: \(error) in \(ms) ms")
+        case nil:
+            print("self-test FAILED: the models service did not answer in \(Int(timeout)) s")
+        }
+        return false
+    }
+
+    private final class Box<Value>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: Value?
+        func set(_ value: Value) { lock.withLock { stored = value } }
+        var value: Value? { lock.withLock { stored } }
     }
 
     /// The clipboard reader the bundle carries, launched by launchd by its

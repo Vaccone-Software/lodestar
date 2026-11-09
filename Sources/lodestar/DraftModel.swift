@@ -1,7 +1,6 @@
 import Foundation
 import LodestarCore
 import LodestarEars
-import MLX
 
 /// The language model dictation asks what was meant (`IntentPass`), one
 /// per Speak tier, chosen there and nowhere else: what Write runs never
@@ -38,8 +37,8 @@ enum CleanupModel: String, CaseIterable {
     }
 
     /// Qwen thinks unless told not to; a reasoning trace is not a sentence.
-    var additionalContext: [String: any Sendable]? {
-        self == .gemma ? nil : ["enable_thinking": false]
+    var additionalContext: [String: Bool] {
+        self == .gemma ? [:] : ["enable_thinking": false]
     }
 }
 
@@ -71,7 +70,10 @@ extension EarTier {
 /// Its loads, readings and rewrites take the process's MLX lane as the
 /// editor's do (`ModelCalls`), so neither reads at the same moment as the
 /// other or as the ear, and a generation that never comes back is let go of
-/// with its backend rather than wedging the intent pass.
+/// with its backend rather than wedging the intent pass, and ends the models
+/// service it ran in (`onWedged`). A service that ended for any reason
+/// leaves the backend lost: the pass asks nothing until the next dictation
+/// loads it again.
 actor DraftModel {
     typealias Loader = @Sendable (CleanupModel) async throws -> any EditorBackend
     let model: CleanupModel
@@ -81,17 +83,21 @@ actor DraftModel {
     private let loader: Loader
     private let clearCache: @Sendable () -> Void
     private let calls: ModelCalls
+    private let onWedged: @Sendable () -> Void
     /// A load's own deadline and wait for the GPU, as the editor's.
     let loadDeadline: TimeInterval
 
     init(model: CleanupModel, loadDeadline: TimeInterval = 60, stuckAfter: TimeInterval = 20,
          gate: MLXGate = .shared, loader: @escaping Loader = DraftModel.load,
-         clearCache: @escaping @Sendable () -> Void = { MLX.Memory.clearCache() }) {
+         // The service clears MLX's cache itself when it lets a model go.
+         clearCache: @escaping @Sendable () -> Void = {},
+         onWedged: @escaping @Sendable () -> Void = { ModelsClient.shared.end(reason: "intent.model wedged") }) {
         self.model = model
         self.loadDeadline = loadDeadline
         self.calls = ModelCalls(name: "intent.model", gate: gate, stuckAfter: stuckAfter)
         self.loader = loader
         self.clearCache = clearCache
+        self.onWedged = onWedged
     }
 
     static let load: Loader = { model in
@@ -102,11 +108,12 @@ actor DraftModel {
                                           additionalContext: model.additionalContext)
     }
 
-    var isLoaded: Bool { backend != nil }
+    var isLoaded: Bool { backend.map { !$0.isLost } ?? false }
 
     /// Dictation started: the weights load now, once.
     func load() async {
         recoverIfStuck()
+        dropIfLost()
         if backend != nil { return }
         if let loading { _ = await loading.value; return }
         let began = Date()
@@ -147,13 +154,25 @@ actor DraftModel {
         backend = nil
         warmed = []
         calls.clearCacheSoon(clearCache)
+        onWedged()
         Log.info("intent", ["model": model.rawValue, "recovered": "the model stopped answering", "generations": lost])
+    }
+
+    /// The models service it was loaded in has ended: the next dictation
+    /// loads it again.
+    private func dropIfLost() {
+        guard let backend, backend.isLost else { return }
+        self.backend = nil
+        warmed = []
+        calls.backendReplaced()
+        Log.info("intent", ["model": model.rawValue, "lost": "the models service ended"])
     }
 
     /// As `EditorModel.rewrite`: never a load, the prompt's beginning read
     /// once with no deadline, then the answer under one.
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String? {
         recoverIfStuck()
+        dropIfLost()
         guard let backend else { return nil }
         if !warmed.contains(prompt) {
             let read = await calls.ask(deadline: EditorModel.warmDeadline, wait: EditorModel.warmWait) {

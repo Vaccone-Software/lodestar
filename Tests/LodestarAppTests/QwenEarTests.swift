@@ -2,6 +2,7 @@ import MLX
 import MLXNN
 import XCTest
 @testable import LodestarEars
+@testable import LodestarMLX
 
 /// The Qwen3-ASR ear's parts that need no weights: the front end's shape
 /// and numbers, the encoder's chunking, the prompt, the token cap, and
@@ -151,13 +152,14 @@ final class QwenEarTests: XCTestCase {
     func testFactoryMakesBothSizes() {
         let folder = URL(fileURLWithPath: "/nonexistent")
         for name in ["qwen3-asr-1.7b", "qwen3-asr-0.6b"] {
-            let ear = EarFactory.make(name, folder: folder)
+            let ear = EarFactory.make(name, folder: folder, qwen: { QwenEar(name: $0, folder: $1) })
             XCTAssertEqual(ear?.name, name)
             XCTAssertEqual(ear?.isLoaded, false)
-            XCTAssertNotNil(QwenEar.manifest(for: name))
+            XCTAssertNotNil(QwenEarFiles.manifest(for: name))
         }
-        XCTAssertNil(EarFactory.make("qwen3-asr-9b", folder: folder))
-        XCTAssertNil(QwenEar.manifest(for: "qwen3-asr-9b"))
+        XCTAssertNil(EarFactory.make("qwen3-asr-9b", folder: folder, qwen: { QwenEar(name: $0, folder: $1) }))
+        XCTAssertNil(EarFactory.make("qwen3-asr-1.7b", folder: folder), "the app makes its Qwen ear in the models service")
+        XCTAssertNil(QwenEarFiles.manifest(for: "qwen3-asr-9b"))
     }
 
     func testLoadingAnEmptyFolderThrowsInsteadOfCrashing() async {
@@ -176,7 +178,7 @@ final class QwenEarTests: XCTestCase {
     }
 
     func testManifestsArePinnedToOneCommitWithEveryFileHashed() {
-        for manifest in [QwenEar.manifest1_7B, QwenEar.manifest0_6B] {
+        for manifest in [QwenEarFiles.manifest1_7B, QwenEarFiles.manifest0_6B] {
             XCTAssertEqual(manifest.revision.count, 40)
             XCTAssertEqual(Set(manifest.files.map(\.path)),
                            ["config.json", "merges.txt", "model.safetensors", "tokenizer_config.json", "vocab.json"])
@@ -187,8 +189,8 @@ final class QwenEarTests: XCTestCase {
                     .hasPrefix("https://huggingface.co/\(manifest.repo)/resolve/\(manifest.revision)/"))
             }
         }
-        XCTAssertEqual(QwenEar.manifest1_7B.folder, "Qwen3-ASR-1.7B-8bit")
-        XCTAssertEqual(QwenEar.manifest1_7B.total, 2_467_775_902)
-        XCTAssertEqual(QwenEar.manifest0_6B.total, 1_010_697_786)
+        XCTAssertEqual(QwenEarFiles.manifest1_7B.folder, "Qwen3-ASR-1.7B-8bit")
+        XCTAssertEqual(QwenEarFiles.manifest1_7B.total, 2_467_775_902)
+        XCTAssertEqual(QwenEarFiles.manifest0_6B.total, 1_010_697_786)
     }
 }

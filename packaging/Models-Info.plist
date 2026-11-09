@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The models service: an XPC service in Contents/XPCServices, the one
+	     process that runs MLX (the editor's and dictation's language models
+	     and the Qwen3-ASR ear). Its bundle identifier is the name the app
+	     connects to (Models.serviceName). An application-type service with
+	     a run loop on its main thread, as the clipboard reader is. It does
+	     not join the user's session: it reads model files and uses the GPU,
+	     neither a per-session resource, and never the pasteboard, the
+	     keychain or the microphone (the app hears and sends the samples).
+	     Its Resources carry the packages' resource bundles, MLX's compiled
+	     kernels among them, since MLX looks in the main bundle and here
+	     that is this one. make-app.sh stamps the versions. -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Lodestar Models</string>
+	<key>CFBundleExecutable</key>
+	<string>LodestarModels</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.vaccone.lodestar.models</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>LodestarModels</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0</string>
+	<key>CFBundleVersion</key>
+	<string>0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>27.0</string>
+	<key>XPCService</key>
+	<dict>
+		<key>ServiceType</key>
+		<string>Application</string>
+		<key>RunLoopType</key>
+		<string>NSRunLoop</string>
+	</dict>
+</dict>
+</plist>

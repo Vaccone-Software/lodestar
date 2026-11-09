@@ -32,7 +32,7 @@ final class EditorAccuracyLiveTests: XCTestCase {
         // prompt quickly; it never writes.
         let only = env["LODESTAR_EDITOR_ONLY"].map { Set($0.split(separator: ",").map(String.init)) }
         if let only { fixture.cases = fixture.cases.filter { only.contains($0.src) } }
-        let model = EditorModel(engine: engine)
+        let model = EditorModel(engine: engine, loader: InProcessModels.editor)
         let started = Date()
         var asked = 0, changed = 0
         for index in fixture.cases.indices {
@@ -84,7 +84,7 @@ final class EditorRegionLiveTests: XCTestCase {
             throw XCTSkip("LODESTAR_EDITOR_LIVE=standard runs the real model")
         }
         func americanized(_ language: String) async -> [String] {
-            let model = EditorModel(engine: engine)
+            let model = EditorModel(engine: engine, loader: InProcessModels.editor)
             await model.setLanguage(language)
             var changed: [String] = []
             for sentence in Self.british {

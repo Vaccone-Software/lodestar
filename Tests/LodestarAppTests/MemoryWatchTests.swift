@@ -2,7 +2,7 @@ import MLX
 import XCTest
 @testable import lodestar
 import LodestarCore
-@testable import LodestarEars
+@testable import LodestarMLX
 
 final class MemoryWatchTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_000_000)
@@ -21,11 +21,14 @@ final class MemoryWatchTests: XCTestCase {
 
     func testALineSaysWhatAFreezeWouldTakeWithIt() throws {
         let reading = self.reading
-        let watch = MemoryWatch(level: { .normal }, read: { reading }, mlx: { (2486, 64) })
+        let watch = MemoryWatch(level: { .normal }, read: { reading }, models: {
+            ModelsStats(pid: 4242, footprintMB: 5120, mlxActiveMB: 2486, mlxCacheMB: 64, languageModels: 1, ear: false)
+        })
         let said = lines { watch.beat(at: start) }
         let line = try XCTUnwrap(said.first)
         XCTAssertEqual(said.count, 1)
-        for field in ["why=start", "footprint-mb=3536", "peak-mb=6900", "mlx-active-mb=2486", "mlx-cache-mb=64",
+        for field in ["why=start", "footprint-mb=3536", "peak-mb=6900", "models-footprint-mb=5120",
+                      "mlx-active-mb=2486", "mlx-cache-mb=64",
                       "level=normal", "free-pct=62", "compressor-mb=4000", "swap-mb=0",
                       "top=\"basalt-mac 7040, lodestar 3536\""] {
             XCTAssertTrue(line.contains(field), "\(field) in \(line)")
@@ -34,8 +37,9 @@ final class MemoryWatchTests: XCTestCase {
 
     func testBeforeAnyModelLoadsMLXIsNotAsked() throws {
         let reading = self.reading
-        let watch = MemoryWatch(level: { .normal }, read: { reading }, mlx: { nil })
+        let watch = MemoryWatch(level: { .normal }, read: { reading }, models: { nil })
         let line = try XCTUnwrap(lines { watch.beat(at: start) }.first)
+        XCTAssertTrue(line.contains("models-footprint-mb=none"), line)
         XCTAssertTrue(line.contains("mlx-active-mb=none"), line)
         XCTAssertTrue(line.contains("mlx-cache-mb=none"), line)
     }
@@ -44,7 +48,7 @@ final class MemoryWatchTests: XCTestCase {
         final class Now { var level = MemoryLevel.normal }
         let now = Now()
         let reading = self.reading
-        let watch = MemoryWatch(level: { now.level }, read: { reading }, mlx: { nil })
+        let watch = MemoryWatch(level: { now.level }, read: { reading }, models: { nil })
         let said = lines {
             for second in stride(from: 0.0, to: 600, by: 15) {
                 now.level = (second >= 120 && second < 150) ? .warning : .normal
@@ -74,19 +78,19 @@ final class MLXCapTests: XCTestCase {
     func testEveryLoadTakesTheLimitAndNothingElseSetsOne() throws {
         let app = DesignDriftTests.appSources
         let sources = app.deletingLastPathComponent()
-        let editor = DesignDriftTests.code(try String(contentsOf: app.appendingPathComponent("EditorModel.swift"), encoding: .utf8))
+        let editor = DesignDriftTests.code(try String(contentsOf: sources.appendingPathComponent("LodestarMLX/MLXLanguageModel.swift"), encoding: .utf8))
         let apply = try XCTUnwrap(editor.range(of: "MLXCap.apply()"))
         let load = try XCTUnwrap(editor.range(of: "LLMModelFactory.shared.loadContainer"))
         XCTAssertTrue(apply.lowerBound < load.lowerBound)
         XCTAssertEqual(editor.components(separatedBy: "loadContainer").count, 2, "and only one way to load")
-        let ear = DesignDriftTests.code(try String(contentsOf: sources.appendingPathComponent("LodestarEars/QwenEar.swift"), encoding: .utf8))
+        let ear = DesignDriftTests.code(try String(contentsOf: sources.appendingPathComponent("LodestarMLX/QwenEar.swift"), encoding: .utf8))
         let earApply = try XCTUnwrap(ear.range(of: "MLXCap.apply()"))
         let earLoad = try XCTUnwrap(ear.range(of: "QwenASRModel.load"))
         XCTAssertTrue(earApply.lowerBound < earLoad.lowerBound)
         let main = DesignDriftTests.code(try String(contentsOf: app.appendingPathComponent("main.swift"), encoding: .utf8))
         XCTAssertFalse(main.contains("MLXCap"), "not at launch")
 
-        for directory in ["lodestar", "LodestarEars"] {
+        for directory in ["lodestar", "LodestarEars", "LodestarMLX", "LodestarModels"] {
             let files = try FileManager.default.contentsOfDirectory(at: sources.appendingPathComponent(directory), includingPropertiesForKeys: nil)
             for file in files where file.pathExtension == "swift" && file.lastPathComponent != "MLXCap.swift" {
                 let code = DesignDriftTests.code(try String(contentsOf: file, encoding: .utf8))

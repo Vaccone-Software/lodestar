@@ -782,7 +782,7 @@ final class EditorDownloadLiveTests: XCTestCase {
         let folder = root.appendingPathComponent(manifest.folder)
         XCTAssertTrue(EditorModels.isComplete(folder, manifest))
         let model = EditorModel(engine: engine, loader: { _ in
-            try await EditorModel.load(fromDirectory: folder, engine: engine)
+            try await InProcessModels.load(directory: folder, label: engine.rawValue, context: engine.additionalContext)
         })
         let answer = await model.correct("Their going to push it.")
         XCTAssertEqual(answer, "They're going to push it.")

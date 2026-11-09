@@ -121,6 +121,7 @@ final class ClipboardController {
     /// ends. The index was written half a second after a copy, on a
     /// background queue, and quit never waited for either.
     func flushForQuit() {
+        reader.stop()
         store.finishForQuit()
         handover.sweep()
         handedOverFiles.removeAll()
@@ -141,6 +142,7 @@ final class ClipboardController {
     func stop() {
         poll?.invalidate()
         poll = nil
+        reader.stop()
     }
 
     /// A poller with a weak self outlives its owner on the run loop,
@@ -166,46 +168,61 @@ final class ClipboardController {
         let board = SystemEvents.pasteboard
         let count = board.changeCount
         guard count != lastChangeCount else { return }
+        // One read at a time. The count is left unseen, so the next tick
+        // asks again once the read under way has answered.
+        guard !reader.busy else { return }
         lastChangeCount = count
         guard count != selfWrittenChangeCount else { return }
         // The history is paused (its key cannot be asked for): nothing is
         // read from the board, let alone kept.
         guard !store.isPaused else { return }
-        // Every read below is on main, and it has to be: AppKit's
-        // pasteboard is main-thread only. A type an app provides lazily —
-        // a promise, a Universal Clipboard copy from another device — makes
-        // the read wait on that app or the network, with no timeout of our
-        // own. Nothing measured it, so a copy that held the key tap would
-        // look like any other freeze. A slow one now says so, by its shape.
+        // The read is the reader's, not this thread's (PasteboardReader):
+        // a type an app provides lazily — a promise, a Finder file, a copy
+        // from another device — makes it wait on that app or the network,
+        // and on main that wait held the key tap. A slow one says so, by
+        // its shape, wherever it happened.
         let captureStarted = Date()
-        var shape = (items: 0, types: 0)
-        defer {
+        let source = NSWorkspace.shared.frontmostApplication
+        reader.read(sourceBundleID: source?.bundleIdentifier, excludedApps: excludedApps) { [weak self] snapshot in
+            guard let self, let snapshot else { return }
             let ms = Int(Date().timeIntervalSince(captureStarted) * 1000)
-            if ms >= 250 { Log.info("clipboard", ["slow-capture-ms": ms, "items": shape.items, "types": shape.types]) }
+            if ms >= 250 {
+                Log.info("clipboard", ["slow-capture-ms": ms, "items": snapshot.items.count,
+                                       "types": snapshot.items.reduce(0) { $0 + $1.types.count }])
+            }
+            self.file(snapshot, source: source)
         }
+    }
+
+    /// Where the reads happen: in the reader process in the app, here on
+    /// main under the tests, whose copies are read the moment they are made.
+    lazy var reader: PasteboardReading = InProcessPasteboardReader()
+
+    /// A copy, read: judged, and kept or refused, on main.
+    private func file(_ snapshot: PasteboardSnapshot, source: NSRunningApplication?) {
+        // The board moved on while the reader read it: what it read is the
+        // newer copy, and its count is the one now seen. A paste of our own
+        // is never a copy, however late the reader says so.
+        if snapshot.changeCount != lastChangeCount { lastChangeCount = max(lastChangeCount, snapshot.changeCount) }
+        guard snapshot.changeCount != selfWrittenChangeCount else { return }
+        guard !store.isPaused else { return }
         // A copy is not always one thing. Three files selected in Finder
         // arrive as three items, and reading only the first filed a third
         // of what was copied — a card that pasted one file where three
         // were meant, which is worse than the copy having missed.
-        guard let boardItems = board.pasteboardItems, !boardItems.isEmpty else { return }
-
-        // Every item's types before any item's content, so the promise
-        // below is kept for the whole copy: one concealed item conceals
-        // all of it.
-        let types = boardItems.flatMap { $0.types.map(\.rawValue) }
-        shape = (boardItems.count, types.count)
-        let source = NSWorkspace.shared.frontmostApplication
+        let boardItems = snapshot.items
+        guard !boardItems.isEmpty else { return }
 
         // Before a single byte: a concealed clip, or one from an app the
-        // user excluded, is none of our business and must not be read at
-        // all — not merely left unwritten.
-        if let refusal = Clipboard.refusalBeforeReading(
-            types: types, sourceBundleID: source?.bundleIdentifier,
-            excludedApps: excludedApps, itemCount: boardItems.count
-        ) {
-            Log.info("clipboard", ["refused": "\(refusal)"])
+        // user excluded, is none of our business and was never read at
+        // all — not merely left unwritten. The reader decides that from
+        // the types, with every item's types in hand before any content,
+        // so one concealed item conceals the whole copy.
+        if let refusal = snapshot.refusal {
+            Log.info("clipboard", ["refused": refusal])
             return
         }
+        let types = boardItems.flatMap(\.types)
 
         // What each item pastes as text, and — separately — what it can be
         // read and searched by. They part company for a file: its URL is
@@ -213,9 +230,9 @@ final class ClipboardController {
         // can find it by name, while what gets stored and pasted stays the
         // file itself. Deriving one from the other would turn a copied
         // file into a copied string.
-        let plainTexts = boardItems.map { $0.string(forType: .string) }
+        let plainTexts = boardItems.map(\.plain)
         let readableTexts = boardItems.enumerated().map { offset, item in
-            plainTexts[offset] ?? item.string(forType: .fileURL).flatMap { URL(string: $0)?.path }
+            plainTexts[offset] ?? item.fileURL.flatMap { URL(string: $0)?.path }
         }
 
         // Our own handover file, coming back around after a terminal paste.
@@ -228,14 +245,8 @@ final class ClipboardController {
         var items: [ClipboardStore.Item] = []
         for (offset, boardItem) in boardItems.enumerated() {
             let plain = plainTexts[offset].map { Data($0.utf8) }
-            var natives: [(type: String, data: Data)] = []
-            for type in boardItem.types.map(\.rawValue)
-            where type != NSPasteboard.PasteboardType.string.rawValue {
-                guard let data = boardItem.data(forType: NSPasteboard.PasteboardType(type))
-                else { continue }
-                natives.append((type, data))
-                bytes += data.count
-            }
+            let natives = boardItem.natives.map { (type: $0.type, data: $0.data) }
+            bytes += natives.reduce(0) { $0 + $1.data.count }
             bytes += plain?.count ?? 0
             items.append(.init(plain: plain, natives: natives))
         }
@@ -284,13 +295,12 @@ final class ClipboardController {
         // The page a browser copy came from, host only — read from the
         // type Chromium leaves beside the copy, and nothing for anything
         // that did not come from a page.
-        let sourceHost = Clipboard.sourceHost(fromURL: boardItems[0].string(
-            forType: NSPasteboard.PasteboardType(Clipboard.sourceURLType)))
+        let sourceHost = Clipboard.sourceHost(fromURL: snapshot.sourceURL)
         // What the copy is. A picture is read first, as it always was; a
         // copy is files only when every item on the board is a file's
         // address, and anything else is text.
         let kind: Clipboard.Kind = imageData != nil ? .image
-            : Clipboard.kind(ofCopy: boardItems.map { $0.types.map(\.rawValue) }) == .file ? .file : .text
+            : Clipboard.kind(ofCopy: boardItems.map(\.types)) == .file ? .file : .text
         // How long the text is, said once at capture so the card can say
         // when it holds more than it shows. Counting characters is a pass
         // over every one of them — 12 ms a megabyte, 240 for the 19 the

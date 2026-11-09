@@ -48,6 +48,13 @@ final class ModelsClient: @unchecked Sendable {
     private let connect: () -> NSXPCConnection
     private let lock = NSLock()
     private var connection: NSXPCConnection?
+    /// A service asked to end, until its process has gone. There is one
+    /// service process for the app: a connection made before it has gone
+    /// reaches the process that is ending, and what it loads goes with it
+    /// (a model loaded, then lost, then loaded again). Requests wait for
+    /// it, at most `endGrace`, when the connection is invalidated anyway.
+    private var ending: NSXPCConnection?
+    private var endingWaiters: [CheckedContinuation<Void, Never>] = []
     private var currentEpoch = 0
     private var nextID: Int64 = 0
     /// Handles loaded in this epoch and not yet released, and the ear.
@@ -177,6 +184,7 @@ final class ModelsClient: @unchecked Sendable {
         let ended = lock.withLock { () -> NSXPCConnection? in
             guard let connection else { return nil }
             self.connection = nil
+            ending = connection
             lostLocked()
             return connection
         }
@@ -187,6 +195,18 @@ final class ModelsClient: @unchecked Sendable {
     }
 
     // MARK: The connection
+
+    /// Returns once no ended service is still going away.
+    private func endingSettled() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let waits = lock.withLock { () -> Bool in
+                guard ending != nil else { return false }
+                endingWaiters.append(continuation)
+                return true
+            }
+            if !waits { continuation.resume() }
+        }
+    }
 
     /// The connection, made when first needed and again after it was let
     /// go. Call holding the lock.
@@ -202,6 +222,14 @@ final class ModelsClient: @unchecked Sendable {
     }
 
     private func lost(_ made: NSXPCConnection?, _ how: String, drop: Bool) {
+        // The ended service's process has gone: whoever waited may connect.
+        let released = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            guard let made, ending === made else { return [] }
+            ending = nil
+            defer { endingWaiters = [] }
+            return endingWaiters
+        }
+        released.forEach { $0.resume() }
         let current = lock.withLock { () -> Bool in
             guard let made, connection === made else { return false }
             if drop { connection = nil }
@@ -233,6 +261,7 @@ final class ModelsClient: @unchecked Sendable {
     private func callOnce<T: Codable & Sendable>(
         _ send: @escaping (ModelsXPC, Int64, @escaping @Sendable (Data?) -> Void) -> Void
     ) async throws -> (T, Int) {
+        await endingSettled()
         let (id, epoch, connection) = lock.withLock { () -> (Int64, Int, NSXPCConnection) in
             nextID += 1
             return (nextID, currentEpoch, live())
@@ -242,7 +271,15 @@ final class ModelsClient: @unchecked Sendable {
             try await withCheckedThrowingContinuation { continuation in
                 let once = Once(continuation)
                 guard request.send() else { return once.resume(throwing: CancellationError()) }
-                let proxy = connection.remoteObjectProxyWithErrorHandler { _ in
+                let proxy = connection.remoteObjectProxyWithErrorHandler { [weak self, weak connection] error in
+                    // An invalid connection is dead: let go of it here, before
+                    // the request is sent again, so the resend makes a new one
+                    // whenever the invalidation handler's own call arrives.
+                    // An interrupted one stays: its next message starts a
+                    // fresh service.
+                    if (error as NSError).code == NSXPCConnectionInvalid, let connection {
+                        self?.lost(connection, "invalidated", drop: true)
+                    }
                     once.resume(throwing: ModelsError.interrupted)
                 } as? ModelsXPC
                 guard let proxy else { return once.resume(throwing: ModelsError.interrupted) }

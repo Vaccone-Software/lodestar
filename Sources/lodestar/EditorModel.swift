@@ -1,13 +1,8 @@
 import Foundation
 import LodestarCore
 import LodestarEars
-import MLX
-import MLXHuggingFace
-import MLXLLM
-import MLXLMCommon
 import Stoic
 import Synchronization
-import Tokenizers
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
@@ -108,8 +103,8 @@ enum EditorEngine: String, CaseIterable {
 
     /// Thinking models are told not to: a reasoning trace is not a
     /// sentence, and it takes seconds.
-    var additionalContext: [String: any Sendable]? {
-        self == .full ? ["enable_thinking": false] : nil
+    var additionalContext: [String: Bool] {
+        self == .full ? ["enable_thinking": false] : [:]
     }
 
     /// Why this Mac cannot run it, or nil when it can. `memoryGB` is the
@@ -171,6 +166,10 @@ protocol EditorBackend: Sendable {
     /// Read the prompt's shared beginning now, so a rewrite under a
     /// deadline never pays for it.
     func warm(_ prompt: IntentPass.Prompt) async throws
+    /// The model is gone from under this handle: the models service that
+    /// held it ended (`ServiceLanguageModel`). Its owner lets it go and
+    /// loads again at the next question. A model in the app is never lost.
+    var isLost: Bool { get }
 }
 
 extension EditorBackend {
@@ -178,6 +177,7 @@ extension EditorBackend {
         throw EditorModelError.unavailable("this model does not rewrite")
     }
     func warm(_ prompt: IntentPass.Prompt) async throws {}
+    var isLost: Bool { false }
 }
 
 /// What the editor asks of a model — the seam its tests fake.
@@ -277,6 +277,12 @@ enum EditorModelError: Error, CustomStringConvertible {
 /// model stayed wedged until the app restarted (42 times in three weeks,
 /// up to 50 minutes, with no word to the hand), and a load had no deadline
 /// at all.
+///
+/// Standard and Full run in the models service (`ModelsClient`), so a
+/// generation that has stopped also ends the service (`onWedged`): a stuck
+/// evaluation is stopped with its process, and the memory with it. A service
+/// that ended for any reason (a crash, launchd letting it go) leaves the
+/// backend lost, and the next sentence loads it again.
 actor EditorModel: EditorProofreader {
     typealias Loader = @Sendable (EditorEngine) async throws -> any EditorBackend
     enum State: Equatable { case unloaded, loading, ready, failed(String) }
@@ -323,6 +329,8 @@ actor EditorModel: EditorProofreader {
     /// load took 52 s (the 20 GB model, cold).
     let loadDeadline: TimeInterval
     private let calls: ModelCalls
+    /// A generation stopped answering: ends the models service it runs in.
+    private let onWedged: @Sendable () -> Void
     /// A prompt's beginning is read once with a deadline of its own, the
     /// model's 2.5 s on Full being the longest measured.
     static let warmDeadline: TimeInterval = 30
@@ -338,7 +346,9 @@ actor EditorModel: EditorProofreader {
          gateWait: TimeInterval = 3, loadDeadline: TimeInterval = 60, stuckAfter: TimeInterval = 20,
          gate: MLXGate = .shared,
          loader: @escaping Loader = EditorModel.load,
-         clearCache: @escaping @Sendable () -> Void = { MLX.GPU.clearCache() },
+         // The service clears MLX's cache itself when it lets a model go.
+         clearCache: @escaping @Sendable () -> Void = {},
+         onWedged: @escaping @Sendable () -> Void = { ModelsClient.shared.end(reason: "editor.model wedged") },
          holdClock: @escaping @Sendable () -> Date = { Date() },
          memoryLevel: @escaping @Sendable () -> MemoryLevel = { .current }) {
         self.engine = engine
@@ -351,6 +361,7 @@ actor EditorModel: EditorProofreader {
         self.calls = ModelCalls(name: "editor.model", gate: gate, stuckAfter: stuckAfter)
         self.loader = loader
         self.clearCache = clearCache
+        self.onWedged = onWedged
     }
 
     nonisolated var ability: ModelAbility { calls.ability }
@@ -398,6 +409,7 @@ actor EditorModel: EditorProofreader {
     /// deadline only ever bounds the answer.
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async -> String? {
         recoverIfStuck()
+        dropIfLost()
         guard engine == .standard || engine == .full, let backend,
               backendEngine == .standard || backendEngine == .full else { return nil }
         scheduleRelease()
@@ -423,6 +435,7 @@ actor EditorModel: EditorProofreader {
 
     private func loaded() async -> (any EditorBackend)? {
         recoverIfStuck()
+        dropIfLost()
         while true {
             if let backend { return backend }
             // Held away by a warning: not a failure, and nothing is loaded.
@@ -517,7 +530,16 @@ actor EditorModel: EditorProofreader {
         let lost = calls.recoverIfStuck()
         guard lost > 0 else { return }
         dropBackend()
+        onWedged()
         Log.info("editor", ["recovered": "the model stopped answering", "generations": lost, "engine": engine.rawValue])
+    }
+
+    /// The models service the backend was loaded in has ended: let it go,
+    /// so the next question loads it again.
+    private func dropIfLost() {
+        guard let backend, backend.isLost else { return }
+        dropBackend()
+        Log.info("editor", ["lost": "the models service ended", "engine": engine.rawValue])
     }
 
     private func scheduleRelease() {
@@ -579,7 +601,8 @@ actor EditorModel: EditorProofreader {
         }
     }
 
-    /// The real loader: MLX weights from disk, or Apple's model.
+    /// The real loader: Apple's model here, or MLX weights in the models
+    /// service.
     static let load: Loader = { engine in
         switch engine {
         case .spelling:
@@ -592,202 +615,19 @@ actor EditorModel: EditorProofreader {
         }
     }
 
-    /// Collapse MLX's global random key into a value.
-    ///
-    /// Building a model's layers draws their placeholder weights from the
-    /// global key before the real weights replace them, and each draw
-    /// swaps the key for an unevaluated split of the one before
-    /// (`RandomState.next`). Nothing ever evaluates it, so every load
-    /// lengthened a chain the process could not free: 1,084 links for one
-    /// load of the full model, 17,344 after a morning, about 2.3 KB each,
-    /// surviving every release. Measured: 20,000 links held 45 MB and one
-    /// evaluation, 478 ms of it, let all but 1 MB go. Settled once per
-    /// load, the chain never grows past one load's worth.
-    static func settleRandomState() {
-        eval(MLXRandom.globalState)
-    }
-
-    /// MLX weights from one folder.
+    /// MLX weights from one folder, loaded in the models service.
     static func load(fromDirectory directory: URL, engine: EditorEngine) async throws -> any EditorBackend {
         try await load(fromDirectory: directory, label: engine.rawValue, additionalContext: engine.additionalContext)
     }
 
-    /// Any pinned model's weights, named for the log.
-    static func load(fromDirectory directory: URL, label: String,
-                     additionalContext: [String: any Sendable]?) async throws -> any EditorBackend {
-        MLXCap.apply()
-        let container = try await LLMModelFactory.shared.loadContainer(
-            from: directory, using: #huggingFaceTokenizerLoader())
-        settleRandomState()
-        return MLXBackend(container: container, label: label, additionalContext: additionalContext,
-                          cachesInstructions: ProcessInfo.processInfo.environment["LODESTAR_EDITOR_NO_PREFIX"] == nil)
-    }
-}
-
-/// Weights MLX loaded, with the instructions read once.
-///
-/// Every question starts with the same proofreader instructions, and a
-/// model reading them afresh each time is most of a short sentence's cost.
-/// So the prompt's shared beginning — the instructions and the user turn's
-/// header, found as the common tokens of two rendered prompts — is run
-/// through the model once, and each sentence starts from a copy of that
-/// state and reads only its own words. A prompt that does not begin with
-/// those tokens (a template that moved) is answered the whole way, as
-/// before. The draft's intent pass reads its own instructions and worked
-/// examples the same way, so a few prompts are held at once and neither
-/// reader throws out the other's.
-private final class MLXBackend: EditorBackend, @unchecked Sendable {
-    let container: ModelContainer
-    let label: String
-    let additionalContext: [String: any Sendable]?
-    let cachesInstructions: Bool
-    /// Each prompt's shared beginning and the model's state after reading
-    /// it, the newest last. Built on a prompt's first question; touched
-    /// only inside `container.perform`, which serializes access.
-    private var prefixes: [(prompt: IntentPass.Prompt, tokens: [Int], cache: [KVCache])] = []
-    /// The editor's instructions (one per spelling region) and the intent
-    /// pass's (one per vocabulary): four covers a change of either.
-    static let prefixesKept = 4
-    /// Built once per prompt, or found not to fit once: never retried per
-    /// question.
-    private var prefixTried: Set<IntentPass.Prompt> = []
-
-    init(container: ModelContainer, label: String, additionalContext: [String: any Sendable]?,
-         cachesInstructions: Bool = true) {
-        self.container = container
-        self.label = label
-        self.additionalContext = additionalContext
-        self.cachesInstructions = cachesInstructions
-    }
-
-    private func parameters(for sentence: String) -> GenerateParameters {
-        GenerateParameters(maxTokens: max(24, sentence.count / 2 + 16), temperature: 0)
-    }
-
-    func respond(to sentence: String, instructions: String) async throws -> String {
-        guard cachesInstructions else {
-            let session = ChatSession(container, instructions: instructions,
-                                      generateParameters: parameters(for: sentence),
-                                      additionalContext: additionalContext)
-            return try await session.respond(to: sentence)
-        }
-        let parameters = self.parameters(for: sentence)
-        return try await answer(sentence, prompt: IntentPass.Prompt(instructions: instructions, examples: []),
-                                parameters: { _ in parameters })
-    }
-
-    func warm(_ prompt: IntentPass.Prompt) async throws {
-        guard cachesInstructions else { return }
-        let additional = additionalContext
-        try await container.perform { (context: ModelContext) async throws in
-            try await self.ensurePrefix(prompt, context: context, additional: additional,
-                                        parameters: GenerateParameters(maxTokens: 24, temperature: 0))
-        }
-    }
-
-    func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String {
-        try await answer(text, prompt: prompt, parameters: { count in
-            GenerateParameters(maxTokens: IntentPass.maxTokens(forInputTokens: count), temperature: 0)
-        })
-    }
-
-    /// The prompt's answer to `text`, from the cached state after its
-    /// shared beginning when there is one. `parameters` is given the
-    /// text's own length in tokens.
-    private func answer(_ text: String, prompt: IntentPass.Prompt,
-                        parameters: @escaping @Sendable (Int) -> GenerateParameters) async throws -> String {
-        let additional = additionalContext
-        let caching = cachesInstructions
-        return try await container.perform { (context: ModelContext) async throws -> String in
-            let parameters = parameters(context.tokenizer.encode(text: text, addSpecialTokens: false).count)
-            let full = try await Self.tokens(text, prompt: prompt, context: context, additional: additional)
-            if caching {
-                try await self.ensurePrefix(prompt, context: context, additional: additional, parameters: parameters)
-            }
-            var cache: [KVCache]
-            var rest: [Int]
-            if caching, let prefix = self.prefixes.last(where: { $0.prompt == prompt }),
-               full.count > prefix.tokens.count, Array(full.prefix(prefix.tokens.count)) == prefix.tokens {
-                cache = prefix.cache.map { $0.copy() }
-                rest = Array(full.dropFirst(prefix.tokens.count))
-            } else {
-                cache = context.model.newCache(parameters: parameters)
-                rest = full
-            }
-            let stream = try MLXLMCommon.generate(
-                input: LMInput(tokens: MLXArray(rest)), cache: cache, parameters: parameters, context: context)
-            var text = ""
-            for await generation in stream {
-                // A generation given up on (its deadline passed, or a
-                // new backend replaced this one) stops at the next token,
-                // so the GPU is free for whoever is next on the lane. Leaving
-                // the loop ends the stream, which stops the generation.
-                if Task.isCancelled { break }
-                if case .chunk(let chunk) = generation { text += chunk }
-            }
-            try Task.checkCancellation()
-            return text
-        }
-    }
-
-    /// The prompt rendered by the model's chat template, as tokens.
-    private static func tokens(_ text: String, prompt: IntentPass.Prompt, context: ModelContext,
-                               additional: [String: any Sendable]?) async throws -> [Int] {
-        let chat: [Chat.Message] = [.system(prompt.instructions)]
-            + prompt.examples.flatMap { [Chat.Message.user($0.said), .assistant($0.meant)] }
-            + [.user(text)]
-        let input = try await context.processor.prepare(input: UserInput(chat: chat, additionalContext: additional))
-        return input.text.tokens.asArray(Int.self)
-    }
-
-    /// The prompt's beginning cached, unless it is or was found not to
-    /// fit. Marked tried only once a build has finished: one cut short
-    /// (cancelled, or an error) is tried again next time.
-    private func ensurePrefix(_ prompt: IntentPass.Prompt, context: ModelContext,
-                              additional: [String: any Sendable]?, parameters: GenerateParameters) async throws {
-        guard !prefixes.contains(where: { $0.prompt == prompt }), !prefixTried.contains(prompt) else { return }
-        let built = try await buildPrefix(context: context, parameters: parameters, tokens: {
-            try await Self.tokens($0, prompt: prompt, context: context, additional: additional)
-        })
-        prefixTried.insert(prompt)
-        guard let built else { return }
-        prefixes.append((prompt, built.tokens, built.cache))
-        if prefixes.count > Self.prefixesKept {
-            let gone = prefixes.removeFirst()
-            prefixTried.remove(gone.prompt)
-        }
-    }
-
-    /// The prompt's shared beginning, read through the model once. Two
-    /// sentences that share nothing find where the template's own tokens
-    /// end; two tokens are left off that end, so a word's first piece that
-    /// merges with the header is never in the cache.
-    private func buildPrefix(context: ModelContext, parameters: GenerateParameters,
-                             tokens: (String) async throws -> [Int]) async throws -> (tokens: [Int], cache: [KVCache])? {
-        let a = try await tokens("Alpha."), b = try await tokens("Zulu?")
-        var shared = zip(a, b).prefix { $0 == $1 }.map(\.0)
-        shared = Array(shared.dropLast(2))
-        guard shared.count > 8 else { return nil }
-        let cache = context.model.newCache(parameters: parameters)
-        switch try context.model.prepare(LMInput(tokens: MLXArray(shared)), cache: cache, windowSize: 512) {
-        case .tokens(let remaining):
-            // What prepare left for the first step is read too, so the
-            // state holds every shared token and nothing after.
-            _ = context.model(remaining[text: .newAxis], cache: cache, state: nil)
-        case .logits:
-            break
-        }
-        eval(cache)
-        // Attention layers count the tokens they hold; a state-space layer
-        // (Qwen 3.6's linear attention) keeps a running state and counts
-        // none. Every layer that counts must hold exactly the prefix.
-        let counted = cache.map(\.offset).filter { $0 > 0 }
-        guard !counted.isEmpty, counted.allSatisfy({ $0 == shared.count }) else {
-            Log.error("editor: instruction cache holds \(counted) of \(shared.count) tokens; not used")
-            return nil
-        }
-        Log.info("editor", ["instructions-cached": shared.count, "engine": label])
-        return (shared, cache)
+    /// Any pinned model's weights, named for the log, loaded in the models
+    /// service: the service is told the folder, so a fresh one can be told
+    /// again.
+    static func load(fromDirectory directory: URL, label: String, additionalContext: [String: Bool],
+                     client: ModelsClient = .shared) async throws -> any EditorBackend {
+        try await client.loadLanguageModel(LanguageModelSpec(
+            directory: directory.path, label: label, context: additionalContext,
+            cachesInstructions: ProcessInfo.processInfo.environment["LODESTAR_EDITOR_NO_PREFIX"] == nil))
     }
 }
 
@@ -940,9 +780,18 @@ enum EditorCheck {
         let answered = Date()
         _ = await model.correct("We need to recieve the files.")
         let again = Date()
+        // Where it ran: the models service, and not this process.
+        let service = engine == .minimal ? nil : try? await ModelsClient.shared.stats()
         await model.release(reason: "check done")
         print(String(format: "load: %.1f s · first answer: %.0f ms · next: %.0f ms", loaded.timeIntervalSince(started),
                      answered.timeIntervalSince(loaded) * 1000, again.timeIntervalSince(answered) * 1000))
+        if let service {
+            print("answered by: the models service, pid \(service.pid), \(service.footprintMB) MB, "
+                  + "MLX \(service.mlxActiveMB.map(String.init) ?? "none") MB active; "
+                  + "this process (pid \(getpid())) \(MemoryReport.ownFootprintMB().now) MB")
+        } else if engine != .minimal {
+            print("answered by: no models service answered")
+        }
         print("asked: \(sentence)")
         print("answered: \(answer ?? "nothing")")
         return answer == "They're going to push it." ? 0 : 1

@@ -164,7 +164,8 @@ final class EarHost {
         ear = nil
         tier = next
         if let engine = next.engine, let url = Self.modelFolder(next) {
-            ear = EarFactory.make(engine, folder: url)
+            // Qwen3-ASR hears in the models service; Parakeet here.
+            ear = EarFactory.make(engine, folder: url, qwen: { ServiceEar(name: $0, folder: $1) })
         }
         Log.info("draft", ["ear": next.rawValue, "engine": next.engine ?? "none", "ready": ear != nil])
         // One model on disk at a time, as the editor keeps it: once the

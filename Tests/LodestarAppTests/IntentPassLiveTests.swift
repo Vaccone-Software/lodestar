@@ -33,7 +33,7 @@ final class IntentPassLiveTests: XCTestCase {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("../LodestarCoreTests/Fixtures/intent-checker.json").standardized
         let items = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url)).textset
-        let model = DraftModel(model: cleanup)
+        let model = DraftModel(model: cleanup, loader: InProcessModels.cleanup)
         let engine = cleanup
         let prompt = IntentPass.prompt(names: [
             "Lodestar", "Ghostty", "Claude Code", "Supabase", "Xonar", "Kindora", "Convex", "Expo", "Telegram",

@@ -46,13 +46,22 @@ public struct PasteboardSnapshot: Codable, Sendable, Equatable {
     public var refusal: String?
     /// The page a browser copy came from, as the first item carried it.
     public var sourceURL: String?
+    /// The app that wrote the copy, in its own words: the bundle id an app
+    /// puts in `org.nspasteboard.source` so clipboard tools can say whose a
+    /// copy is. Read even for a refused copy, since it is the writer's name
+    /// and not its content; it is how a refusal says which app marked it.
+    public var declaredSource: String?
 
-    public init(changeCount: Int, items: [Item], refusal: String? = nil, sourceURL: String? = nil) {
+    public init(changeCount: Int, items: [Item], refusal: String? = nil, sourceURL: String? = nil,
+                declaredSource: String? = nil) {
         self.changeCount = changeCount
         self.items = items
         self.refusal = refusal
         self.sourceURL = sourceURL
+        self.declaredSource = declaredSource
     }
+
+    public static let declaredSourceType = "org.nspasteboard.source"
 }
 
 /// What the reader is asked: which board (the general one in the app, a
@@ -91,13 +100,17 @@ public enum PasteboardRead {
             return PasteboardSnapshot(changeCount: changeCount, items: [])
         }
         let types = boardItems.map { $0.types.map(\.rawValue) }
+        let declared = types[0].contains(PasteboardSnapshot.declaredSourceType)
+            ? boardItems[0].string(forType: NSPasteboard.PasteboardType(PasteboardSnapshot.declaredSourceType))
+                .map { String($0.prefix(200)) }
+            : nil
         if let refusal = Clipboard.refusalBeforeReading(
             types: types.flatMap { $0 }, sourceBundleID: sourceBundleID,
             excludedApps: excludedApps, itemCount: boardItems.count
         ) {
             return PasteboardSnapshot(changeCount: changeCount,
                                       items: types.map { PasteboardSnapshot.Item(types: $0) },
-                                      refusal: "\(refusal)")
+                                      refusal: "\(refusal)", declaredSource: declared)
         }
         let items = boardItems.enumerated().map { offset, item in
             var natives: [PasteboardSnapshot.Native] = []
@@ -111,7 +124,8 @@ public enum PasteboardRead {
                                            natives: natives)
         }
         let sourceURL = boardItems[0].string(forType: NSPasteboard.PasteboardType(Clipboard.sourceURLType))
-        return PasteboardSnapshot(changeCount: changeCount, items: items, sourceURL: sourceURL)
+        return PasteboardSnapshot(changeCount: changeCount, items: items, sourceURL: sourceURL,
+                                  declaredSource: declared)
     }
 }
 

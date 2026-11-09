@@ -145,6 +145,12 @@ final class ClipboardStoreSealedTests: XCTestCase {
         XCTAssertEqual(store.waitUntilOpen(), .ready)
         XCTAssertEqual(store.clips.count, 1 + 3, "the history, and the older files taken in")
         XCTAssertEqual(ClipboardV1.plaintextFiles(root), [])
+
+        // The copy made while it was paused was never read, so it was never
+        // spent: once the history opens, the next tick keeps it.
+        controller.capture()
+        XCTAssertEqual(store.clips.count, 1 + 3 + 1)
+        XCTAssertEqual(store.clips.first?.preview, "secret while paused")
         store.close()
     }
 

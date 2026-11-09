@@ -107,3 +107,57 @@ final class ClipboardCaptureTests: XCTestCase {
         XCTAssertEqual(board.changeCount, before, "the board was never touched")
     }
 }
+
+/// A copy is written in two steps the poll can fall between: the board is
+/// cleared (the change count moves, the board is empty) and then written,
+/// which does not move the count again (measured). A read that finds the
+/// board cleared and not yet written must not spend the change, or that
+/// copy is never seen.
+final class ClipboardUnfilledCopyTests: XCTestCase {
+    private var directory: URL!
+    private var store: ClipboardStore!
+    private var controller: ClipboardController!
+
+    override func setUp() {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lodestar-unfilled-\(UUID().uuidString)", isDirectory: true)
+        store = SealedFixture.clipboardStore(directory)
+        controller = ClipboardController(store: store)
+    }
+
+    override func tearDown() {
+        store.close()
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testACopyCaughtBetweenClearAndWriteIsReadOnceWritten() {
+        let board = SystemEvents.pasteboard
+        board.clearContents()
+        let cleared = board.changeCount
+        controller.capture()
+        XCTAssertTrue(store.clips.isEmpty, "nothing to keep yet")
+        board.setString("written after the poll saw the clear", forType: .string)
+        XCTAssertEqual(board.changeCount, cleared, "the write did not move the count")
+        controller.capture()
+        XCTAssertEqual(store.clips.first?.preview, "written after the poll saw the clear")
+    }
+
+    /// A board that stays empty is read again only for a while, then let be.
+    func testABoardThatStaysEmptyIsLetBe() {
+        final class Counting: PasteboardReading {
+            var reads = 0
+            var busy: Bool { false }
+            func read(sourceBundleID: String?, excludedApps: Set<String>, done: @escaping (PasteboardSnapshot?) -> Void) {
+                reads += 1
+                done(PasteboardRead.snapshot(of: SystemEvents.pasteboard, sourceBundleID: sourceBundleID, excludedApps: excludedApps))
+            }
+            func stop() {}
+        }
+        let counting = Counting()
+        controller.reader = counting
+        SystemEvents.pasteboard.clearContents()
+        for _ in 0..<(ClipboardController.unfilledRereads + 10) { controller.capture() }
+        XCTAssertEqual(counting.reads, ClipboardController.unfilledRereads + 1, "the first read and its bounded rereads")
+        XCTAssertTrue(store.clips.isEmpty)
+    }
+}

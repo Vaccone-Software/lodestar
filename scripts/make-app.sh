@@ -68,10 +68,11 @@ cp packaging/common-words.txt "$APP/Contents/Resources/"
 cp packaging/doors/door-*.png "$APP/Contents/Resources/"
 # Settings' places, in the doors' clay (tools/doors/places.py renders them)
 cp packaging/places/place-*.png "$APP/Contents/Resources/"
-# The packages' resource bundles — MLX's compiled GPU kernels above all,
-# which it finds in the main bundle's Resources.
+# The packages' resource bundles. MLX's compiled GPU kernels go to the
+# models service alone (below): the app runs no MLX.
 for bundle in "$(dirname "$BIN")"/*.bundle; do
-    [ -d "$bundle" ] && cp -R "$bundle" "$APP/Contents/Resources/"
+    [ -d "$bundle" ] && [ "$(basename "$bundle")" != "mlx-swift_Cmlx.bundle" ] \
+        && cp -R "$bundle" "$APP/Contents/Resources/"
 done
 # Stamp the bundle with the code's version — Version.swift is the truth.
 VERSION=$(grep 'public static let version' Sources/LodestarCore/Version.swift | cut -d'"' -f2)
@@ -106,19 +107,40 @@ plutil -replace CFBundleShortVersionString -string "$VERSION" "$XPC/Contents/Inf
 plutil -replace CFBundleVersion -string "$VERSION" "$XPC/Contents/Info.plist"
 cp "$(dirname "$BIN")/LodestarClipboardReader" "$XPC/Contents/MacOS/LodestarClipboardReader"
 
+# The models service, the one process that runs MLX, connected to by its
+# bundle identifier (Models.serviceName). MLX finds its compiled kernels
+# (mlx-swift_Cmlx.bundle) in the main bundle's Resources, and inside a
+# service the main bundle is the .xpc: every package resource bundle goes
+# into its own Contents/Resources.
+MODELS="$APP/Contents/XPCServices/LodestarModels.xpc"
+mkdir -p "$MODELS/Contents/MacOS" "$MODELS/Contents/Resources"
+cp packaging/Models-Info.plist "$MODELS/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$MODELS/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$VERSION" "$MODELS/Contents/Info.plist"
+cp "$(dirname "$BIN")/LodestarModels" "$MODELS/Contents/MacOS/LodestarModels"
+for bundle in "$(dirname "$BIN")"/*.bundle; do
+    [ -d "$bundle" ] && cp -R "$bundle" "$MODELS/Contents/Resources/"
+done
+if [ ! -f "$MODELS/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" ]; then
+    echo "✕ the models service carries no MLX kernels (mlx-swift_Cmlx.bundle/…/default.metallib)" >&2
+    exit 1
+fi
+
 # LODESTAR_SIGN_IDENTITY overrides the choice. Worth reaching for when the
 # app already installed was signed with a different certificate: the
 # Accessibility grant is keyed to the signature, so testing a dev build over
 # a Developer ID install means re-granting unless you match it.
 IDENTITY="${LODESTAR_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
     | awk -F'"' '/Apple Development/ {print $2; exit}')}"
-# Inside out: the service first, then the app that holds it.
+# Inside out: the services first, then the app that holds them.
 if [ -n "${IDENTITY:-}" ]; then
     codesign --force --options runtime --sign "$IDENTITY" "$XPC"
+    codesign --force --options runtime --sign "$IDENTITY" "$MODELS"
     codesign --force --options runtime --sign "$IDENTITY" "$APP"
     echo "signed with: $IDENTITY"
 else
     codesign --force --sign - "$XPC"
+    codesign --force --sign - "$MODELS"
     codesign --force --sign - "$APP"
     echo "signed ad-hoc (Accessibility grant will not survive rebuilds)"
 fi

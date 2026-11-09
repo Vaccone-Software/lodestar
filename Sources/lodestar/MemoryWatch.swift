@@ -1,14 +1,14 @@
 import Foundation
 import LodestarCore
-import LodestarEars
 
 /// Keeps a record of memory in the log, so a freeze can be read afterward.
 ///
 /// On 2026-11-05 the Mac hung and was forced off, and nothing could say what
 /// had been in memory: a forced power-off writes no report, and the reports
 /// from earlier days were taken for other reasons. A line every five minutes
-/// is the answer to "was it us?": Lodestar's footprint, what MLX holds of it,
-/// the system's level, and the largest applications beside it.
+/// is the answer to "was it us?": Lodestar's footprint, the models service's
+/// and what MLX holds of it (the models run there, not in the app), the
+/// system's level, and the largest applications beside it.
 ///
 /// On a queue of its own, so a slow scan never touches the main thread.
 final class MemoryWatch {
@@ -21,14 +21,16 @@ final class MemoryWatch {
     private var signal: DispatchSourceMemoryPressure?
     private let level: () -> MemoryLevel
     private let read: () -> MemoryReading
-    private let mlx: () -> (activeMB: Int, cacheMB: Int)?
+    private let models: () -> ModelsStats?
 
+    /// `models` is what the models service holds, nil when it holds nothing
+    /// of the app's: a reading never starts one.
     init(level: @escaping () -> MemoryLevel = { .current },
          read: @escaping () -> MemoryReading = { MemoryReport.read() },
-         mlx: @escaping () -> (activeMB: Int, cacheMB: Int)? = MLXCap.reading) {
+         models: @escaping () -> ModelsStats? = { ModelsClient.shared.memoryReading() }) {
         self.level = level
         self.read = read
-        self.mlx = mlx
+        self.models = models
     }
 
     func start() {
@@ -56,12 +58,13 @@ final class MemoryWatch {
 
     private func write(why: String) {
         let reading = read()
-        let mlx = self.mlx()
+        let models = self.models()
         Log.info("memory", ["why": why,
                             "footprint-mb": reading.footprintMB,
                             "peak-mb": reading.peakMB,
-                            "mlx-active-mb": mlx.map { String($0.activeMB) } ?? "none",
-                            "mlx-cache-mb": mlx.map { String($0.cacheMB) } ?? "none",
+                            "models-footprint-mb": models.map { String($0.footprintMB) } ?? "none",
+                            "mlx-active-mb": models?.mlxActiveMB.map(String.init) ?? "none",
+                            "mlx-cache-mb": models?.mlxCacheMB.map(String.init) ?? "none",
                             "level": reading.level.name,
                             "free-pct": reading.freePercent,
                             "compressor-mb": reading.compressorMB,

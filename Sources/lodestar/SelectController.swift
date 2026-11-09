@@ -213,9 +213,14 @@ final class SelectController {
     /// alphabet that means every target the screen paints no word inside,
     /// whether the tree found it by action or by role — an icon button is
     /// an `AXButton` with nothing on it for the grammar to reach.
-    private var entryTargets: [HintTargets.Target] = []
-    private var entryLabeled: [HintTargets.Target] = []
-    private var entryLabels: [String] = []
+    private(set) var entryTargets: [HintTargets.Target] = []
+    private(set) var entryLabeled: [HintTargets.Target] = []
+    private(set) var entryLabels: [String] = []
+    /// The click door's harvest of the tree; a seam for the scenarios,
+    /// which deliver its two answers themselves.
+    var harvesting: (WindowModel.Window, Int, @escaping ([HintTargets.Target]) -> Void) -> Void = {
+        HintTargets.harvest(window: $0, capacity: $1, completion: $2)
+    }
     private var entryTyped = ""
     /// How many chips greeted the entry, and how long the hands waited
     /// before the first key — the two numbers the entry-chips verdict
@@ -315,13 +320,16 @@ final class SelectController {
         begin(door: door, sticky: sticky, frame: window.frame, appName: window.appName, pid: window.pid)
         if door == .click {
             let expected = generation
-            HintTargets.harvest(
-                window: window,
-                capacity: HintLabels.capacity(alphabet: letters)
-            ) { [weak self] found in
+            harvesting(window, HintLabels.capacity(alphabet: letters)) { [weak self] found in
                 guard let self, self.generation == expected, self.door == .click else { return }
                 self.entryTargets = found
                 self.entryHarvest = found
+                // The walk's second answer brings owners for a typed pick,
+                // never chips: once spent, the chips stand, whatever words
+                // have landed since. Relabeling here shifted every label
+                // after one that a new word made reachable, so a capital
+                // read off the glass fired a different target.
+                guard !self.entryChipsSettled else { return }
                 self.labelEntry()
             }
             // The words decide the chips, and a window may have none to
@@ -2082,8 +2090,10 @@ final class SelectController {
     /// Rebuild units and the core from a harvest pass, carrying the
     /// user's typed query across so a richer pass upgrades the world
     /// mid-thought instead of resetting it.
-    private func adopt(_ found: [(element: AXUIElement, frame: CGRect, text: String,
-                                  settable: Bool, bounded: Bool, lineTier: Bool)]) {
+    /// The tree's world adopted. Internal so a scenario can hand the
+    /// session words without a screen.
+    func adopt(_ found: [(element: AXUIElement, frame: CGRect, text: String,
+                          settable: Bool, bounded: Bool, lineTier: Bool)]) {
         func standalone(_ item: (element: AXUIElement, frame: CGRect, text: String,
                                  settable: Bool, bounded: Bool, lineTier: Bool),
                         editable: Bool, geometry: Unit.Geometry) -> Unit {

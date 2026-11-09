@@ -1981,6 +1981,10 @@ final class DraftController {
             clock.after(Self.landBackstopSeconds, backstop)
         } else {
             if sessionStarted { speech.stop {} }
+            // A ghost standing between sessions (a new input not yet
+            // listening) has no final coming: it lands as seen, as esc
+            // would keep it.
+            if !buffer.ghost.isEmpty { settle(Heard(buffer.ghost)) }
             finish()
         }
     }

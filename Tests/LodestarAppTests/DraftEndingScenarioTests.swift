@@ -46,4 +46,31 @@ final class DraftEndingScenarioTests: XCTestCase {
         XCTAssertTrue((stage.pasteboard.last ?? "").contains("the rest"),
                       "words said into a committed draft land in it: \(stage.pasteboard)")
     }
+
+    // MARK: - ⏎ keeps what esc keeps
+
+    /// A ghost stands while the session is not listening: the input was
+    /// changed and the new one has not said it listens yet.
+    private func ghostBetweenSessions() -> Stage {
+        let stage = standard()
+        stage.speech.settlesOnStop = false
+        stage.lode(".")
+        stage.speech.settle("sent so far")
+        stage.speech.hear("and these")
+        stage.speech.slowToListen = true
+        stage.draft.selectInput("Other Microphone")
+        XCTAssertEqual(stage.draft.buffer.ghost, "and these")
+        return stage
+    }
+
+    func testReturnLandsTheGhostEscWouldKeep() {
+        let kept = ghostBetweenSessions()
+        kept.press("escape")
+        let landed = ghostBetweenSessions()
+        landed.press("return")
+        XCTAssertFalse(landed.draft.isOpen)
+        XCTAssertEqual(kept.pasteboard, ["sent so far and these"])
+        XCTAssertEqual(landed.pasteboard, kept.pasteboard, "⏎ lands the words esc would keep")
+        XCTAssertEqual(landed.speech.openSessions, 0)
+    }
 }

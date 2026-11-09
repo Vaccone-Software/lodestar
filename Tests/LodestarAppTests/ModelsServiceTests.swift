@@ -375,14 +375,18 @@ final class ModelsServiceTests: XCTestCase {
         let gauge = Gauge()
         gauges.append(gauge)
         let engine = FakeEngine(gauge: gauge)
-        let gone = Host { _ in ModelsService(engine: engine, gate: MLXGate(), endsWhenEmptyAfter: nil) }
-        gone.listener.invalidate()
         let working = Host { _ in ModelsService(engine: engine, gate: MLXGate(), endsWhenEmptyAfter: nil) }
-        hosts += [gone, working]
+        hosts += [working]
         let made = Counter()
+        // The first connection is invalidated before it is used, which XPC
+        // answers with NSXPCConnectionInvalid for certain; how soon XPC
+        // gives up on a listener that is gone is not something to time
+        // (it failed on a slow runner).
         let client = ModelsClient {
             made.add()
-            return NSXPCConnection(listenerEndpoint: (made.value == 1 ? gone : working).listener.endpoint)
+            let connection = NSXPCConnection(listenerEndpoint: working.listener.endpoint)
+            if made.value == 1 { connection.invalidate() }
+            return connection
         }
         let model = try await client.loadLanguageModel(LanguageModelSpec(directory: "/m", label: "standard"))
         XCTAssertEqual(made.value, 2, "the invalidated connection was let go and a new one made")
@@ -429,11 +433,13 @@ final class ModelsServiceTests: XCTestCase {
     func testAWedgedGenerationEndsTheServiceWhileItIsStillStuck() async throws {
         let exits = Exits()
         let (client, host, gauge, _) = served(moods: [.stubborn, .prompt], freshPerConnection: true, exits: exits)
-        let model = editor(client, answerDeadline: 0.2, stuckAfter: 0.3)
+        // Deadlines with room for a loaded machine: the healthy answer after
+        // recovery must never pass its deadline, or it counts a load more.
+        let model = editor(client, answerDeadline: 1.0, stuckAfter: 1.5)
         let first = await model.correct("Their going.")
         XCTAssertNil(first)
         XCTAssertEqual(gauge.parkedCount, 1, "the generation is still running in the service")
-        try await Task.sleep(for: .milliseconds(400))
+        try await Task.sleep(for: .milliseconds(2000))
         _ = await model.correct("Their going.")  // finds it stuck, ends the service, loads again
         await eventually("the service was asked to exit") { exits.all == ["editor.model wedged"] }
         XCTAssertEqual(exits.parkedAtExit, [1], "heard while the generation was stuck")

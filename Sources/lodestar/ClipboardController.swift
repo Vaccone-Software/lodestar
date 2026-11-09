@@ -175,11 +175,14 @@ final class ClipboardController {
         // One read at a time. The count is left unseen, so the next tick
         // asks again once the read under way has answered.
         guard !reader.busy else { return }
+        // The history is paused (its key cannot be asked for): nothing is
+        // read from the board, let alone kept, and the change is left
+        // unspent, so a copy made while it was paused (one from the phone
+        // while the screen was locked) is kept by the first tick after the
+        // history opens again, not lost to the tick that saw it first.
+        guard !store.isPaused else { return }
         lastChangeCount = count
         guard count != selfWrittenChangeCount else { return }
-        // The history is paused (its key cannot be asked for): nothing is
-        // read from the board, let alone kept.
-        guard !store.isPaused else { return }
         // The read is the reader's, not this thread's (PasteboardReader):
         // a type an app provides lazily — a promise, a Finder file, a copy
         // from another device — makes it wait on that app or the network,
@@ -251,7 +254,8 @@ final class ClipboardController {
         // so one concealed item conceals the whole copy.
         if let refusal = snapshot.refusal {
             Log.info("clipboard", ["refused": refusal, "types": Self.typeList(boardItems),
-                                   "source": source?.bundleIdentifier ?? "none"])
+                                   "source": source?.bundleIdentifier ?? "none",
+                                   "declared": snapshot.declaredSource ?? "none"])
             return
         }
         let types = boardItems.flatMap(\.types)

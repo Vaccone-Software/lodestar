@@ -126,6 +126,23 @@ final class PasteboardReaderTests: XCTestCase {
         XCTAssertNil(excluded.items.first?.plain)
     }
 
+    /// A copy an app marked transient says which app it was, in the
+    /// writer's own words, though not a byte of it is read.
+    func testARefusedCopySaysWhoWroteIt() throws {
+        let board = SystemEvents.pasteboard
+        board.clearContents()
+        let item = NSPasteboardItem()
+        item.setString("put back in a moment", forType: .string)
+        item.setString("com.example.writer", forType: NSPasteboard.PasteboardType(PasteboardSnapshot.declaredSourceType))
+        item.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
+        board.writeObjects([item])
+        let (reader, _) = reader()
+        let snapshot = try XCTUnwrap(try XCTUnwrap(read(reader)))
+        XCTAssertNotNil(snapshot.refusal)
+        XCTAssertEqual(snapshot.declaredSource, "com.example.writer")
+        XCTAssertTrue(snapshot.items.allSatisfy { $0.plain == nil && $0.natives.isEmpty }, "nothing of it read")
+    }
+
     // MARK: - The capture around it
 
     /// With the service in place a copy is noticed on main and filed when

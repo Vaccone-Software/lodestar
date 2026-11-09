@@ -1984,8 +1984,10 @@ final class DraftController {
             if sessionStarted { speech.stop {} }
             // A ghost standing between sessions (a new input not yet
             // listening) has no final coming: it lands as seen, as esc
-            // would keep it.
-            if !buffer.ghost.isEmpty { settle(Heard(buffer.ghost)) }
+            // would keep it. Only then: a session still listening (muted,
+            // or in normal mode) may yet deliver the final for those words,
+            // and settling them here as well would land them twice.
+            if !listening, !buffer.ghost.isEmpty { settle(Heard(buffer.ghost)) }
             finish()
         }
     }

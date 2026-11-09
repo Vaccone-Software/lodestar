@@ -342,6 +342,15 @@ final class ModelsServiceTests: XCTestCase {
         let meant = await model.rewrite("um, hi", prompt: IntentPass.Prompt(instructions: "x", examples: []))
         XCTAssertEqual(meant, "hi [0]")
         XCTAssertEqual(gauge.count("load"), 2)
+
+        // Ended again, and the next dictation starts before any pass asks:
+        // its load is the one that finds the model lost.
+        host.endService()
+        await eventually("the client heard again") { client.epoch == 2 }
+        await model.load()
+        XCTAssertEqual(gauge.count("load"), 3, "dictation starting loads it again")
+        let again = await model.rewrite("um, hi", prompt: IntentPass.Prompt(instructions: "x", examples: []))
+        XCTAssertEqual(again, "hi [0]")
     }
 
     /// The ear, lost with its service, loads itself again at the next

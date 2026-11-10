@@ -643,11 +643,38 @@ public final class ObservationStore {
         guard enabled else { return }
         rollupQueue.async { [rollupFile, fileSystem, ring = vault.ring(.logbook), log, healthLog, rollupWillRun] in
             rollupWillRun?()
-            let outcome = Rollup.roll(events: Self.allEvents(log, healthLog), file: rollupFile, ring: ring,
-                                      fileSystem: fileSystem, now: now)
+            let outcome = Self.roll(log: log, healthLog: healthLog, file: rollupFile, ring: ring,
+                                    fileSystem: fileSystem, now: now)
             if !outcome.added.isEmpty {
                 Log.info("rollup", ["archived": outcome.added.joined(separator: " ")])
             }
+        }
+    }
+
+    /// The roll, on the rollup queue and waited for: what `rollupSoon` queues,
+    /// for a caller that needs the archive written when it returns.
+    @discardableResult
+    public func roll(now: Date = Date()) -> Rollup.Outcome {
+        rollupQueue.sync {
+            Self.roll(log: log, healthLog: healthLog, file: rollupFile, ring: vault.ring(.logbook),
+                      fileSystem: fileSystem, now: now)
+        }
+    }
+
+    /// Both logs read a month at a time, so a roll holds a month's lines and
+    /// not the ring's events: the old whole read held every event of both
+    /// logs, and a sorted copy of them, at once. A shard that holds a line of
+    /// another month cannot be read in that order, and then the ring is read
+    /// whole, as it was.
+    private static func roll(log: EventLog, healthLog: EventLog, file: URL, ring: Vault.Ring,
+                             fileSystem: any FileSystem, now: Date) -> Rollup.Outcome {
+        do {
+            return try Rollup.roll(stream: MonthStream([log, healthLog]), file: file, ring: ring,
+                                   fileSystem: fileSystem, now: now)
+        } catch {
+            Log.warning("rollup: a shard holds a line of another month — reading the whole ring this time")
+            return Rollup.roll(events: allEvents(log, healthLog), file: file, ring: ring,
+                               fileSystem: fileSystem, now: now)
         }
     }
 

@@ -148,15 +148,24 @@ enum SyntheticLogbook {
             }
             out.append(focus("Boundary A\(offset % 2)", -2))
             out.append(focus("Boundary B\(offset % 2)", -1))
-            out.append(pulse(-905, bout: 3))
-            out.append(pulse(-5, bout: 4))
+            // The month's last two pulses, then a gap longer than a stretch
+            // allows before the next month's first: that first pulse closes a
+            // stretch that lives in the month before it.
+            out.append(pulse(-3000, bout: 3))
+            out.append(pulse(-2100, bout: 4))
             // Two focuses at one instant, two apps: the order they were
             // appended in is the order the fold sees.
             out.append(focus("Tie First", 0))
             out.append(focus("Tie Second", 0))
-            out.append(pulse(60, bout: 5))
+            // The first pulse of the new month starts a bout, which ends the
+            // one the old month left open.
+            out.append(pulse(60, bout: 0))
             out.append(pulse(2_400, bout: 0))
             out.append(focus("Boundary A\(offset % 2)", 3))
+            // Two pulses at one instant, the later bout first: a bout that
+            // closes at one and not the other depends on which is folded first.
+            out.append(pulse(900, bout: 7))
+            out.append(pulse(900, bout: 0))
         }
         return out
     }

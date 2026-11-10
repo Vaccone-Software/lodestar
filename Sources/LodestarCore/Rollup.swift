@@ -497,14 +497,32 @@ public struct Rollup: Codable, Equatable {
     /// state still advances through it, so a structure straddling the
     /// boundary is not misread, but nothing is written into it.
     public static func build(events: [ObservationEvent], now: Date) -> [String: Month] {
-        let open = monthKey(now)
-        var months: [String: Month] = [:]
-        var daySets: [String: Set<Int>] = [:]
-        var fold = Fold()
+        var builder = Builder(open: monthKey(now))
         for event in events.sorted(by: { $0.t < $1.t }) {
+            builder.add(event)
+        }
+        return builder.finish()
+    }
+
+    /// `build`, an event at a time: events arrive oldest first, and what a
+    /// roll that reads a month at a time holds is the fold and the months it
+    /// is still building, never the events. A month already archived still
+    /// has its events folded (`keep: false`), because the structure it ends
+    /// in (the app focused last, the stretch and the bout open) is what the
+    /// next month's first events continue; it is only not aggregated, and
+    /// `forget` lets what the fold wrote into it go.
+    struct Builder {
+        let open: String
+        private var months: [String: Month] = [:]
+        private var daySets: [String: Set<Int>] = [:]
+        private var fold = Fold()
+
+        init(open: String) { self.open = open }
+
+        mutating func add(_ event: ObservationEvent, keep: Bool = true) {
             let key = monthKey(event.t)
             structure(event, into: &months, fold: &fold, open: open)
-            guard key != open else { continue }
+            guard keep, key != open else { return }
             var month = months[key] ?? Month(firstEvent: event.t, lastEvent: event.t)
             month.events += 1
             month.firstEvent = min(month.firstEvent, event.t)
@@ -513,13 +531,26 @@ public struct Rollup: Codable, Equatable {
             apply(event, to: &month)
             months[key] = month
         }
-        // A stretch still open at the fold's end: record it if it lives in
-        // a closed month — in the open month it is still being written.
-        if let month = fold.stretchMonth, month != open, fold.stretchMinutes > 0 {
-            months[month]?.health.stretchMinutes.add(Double(fold.stretchMinutes))
+
+        /// A month that is not to be built (it is archived): what the fold
+        /// wrote into it goes, and a later contribution to it, a stretch or a
+        /// bout that closes after the month has turned, lands nowhere, as it
+        /// lands in a month `adopt` leaves as it is.
+        mutating func forget(_ key: String) {
+            months[key] = nil
+            daySets[key] = nil
         }
-        for (key, set) in daySets { months[key]?.days = set.count }
-        return months
+
+        /// The completed months, once every event has been added.
+        mutating func finish() -> [String: Month] {
+            // A stretch still open at the fold's end: record it if it lives in
+            // a closed month — in the open month it is still being written.
+            if let month = fold.stretchMonth, month != open, fold.stretchMinutes > 0 {
+                months[month]?.health.stretchMinutes.add(Double(fold.stretchMinutes))
+            }
+            for (key, set) in daySets { months[key]?.days = set.count }
+            return months
+        }
     }
 
     /// The cross-event half of the fold: transitions, dwell, checking
@@ -944,10 +975,49 @@ public struct Rollup: Codable, Equatable {
                             now: Date = Date()) -> Outcome {
         var outcome = Outcome()
         let stored = SealedValueFile(url: file, ring: ring, fileSystem: fileSystem)
-        var archive = Rollup()
+        guard var archive = openArchive(stored, file: file, outcome: &outcome) else { return outcome }
+        outcome.added = archive.adopt(build(events: events, now: now))
+        return write(archive, to: stored, file: file, outcome: outcome)
+    }
+
+    /// `roll`, reading the logs a month at a time (`MonthStream`) where the
+    /// events were all in hand: the same archive, byte for byte, with what is
+    /// held at once one month's lines and the months being built. Months the
+    /// file already holds, and the open month, are folded and not built. Throws
+    /// when the stream cannot give the order `build` folds in (a shard with a
+    /// line of another month in it), before anything is written, and the
+    /// caller reads the whole ring instead.
+    @discardableResult
+    static func roll(stream: MonthStream, file: URL, ring: Vault.Ring,
+                     fileSystem: any FileSystem = OwnerOnly.fileSystem,
+                     now: Date = Date()) throws -> Outcome {
+        var outcome = Outcome()
+        let stored = SealedValueFile(url: file, ring: ring, fileSystem: fileSystem)
+        guard var archive = openArchive(stored, file: file, outcome: &outcome) else { return outcome }
+        let open = monthKey(now)
+        var builder = Builder(open: open)
+        for month in stream.months() {
+            // Only focus and pulse feed the fold, so a month that is not built
+            // is read for those alone.
+            let built = archive.months[month] == nil && month != open
+            try stream.visit(month, kinds: built ? nil : foldKinds) { event in
+                builder.add(event, keep: built)
+            }
+            if !built { builder.forget(month) }
+        }
+        outcome.added = archive.adopt(builder.finish())
+        return write(archive, to: stored, file: file, outcome: outcome)
+    }
+
+    /// The kinds `structure` reads: everything else only `apply` reads.
+    static let foldKinds: Set<ObservationEvent.Kind> = [.focus, .pulse]
+
+    /// The archive on disk, or nil when this pass must leave it alone, with
+    /// `outcome` saying why (held).
+    private static func openArchive(_ stored: SealedValueFile, file: URL, outcome: inout Outcome) -> Rollup? {
         switch stored.read() {
         case .absent:
-            break
+            return Rollup()
         case .value(let data, _):
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -956,18 +1026,21 @@ public struct Rollup: Codable, Equatable {
                   let decoded = try? decoder.decode(Rollup.self, from: Data(data)) else {
                 Log.error("rollup: \(file.lastPathComponent) is not this schema — left untouched")
                 outcome.held = true
-                return outcome
+                return nil
             }
-            archive = decoded
+            return decoded
         case .unavailable:
             outcome.held = true
-            return outcome
+            return nil
         case .unreadable(let why):
             Log.error("rollup: \(file.lastPathComponent) did not open (\(why)) — left untouched")
             outcome.held = true
-            return outcome
+            return nil
         }
-        outcome.added = archive.adopt(build(events: events, now: now))
+    }
+
+    private static func write(_ archive: Rollup, to stored: SealedValueFile, file: URL, outcome: Outcome) -> Outcome {
+        var outcome = outcome
         guard !outcome.added.isEmpty else { return outcome }
         guard let data = encoded(archive) else { return outcome }
         if stored.write([UInt8](data)) == .written {

@@ -435,7 +435,7 @@ public final class EventLog: @unchecked Sendable {
         return encoder
     }
 
-    private static func makeDecoder() -> JSONDecoder {
+    static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
         return decoder
@@ -1002,6 +1002,16 @@ public final class EventLog: @unchecked Sendable {
         return String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
     }
 
+    /// The first instant a "YYYY-MM" key contains.
+    static func monthStart(of key: String) -> Date {
+        let parts = key.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 2 else { return .distantPast }
+        var components = DateComponents()
+        components.year = parts[0]
+        components.month = parts[1]
+        return shardCalendar.date(from: components) ?? .distantPast
+    }
+
     /// The last instant a "YYYY-MM" key can contain, for retention.
     static func monthEnd(of key: String) -> Date {
         let parts = key.split(separator: "-").compactMap { Int($0) }
@@ -1104,6 +1114,115 @@ extension EventLog {
             guard let line = try? decoder.decode(FocusLine.self, from: bytes[range]),
                   line.kind == .focus, line.t >= cutoff else { return }
             focuses.append(FocusStamp(t: line.t, app: line.app))
+        }
+    }
+}
+
+extension EventLog {
+    /// One log's events of one UTC month, held as the bytes they were read
+    /// in and where each line sits (an index), so a month's events can be put
+    /// in order and decoded one at a time: what is held is the month's bytes
+    /// and a few dozen bytes a line, never the month's events.
+    struct MonthLines {
+        struct Entry {
+            var t: Date
+            /// 0 a shard, 1 the live file, 2 what is still pending: the order
+            /// `readAll` concatenates them in.
+            var segment: UInt8
+            /// Which of `buffers` the line is in, or -1 for the pending event at `lo`.
+            var buffer: Int
+            var lo: Int
+            var hi: Int
+        }
+
+        var buffers: [Data] = []
+        var entries: [Entry] = []
+        var pending: [ObservationEvent] = []
+
+        /// The event an entry stands for; nil when its line does not decode
+        /// whole, as `readAll` never returned it.
+        func event(_ entry: Entry, decoder: JSONDecoder) -> ObservationEvent? {
+            if entry.buffer < 0 { return pending[entry.lo] }
+            return try? decoder.decode(ObservationEvent.self, from: buffers[entry.buffer][entry.lo..<entry.hi])
+        }
+    }
+
+    /// The months a log holds events in, and which of them the live file has
+    /// lines of: the live file is the open month's, and until a compaction
+    /// has rotated it, a closed month's as well.
+    struct MonthManifest {
+        var months: [String] = []
+        var live: Set<String> = []
+    }
+
+    /// A shard holding a line of another month than its name says: the log
+    /// cannot be read a month at a time in the order `readAll` gives.
+    struct MisplacedLine: Error {}
+
+    /// Only a line's stamp and kind, to place it before it is decoded whole.
+    private struct Placement: Decodable {
+        let t: Date
+        let kind: ObservationEvent.Kind
+    }
+
+    /// The months with events in this log, oldest first.
+    func monthManifest() -> MonthManifest {
+        io.sync {
+            var manifest = MonthManifest()
+            var months = Set(shardMonthsLocked())
+            let decoder = Self.makeDecoder()
+            let bytes = LineStore.read(plaintext: file, ring: ring, fileSystem: fileSystem).bytes
+            var known: (month: String, from: Date, to: Date)?
+            LineStore.forEachLine(bytes) { range in
+                guard let stamp = try? decoder.decode(Placement.self, from: bytes[range]) else { return }
+                if let known, stamp.t >= known.from, stamp.t < known.to { return }
+                let month = Self.monthKey(stamp.t)
+                known = (month, Self.monthStart(of: month), Self.monthEnd(of: month))
+                manifest.live.insert(month)
+            }
+            months.formUnion(manifest.live)
+            for event in pending { months.insert(Self.monthKey(event.t)) }
+            manifest.months = months.sorted()
+            return manifest
+        }
+    }
+
+    /// The lines of `month`: its shard (read for every month, since a
+    /// compaction since the manifest may have made one), the live file's
+    /// lines of that month when it had any, and the pending events of it.
+    /// Only the kinds in `kinds` are indexed, when it is given. Throws
+    /// `MisplacedLine` when the shard holds a line of another month.
+    func monthLines(_ month: String, manifest: MonthManifest,
+                    kinds: Set<ObservationEvent.Kind>?) throws -> MonthLines {
+        let from = Self.monthStart(of: month)
+        let to = Self.monthEnd(of: month)
+        return try io.sync {
+            var lines = MonthLines()
+            let decoder = Self.makeDecoder()
+            func take(_ url: URL, segment: UInt8, strict: Bool) throws {
+                let bytes = LineStore.read(plaintext: url, ring: ring, fileSystem: fileSystem).bytes
+                let buffer = lines.buffers.count
+                var kept = false
+                var misplaced = false
+                LineStore.forEachLine(bytes) { range in
+                    guard let stamp = try? decoder.decode(Placement.self, from: bytes[range]) else { return }
+                    guard stamp.t >= from, stamp.t < to else { misplaced = true; return }
+                    if let kinds, !kinds.contains(stamp.kind) { return }
+                    lines.entries.append(MonthLines.Entry(t: stamp.t, segment: segment, buffer: buffer,
+                                                          lo: range.lowerBound, hi: range.upperBound))
+                    kept = true
+                }
+                if kept { lines.buffers.append(bytes) }
+                if strict && misplaced { throw MisplacedLine() }
+            }
+            try take(shardFile(for: month), segment: 0, strict: true)
+            if manifest.live.contains(month) { try take(file, segment: 1, strict: false) }
+            for event in pending where event.t >= from && event.t < to && kinds?.contains(event.kind) != false {
+                lines.pending.append(event)
+                lines.entries.append(MonthLines.Entry(t: event.t, segment: 2, buffer: -1,
+                                                      lo: lines.pending.count - 1, hi: lines.pending.count))
+            }
+            return lines
         }
     }
 }

@@ -695,11 +695,13 @@ enum EditorModels {
 
     /// Gigabytes of weights are not worth a backup: they download again.
     static func excludeFromBackup(_ url: URL) {
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        Log.attempt("editor: could not make the models folder") {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         var target = url
-        try? target.setResourceValues(values)
+        Log.attempt("editor: could not exclude the models folder from backup") { try target.setResourceValues(values) }
     }
 
     /// One model on disk at a time: when a model is whole, or the hand
@@ -717,7 +719,9 @@ enum EditorModels {
             let partial = root.appendingPathComponent(".\(manifest.folder).partial", isDirectory: true)
             for url in [folder, partial] where FileManager.default.fileExists(atPath: url.path) {
                 let gb = Double(size(of: url)) / 1e9
-                try? FileManager.default.removeItem(at: url)
+                Log.attemptUnlessAbsent("editor: could not remove a model's files", ["name": url.lastPathComponent]) {
+                    try FileManager.default.removeItem(at: url)
+                }
                 if url == folder { removed.append((engine, gb)) }
                 Log.info("editor", ["removed": url.lastPathComponent])
             }

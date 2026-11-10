@@ -132,8 +132,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func beginLaunchGuard() {
         // The data directory is made properly at migration, further down;
         // on the very first launch it may not exist yet.
-        try? FileManager.default.createDirectory(
-            at: Paths.data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        Log.attempt("launch: could not make the data folder") {
+            try FileManager.default.createDirectory(
+                at: Paths.data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
         let guardian = RunMarker.launchGuard(in: Paths.data, build: Lodestar.version)
         launchGuard = guardian
         launchMode = LaunchEntry.begin(guardian, watchdog: watchdog)
@@ -166,8 +168,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // surfaces exist to say that too.
         crashedLastRun = Self.uncleanExitMarkerStands()
         if crashedLastRun { Log.error("the previous run ended uncleanly — recovering") }
-        try? RunMarker.alive(pid: ProcessInfo.processInfo.processIdentifier).write(
-            to: Self.runMarker, atomically: true, encoding: .utf8)
+        Log.attempt("launch: could not write the run marker") {
+            try RunMarker.alive(pid: ProcessInfo.processInfo.processIdentifier).write(
+                to: Self.runMarker, atomically: true, encoding: .utf8)
+        }
         // AppKit exceptions abort the process; the log at least says why.
         NSSetUncaughtExceptionHandler { exception in
             Log.error("uncaught-exception", [
@@ -933,8 +937,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // at the next boot and run the recovery for nothing.
         if let text = try? String(contentsOf: Self.runMarker, encoding: .utf8),
            RunMarker.pid(in: text) == ProcessInfo.processInfo.processIdentifier {
-            try? RunMarker.quitting(pid: ProcessInfo.processInfo.processIdentifier).write(
-                to: Self.runMarker, atomically: true, encoding: .utf8)
+            Log.attempt("quit: could not mark the run as quitting") {
+                try RunMarker.quitting(pid: ProcessInfo.processInfo.processIdentifier).write(
+                    to: Self.runMarker, atomically: true, encoding: .utf8)
+            }
         }
         // A draft still open keeps its text on the pasteboard, as every
         // other exit does.
@@ -980,11 +986,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let text = try? String(contentsOf: Self.pidFile, encoding: .utf8),
            Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
                == ProcessInfo.processInfo.processIdentifier {
-            try? FileManager.default.removeItem(at: Self.pidFile)
+            Log.attemptUnlessAbsent("quit: could not remove the pid file") {
+                try FileManager.default.removeItem(at: Self.pidFile)
+            }
         }
         if let text = try? String(contentsOf: Self.runMarker, encoding: .utf8),
            RunMarker.pid(in: text) == ProcessInfo.processInfo.processIdentifier {
-            try? FileManager.default.removeItem(at: Self.runMarker)
+            Log.attemptUnlessAbsent("quit: could not remove the run marker") {
+                try FileManager.default.removeItem(at: Self.runMarker)
+            }
         }
     }
 
@@ -1007,7 +1017,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func armCoachDemoIfRequested() {
         let flag = Paths.data.appendingPathComponent("coach.demo-request")
         guard FileManager.default.fileExists(atPath: flag.path) else { return }
-        try? FileManager.default.removeItem(at: flag)
+        Log.attemptUnlessAbsent("coach: could not remove the demo request") { try FileManager.default.removeItem(at: flag) }
         let taken = Set(config.graph.leaves().compactMap { $0.chain.first })
         let free = "abcdefghijklmnopqrstuvwxyz".map(String.init).filter { !taken.contains($0) }
         for name in ["Calculator", "Preview", "Notes", "Music", "FaceTime"] {

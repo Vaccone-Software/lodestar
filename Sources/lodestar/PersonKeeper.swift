@@ -132,7 +132,11 @@ final class PersonKeeper {
         queue.async { [weak self] in
             guard counter.value == mine else { return }
             let written = file.write(next)
-            if counter.value != mine { try? FileManager.default.removeItem(at: file.stored.url) }
+            if counter.value != mine {
+                Log.attemptUnlessAbsent("health: could not remove a person.json that was superseded while it was written") {
+                    try FileManager.default.removeItem(at: file.stored.url)
+                }
+            }
             DispatchQueue.main.async {
                 guard let self, counter.value == mine else { return }
                 guard written != .written else { return done(true) }

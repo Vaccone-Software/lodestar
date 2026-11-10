@@ -598,7 +598,9 @@ final class ClipboardStore {
             guard let imageData else { return }
             if known, files.hasThumb(storage: ref.storage) { return }
             guard let thumbnail = Self.thumbnail(from: imageData) else { return }
-            try? files.writeThumb(storage: ref.storage, key: key, png: thumbnail)
+            Log.attempt("clipboard: could not write a thumbnail") {
+                try files.writeThumb(storage: ref.storage, key: key, png: thumbnail)
+            }
             // Decoded here, so the first draw has nothing left to decode.
             let image = Self.decodedImage(from: thumbnail)
             DispatchQueue.main.async {
@@ -1480,7 +1482,9 @@ final class ClipboardStore {
     /// True once, if a CLI clear happened while this process was running.
     func consumeClearRequest() -> Bool {
         guard FileManager.default.fileExists(atPath: clearRequestFile.path) else { return false }
-        try? FileManager.default.removeItem(at: clearRequestFile)
+        Log.attemptUnlessAbsent("clipboard: could not remove the clear request") {
+            try FileManager.default.removeItem(at: clearRequestFile)
+        }
         return true
     }
 
@@ -1490,9 +1494,13 @@ final class ClipboardStore {
 
     /// The flag a running instance looks for, written by a process that cleared the files.
     static func requestClearOnDisk(root: URL = Paths.clipboard) {
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
-                                                 attributes: [.posixPermissions: 0o700])
-        try? Data().write(to: root.appendingPathComponent("clear-requested"))
+        Log.attempt("clipboard: could not make the folder for the clear request") {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+        }
+        Log.attempt("clipboard: could not write the clear request") {
+            try Data().write(to: root.appendingPathComponent("clear-requested"))
+        }
     }
 
     /// The history cleared for good: **the ring destroyed** (what survives on

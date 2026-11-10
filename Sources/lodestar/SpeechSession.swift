@@ -208,6 +208,7 @@ enum SpeechStart {
                 // The headset's engine goes down and comes back: the bridge,
                 // if one is open, covers the gap.
                 bridgeAgain()
+                // stoic:allow(discarded-try): Ambient.sleep throws only CancellationError, which is no failure to record; a cancelled settle ends the wait early, and the guard on the next line asks stopped() before anything is started.
                 try? await Ambient.sleep(for: .seconds(SpeechStart.settleSeconds))
                 guard !stopped() else { stopOwnBridge(); return .ended }
             }
@@ -1321,7 +1322,7 @@ final class AudioInput: @unchecked Sendable {
     func resume() {
         queue.async {
             guard self.tapInstalled, let engine = self.engine else { return }
-            try? engine.start()
+            Log.attempt("draft", ["speech": "engine did not restart after a pause"]) { try engine.start() }
             self.keeper.ran(running: engine.isRunning, at: Date())
             // Coming back from a pause is a start like any other, and an
             // engine can be deaf on either side of one.
@@ -1450,7 +1451,9 @@ private actor AnalyzerBox {
         guard await AssetInventory.status(forModules: [transcriber]) == .installed else { return }
         let analyzer = SpeechAnalyzer(modules: [transcriber], options: options)
         let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
-        try? await analyzer.prepareToAnalyze(in: format)
+        await Log.attempt("draft", ["speech": "warm-up could not prepare the analyzer"]) {
+            try await analyzer.prepareToAnalyze(in: format)
+        }
         await analyzer.cancelAndFinishNow()
         Log.info("draft", ["speech": "warm"])
     }
@@ -1492,7 +1495,8 @@ private actor AnalyzerBox {
                     let progress = request.progress
                     let ticker = Task {
                         while !Task.isCancelled {
-                            try? await Ambient.sleep(for: .milliseconds(500))
+                            // The sleep throws only CancellationError: the ticker's owner stopped it.
+                            do { try await Ambient.sleep(for: .milliseconds(500)) } catch { break }
                             say(.preparing(progress: progress.fractionCompleted))
                         }
                     }
@@ -1754,7 +1758,10 @@ private actor AnalyzerBox {
             let audioClock = Double(streamed) / audio.processingFormat.sampleRate
             let elapsed = wall.duration(to: clock.now)
             let ahead = audioClock - (Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
-            if ahead > 0 { try? await Ambient.sleep(for: .milliseconds(Int(ahead * 1000))) }
+            if ahead > 0 {
+                // The sleep throws only CancellationError: a cancelled feed stops where it is.
+                do { try await Ambient.sleep(for: .milliseconds(Int(ahead * 1000))) } catch { break }
+            }
         }
         Log.info("draft", ["speech": "file fed"])
     }
@@ -1804,8 +1811,10 @@ private actor AnalyzerBox {
         // for the loop to end, and `completion` runs behind every final.
         // Bounded, and abandoned past the bound like the finish above.
         if let results {
-            _ = try? await abandoningAsyncAfter(.milliseconds(500), label: "speech.drain", limit: 4) {
-                await results.value
+            await Log.attempt("draft", ["speech": "the results loop did not end within the bound, and is left to end"]) {
+                try await abandoningAsyncAfter(.milliseconds(500), label: "speech.drain", limit: 4) {
+                    await results.value
+                }
             }
         }
         results?.cancel()

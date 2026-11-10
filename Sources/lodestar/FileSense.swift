@@ -307,7 +307,7 @@ enum FileSense {
     /// refused without being begun, and when the read never got its turn.
     static func withDeadline<T: Sendable>(_ seconds: TimeInterval, label: String, limit: Int = slots,
                                           _ work: @escaping @Sendable () -> T?) -> T? {
-        blocking { clock in
+        blocking(seconds) { clock in
             do throws(PolicyError<Never>) {
                 return try await abandoningAfter(.seconds(seconds), label: label, limit: limit, clock: clock,
                                                  qos: .utility, operation: work)
@@ -322,7 +322,7 @@ enum FileSense {
     /// holds its place under the label until it returns, cancelled or not.
     static func withAsyncDeadline<T: Sendable>(_ seconds: TimeInterval, label: String, limit: Int = slots,
                                                _ work: @escaping @concurrent @Sendable () async -> T?) -> T? {
-        blocking { clock in
+        blocking(seconds) { clock in
             do throws(PolicyError<Never>) {
                 return try await abandoningAsyncAfter(.seconds(seconds), label: label, limit: limit, clock: clock,
                                                       operation: work)
@@ -337,12 +337,32 @@ enum FileSense {
     /// caller is not held past it; an ordinary Task, so the ambient context
     /// of the caller (where Stoic's events go) comes with it. It needs a
     /// thread of the cooperative pool for the moment it takes to start the
-    /// read, as `UpdateController.run`'s bridge does.
-    private static func blocking<T: Sendable>(_ ask: @escaping @Sendable (AnyClock?) async -> T?) -> T? {
+    /// read, as `UpdateController.run`'s bridge does, and a pool with none to
+    /// give must not hold the caller for ever (one caller is the main
+    /// thread): on the real clock the caller waits `backstop` past the
+    /// read's deadline and no longer, and has nothing. On a test's clock the
+    /// deadline is the test's to move, and there is no other.
+    private static func blocking<T: Sendable>(_ seconds: TimeInterval,
+                                              _ ask: @escaping @Sendable (AnyClock?) async -> T?) -> T? {
         let handoff = Handoff<T>()
         let clock = Self.clock
-        Task { handoff.finish(await ask(clock)) }
-        return handoff.wait()
+        start { handoff.finish(await ask(clock)) }
+        guard clock == nil else { return handoff.wait() }
+        guard let answer = handoff.wait(for: seconds + backstop) else {
+            Log.error("file read: the read was not begun or answered \(backstop) s past its deadline, so its caller went on without it")
+            return nil
+        }
+        return answer
+    }
+
+    /// How long past a read's deadline its caller waits for the task that
+    /// asked for it, when that task has not answered. A seam for the tests.
+    nonisolated(unsafe) static var backstop: TimeInterval = 1
+
+    /// How the task that asks for a read is started. A seam for the tests,
+    /// which stand in for a pool that never starts it.
+    nonisolated(unsafe) static var start: (@escaping @Sendable () async -> Void) -> Void = { work in
+        Task { await work() }
     }
 
     /// An answer handed from the task to the thread waiting for it.
@@ -352,5 +372,11 @@ enum FileSense {
         private var stored: T?
         func finish(_ value: T?) { lock.withLock { stored = value }; done.signal() }
         func wait() -> T? { done.wait(); return lock.withLock { stored } }
+        /// The answer if it came within `seconds`; a wait that ran out is
+        /// told from an answer of nothing by the outer nil.
+        func wait(for seconds: TimeInterval) -> T?? {
+            guard done.wait(timeout: .now() + seconds) == .success else { return nil }
+            return .some(lock.withLock { stored })
+        }
     }
 }

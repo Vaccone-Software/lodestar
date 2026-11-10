@@ -238,4 +238,19 @@ final class FileSenseDeadlineTests: XCTestCase {
         func keep(_ answer: @escaping @Sendable (Int?) -> Void) { lock.withLock { self.answer = answer } }
         func call(_ value: Int?) { lock.withLock { answer }?(value) }
     }
+
+    /// The callers are not async, and one is the main thread (the paste's
+    /// check of where a file is now): the read is asked of a task and waited
+    /// for. A task that is never given a thread of the pool must not hold its
+    /// caller for ever, so on the real clock the caller's wait has an end of
+    /// its own, a little past the read's deadline.
+    func testACallerIsNotHeldPastItsDeadlineWhenThePoolNeverStartsTheRead() {
+        setOverride(\FileSense.Type.clock, to: nil)
+        setOverride(\FileSense.Type.backstop, to: 0.1)
+        setOverride(\FileSense.Type.start, to: { _ in })
+        let began = Date()
+        let answer: Int? = FileSense.withDeadline(0.05, label: "test.never-started") { 7 }
+        XCTAssertNil(answer, "a read that never began has no answer")
+        XCTAssertLessThan(Date().timeIntervalSince(began), 5, "and its caller is let go")
+    }
 }

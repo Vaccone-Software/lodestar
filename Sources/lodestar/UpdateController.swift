@@ -121,18 +121,20 @@ final class UpdateController {
     private var firstCheck: Timer?
     private var dailyCheck: Timer?
     private var applyPoll: Timer?
-    /// The feed's session, bounded: URLSession.shared would let a trickling
-    /// answer hold the run in `.checking` for days, refusing every later
-    /// check. (The zip is fetched by `UpdateDownload`, bounded by a deadline
-    /// of its own: a transfer that is moving is not cut at three minutes.)
-    private let network: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 180
-        return URLSession(configuration: configuration)
-    }()
+    /// The feed's client, bounded in time and in size (see `UpdateFeed`):
+    /// URLSession.shared would let a trickling answer hold the run in
+    /// `.checking` for days, refusing every later check. (The zip is fetched
+    /// by `UpdateDownload`, bounded by a deadline of its own: a transfer that
+    /// is moving is not cut at three minutes.)
+    private let feedClient = UpdateFeed.client()
     private let downloads = UpdateDownload.client()
     private let worker = DispatchQueue(label: "lodestar.update", qos: .utility)
+    /// Stoic's ambient context as it was where this controller was made: the
+    /// main thread, inside the launch's `withAmbient`, where `StoicLog` is
+    /// among the instrumentation. The staging tools run from `worker`, a
+    /// dispatch queue, which sees none of it, so the controller keeps it to
+    /// hand them (`runTool`).
+    private let ambient = Ambient.current
 
     init() {
         // Only the installed app updates itself. A signed build run from
@@ -291,19 +293,18 @@ final class UpdateController {
         let channel = self.channel
         Log.info("update", ["phase": "checking", "force": "\(force)", "channel": channel.rawValue])
         let feed = channel == .stable ? Updater.stableURL : Self.feedURL
-        var request = URLRequest(url: feed, timeoutInterval: 30)
-        request.setValue("lodestar/\(Lodestar.version)", forHTTPHeaderField: "User-Agent")
         // Who is waiting decides how patiently the feed is asked: the
         // periodic check is nobody's; the menu item was pressed by someone
         // who will wait seconds for the answer (not a tap's instant
         // feedback), which is also the thirty seconds it always had.
         let urgency: Urgency = force ? .userInitiated : .background
+        let client = feedClient
         Task { [weak self] in
             guard let self else { return }
             var data: Data?
             var problem: String?
             do {
-                data = try await withUrgency(urgency) { try await UpdateFeed.data(for: request, session: self.network) }
+                data = try await withUrgency(urgency) { try await UpdateFeed.data(from: feed, client: client) }
             } catch {
                 problem = UpdateFeed.problem(error)
             }
@@ -523,7 +524,7 @@ final class UpdateController {
     /// One staging command, and the update failing if it does not pass
     /// or does not finish. Worker queue.
     private func step(_ what: String, force: Bool, _ launchPath: String, _ arguments: String...) -> Bool {
-        switch Self.run(launchPath, arguments) {
+        switch runTool(launchPath, arguments) {
         case .succeeded:
             return true
         case .failed:
@@ -542,8 +543,11 @@ final class UpdateController {
     /// process is also terminated, which is what lets that thread come
     /// back, killed outright if it ignores the first ask. The calling
     /// thread is the update's worker queue, which blocks here by design.
+    /// `ambient` is the Stoic context the work reports in: the caller's own
+    /// when none is named, which a dispatch queue has none of (see `runTool`).
     static func run(_ launchPath: String, _ arguments: [String],
-                    within deadline: Duration = toolDeadline) -> RunOutcome {
+                    within deadline: Duration = toolDeadline,
+                    ambient: Ambient = .current) -> RunOutcome {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchPath)
         process.arguments = arguments
@@ -553,26 +557,39 @@ final class UpdateController {
         let outcome = OutcomeBox()
         let finished = DispatchSemaphore(value: 0)
         let name = URL(fileURLWithPath: launchPath).lastPathComponent
+        // Detached keeps the wait off the calling thread, and a detached task
+        // starts with Stoic's default context, not the caller's: what it says
+        // (`abandoned.started` for a tool given up on) would reach the unified
+        // log alone. The context handed in is bound again inside it.
         Task.detached {
-            do throws(PolicyError<any Error>) {
-                let status = try await abandoningAfter(deadline, label: "update.\(name)", limit: 2) { () throws -> Int32 in
-                    try held.process.run()
-                    held.process.waitUntilExit()
-                    return held.process.terminationStatus
-                }
-                outcome.set(status == 0 ? .succeeded : .failed)
-            } catch {
-                if case .rejected = error {
-                    held.stop()
-                    outcome.set(.timedOut)
-                } else {
-                    outcome.set(.failed)
+            await withAmbient({ $0 = ambient }) {
+                do throws(PolicyError<any Error>) {
+                    let status = try await abandoningAfter(deadline, label: "update.\(name)", limit: 2) { () throws -> Int32 in
+                        try held.process.run()
+                        held.process.waitUntilExit()
+                        return held.process.terminationStatus
+                    }
+                    outcome.set(status == 0 ? .succeeded : .failed)
+                } catch {
+                    if case .rejected = error {
+                        held.stop()
+                        outcome.set(.timedOut)
+                    } else {
+                        outcome.set(.failed)
+                    }
                 }
             }
             finished.signal()
         }
         finished.wait()
         return outcome.value
+    }
+
+    /// `run` in the context this controller was made in, which is what the
+    /// worker queue calls it with.
+    func runTool(_ launchPath: String, _ arguments: [String],
+                 within deadline: Duration = toolDeadline) -> RunOutcome {
+        Self.run(launchPath, arguments, within: deadline, ambient: ambient)
     }
 
     private final class HeldProcess: @unchecked Sendable {

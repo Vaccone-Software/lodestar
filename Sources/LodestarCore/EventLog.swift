@@ -325,6 +325,19 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// A focus as the prewarmer reads it, and all of it: when the app came to
+/// the front and which app. An event is a thousand bytes and more of columns
+/// a focus never fills, so a reader that wants only these does not decode one.
+public struct FocusStamp: Equatable, Sendable {
+    public var t: Date
+    public var app: String?
+
+    public init(t: Date, app: String?) {
+        self.t = t
+        self.app = app
+    }
+}
+
 /// The append-only event file: `events.jsonl`, one event per line, beside the
 /// aggregate view. Appends are buffered and coalesced because this is fed
 /// from the event tap and a keystroke must never wait on a disk. The ring is
@@ -1047,6 +1060,51 @@ public final class EventLog: @unchecked Sendable {
             return item
         }
         if let work { DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work) }
+    }
+}
+
+// MARK: - Streaming reads
+
+extension EventLog {
+    /// What a focus line is to a reader that wants a time and an app.
+    private struct FocusLine: Decodable {
+        let t: Date
+        let kind: ObservationEvent.Kind
+        let app: String?
+    }
+
+    /// The focus events of the last `days`, oldest first (events at one
+    /// instant in the order the ring holds them): what `NextApp` learns from.
+    /// The same window and the same order as `snapshot(days:)` filtered to
+    /// focus, but a shard at a time and a line at a time, so what is held at
+    /// any moment is one month's bytes and the focuses found, never a
+    /// decoded event.
+    public func focusStream(days: Int, now: Date = Date()) -> [FocusStamp] {
+        io.sync { flushLocked() }
+        let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+        let found: [FocusStamp] = io.sync {
+            var focuses: [FocusStamp] = []
+            for month in shardMonthsLocked() where Self.monthEnd(of: month) >= cutoff {
+                appendFocuses(of: shardFile(for: month), since: cutoff, to: &focuses)
+            }
+            appendFocuses(of: file, since: cutoff, to: &focuses)
+            for event in pending where event.kind == .focus && event.t >= cutoff {
+                focuses.append(FocusStamp(t: event.t, app: event.app))
+            }
+            return focuses
+        }
+        return NextApp.chronological(found)
+    }
+
+    /// Callers must already be on `io`.
+    private func appendFocuses(of url: URL, since cutoff: Date, to focuses: inout [FocusStamp]) {
+        let bytes = LineStore.read(plaintext: url, ring: ring, fileSystem: fileSystem).bytes
+        let decoder = Self.makeDecoder()
+        LineStore.forEachLine(bytes) { range in
+            guard let line = try? decoder.decode(FocusLine.self, from: bytes[range]),
+                  line.kind == .focus, line.t >= cutoff else { return }
+            focuses.append(FocusStamp(t: line.t, app: line.app))
+        }
     }
 }
 

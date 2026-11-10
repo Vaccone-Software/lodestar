@@ -161,6 +161,28 @@ enum LineStore {
     static func lines(_ bytes: Data) -> [Data] {
         bytes.split(separator: 0x0A).map { Data($0) }
     }
+
+    /// `lines`, one at a time: where each non-empty line sits in `bytes`
+    /// (index ranges of `bytes` itself), without a copy of any of them. A
+    /// reader that decodes a line and lets it go never holds the buffer's
+    /// lines twice, as an array of `Data` made from it does.
+    static func forEachLine(_ bytes: Data, _ body: (Range<Int>) -> Void) {
+        bytes.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            let count = raw.count
+            var start = 0
+            while start < count {
+                let stop: Int
+                if let found = memchr(base + start, 0x0A, count - start) {
+                    stop = UnsafeRawPointer(found) - base
+                } else {
+                    stop = count
+                }
+                if stop > start { body((bytes.startIndex + start)..<(bytes.startIndex + stop)) }
+                start = stop + 1
+            }
+        }
+    }
 }
 
 /// One log file's sealed journal, held open by its writer.

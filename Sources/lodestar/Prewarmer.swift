@@ -107,13 +107,13 @@ final class Prewarmer {
         let retune = Date().timeIntervalSince(tunedAt) >= Self.tuneInterval
         let current = tuning
         queue.async { [weak self] in
-            let events = log.snapshot(days: EventLog.advisorWindowDays)
-            let tuning = retune ? NextApp.tune(events: events) : current
-            let scores = retune ? NextApp.evaluate(events: events, tuning: tuning) : []
-            var seeded = NextApp(tuning: tuning)
-            for event in events.filter({ $0.kind == .focus }).sorted(by: { $0.t < $1.t }) {
-                if let app = event.app { seeded.observe(app) }
-            }
+            // The focus stream, not the ring: a refresh needs a time and an
+            // app, and decoding every event of ninety days to read them held
+            // gigabytes at launch and again every half hour.
+            let learned = NextApp.seed(from: log, retune: retune, current: current)
+            let tuning = learned.tuning
+            let scores = learned.scores
+            var seeded = learned.model
             DispatchQueue.main.async {
                 guard let self else { return }
                 for app in self.model.history { seeded.observe(app) }

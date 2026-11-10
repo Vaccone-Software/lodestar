@@ -1,6 +1,7 @@
-@preconcurrency import CoreML
+import CoreML
 import Foundation
 import LodestarCore
+import Synchronization
 
 /// Parakeet TDT 0.6B on the Neural Engine, through Core ML.
 ///
@@ -22,7 +23,7 @@ import LodestarCore
 /// Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0).
 /// Rewritten for Lodestar without the streaming, language-filter and
 /// vocabulary-boost paths; the decisions and constants are kept exactly.
-public final class ParakeetEar: SettlingEar, @unchecked Sendable {
+public final class ParakeetEar: SettlingEar, Sendable {
     /// Which Parakeet: the files differ only in the joint's name and the
     /// vocabulary's size.
     public struct Variant: Sendable, Equatable {
@@ -60,15 +61,14 @@ public final class ParakeetEar: SettlingEar, @unchecked Sendable {
     public let folder: URL
     public var name: String { variant.name }
 
-    private let lock = NSLock()
-    private var models: Models?
+    private let models = Mutex<Models?>(nil)
 
     public init(_ variant: Variant = .v2, folder: URL) {
         self.variant = variant
         self.folder = folder
     }
 
-    public var isLoaded: Bool { lock.withLock { models != nil } }
+    public var isLoaded: Bool { models.withLock { $0 != nil } }
 
     public func load() async throws {
         if isLoaded { return }
@@ -98,17 +98,17 @@ public final class ParakeetEar: SettlingEar, @unchecked Sendable {
         _ = try loaded.decode(Array(repeating: 0, count: ParakeetTiming.sampleRate), declaredLength: ParakeetTiming.sampleRate,
                               audioFrames: ParakeetTiming.sampleRate / ParakeetTiming.samplesPerFrame,
                               startFrame: 0, frameOffset: 0, isLast: true)
-        lock.withLock { models = loaded }
+        models.withLock { $0 = loaded }
     }
 
     public func unload() {
-        lock.withLock { models = nil }
+        models.withLock { $0 = nil }
     }
 
     public func transcribe(_ samples: [Float], context: [String]) async throws -> Heard {
         // `context` is not used: Parakeet has no prompt, and names are the
         // draft's own matcher's work.
-        guard let models = lock.withLock({ models }) else { throw Failure.notLoaded }
+        guard let models = models.withLock({ $0 }) else { throw Failure.notLoaded }
         let tokens = try await models.tokens(samples)
         return ParakeetTiming.heard(tokens, vocabulary: models.vocabulary)
     }
@@ -117,6 +117,7 @@ public final class ParakeetEar: SettlingEar, @unchecked Sendable {
 /// The loaded models, and the work done with them. Core ML's predictions
 /// are safe to make from several threads at once; every buffer a decode
 /// writes is its own.
+// stoic:allow(unchecked-sendable): every stored property is a `let`, set in `init`; the only calls made on the shared MLModels are Core ML `prediction`s, which Core ML supports from several threads at once, and each decode allocates the buffers it writes
 private final class Models: @unchecked Sendable {
     let preprocessor: MLModel
     let encoder: MLModel

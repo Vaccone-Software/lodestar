@@ -22,6 +22,7 @@ import Tokenizers
 /// checked a sentence, and left the editor's own answers abandoned.
 /// The queue's thread waits for the lane, which is its own thread and not
 /// the cooperative pool's. Parakeet runs on Core ML and needs no lane.
+// stoic:allow(unchecked-sendable): `model` and `tokenizer` are touched only on `queue`, a serial DispatchQueue (load and transcribe run through `onQueue`, unload through `queue.async`); `loaded` only under `lock`; `name` and `folder` are `let`s
 public final class QwenEar: SettlingEar, @unchecked Sendable {
     public let name: String
     public let folder: URL

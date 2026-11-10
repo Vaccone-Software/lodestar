@@ -49,6 +49,7 @@ public enum MLXLanguageModels {
 /// before. The draft's intent pass reads its own instructions and worked
 /// examples the same way, so a few prompts are held at once and neither
 /// reader throws out the other's.
+// stoic:allow(unchecked-sendable): `prefixes` and `prefixTried` are touched only by `ensurePrefix` and the cache lookup, both called only inside `container.perform`, which runs one closure at a time (ModelContainer keeps its context in a SerialAccessContainer); every other stored property is a `let`
 public final class MLXLanguageModel: ServedLanguageModel, @unchecked Sendable {
     let container: ModelContainer
     let label: String

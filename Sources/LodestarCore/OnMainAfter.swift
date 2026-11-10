@@ -43,3 +43,22 @@ public func onMain(
         }
     }
 }
+
+/// Runs `work` on `queue` once `delay` has passed on the ambient clock, and
+/// returns the task that owns the wait.
+///
+/// The replacement for `queue.asyncAfter` where the queue is what serializes
+/// the state `work` touches: the wait is the task's, so a test clock moves it
+/// and cancelling the task ends it, and the work still arrives on the queue
+/// behind whatever the queue was doing, as an `asyncAfter` did.
+@discardableResult
+public func after(
+    _ delay: Duration,
+    on queue: DispatchQueue,
+    _ work: @escaping @Sendable () -> Void
+) -> Task<Void, Never> {
+    Task {
+        do { try await Ambient.sleep(for: delay) } catch { return }
+        queue.async(execute: work)
+    }
+}

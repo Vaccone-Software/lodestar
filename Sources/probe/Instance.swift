@@ -38,7 +38,7 @@ func runCopy(_ arguments: inout [String]) {
     let maxSeconds = option("--max-seconds", in: arguments).flatMap(Double.init) ?? 60
     let me = ProcessInfo.processInfo.processIdentifier
     // A probe that a failed test leaves behind ends itself.
-    DispatchQueue.global().asyncAfter(deadline: .now() + maxSeconds) { exit(3) }
+    after(.seconds(maxSeconds), on: .global()) { exit(3) }
 
     say("BOOT \(me)")
     if let lockFile {
@@ -65,7 +65,7 @@ func runCopy(_ arguments: inout [String]) {
     source.setEventHandler {
         say("TERMED \(me)")
         if ignoreTerm { return }
-        DispatchQueue.global().asyncAfter(deadline: .now() + quitSeconds) {
+        after(.seconds(quitSeconds), on: .global()) {
             if let text = try? String(contentsOf: pidFile, encoding: .utf8),
                Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) == me {
                 try? FileManager.default.removeItem(at: pidFile)
@@ -86,7 +86,7 @@ func runStranger(_ arguments: inout [String]) {
         exit(2)
     }
     let maxSeconds = option("--max-seconds", in: arguments).flatMap(Double.init) ?? 60
-    DispatchQueue.global().asyncAfter(deadline: .now() + maxSeconds) { exit(3) }
+    after(.seconds(maxSeconds), on: .global()) { exit(3) }
     var sources: [DispatchSourceSignal] = []
     for (name, number) in [("TERM", SIGTERM), ("HUP", SIGHUP), ("INT", SIGINT), ("USR1", SIGUSR1), ("USR2", SIGUSR2),
                            ("QUIT", SIGQUIT), ("ALRM", SIGALRM)] {

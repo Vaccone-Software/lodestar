@@ -121,16 +121,12 @@ final class UpdateController {
     private var firstCheck: Timer?
     private var dailyCheck: Timer?
     private var applyPoll: Timer?
-    /// The feed's session, bounded: URLSession.shared would let a trickling
-    /// answer hold the run in `.checking` for days, refusing every later
-    /// check. (The zip is fetched by `UpdateDownload`, bounded by a deadline
-    /// of its own: a transfer that is moving is not cut at three minutes.)
-    private let network: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 180
-        return URLSession(configuration: configuration)
-    }()
+    /// The feed's client, bounded in time and in size (see `UpdateFeed`):
+    /// URLSession.shared would let a trickling answer hold the run in
+    /// `.checking` for days, refusing every later check. (The zip is fetched
+    /// by `UpdateDownload`, bounded by a deadline of its own: a transfer that
+    /// is moving is not cut at three minutes.)
+    private let feedClient = UpdateFeed.client()
     private let downloads = UpdateDownload.client()
     private let worker = DispatchQueue(label: "lodestar.update", qos: .utility)
 
@@ -291,19 +287,18 @@ final class UpdateController {
         let channel = self.channel
         Log.info("update", ["phase": "checking", "force": "\(force)", "channel": channel.rawValue])
         let feed = channel == .stable ? Updater.stableURL : Self.feedURL
-        var request = URLRequest(url: feed, timeoutInterval: 30)
-        request.setValue("lodestar/\(Lodestar.version)", forHTTPHeaderField: "User-Agent")
         // Who is waiting decides how patiently the feed is asked: the
         // periodic check is nobody's; the menu item was pressed by someone
         // who will wait seconds for the answer (not a tap's instant
         // feedback), which is also the thirty seconds it always had.
         let urgency: Urgency = force ? .userInitiated : .background
+        let client = feedClient
         Task { [weak self] in
             guard let self else { return }
             var data: Data?
             var problem: String?
             do {
-                data = try await withUrgency(urgency) { try await UpdateFeed.data(for: request, session: self.network) }
+                data = try await withUrgency(urgency) { try await UpdateFeed.data(from: feed, client: client) }
             } catch {
                 problem = UpdateFeed.problem(error)
             }

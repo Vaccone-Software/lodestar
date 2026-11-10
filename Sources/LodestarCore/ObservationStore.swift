@@ -102,7 +102,13 @@ public final class ObservationStore {
     }
 
     private static func allEvents(_ log: EventLog, _ healthLog: EventLog) -> [ObservationEvent] {
-        (log.readAll() + healthLog.readAll()).sorted { $0.t < $1.t }
+        // One array, read into and sorted where it stands: joining two arrays
+        // made a third the size of both, and `sorted` a fourth.
+        var events: [ObservationEvent] = []
+        log.readAll(into: &events)
+        healthLog.readAll(into: &events)
+        events.sort { $0.t < $1.t }
+        return events
     }
 
     /// The health record's kinds once lived in the ring. Move them into

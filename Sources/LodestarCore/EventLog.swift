@@ -210,13 +210,25 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
     public var clicks: Int?
     public var scrolls: Int?
     public var activeMinutes: Int?
-    public var ikN: Int?
-    public var ikSum: Double?
-    public var ikSumSq: Double?
+    public var ikN: Int? {
+        get { rhythm.read { $0.ikN }.flatMap { $0 } }
+        set { setRhythm(\.ikN, newValue) }
+    }
+    public var ikSum: Double? {
+        get { rhythm.read { $0.ikSum }.flatMap { $0 } }
+        set { setRhythm(\.ikSum, newValue) }
+    }
+    public var ikSumSq: Double? {
+        get { rhythm.read { $0.ikSumSq }.flatMap { $0 } }
+        set { setRhythm(\.ikSumSq, newValue) }
+    }
     public var trips: Int?
     public var roles: [String: Int]?
     /// The pointer's reaches, folded: `PointerMoments`.
-    public var pointer: PointerMoments?
+    public var pointer: PointerMoments? {
+        get { pointerBox.value }
+        set { pointerBox.value = newValue }
+    }
     /// Seconds the wheel bursts ran, beside their count in `scrolls`.
     public var scrollSeconds: Double?
     public var pages: Int?
@@ -265,9 +277,18 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
     /// a press lasted is not which key it was. Autorepeat-contaminated
     /// presses are excluded upstream, so a key held down is never read
     /// as a very slow keystroke.
-    public var holdN: Int?
-    public var holdSum: Double?
-    public var holdSumSq: Double?
+    public var holdN: Int? {
+        get { rhythm.read { $0.holdN }.flatMap { $0 } }
+        set { setRhythm(\.holdN, newValue) }
+    }
+    public var holdSum: Double? {
+        get { rhythm.read { $0.holdSum }.flatMap { $0 } }
+        set { setRhythm(\.holdSum, newValue) }
+    }
+    public var holdSumSq: Double? {
+        get { rhythm.read { $0.holdSumSq }.flatMap { $0 } }
+        set { setRhythm(\.holdSumSq, newValue) }
+    }
     public var holdHist: Histogram?
     /// The inter-key rhythm's whole shape, not only its first two
     /// moments. `ikN`/`ikSum`/`ikSumSq` still carry the motor band under
@@ -277,51 +298,347 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
     /// Gaps past the motor ceiling and inside the bout: the pauses the
     /// moments deliberately exclude, kept censored rather than dropped,
     /// because a rhythm's lapses are a measurement and not noise.
-    public var ikTailN: Int?
-    public var ikTailSum: Double?
+    public var ikTailN: Int? {
+        get { rhythm.read { $0.ikTailN }.flatMap { $0 } }
+        set { setRhythm(\.ikTailN, newValue) }
+    }
+    public var ikTailSum: Double? {
+        get { rhythm.read { $0.ikTailSum }.flatMap { $0 } }
+        set { setRhythm(\.ikTailSum, newValue) }
+    }
     /// Where this window sat in its bout — the count of windows before
     /// it, and the seconds from the bout's first input to this window's
     /// start. A bout is continuous work: it ends when the hands stop for
     /// longer than `HealthPulse.boutGap`. Stored as position, never as a
     /// verdict, so any decrement model is fitted at read time.
-    public var boutIndex: Int?
-    public var boutSeconds: Double?
+    public var boutIndex: Int? {
+        get { rhythm.read { $0.boutIndex }.flatMap { $0 } }
+        set { setRhythm(\.boutIndex, newValue) }
+    }
+    public var boutSeconds: Double? {
+        get { rhythm.read { $0.boutSeconds }.flatMap { $0 } }
+        set { setRhythm(\.boutSeconds, newValue) }
+    }
     /// A window's description.
-    public var window: WindowStats?
-    public var voice: VoiceStats?
+    public var window: WindowStats? {
+        get { windowBox.value }
+        set { windowBox.value = newValue }
+    }
+    public var voice: VoiceStats? {
+        get { voiceBox.value }
+        set { voiceBox.value = newValue }
+    }
     /// The keyboards attached while the pulse ran, by roster id.
     public var keyboards: [String]?
     /// The instrument watching itself: the callback's clock against the
     /// event's own stamp, seconds, as moments — how late the tap ran —
     /// and how many times the tap had to be re-enabled.
-    public var jitterN: Int?
-    public var jitterSum: Double?
-    public var jitterSumSq: Double?
-    public var tapResets: Int?
+    public var jitterN: Int? {
+        get { rhythm.read { $0.jitterN }.flatMap { $0 } }
+        set { setRhythm(\.jitterN, newValue) }
+    }
+    public var jitterSum: Double? {
+        get { rhythm.read { $0.jitterSum }.flatMap { $0 } }
+        set { setRhythm(\.jitterSum, newValue) }
+    }
+    public var jitterSumSq: Double? {
+        get { rhythm.read { $0.jitterSumSq }.flatMap { $0 } }
+        set { setRhythm(\.jitterSumSq, newValue) }
+    }
+    public var tapResets: Int? {
+        get { rhythm.read { $0.tapResets }.flatMap { $0 } }
+        set { setRhythm(\.tapResets, newValue) }
+    }
     /// Time to correction — the last key to the first backspace of a
     /// run — as moments: how fast a slip is noticed, apart from how
     /// often one is made.
-    public var fixN: Int?
-    public var fixSum: Double?
-    public var fixSumSq: Double?
+    public var fixN: Int? {
+        get { rhythm.read { $0.fixN }.flatMap { $0 } }
+        set { setRhythm(\.fixN, newValue) }
+    }
+    public var fixSum: Double? {
+        get { rhythm.read { $0.fixSum }.flatMap { $0 } }
+        set { setRhythm(\.fixSum, newValue) }
+    }
+    public var fixSumSq: Double? {
+        get { rhythm.read { $0.fixSumSq }.flatMap { $0 } }
+        set { setRhythm(\.fixSumSq, newValue) }
+    }
     /// Wheel bursts by kind: precise deltas (trackpad, Magic Mouse) and
     /// bursts that carried momentum (a flick).
-    public var scrollPrecise: Int?
-    public var scrollMomentum: Int?
+    public var scrollPrecise: Int? {
+        get { rhythm.read { $0.scrollPrecise }.flatMap { $0 } }
+        set { setRhythm(\.scrollPrecise, newValue) }
+    }
+    public var scrollMomentum: Int? {
+        get { rhythm.read { $0.scrollMomentum }.flatMap { $0 } }
+        set { setRhythm(\.scrollMomentum, newValue) }
+    }
     /// Clicks that were posted rather than pressed — Lodestar's own picks
     /// and warps first among them — kept apart from the hand's.
-    public var clicksPosted: Int?
+    public var clicksPosted: Int? {
+        get { rhythm.read { $0.clicksPosted }.flatMap { $0 } }
+        set { setRhythm(\.clicksPosted, newValue) }
+    }
     /// The pointing devices attached while the pulse ran, by roster id.
     public var pointers: [String]?
     /// The lid was closed while the pulse ran.
     public var lid: Bool?
     /// An era's description.
-    public var era: EraInfo?
-    public var blind: BlindSpan?
+    public var era: EraInfo? {
+        get { eraBox.value }
+        set { eraBox.value = newValue }
+    }
+    public var blind: BlindSpan? {
+        get { blindBox.value }
+        set { blindBox.value = newValue }
+    }
 
     public init(t: Date, kind: Kind) {
         self.t = t
         self.kind = kind
+    }
+
+    // MARK: - Out-of-line columns
+
+    /// The columns that are large (a window's description is a kilobyte) are kept
+    /// behind a pointer each, and the pulse's own scalar columns together behind
+    /// one: an event is a few hundred bytes however many kinds there are, and
+    /// a ring is a million of them. The public properties are the same as ever.
+    private var pointerBox = Boxed<PointerMoments>()
+    private var windowBox = Boxed<WindowStats>()
+    private var voiceBox = Boxed<VoiceStats>()
+    private var eraBox = Boxed<EraInfo>()
+    private var blindBox = Boxed<BlindSpan>()
+    private var rhythm = Boxed<Rhythm>()
+
+    /// The columns only a pulse fills.
+    private struct Rhythm: Equatable, Sendable {
+        var ikN: Int?
+        var ikSum: Double?
+        var ikSumSq: Double?
+        var holdN: Int?
+        var holdSum: Double?
+        var holdSumSq: Double?
+        var ikTailN: Int?
+        var ikTailSum: Double?
+        var boutIndex: Int?
+        var boutSeconds: Double?
+        var jitterN: Int?
+        var jitterSum: Double?
+        var jitterSumSq: Double?
+        var tapResets: Int?
+        var fixN: Int?
+        var fixSum: Double?
+        var fixSumSq: Double?
+        var scrollPrecise: Int?
+        var scrollMomentum: Int?
+        var clicksPosted: Int?
+    }
+
+    private mutating func setRhythm<Value>(_ keyPath: WritableKeyPath<Rhythm, Value?>, _ newValue: Value?) {
+        if case .none = newValue, rhythm.isEmpty { return }
+        rhythm.update(creating: Rhythm()) { $0[keyPath: keyPath] = newValue }
+        // A group with nothing in it is no group: events that are equal stay equal.
+        if case .none = newValue, rhythm.value == Rhythm() { rhythm = Boxed() }
+    }
+
+
+    // MARK: - Coding
+
+    private enum CodingKeys: String, CodingKey {
+        case t, kind, chain, gaps, peeked, hover, pressed, app, category, declaredCategory, route, apps, typed, queryPrefix, rank, listLength, openToFirstKey, openToCommit, verb, host, profile, source, row, address, change, epoch, action, rec, lead, seconds, keys, backspaces, bsRuns, bsRunKeys, clicks, scrolls, activeMinutes, ikN, ikSum, ikSumSq, trips, roles, pointer, scrollSeconds, pages, ends, aims, aimsLanded, aimsAway, words, switches, pointerActs, firstWord, matches, visible, recents, depth, closed, after, pulled, pointerOn, warm, editing, peakDb, holdN, holdSum, holdSumSq, holdHist, ikHist, ikTailN, ikTailSum, boutIndex, boutSeconds, window, voice, keyboards, jitterN, jitterSum, jitterSumSq, tapResets, fixN, fixSum, fixSumSq, scrollPrecise, scrollMomentum, clicksPosted, pointers, lid, era, blind
+    }
+
+    /// Every column as it was when each was a stored property: a key is written
+    /// only when the column is set, and a missing key reads as unset, so a line
+    /// from any build decodes, and an event encodes to the bytes it always did.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        t = try container.decode(Date.self, forKey: .t)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        chain = try container.decodeIfPresent([String].self, forKey: .chain)
+        gaps = try container.decodeIfPresent([Double].self, forKey: .gaps)
+        peeked = try container.decodeIfPresent(Bool.self, forKey: .peeked)
+        hover = try container.decodeIfPresent(Double.self, forKey: .hover)
+        pressed = try container.decodeIfPresent(String.self, forKey: .pressed)
+        app = try container.decodeIfPresent(String.self, forKey: .app)
+        category = try container.decodeIfPresent(String.self, forKey: .category)
+        declaredCategory = try container.decodeIfPresent(String.self, forKey: .declaredCategory)
+        route = try container.decodeIfPresent(String.self, forKey: .route)
+        apps = try container.decodeIfPresent([String].self, forKey: .apps)
+        typed = try container.decodeIfPresent(Int.self, forKey: .typed)
+        queryPrefix = try container.decodeIfPresent(String.self, forKey: .queryPrefix)
+        rank = try container.decodeIfPresent(Int.self, forKey: .rank)
+        listLength = try container.decodeIfPresent(Int.self, forKey: .listLength)
+        openToFirstKey = try container.decodeIfPresent(Double.self, forKey: .openToFirstKey)
+        openToCommit = try container.decodeIfPresent(Double.self, forKey: .openToCommit)
+        verb = try container.decodeIfPresent(String.self, forKey: .verb)
+        host = try container.decodeIfPresent(String.self, forKey: .host)
+        profile = try container.decodeIfPresent(String.self, forKey: .profile)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        row = try container.decodeIfPresent(String.self, forKey: .row)
+        address = try container.decodeIfPresent(String.self, forKey: .address)
+        change = try container.decodeIfPresent(String.self, forKey: .change)
+        epoch = try container.decodeIfPresent(Int.self, forKey: .epoch)
+        action = try container.decodeIfPresent(String.self, forKey: .action)
+        rec = try container.decodeIfPresent(String.self, forKey: .rec)
+        lead = try container.decodeIfPresent(Double.self, forKey: .lead)
+        seconds = try container.decodeIfPresent(Double.self, forKey: .seconds)
+        keys = try container.decodeIfPresent(Int.self, forKey: .keys)
+        backspaces = try container.decodeIfPresent(Int.self, forKey: .backspaces)
+        bsRuns = try container.decodeIfPresent([Int].self, forKey: .bsRuns)
+        bsRunKeys = try container.decodeIfPresent([Int].self, forKey: .bsRunKeys)
+        clicks = try container.decodeIfPresent(Int.self, forKey: .clicks)
+        scrolls = try container.decodeIfPresent(Int.self, forKey: .scrolls)
+        activeMinutes = try container.decodeIfPresent(Int.self, forKey: .activeMinutes)
+        ikN = try container.decodeIfPresent(Int.self, forKey: .ikN)
+        ikSum = try container.decodeIfPresent(Double.self, forKey: .ikSum)
+        ikSumSq = try container.decodeIfPresent(Double.self, forKey: .ikSumSq)
+        trips = try container.decodeIfPresent(Int.self, forKey: .trips)
+        roles = try container.decodeIfPresent([String: Int].self, forKey: .roles)
+        pointer = try container.decodeIfPresent(PointerMoments.self, forKey: .pointer)
+        scrollSeconds = try container.decodeIfPresent(Double.self, forKey: .scrollSeconds)
+        pages = try container.decodeIfPresent(Int.self, forKey: .pages)
+        ends = try container.decodeIfPresent(Int.self, forKey: .ends)
+        aims = try container.decodeIfPresent(Int.self, forKey: .aims)
+        aimsLanded = try container.decodeIfPresent(Int.self, forKey: .aimsLanded)
+        aimsAway = try container.decodeIfPresent(Int.self, forKey: .aimsAway)
+        words = try container.decodeIfPresent(Int.self, forKey: .words)
+        switches = try container.decodeIfPresent(Int.self, forKey: .switches)
+        pointerActs = try container.decodeIfPresent(Int.self, forKey: .pointerActs)
+        firstWord = try container.decodeIfPresent(Double.self, forKey: .firstWord)
+        matches = try container.decodeIfPresent(Int.self, forKey: .matches)
+        visible = try container.decodeIfPresent(Int.self, forKey: .visible)
+        recents = try container.decodeIfPresent(Int.self, forKey: .recents)
+        depth = try container.decodeIfPresent(Int.self, forKey: .depth)
+        closed = try container.decodeIfPresent(String.self, forKey: .closed)
+        after = try container.decodeIfPresent(String.self, forKey: .after)
+        pulled = try container.decodeIfPresent(Bool.self, forKey: .pulled)
+        pointerOn = try container.decodeIfPresent(Bool.self, forKey: .pointerOn)
+        warm = try container.decodeIfPresent(Bool.self, forKey: .warm)
+        editing = try container.decodeIfPresent(String.self, forKey: .editing)
+        peakDb = try container.decodeIfPresent(Double.self, forKey: .peakDb)
+        holdN = try container.decodeIfPresent(Int.self, forKey: .holdN)
+        holdSum = try container.decodeIfPresent(Double.self, forKey: .holdSum)
+        holdSumSq = try container.decodeIfPresent(Double.self, forKey: .holdSumSq)
+        holdHist = try container.decodeIfPresent(Histogram.self, forKey: .holdHist)
+        ikHist = try container.decodeIfPresent(Histogram.self, forKey: .ikHist)
+        ikTailN = try container.decodeIfPresent(Int.self, forKey: .ikTailN)
+        ikTailSum = try container.decodeIfPresent(Double.self, forKey: .ikTailSum)
+        boutIndex = try container.decodeIfPresent(Int.self, forKey: .boutIndex)
+        boutSeconds = try container.decodeIfPresent(Double.self, forKey: .boutSeconds)
+        window = try container.decodeIfPresent(WindowStats.self, forKey: .window)
+        voice = try container.decodeIfPresent(VoiceStats.self, forKey: .voice)
+        keyboards = try container.decodeIfPresent([String].self, forKey: .keyboards)
+        jitterN = try container.decodeIfPresent(Int.self, forKey: .jitterN)
+        jitterSum = try container.decodeIfPresent(Double.self, forKey: .jitterSum)
+        jitterSumSq = try container.decodeIfPresent(Double.self, forKey: .jitterSumSq)
+        tapResets = try container.decodeIfPresent(Int.self, forKey: .tapResets)
+        fixN = try container.decodeIfPresent(Int.self, forKey: .fixN)
+        fixSum = try container.decodeIfPresent(Double.self, forKey: .fixSum)
+        fixSumSq = try container.decodeIfPresent(Double.self, forKey: .fixSumSq)
+        scrollPrecise = try container.decodeIfPresent(Int.self, forKey: .scrollPrecise)
+        scrollMomentum = try container.decodeIfPresent(Int.self, forKey: .scrollMomentum)
+        clicksPosted = try container.decodeIfPresent(Int.self, forKey: .clicksPosted)
+        pointers = try container.decodeIfPresent([String].self, forKey: .pointers)
+        lid = try container.decodeIfPresent(Bool.self, forKey: .lid)
+        era = try container.decodeIfPresent(EraInfo.self, forKey: .era)
+        blind = try container.decodeIfPresent(BlindSpan.self, forKey: .blind)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(t, forKey: .t)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(chain, forKey: .chain)
+        try container.encodeIfPresent(gaps, forKey: .gaps)
+        try container.encodeIfPresent(peeked, forKey: .peeked)
+        try container.encodeIfPresent(hover, forKey: .hover)
+        try container.encodeIfPresent(pressed, forKey: .pressed)
+        try container.encodeIfPresent(app, forKey: .app)
+        try container.encodeIfPresent(category, forKey: .category)
+        try container.encodeIfPresent(declaredCategory, forKey: .declaredCategory)
+        try container.encodeIfPresent(route, forKey: .route)
+        try container.encodeIfPresent(apps, forKey: .apps)
+        try container.encodeIfPresent(typed, forKey: .typed)
+        try container.encodeIfPresent(queryPrefix, forKey: .queryPrefix)
+        try container.encodeIfPresent(rank, forKey: .rank)
+        try container.encodeIfPresent(listLength, forKey: .listLength)
+        try container.encodeIfPresent(openToFirstKey, forKey: .openToFirstKey)
+        try container.encodeIfPresent(openToCommit, forKey: .openToCommit)
+        try container.encodeIfPresent(verb, forKey: .verb)
+        try container.encodeIfPresent(host, forKey: .host)
+        try container.encodeIfPresent(profile, forKey: .profile)
+        try container.encodeIfPresent(source, forKey: .source)
+        try container.encodeIfPresent(row, forKey: .row)
+        try container.encodeIfPresent(address, forKey: .address)
+        try container.encodeIfPresent(change, forKey: .change)
+        try container.encodeIfPresent(epoch, forKey: .epoch)
+        try container.encodeIfPresent(action, forKey: .action)
+        try container.encodeIfPresent(rec, forKey: .rec)
+        try container.encodeIfPresent(lead, forKey: .lead)
+        try container.encodeIfPresent(seconds, forKey: .seconds)
+        try container.encodeIfPresent(keys, forKey: .keys)
+        try container.encodeIfPresent(backspaces, forKey: .backspaces)
+        try container.encodeIfPresent(bsRuns, forKey: .bsRuns)
+        try container.encodeIfPresent(bsRunKeys, forKey: .bsRunKeys)
+        try container.encodeIfPresent(clicks, forKey: .clicks)
+        try container.encodeIfPresent(scrolls, forKey: .scrolls)
+        try container.encodeIfPresent(activeMinutes, forKey: .activeMinutes)
+        try container.encodeIfPresent(ikN, forKey: .ikN)
+        try container.encodeIfPresent(ikSum, forKey: .ikSum)
+        try container.encodeIfPresent(ikSumSq, forKey: .ikSumSq)
+        try container.encodeIfPresent(trips, forKey: .trips)
+        try container.encodeIfPresent(roles, forKey: .roles)
+        try container.encodeIfPresent(pointer, forKey: .pointer)
+        try container.encodeIfPresent(scrollSeconds, forKey: .scrollSeconds)
+        try container.encodeIfPresent(pages, forKey: .pages)
+        try container.encodeIfPresent(ends, forKey: .ends)
+        try container.encodeIfPresent(aims, forKey: .aims)
+        try container.encodeIfPresent(aimsLanded, forKey: .aimsLanded)
+        try container.encodeIfPresent(aimsAway, forKey: .aimsAway)
+        try container.encodeIfPresent(words, forKey: .words)
+        try container.encodeIfPresent(switches, forKey: .switches)
+        try container.encodeIfPresent(pointerActs, forKey: .pointerActs)
+        try container.encodeIfPresent(firstWord, forKey: .firstWord)
+        try container.encodeIfPresent(matches, forKey: .matches)
+        try container.encodeIfPresent(visible, forKey: .visible)
+        try container.encodeIfPresent(recents, forKey: .recents)
+        try container.encodeIfPresent(depth, forKey: .depth)
+        try container.encodeIfPresent(closed, forKey: .closed)
+        try container.encodeIfPresent(after, forKey: .after)
+        try container.encodeIfPresent(pulled, forKey: .pulled)
+        try container.encodeIfPresent(pointerOn, forKey: .pointerOn)
+        try container.encodeIfPresent(warm, forKey: .warm)
+        try container.encodeIfPresent(editing, forKey: .editing)
+        try container.encodeIfPresent(peakDb, forKey: .peakDb)
+        try container.encodeIfPresent(holdN, forKey: .holdN)
+        try container.encodeIfPresent(holdSum, forKey: .holdSum)
+        try container.encodeIfPresent(holdSumSq, forKey: .holdSumSq)
+        try container.encodeIfPresent(holdHist, forKey: .holdHist)
+        try container.encodeIfPresent(ikHist, forKey: .ikHist)
+        try container.encodeIfPresent(ikTailN, forKey: .ikTailN)
+        try container.encodeIfPresent(ikTailSum, forKey: .ikTailSum)
+        try container.encodeIfPresent(boutIndex, forKey: .boutIndex)
+        try container.encodeIfPresent(boutSeconds, forKey: .boutSeconds)
+        try container.encodeIfPresent(window, forKey: .window)
+        try container.encodeIfPresent(voice, forKey: .voice)
+        try container.encodeIfPresent(keyboards, forKey: .keyboards)
+        try container.encodeIfPresent(jitterN, forKey: .jitterN)
+        try container.encodeIfPresent(jitterSum, forKey: .jitterSum)
+        try container.encodeIfPresent(jitterSumSq, forKey: .jitterSumSq)
+        try container.encodeIfPresent(tapResets, forKey: .tapResets)
+        try container.encodeIfPresent(fixN, forKey: .fixN)
+        try container.encodeIfPresent(fixSum, forKey: .fixSum)
+        try container.encodeIfPresent(fixSumSq, forKey: .fixSumSq)
+        try container.encodeIfPresent(scrollPrecise, forKey: .scrollPrecise)
+        try container.encodeIfPresent(scrollMomentum, forKey: .scrollMomentum)
+        try container.encodeIfPresent(clicksPosted, forKey: .clicksPosted)
+        try container.encodeIfPresent(pointers, forKey: .pointers)
+        try container.encodeIfPresent(lid, forKey: .lid)
+        try container.encodeIfPresent(era, forKey: .era)
+        try container.encodeIfPresent(blind, forKey: .blind)
     }
 }
 
@@ -510,26 +827,37 @@ public final class EventLog: @unchecked Sendable {
 
     /// Every event still in the ring, oldest first, pending included.
     public func readAll() -> [ObservationEvent] {
+        var events: [ObservationEvent] = []
+        readAll(into: &events)
+        return events
+    }
+
+    /// `readAll`, appended to `events`: a caller that joins two logs reads
+    /// both into one array and sorts it where it is, where reading each into
+    /// an array of its own and joining them held the ring three times over.
+    func readAll(into events: inout [ObservationEvent]) {
         io.sync {
-            var events = shardMonthsLocked().flatMap { readEvents(of: shardFile(for: $0)) }
-            events.append(contentsOf: readEvents(of: file))
+            for month in shardMonthsLocked() { readEvents(of: shardFile(for: month), into: &events) }
+            readEvents(of: file, into: &events)
             events.append(contentsOf: pending)
-            return events
         }
     }
 
     /// The last `days` of the ring — the bounded read the recommendation
     /// pass runs on. Only shards the window touches are opened, so a year
-    /// of archive costs a ninety-day reader nothing.
+    /// of archive costs a ninety-day reader nothing, and what falls before
+    /// the window is let go as each line is read, not filtered out of an
+    /// array of the whole of the shards after it.
     public func recent(days: Int, now: Date = Date()) -> [ObservationEvent] {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         return io.sync {
-            var events = shardMonthsLocked()
-                .filter { Self.monthEnd(of: $0) >= cutoff }
-                .flatMap { readEvents(of: shardFile(for: $0)) }
-            events.append(contentsOf: readEvents(of: file))
-            events.append(contentsOf: pending)
-            return events.filter { $0.t >= cutoff }
+            var events: [ObservationEvent] = []
+            for month in shardMonthsLocked() where Self.monthEnd(of: month) >= cutoff {
+                readEvents(of: shardFile(for: month), since: cutoff, into: &events)
+            }
+            readEvents(of: file, since: cutoff, into: &events)
+            events.append(contentsOf: pending.filter { $0.t >= cutoff })
+            return events
         }
     }
 
@@ -543,13 +871,26 @@ public final class EventLog: @unchecked Sendable {
         return recent(days: days, now: now)
     }
 
-    private func readEvents(of url: URL) -> [ObservationEvent] {
-        Self.events(in: LineStore.read(plaintext: url, ring: ring, fileSystem: fileSystem).bytes)
+    private func readEvents(of url: URL, since cutoff: Date? = nil, into events: inout [ObservationEvent]) {
+        Self.append(decoding: LineStore.read(plaintext: url, ring: ring, fileSystem: fileSystem).bytes,
+                    since: cutoff, to: &events)
     }
 
     private static func events(in bytes: Data) -> [ObservationEvent] {
+        var events: [ObservationEvent] = []
+        append(decoding: bytes, to: &events)
+        return events
+    }
+
+    /// The events of a buffer's lines, a line at a time (never an array of
+    /// the lines), kept when they are at `cutoff` or after.
+    private static func append(decoding bytes: Data, since cutoff: Date? = nil, to events: inout [ObservationEvent]) {
         let decoder = makeDecoder()
-        return LineStore.lines(bytes).compactMap { try? decoder.decode(ObservationEvent.self, from: $0) }
+        LineStore.forEachLine(bytes) { range in
+            guard let event = try? decoder.decode(ObservationEvent.self, from: bytes[range]) else { return }
+            if let cutoff, event.t < cutoff { return }
+            events.append(event)
+        }
     }
 
     /// Static and path-only on purpose: safe for a process that only reads

@@ -197,7 +197,7 @@ final class SpeechStartLoopTests: XCTestCase {
         XCTAssertEqual(run.said, [])
         let said = speech(lines.all)
         XCTAssertEqual(said.count, 1, "\(said)")
-        XCTAssertTrue(said[0].contains("INFO draft speech=\"audio start failed\" attempt=1 error=\"engine glitch\""), "\(said)")
+        XCTAssertTrue(said[0].contains("INFO draft speech=\"audio start failed\" attempt=1 error=Glitch()"), "\(said)")
     }
 
     /// The settle is waited on Stoic's clock, so a test moves it: no second

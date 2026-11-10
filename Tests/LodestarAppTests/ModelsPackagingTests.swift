@@ -19,7 +19,7 @@ final class ModelsPackagingTests: XCTestCase {
         XCTAssertEqual(plist["CFBundlePackageType"] as? String, "XPC!")
         let service = try XCTUnwrap(plist["XPCService"] as? [String: Any])
         XCTAssertEqual(service["ServiceType"] as? String, "Application")
-        XCTAssertEqual(service["RunLoopType"] as? String, "NSRunLoop")
+        XCTAssertNil(service["RunLoopType"], "StoicXPC's host parks the main thread in dispatchMain itself")
         XCTAssertNil(service["JoinExistingSession"], "files and the GPU are not per-session resources")
 
         let makeApp = try String(contentsOf: root.appendingPathComponent("scripts/make-app.sh"), encoding: .utf8)
@@ -56,5 +56,23 @@ final class ModelsPackagingTests: XCTestCase {
                              "\(directory)/\(file.lastPathComponent) imports MLX")
             }
         }
+    }
+
+    /// Both services are hosted with the build the app is given, which the
+    /// handshake compares, and the models service idles out after the
+    /// period `Models` names: what the host is made with is in their main
+    /// files, where only a launch by launchd runs it.
+    func testTheServicesAreHostedWithTheAppsBuildAndTheModelsIdleExit() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let models = try String(contentsOf: root.appendingPathComponent("Sources/LodestarModels/main.swift"), encoding: .utf8)
+        XCTAssertTrue(models.contains("XPCHost(build: Build.id, policy: XPCHostPolicy(idleExit: Models.idleExit))"))
+        XCTAssertTrue(models.contains("ModelsService(host: host, engine: MLXModelsEngine())"))
+        let reader = try String(contentsOf: root.appendingPathComponent("Sources/LodestarClipboardReader/main.swift"), encoding: .utf8)
+        XCTAssertTrue(reader.contains("XPCHost(build: Build.id)"))
+        XCTAssertTrue(reader.contains("PasteboardReaderService(host: host)"))
+        let app = try String(contentsOf: root.appendingPathComponent("Sources/lodestar/ModelsClient.swift"), encoding: .utf8)
+        XCTAssertTrue(app.contains("XPCPeer(service: Models.serviceName, build: Build.id)"))
+        let pasteboard = try String(contentsOf: root.appendingPathComponent("Sources/lodestar/PasteboardReader.swift"), encoding: .utf8)
+        XCTAssertTrue(pasteboard.contains("XPCPeer(service: PasteboardRead.serviceName, build: Build.id)"))
     }
 }

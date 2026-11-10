@@ -105,7 +105,8 @@ enum SelfTest {
             print("self-test FAILED: the bundle carries no models service at \(service.path)")
             return false
         }
-        let client = ModelsClient()
+        // The process's one peer of the service (design/25, rule 2).
+        let client = ModelsClient.shared
         let started = Date()
         let answer = Box<Result<ModelsCheck, Error>>()
         let task = Task.detached {
@@ -115,7 +116,6 @@ enum SelfTest {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
         task.cancel()
-        client.end(reason: "self-test done")
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         switch answer.value {
         case .success(let check) where check.pid != getpid():
@@ -159,7 +159,7 @@ enum SelfTest {
         let text = "self-test \(UUID().uuidString)"
         board.clearContents()
         board.setString(text, forType: .string)
-        let reader = XPCPasteboardReader(boardName: board.name.rawValue, deadline: timeout)
+        let reader = XPCPasteboardReader(boardName: board.name.rawValue)
         var answer: PasteboardSnapshot??
         let started = Date()
         reader.read(sourceBundleID: nil, excludedApps: []) { answer = .some($0) }

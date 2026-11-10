@@ -5,8 +5,10 @@
 	<!-- The models service: an XPC service in Contents/XPCServices, the one
 	     process that runs MLX (the editor's and dictation's language models
 	     and the Qwen3-ASR ear). Its bundle identifier is the name the app
-	     connects to (Models.serviceName). An application-type service with
-	     a run loop on its main thread, as the clipboard reader is. It does
+	     connects to (Models.serviceName). An application-type service
+	     served by StoicXPC's XPCHost, which listens by its bundle identifier
+	     and parks the main thread in dispatchMain() (so no RunLoopType,
+	     which only xpc_main reads), as the clipboard reader is. It does
 	     not join the user's session: it reads model files and uses the GPU,
 	     neither a per-session resource, and never the pasteboard, the
 	     keychain or the microphone (the app hears and sends the samples).
@@ -37,8 +39,6 @@
 	<dict>
 		<key>ServiceType</key>
 		<string>Application</string>
-		<key>RunLoopType</key>
-		<string>NSRunLoop</string>
 	</dict>
 </dict>
 </plist>

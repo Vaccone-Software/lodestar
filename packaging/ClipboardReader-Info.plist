@@ -4,9 +4,11 @@
 <dict>
 	<!-- The clipboard's reader: an XPC service in Contents/XPCServices.
 	     Its bundle identifier is the name the app connects to
-	     (PasteboardRead.serviceName). An application-type service with a
-	     run loop on its main thread, because AppKit's pasteboard is read
-	     there. make-app.sh stamps the versions. -->
+	     (PasteboardRead.serviceName). An application-type service served by
+	     StoicXPC's XPCHost, which listens by its bundle identifier and parks
+	     the main thread in dispatchMain(), so the pasteboard is read on the
+	     main queue: no RunLoopType, which only xpc_main reads. make-app.sh
+	     stamps the versions. -->
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
@@ -31,8 +33,6 @@
 	<dict>
 		<key>ServiceType</key>
 		<string>Application</string>
-		<key>RunLoopType</key>
-		<string>NSRunLoop</string>
 		<!-- Apple: true "if the service needs to access the user's
 		     keychain, the pasteboard, or other per-session resources". -->
 		<key>JoinExistingSession</key>

@@ -154,6 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launchStages.enter("launch guard")
         beginLaunchGuard()
         watchdog.start()
+        // The models service's peer takes the ambient context it is made in
+        // (its events' sink), so it is made here, where the run loop's is
+        // bound, and not by whichever queue asks it something first. It
+        // starts no service: one is started by the first call.
+        _ = ModelsClient.shared
         memoryWatch.start()
         // Before any panel exists: the chords a text field answers are
         // routed through the main menu, and an accessory app has none
@@ -3317,12 +3322,13 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
-// Stoic's warnings and errors join the log. The ambient context is bound
+// Stoic's warnings and errors join the log, and so does the XPC services'
+// lifecycle (a run started, ended or lost) at info. The ambient context is bound
 // for everything the run loop calls on this thread (delegate methods,
 // main-queue blocks, timers, notifications) and for the tasks they start.
 // Work on other threads (a global queue, a URLSession completion, a
 // dedicated thread) and Task.detached do not inherit it, and their Stoic
 // events reach the unified log only.
-withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog()]) }) {
+withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog(alsoInfoFor: ["xpc."])]) }) {
     app.run()
 }

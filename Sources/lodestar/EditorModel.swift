@@ -278,11 +278,12 @@ enum EditorModelError: Error, CustomStringConvertible {
 /// up to 50 minutes, with no word to the hand), and a load had no deadline
 /// at all.
 ///
-/// Standard and Full run in the models service (`ModelsClient`), so a
-/// generation that has stopped also ends the service (`onWedged`): a stuck
-/// evaluation is stopped with its process, and the memory with it. A service
-/// that ended for any reason (a crash, launchd letting it go) leaves the
-/// backend lost, and the next sentence loads it again.
+/// Standard and Full run in the models service (`ModelsClient`), where a
+/// request its caller gave up on and that stays unanswered the same twenty
+/// seconds ends the service (`ModelsAPI`'s `ifStuck`, decided by the peer): a
+/// stuck evaluation is stopped with its process, and the memory with it. A
+/// service that ended for any reason (a crash, launchd letting it go) leaves
+/// the backend lost, and the next sentence loads it again.
 actor EditorModel: EditorProofreader {
     typealias Loader = @Sendable (EditorEngine) async throws -> any EditorBackend
     enum State: Equatable { case unloaded, loading, ready, failed(String) }
@@ -329,8 +330,6 @@ actor EditorModel: EditorProofreader {
     /// load took 52 s (the 20 GB model, cold).
     let loadDeadline: TimeInterval
     private let calls: ModelCalls
-    /// A generation stopped answering: ends the models service it runs in.
-    private let onWedged: @Sendable () -> Void
     /// A prompt's beginning is read once with a deadline of its own, the
     /// model's 2.5 s on Full being the longest measured.
     static let warmDeadline: TimeInterval = 30
@@ -343,12 +342,11 @@ actor EditorModel: EditorProofreader {
     static let rewriteDeadline: TimeInterval = 4
 
     init(engine: EditorEngine, idleRelease: TimeInterval = 20 * 60, answerDeadline: TimeInterval = 8,
-         gateWait: TimeInterval = 3, loadDeadline: TimeInterval = 60, stuckAfter: TimeInterval = 20,
+         gateWait: TimeInterval = 3, loadDeadline: TimeInterval = 60, stuckAfter: TimeInterval = ModelCalls.defaultStuckAfter,
          gate: MLXGate = .shared,
          loader: @escaping Loader = EditorModel.load,
          // The service clears MLX's cache itself when it lets a model go.
          clearCache: @escaping @Sendable () -> Void = {},
-         onWedged: @escaping @Sendable () -> Void = { ModelsClient.shared.end(reason: "editor.model wedged") },
          holdClock: @escaping @Sendable () -> Date = { Date() },
          memoryLevel: @escaping @Sendable () -> MemoryLevel = { .current }) {
         self.engine = engine
@@ -361,7 +359,6 @@ actor EditorModel: EditorProofreader {
         self.calls = ModelCalls(name: "editor.model", gate: gate, stuckAfter: stuckAfter)
         self.loader = loader
         self.clearCache = clearCache
-        self.onWedged = onWedged
     }
 
     nonisolated var ability: ModelAbility { calls.ability }
@@ -530,7 +527,6 @@ actor EditorModel: EditorProofreader {
         let lost = calls.recoverIfStuck()
         guard lost > 0 else { return }
         dropBackend()
-        onWedged()
         Log.info("editor", ["recovered": "the model stopped answering", "generations": lost, "engine": engine.rawValue])
     }
 

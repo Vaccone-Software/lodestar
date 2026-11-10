@@ -45,8 +45,47 @@ enum SpeechStart {
     /// not opened in a second is not saving the wait it was for.
     static let bridgeDeadline: TimeInterval = 1
 
+    /// One deadline label for each thing that can hang, because a label's
+    /// slots are shared by everything under it: the audio start, the bridge
+    /// and the recognizer's own waits once shared `speech.start`, so a
+    /// headset start that never came back, and the bridge that hung behind
+    /// it on the same queue, filled the four slots, and the recognizer's
+    /// `prepareToAnalyze`, which was fine, was refused in the same
+    /// millisecond and blamed. Each now fills only its own.
+    enum Label {
+        static let prepare = "speech.prepare"
+        static let bridge = "speech.bridge"
+        static let start = "speech.start"
+    }
+
     struct TimedOut: Error, CustomStringConvertible {
         var description: String { "the microphone did not answer" }
+    }
+
+    /// Every slot of a label holds a call that never came back: asking
+    /// again does not unwedge it, only the stuck call returning does. Said
+    /// apart from `TimedOut` so the audio start's wedge is not reported as
+    /// a start that merely failed and retried on a timer.
+    struct Wedged: Error, CustomStringConvertible {
+        let label: String
+        var description: String { "\(label) is wedged" }
+    }
+
+    /// The recognizer's own preparation and start, under its own label.
+    static func prepare<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withDeadline(prepareDeadline, label: Label.prepare, work)
+    }
+
+    /// The bridge microphone's opening, under its own label.
+    static func openBridge<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withDeadline(bridgeDeadline, label: Label.bridge, work)
+    }
+
+    /// The headset's audio start, which is the one that wedges: it waits
+    /// on an engine queue with CoreAudio on it.
+    static func startAudio<T: Sendable>(within seconds: TimeInterval,
+                                        _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withDeadline(seconds, label: Label.start, work)
     }
 
     /// Run `work`, or give up on it. Whatever is still waiting is left to
@@ -68,11 +107,12 @@ enum SpeechStart {
     ///
     /// A label holds at most `limit` of these, running or abandoned, and
     /// refuses once every slot is held by a start that never came back —
-    /// a wedged audio stack, which asking again does not unwedge. That
-    /// reads as a spent deadline too.
+    /// a wedged audio stack, which asking again does not unwedge. That is
+    /// `Wedged`, not a spent deadline. The label is always named, so no
+    /// caller shares slots with another by leaving it out.
     static func withDeadline<T: Sendable>(
         _ seconds: TimeInterval,
-        label: String = "speech.start",
+        label: String,
         limit: Int = 4,
         _ work: @escaping @Sendable () async throws -> T
     ) async throws -> T {
@@ -87,7 +127,7 @@ enum SpeechStart {
             case .rejected(let rejection):
                 if rejection.isCancellation { throw CancellationError() }
                 if rejection.reason == .abandonmentLimit {
-                    Log.error("speech: \(label) is wedged — every slot holds a start that never came back")
+                    throw Wedged(label: label)
                 }
                 throw TimedOut()
             }
@@ -1294,7 +1334,7 @@ private actor AnalyzerBox {
         self.analyzer = analyzer
         var prepared: AVAudioFormat?
         do {
-            prepared = try await SpeechStart.withDeadline(SpeechStart.prepareDeadline) {
+            prepared = try await SpeechStart.prepare {
                 let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
                 try await analyzer.prepareToAnalyze(in: format)
                 return format
@@ -1326,7 +1366,7 @@ private actor AnalyzerBox {
         self.continuation = continuation
         guard let outFormat = format else { say(.failed("the recognizer has no audio format")); return }
         do {
-            try await SpeechStart.withDeadline(SpeechStart.prepareDeadline) {
+            try await SpeechStart.prepare {
                 try await analyzer.start(inputSequence: stream)
             }
         } catch {
@@ -1452,7 +1492,7 @@ private actor AnalyzerBox {
         let bridge = self.bridge
         let ticket = bridge.reserveTicket()
         bridgeTicket = ticket
-        let opened = (try? await SpeechStart.withDeadline(SpeechStart.bridgeDeadline) {
+        let opened = (try? await SpeechStart.openBridge {
             await withCheckedContinuation { continuation in
                 bridge.start(device: builtIn, ticket: ticket, sink: { gate.fromBridge($0) }) {
                     continuation.resume(returning: $0)
@@ -1515,7 +1555,7 @@ private actor AnalyzerBox {
         // the microphone" until it was closed and opened again. A
         // deadline turns that into an attempt that failed, which the
         // loop above can retry and the register line can report.
-        try await SpeechStart.withDeadline(seconds) {
+        try await SpeechStart.startAudio(within: seconds) {
             try await withCheckedThrowingContinuation { continuation in
                 Task { @MainActor in
                     guard stillWanted() else {

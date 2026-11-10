@@ -244,7 +244,7 @@ struct UninstallPlan {
     }
 
     /// An instance launchd does not supervise, found by the pid file.
-    private static func stopInstance(_ pidFile: URL) {
+    static func stopInstance(_ pidFile: URL) {
         guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
               let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
               pid != ProcessInfo.processInfo.processIdentifier, kill(pid, 0) == 0

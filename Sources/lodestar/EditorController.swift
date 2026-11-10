@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import Stoic
 
 /// What the lens needs from the editor — the seam the scenarios fake.
 protocol EditorLens: AnyObject {
@@ -184,6 +185,40 @@ final class EditorController: EditorLens {
         hover?.ignore = { [weak self] mark in self?.ignore(mark, via: "mouse") }
         hover?.learn = { [weak self] mark in self?.learn(mark, via: "mouse") }
         hover?.learnable = { [weak self] mark in self.map { Self.isName(mark.issue, language: $0.language) } ?? false }
+        // The one task that tells the model its settings, in the order they
+        // were decided. It ends when the controller goes (`deinit`).
+        Task { [settings, proofreader] in
+            for await setting in settings {
+                switch setting {
+                case .language(let language): await proofreader.setLanguage(language)
+                case .engine(let engine): await proofreader.setEngine(engine)
+                }
+            }
+        }
+    }
+
+    deinit { settings.finish() }
+
+    /// A setting the model is told: its spelling region, its engine.
+    private enum Setting: Sendable {
+        case language(String)
+        case engine(EditorEngine)
+    }
+
+    /// The settings on their way to the model, in order. Each was once told
+    /// in a task of its own, and two tasks run in whichever order they are
+    /// given threads: a region set and set again a moment later could reach
+    /// the model newest first and leave it with the older one, for good (a
+    /// config applied at launch and reloaded is two such in a row). One
+    /// channel and one task that reads it keep the order they were decided
+    /// in. Sixty-four is far more than are ever waiting (a setting changes
+    /// when a person changes it), and a send that finds it full says so.
+    private let settings = Channel<Setting>(capacity: 64, label: "editor.settings")
+
+    private func tell(_ setting: Setting) {
+        if !settings.trySend(setting) {
+            Log.error("editor: a setting could not be told to the model, \(settings.count) are waiting")
+        }
     }
 
     // MARK: - Configuration
@@ -192,8 +227,7 @@ final class EditorController: EditorLens {
                skipApps: Set<String>) {
         if language != self.language || !languageSent {
             languageSent = true
-            let proofreader = self.proofreader
-            Task { await proofreader.setLanguage(language) }
+            tell(.language(language))
         }
         self.language = language
         let session = self.session
@@ -205,8 +239,7 @@ final class EditorController: EditorLens {
         self.skipApps = skipApps
         if engine != self.engine {
             self.engine = engine
-            let proofreader = self.proofreader
-            Task { await proofreader.setEngine(engine) }
+            tell(.engine(engine))
             // What was waiting for the old model goes.
             queue = []
             inFlight = []

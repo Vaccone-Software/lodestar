@@ -119,9 +119,33 @@ final class FakeProofreader: EditorProofreader, @unchecked Sendable {
     }
 
     let memoryHold = EditorHold()
-    func setEngine(_ engine: EditorEngine) async { lock.withLock { _engines.append(engine) } }
+    func setEngine(_ engine: EditorEngine) async {
+        lock.withLock { _engines.append(engine); _told.append("engine \(engine.rawValue)") }
+    }
     private var _languages: [String] = []
-    func setLanguage(_ language: String) async { lock.withLock { _languages.append(language) } }
+    /// Languages whose telling waits until `letLanguagesGo`: the model can be
+    /// slow to take one in, and what it is told next must still come after.
+    private var _heldLanguages: Set<String> = []
+    private var languageWaiting: [CheckedContinuation<Void, Never>] = []
+    /// Everything it was told, in the order it took each in.
+    private var _told: [String] = []
+    var told: [String] { lock.withLock { _told } }
+    var languagesWaiting: Int { lock.withLock { languageWaiting.count } }
+    func holdLanguages(_ languages: Set<String>) { lock.withLock { _heldLanguages = languages } }
+    func letLanguagesGo() {
+        let resumed: [CheckedContinuation<Void, Never>] = lock.withLock {
+            _heldLanguages = []
+            defer { languageWaiting = [] }
+            return languageWaiting
+        }
+        resumed.forEach { $0.resume() }
+    }
+    func setLanguage(_ language: String) async {
+        if lock.withLock({ _heldLanguages.contains(language) }) {
+            await withCheckedContinuation { continuation in lock.withLock { languageWaiting.append(continuation) } }
+        }
+        lock.withLock { _languages.append(language); _told.append("language \(language)") }
+    }
     var languagesSet: [String] { lock.withLock { _languages } }
     private var _prepared = 0
     var prepared: Int { lock.withLock { _prepared } }
@@ -154,7 +178,8 @@ final class EditorRig {
     final class Level { var now: MemoryLevel = .normal }
     let level = Level()
 
-    init(hover: Bool = false, skipApps: Set<String> = []) {
+    init(hover: Bool = false, skipApps: Set<String> = [], heldLanguages: Set<String> = []) {
+        reader.holdLanguages(heldLanguages)
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("editor-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1384,6 +1409,29 @@ final class EditorPromptRegionTests: XCTestCase {
         let rig = EditorRig()
         rig.controller.apply(enabled: true, engine: .standard, language: "en_GB", vocabulary: [], skipApps: [])
         rig.settle("told") { rig.reader.languagesSet.last == "en_GB" }
+    }
+
+    /// What the controller tells the model reaches it in the order it was
+    /// decided. Each used to go in a task of its own, and two tasks run in
+    /// whichever order they are given threads: a region set and then set
+    /// again could leave the model with the older one, for good. Here the
+    /// first is slow to be taken in, which is all the second needed to
+    /// overtake it.
+    func testWhatIsToldLaterIsTakenInLater() throws {
+        let rig = EditorRig(heldLanguages: ["en_US"])
+        rig.settle("the first is being told") { rig.reader.languagesWaiting == 1 }
+        rig.controller.apply(enabled: true, engine: .full, language: "en_GB", vocabulary: [], skipApps: [])
+        // Every chance to overtake: nothing may be taken in while the first waits.
+        let until = Date().addingTimeInterval(0.5)
+        while Date() < until { Stage.pump() }
+        XCTAssertEqual(rig.reader.told.filter { $0 != "engine standard" }, [],
+                       "nothing told later is taken in while the first is still being told")
+        rig.reader.letLanguagesGo()
+        rig.settle("all told") { rig.reader.told.count >= 3 }
+        let told = rig.reader.told
+        XCTAssertEqual(told.filter { $0.hasPrefix("language") }, ["language en_US", "language en_GB"])
+        XCTAssertLessThan(try XCTUnwrap(told.firstIndex(of: "language en_US")),
+                          try XCTUnwrap(told.firstIndex(of: "engine full")), "and the engine set after it comes after it")
     }
 }
 

@@ -145,5 +145,9 @@ final class LoginItemTests: XCTestCase {
         try Data("x".utf8).write(to: URL(fileURLWithPath: file))
         XCTAssertFalse(CLILink.isLodestars(file))
         XCTAssertFalse(CLILink.isLodestars(folder.appendingPathComponent("absent").path))
+        let capital = folder.appendingPathComponent("capital").path
+        try FileManager.default.createSymbolicLink(
+            atPath: capital, withDestinationPath: "/Applications/Lodestar.app/Contents/MacOS/lodestar")
+        XCTAssertTrue(CLILink.isLodestars(capital), "the start volume ignores case")
     }
 }

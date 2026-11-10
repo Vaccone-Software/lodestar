@@ -423,12 +423,19 @@ enum CLILink {
     }
 
     /// What a link of ours points at: the binary of an app bundle named lodestar.app.
-    private static let bundleBinarySuffix = "/lodestar.app/Contents/MacOS/lodestar"
+    private static let bundleBinarySuffix = "/lodestar.app/contents/macos/lodestar"
+
+    /// Whether `destination` is the binary of a lodestar.app, in any case:
+    /// the volume a Mac starts from ignores case, so `Lodestar.app` is the
+    /// same app.
+    private static func isBundleBinary(_ destination: String) -> Bool {
+        destination.lowercased().hasSuffix(bundleBinarySuffix)
+    }
 
     /// Whether `path` is a symbolic link to a Lodestar app's binary.
     static func isLodestars(_ path: String) -> Bool {
         guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else { return false }
-        return destination.hasSuffix(bundleBinarySuffix)
+        return isBundleBinary(destination)
     }
 
     /// Makes `link` point at `target`, replacing only what is Lodestar's to
@@ -451,7 +458,7 @@ enum CLILink {
         }
         if destination == target { return .current }
         let resolved = URL(fileURLWithPath: destination, relativeTo: URL(fileURLWithPath: link).deletingLastPathComponent()).path
-        if destination.hasSuffix(bundleBinarySuffix) || !fileManager.fileExists(atPath: resolved) {
+        if isBundleBinary(destination) || !fileManager.fileExists(atPath: resolved) {
             return place(target, at: link, replacing: destination)
         }
         return .leftAlone("it links to \(destination)")

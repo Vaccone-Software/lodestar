@@ -135,15 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             at: Paths.data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let guardian = RunMarker.launchGuard(in: Paths.data, build: Lodestar.version)
         launchGuard = guardian
-        launchMode = RunMarker.Mode(guardian.beginLaunch())
-        if case .safe(let unclean) = launchMode {
-            Log.error("launch guard", [
-                "unclean-launches": unclean,
-                "mode": "safe",
-                "effect": "the main-thread watchdog logs a stall instead of aborting",
-            ])
-            watchdog.response = .logOnly
-        }
+        launchMode = LaunchEntry.begin(guardian, watchdog: watchdog)
         guardian.markStable(after: RunMarker.stableAfter)
     }
 

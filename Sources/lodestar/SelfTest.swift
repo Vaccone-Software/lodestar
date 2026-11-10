@@ -17,8 +17,14 @@ enum SelfTest {
     static func run(seconds: TimeInterval = 2) -> Bool {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-self-test-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        Log.attempt("self-test: could not make the scratch folder") {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer {
+            Log.attemptUnlessAbsent("self-test: could not remove the scratch folder") {
+                try FileManager.default.removeItem(at: directory)
+            }
+        }
         // A scratch directory gets a scratch key: never the person's keychain.
         let monitor = HealthMonitor(directory: directory,
                                     vault: Vault(custody: InMemoryKeyCustody(), directory: directory))

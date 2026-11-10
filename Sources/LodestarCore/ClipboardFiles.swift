@@ -162,7 +162,9 @@ public struct ClipboardFiles: Sendable {
         // bytes are never written readable by anyone else.
         if let mode = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.posixPermissions] as? Int,
            mode & 0o077 != 0 {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            Log.attempt("clipboard: could not narrow a sealed file to owner-only before replacing it") {
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            }
         }
         do {
             try sealedFile.write(plain, to: url.path, context: context, key: key)

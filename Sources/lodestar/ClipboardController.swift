@@ -646,7 +646,10 @@ final class ClipboardController {
         // to accumulate until the next launch or quit sweeps them.
         handedOverFiles.append(url)
         while handedOverFiles.count > Self.handedOverLimit {
-            try? FileManager.default.removeItem(at: handedOverFiles.removeFirst())
+            let oldest = handedOverFiles.removeFirst()
+            Log.attemptUnlessAbsent("clipboard: could not remove an old handed over file") {
+                try FileManager.default.removeItem(at: oldest)
+            }
         }
         return url
     }

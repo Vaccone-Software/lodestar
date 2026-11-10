@@ -107,6 +107,9 @@ let package = Package(
             .product(name: "StoicApple", package: "stoic"),
             .product(name: "StoicXPC", package: "stoic"),
             .product(name: "StoicTime", package: "stoic"),
+            // Presenter.foundation, installed at launch: how a failure of
+            // Foundation's is worded for a person.
+            .product(name: "StoicFoundation", package: "stoic"),
         ]),
         // The clipboard's reader: an XPC service the app carries in
         // Contents/XPCServices (scripts/make-app.sh assembles it), so a copy

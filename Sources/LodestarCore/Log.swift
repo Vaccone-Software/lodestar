@@ -165,6 +165,7 @@ public final class AppendingFile {
             if stat(url.path, &onDisk) == 0, onDisk.st_ino == inode { return }
             closeDescriptor()
         }
+        // stoic:allow(discarded-try): the log cannot log its own failure (this runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); a folder that could not be made makes the open just below fail, and the append then does nothing.
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         descriptor = open(url.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)
@@ -187,10 +188,13 @@ public final class AppendingFile {
         closeDescriptor()
         let fm = FileManager.default
         let base = url.path
+        // stoic:allow(discarded-try): the log cannot log its own failure (rotation runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); a rotation that fails leaves the file over its bound and the next append rotates again.
         try? fm.removeItem(atPath: "\(base).\(keptRotations)")
         for index in stride(from: keptRotations - 1, through: 1, by: -1) {
+            // stoic:allow(discarded-try): the log cannot log its own failure (rotation runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); a step that fails leaves the file over its bound and the next append rotates again.
             try? fm.moveItem(atPath: "\(base).\(index)", toPath: "\(base).\(index + 1)")
         }
+        // stoic:allow(discarded-try): the log cannot log its own failure (rotation runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); if the move fails the file stays at its path, over its bound, and the next append rotates again.
         try? fm.moveItem(atPath: base, toPath: "\(base).1")
     }
 }

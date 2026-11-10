@@ -220,7 +220,7 @@ final class LineJournal {
     }
 
     func close() {
-        if let journal { try? journal.close() }
+        if let journal { Log.attempt("line store: could not close its journal") { try journal.close() } }
         journal = nil
     }
 

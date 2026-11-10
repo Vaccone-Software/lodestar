@@ -1317,11 +1317,11 @@ public final class EventLog: @unchecked Sendable {
             pending = []
             live.close()
             RecordFiles.removeJournal(live.path, fileSystem: fileSystem)
-            try? fileSystem.remove(file.path)
+            Log.attemptUnlessAbsent("event log: could not remove the cleared log file") { try fileSystem.remove(file.path) }
             for month in shardMonthsLocked() {
                 let shard = shardFile(for: month)
                 RecordFiles.removeJournal(LineStore.journalPath(forPlaintext: shard), fileSystem: fileSystem)
-                try? fileSystem.remove(shard.path)
+                Log.attemptUnlessAbsent("event log: could not remove a cleared month") { try fileSystem.remove(shard.path) }
             }
         }
     }

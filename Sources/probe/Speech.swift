@@ -50,7 +50,12 @@ func runSpeech(_ args: inout [String]) {
                             cycle: cycle, requestSpeechAuth: requestSpeechAuth, file: file)
     probe.onMain = onMain
     Task {
-        do { try await probe.run() } catch { print("✕ \(error)") }
+        do {
+            try await probe.run()
+        } catch {
+            print("✕ \(error)")
+            exit(1)
+        }
         exit(0)
     }
     RunLoop.main.run()
@@ -131,7 +136,8 @@ final class SpeechProbe: @unchecked Sendable {
                 let progress = request.progress
                 let ticker = Task {
                     while !Task.isCancelled {
-                        try? await Task.sleep(for: .seconds(2))
+                        // The sleep throws only CancellationError: the ticker was cancelled.
+                        do { try await Task.sleep(for: .seconds(2)) } catch { break }
                         self.log(String(format: "  %.0f%%", progress.fractionCompleted * 100))
                     }
                 }
@@ -210,7 +216,7 @@ final class SpeechProbe: @unchecked Sendable {
         let finStart = Date()
         try await analyzer.finalizeAndFinishThroughEndOfInput()
         log(String(format: "finalize took %.0fms", Date().timeIntervalSince(finStart) * 1000))
-        try? await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(for: .milliseconds(300))
         resultsTask.cancel()
         summary()
     }

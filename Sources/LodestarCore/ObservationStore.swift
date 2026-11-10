@@ -133,7 +133,9 @@ public final class ObservationStore {
         }
         let taken = log.extract(kinds: ObservationEvent.healthKinds)
         healthLog.compact()
-        try? Data().write(to: marker)
+        Log.attempt("observations: could not write the marker that the health events were moved") {
+            try Data().write(to: marker)
+        }
         if !taken.isEmpty { Log.info("observations: moved \(taken.count) health events out of the ring") }
     }
 
@@ -711,13 +713,23 @@ public final class ObservationStore {
             let archive = name.hasPrefix("health-") && (name.hasSuffix(".jsonl.z")
                 || name.hasSuffix(".jsonl.z" + RecordFiles.archiveSealedSuffix))
             let aside = name.hasPrefix("health-unreadable-")
-            if archive || aside { try? fileSystem.removeTree(root + "/" + name) }
+            if archive || aside {
+                Log.attemptUnlessAbsent("observations: could not remove a health archive", ["name": name]) {
+                    try fileSystem.removeTree(root + "/" + name)
+                }
+            }
         }
         for name in [KeyStore.subdirectory, PointerStore.subdirectory, "era.json", "blind.json", Person.file, Install.file,
                      ".health-split"] {
-            try? fileSystem.removeTree(root + "/" + name)
+            Log.attemptUnlessAbsent("observations: could not remove a health file", ["name": name]) {
+                try fileSystem.removeTree(root + "/" + name)
+            }
         }
-        for stray in ["era.json.sealing", "blind.json.sealing", Person.file + ".sealing"] { try? fileSystem.remove(root + "/" + stray) }
+        for stray in ["era.json.sealing", "blind.json.sealing", Person.file + ".sealing"] {
+            Log.attemptUnlessAbsent("observations: could not remove a health file", ["name": stray]) {
+                try fileSystem.remove(root + "/" + stray)
+            }
+        }
         rollupQueue.sync {
             if !Rollup.clearHealth(file: rollupFile, ring: vault.ring(.logbook), fileSystem: fileSystem) {
                 Log.error("observations: the monthly rollup could not be read, so its health summaries were left in it")
@@ -739,13 +751,15 @@ public final class ObservationStore {
         saveQueue.sync {}
         rollupQueue.sync {}
         log.clear()
-        try? fileSystem.remove(file.path)
+        Log.attemptUnlessAbsent("observations: could not remove the logbook file") { try fileSystem.remove(file.path) }
         // The archive is history too: cleared means cleared, months and
         // all — deletability is half the consent.
-        try? fileSystem.remove(rollupFile.path)
+        Log.attemptUnlessAbsent("observations: could not remove the monthly rollup") { try fileSystem.remove(rollupFile.path) }
         let root = file.deletingLastPathComponent().path
         for name in RecordFiles.names(in: root, fileSystem: fileSystem) where name.hasPrefix("logbook-unreadable-") {
-            try? fileSystem.removeTree(root + "/" + name)
+            Log.attemptUnlessAbsent("observations: could not remove an unreadable logbook", ["name": name]) {
+                try fileSystem.removeTree(root + "/" + name)
+            }
         }
         viewBlocked.withLock { $0 = false }
         vault.ring(.logbook).destroy()
@@ -763,8 +777,14 @@ public final class ObservationStore {
     }
 
     public func requestClear(logbook: Bool = true, health: Bool = true) {
-        if logbook { try? Data().write(to: clearRequestFile) }
-        if health { try? Data().write(to: healthClearRequestFile) }
+        if logbook {
+            Log.attempt("observations: could not write the request to clear the logbook") { try Data().write(to: clearRequestFile) }
+        }
+        if health {
+            Log.attempt("observations: could not write the request to clear the health record") {
+                try Data().write(to: healthClearRequestFile)
+            }
+        }
     }
 
     /// Which clears the CLI asked for, consumed.
@@ -772,8 +792,10 @@ public final class ObservationStore {
         let fm = FileManager.default
         let logbook = fm.fileExists(atPath: clearRequestFile.path)
         let health = fm.fileExists(atPath: healthClearRequestFile.path)
-        try? fm.removeItem(at: clearRequestFile)
-        try? fm.removeItem(at: healthClearRequestFile)
+        Log.attemptUnlessAbsent("observations: could not remove the logbook clear request") { try fm.removeItem(at: clearRequestFile) }
+        Log.attemptUnlessAbsent("observations: could not remove the health clear request") {
+            try fm.removeItem(at: healthClearRequestFile)
+        }
         return (logbook, health)
     }
 

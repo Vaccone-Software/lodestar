@@ -182,7 +182,9 @@ public enum ConfigHistory {
             lines += line + "\n"
         }
         let fm = FileManager.default
-        try? fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        Log.attempt("config history: could not make the history folder") {
+            try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
         // An O_APPEND open that creates the file when it is not there and
         // never replaces it when it is: the old fallback wrote a new file
         // holding only these lines over a history that merely failed to open.

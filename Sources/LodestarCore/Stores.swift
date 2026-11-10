@@ -121,9 +121,13 @@ public enum Quarantine {
             .replacingOccurrences(of: ":", with: "-")
         let quarantine = file.appendingPathExtension("corrupt-\(stamp)")
         if keepOriginal {
-            try? FileManager.default.copyItem(at: file, to: quarantine)
+            Log.attempt("stores: could not copy an unreadable file aside", ["file": file.lastPathComponent]) {
+                try FileManager.default.copyItem(at: file, to: quarantine)
+            }
         } else {
-            try? FileManager.default.moveItem(at: file, to: quarantine)
+            Log.attempt("stores: could not move an unreadable file aside", ["file": file.lastPathComponent]) {
+                try FileManager.default.moveItem(at: file, to: quarantine)
+            }
         }
         return quarantine
     }

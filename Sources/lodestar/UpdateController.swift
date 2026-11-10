@@ -165,7 +165,9 @@ final class UpdateController {
     func start() {
         announceMarkers()
         guard installURL != nil else { return }
-        try? FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
+        Log.attempt("update: could not make the update folder") {
+            try FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
+        }
         worker.async { self.clearStaging() }
         // First check well clear of the login rush; the leftover .previous
         // bundle from the last swap is long past its watchdog by then.
@@ -177,10 +179,14 @@ final class UpdateController {
             if case .idle = self.phase, let install = self.installURL {
                 let previous = install.deletingLastPathComponent()
                     .appendingPathComponent("lodestar.app.previous")
-                try? FileManager.default.removeItem(at: previous)
+                Log.attemptUnlessAbsent("update: could not remove the previous bundle") {
+                    try FileManager.default.removeItem(at: previous)
+                }
                 // And the failed build a rollback set aside, if the
                 // watchdog stopped before deleting it.
-                try? FileManager.default.removeItem(at: previous.appendingPathExtension("failed"))
+                Log.attemptUnlessAbsent("update: could not remove the failed bundle a rollback set aside") {
+                    try FileManager.default.removeItem(at: previous.appendingPathExtension("failed"))
+                }
             }
             self.check(force: false)
         }
@@ -205,8 +211,12 @@ final class UpdateController {
     /// else). The instance that says ready retires them, and the rollback
     /// marker is also retired by the instance that says the rollback.
     func acknowledgeBoot() {
-        try? FileManager.default.removeItem(at: Self.updatedMarker)
-        try? FileManager.default.removeItem(at: Self.rolledBackMarker)
+        Log.attemptUnlessAbsent("update: could not retire the updated marker") {
+            try FileManager.default.removeItem(at: Self.updatedMarker)
+        }
+        Log.attemptUnlessAbsent("update: could not retire the rolled back marker") {
+            try FileManager.default.removeItem(at: Self.rolledBackMarker)
+        }
     }
 
     private func announceMarkers() {
@@ -227,7 +237,9 @@ final class UpdateController {
                 // re-applied it — 194 relaunches in a night, each one
                 // restoring parked windows on the way out. Refused the way
                 // a rollback is refused, until a newer release ships.
-                try? FileManager.default.removeItem(at: updated)
+                Log.attemptUnlessAbsent("update: could not remove the updated marker of a build that did not change the binary") {
+                    try FileManager.default.removeItem(at: updated)
+                }
                 Self.writeMarker(version, to: Self.refusedFile, what: "the refusal tombstone",
                                  consequence: "this release will be offered, applied and relaunched again at the next check — a relaunch loop")
                 Log.error("update to \(version) did not change the binary — still \(Lodestar.version); refusing it until a newer release ships")
@@ -248,7 +260,9 @@ final class UpdateController {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
                 guard let self else { return }
                 self.flash("⚠ \(version) did not start, so Lodestar went back to \(Lodestar.version)")
-                try? FileManager.default.removeItem(at: rolledBack)
+                Log.attemptUnlessAbsent("update: could not remove the rolled back marker after announcing it") {
+                    try FileManager.default.removeItem(at: rolledBack)
+                }
             }
         }
     }
@@ -436,9 +450,11 @@ final class UpdateController {
 
     private func stage(zip: URL, release: Updater.Release, force: Bool) {
         let staging = Self.directory.appendingPathComponent("staged", isDirectory: true)
-        try? FileManager.default.removeItem(at: staging)
+        Log.attemptUnlessAbsent("update: could not clear the staging folder") {
+            try FileManager.default.removeItem(at: staging)
+        }
         guard step("unpack", force: force, "/usr/bin/ditto", "-x", "-k", zip.path, staging.path) else { return }
-        try? FileManager.default.removeItem(at: zip)
+        Log.attemptUnlessAbsent("update: could not remove the downloaded zip") { try FileManager.default.removeItem(at: zip) }
         let bundle = staging.appendingPathComponent("lodestar.app")
 
         // The gate, in three locks: integrity, identity, and the version
@@ -509,8 +525,12 @@ final class UpdateController {
     }
 
     private func clearStaging() {
-        try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent("download.zip"))
-        try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent("staged"))
+        Log.attemptUnlessAbsent("update: could not clear the downloaded zip") {
+            try FileManager.default.removeItem(at: Self.directory.appendingPathComponent("download.zip"))
+        }
+        Log.attemptUnlessAbsent("update: could not clear the staging folder") {
+            try FileManager.default.removeItem(at: Self.directory.appendingPathComponent("staged"))
+        }
     }
 
     /// How long one of the staging tools may take. `ditto` unpacking a
@@ -690,7 +710,9 @@ final class UpdateController {
                 try files.moveItem(at: bundle, to: install)
             } catch {
                 if !files.fileExists(atPath: install.path), files.fileExists(atPath: previous.path) {
-                    try? files.moveItem(at: previous, to: install)
+                    Log.attempt("update: could not put the previous bundle back after a failed swap") {
+                        try files.moveItem(at: previous, to: install)
+                    }
                 }
                 throw error
             }
@@ -700,7 +722,9 @@ final class UpdateController {
         do {
             try files.moveItem(at: bundle, to: previous)
         } catch {
-            try? PosixFileSystem().exchange(bundle.path, install.path)
+            Log.attempt("update: could not exchange the bundles back after a failed move") {
+                try PosixFileSystem().exchange(bundle.path, install.path)
+            }
             throw error
         }
     }

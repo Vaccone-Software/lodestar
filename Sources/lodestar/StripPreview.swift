@@ -693,7 +693,9 @@ enum StripPreview {
             // Finder in front. 143 opens the PDF large in the door.
             let folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("lodestar-stage-files", isDirectory: true)
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            Log.attempt("strip-preview: could not make the folder for the staged files") {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            }
             let pdf = folder.appendingPathComponent("Q3 report.pdf")
             let photo = folder.appendingPathComponent("Beach.jpeg")
             let chart = folder.appendingPathComponent("Revenue chart.png")
@@ -701,8 +703,10 @@ enum StripPreview {
             stagePDF(at: pdf)
             stagePicture(at: photo, chart: false)
             stagePicture(at: chart, chart: true)
-            try? "Ideas for the offsite\n\nA walk before lunch.\nThe roadmap, one page.\n"
-                .write(to: note, atomically: true, encoding: .utf8)
+            Log.attempt("strip-preview: could not write the staged note") {
+                try "Ideas for the offsite\n\nA walk before lunch.\nThe roadmap, one page.\n"
+                    .write(to: note, atomically: true, encoding: .utf8)
+            }
             if variant == 143 {
                 let door = ImageDoor()
                 let facts = FileSense.fact(for: pdf)

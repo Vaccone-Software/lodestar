@@ -84,7 +84,9 @@ enum ConfigDoctor {
     /// Write the editor-facing JSON Schema next to the config, generated
     /// from the same schema that validates reloads — they cannot drift.
     static func emitSchema() {
-        try? Data(ConfigFile.jsonSchemaText().utf8).write(to: Config.directory.appendingPathComponent("lodestar-schema.json"))
+        Log.attempt("config: could not write the editor schema beside the config") {
+            try Data(ConfigFile.jsonSchemaText().utf8).write(to: Config.directory.appendingPathComponent("lodestar-schema.json"))
+        }
     }
 
     // MARK: - Walks
@@ -127,8 +129,13 @@ func runConfigCheck(json: Bool) -> Never {
         let payload: [String: Any] = ["ok": all.isEmpty, "problems": all,
                                       "config": Config.file.path,
                                       "version": Lodestar.version]
-        let data = try! JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
-        print(String(data: data, encoding: .utf8)!)
+        do {
+            let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+            print(String(decoding: data, as: UTF8.self))
+        } catch {
+            print("✕ could not write the report: \(error)")
+            exit(1)
+        }
         exit(all.isEmpty ? 0 : 1)
     }
     print("Lodestar check · \(Config.file.path)")
@@ -248,6 +255,7 @@ func runResetConfig() -> Never {
         print("✕ \(error)")
         exit(1)
     } catch {
+        // stoic:allow(error-text-shown): printed by the `lodestar reset-config` verb to the person's own terminal, not shown in any panel, where Foundation's sentence about their own file is what they came to read.
         print("✕ could not write the default config: \(error.localizedDescription)")
         exit(1)
     }

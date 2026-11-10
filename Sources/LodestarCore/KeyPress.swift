@@ -247,8 +247,12 @@ public enum Install {
             return existing
         }
         let fresh = UUID().uuidString.lowercased()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? fresh.write(to: url, atomically: true, encoding: .utf8)
+        Log.attempt("install: could not make the folder for the install id") {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        Log.attempt("install: could not save the install id, so the next launch makes another") {
+            try fresh.write(to: url, atomically: true, encoding: .utf8)
+        }
         return fresh
     }
 }

@@ -45,7 +45,7 @@ enum AlertSound {
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
             try fresh.write(to: target, options: .atomic)
         } catch {
-            return "failed: \(error.localizedDescription)"
+            return "failed: \(error)"
         }
         return existed ? "replaced" : "installed"
     }
@@ -82,6 +82,8 @@ enum AlertSound {
     /// Remove the installed copy, and the selection if it named it.
     static func remove() {
         if isSelected(installed, selection: currentSelection()) { resetSelection() }
-        try? FileManager.default.removeItem(at: installed)
+        Log.attemptUnlessAbsent("alert-sound: could not remove the installed sound") {
+            try FileManager.default.removeItem(at: installed)
+        }
     }
 }

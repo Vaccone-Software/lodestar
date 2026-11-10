@@ -203,7 +203,9 @@ final class EarHost {
             let model = root.appendingPathComponent(manifest.folder, isDirectory: true)
             let partial = root.appendingPathComponent(".\(manifest.folder).partial", isDirectory: true)
             for url in [model, partial] where FileManager.default.fileExists(atPath: url.path) {
-                try? FileManager.default.removeItem(at: url)
+                Log.attemptUnlessAbsent("draft: could not remove an ear's files", ["name": url.lastPathComponent]) {
+                    try FileManager.default.removeItem(at: url)
+                }
                 if url == model { removed.append(tier) }
                 Log.info("draft", ["ear removed": url.lastPathComponent])
             }

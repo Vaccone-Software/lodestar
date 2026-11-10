@@ -99,8 +99,10 @@ public enum ConfigStore {
     public static func store(at url: URL = Config.file) throws(StoreError) -> Store {
         let path = url.standardizedFileURL.path
         return try registry.store(at: path) { () throws(StoreError) -> Store in
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                     withIntermediateDirectories: true)
+            Log.attempt("config: could not make the config folder") {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+            }
             return try Store.open(at: path, schema: schema, format: .handEdited, options: options())
         }
     }
@@ -341,6 +343,7 @@ extension Config {
         do {
             try fm.copyItem(at: target, to: backup)
         } catch {
+            // stoic:allow(error-text-shown): ResetError is printed only by `lodestar reset-config` to the person's own terminal, where the Foundation sentence is what they should read, and no panel shows it.
             throw ResetError.backupFailed(file: name, reason: error.localizedDescription)
         }
         do {

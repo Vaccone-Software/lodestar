@@ -119,7 +119,11 @@ final class ModelsClient: Sendable {
         let held = resident.withLock { $0.handles.removeValue(forKey: handle) != nil }
         guard held, let run, run == self.run else { return }
         let peer = self.peer
-        Task { _ = try? await peer.call(ModelsAPI.releaseLanguageModel, handle, ifRunning: true) }
+        Task {
+            await Log.attempt("models: could not tell the service to release a language model") {
+                try await peer.call(ModelsAPI.releaseLanguageModel, handle, ifRunning: true)
+            }
+        }
     }
 
     // MARK: The ear
@@ -144,7 +148,11 @@ final class ModelsClient: Sendable {
         }
         guard let run, run == self.run else { return }
         let peer = self.peer
-        Task { _ = try? await peer.call(ModelsAPI.unloadEar, XPCEmpty(), ifRunning: true) }
+        Task {
+            await Log.attempt("models: could not tell the service to unload the ear") {
+                try await peer.call(ModelsAPI.unloadEar, XPCEmpty(), ifRunning: true)
+            }
+        }
     }
 
     // MARK: Asking about it

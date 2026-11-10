@@ -1,6 +1,7 @@
 import AppKit
 import LodestarCore
 import Stoic
+import StoicFoundation
 import StoicStore
 import LodestarEars
 
@@ -131,8 +132,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func beginLaunchGuard() {
         // The data directory is made properly at migration, further down;
         // on the very first launch it may not exist yet.
-        try? FileManager.default.createDirectory(
-            at: Paths.data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        Log.attempt("launch: could not make the data folder") {
+            try FileManager.default.createDirectory(
+                at: Paths.data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
         let guardian = RunMarker.launchGuard(in: Paths.data, build: Lodestar.version)
         launchGuard = guardian
         launchMode = LaunchEntry.begin(guardian, watchdog: watchdog)
@@ -165,8 +168,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // surfaces exist to say that too.
         crashedLastRun = Self.uncleanExitMarkerStands()
         if crashedLastRun { Log.error("the previous run ended uncleanly — recovering") }
-        try? RunMarker.alive(pid: ProcessInfo.processInfo.processIdentifier).write(
-            to: Self.runMarker, atomically: true, encoding: .utf8)
+        Log.attempt("launch: could not write the run marker") {
+            try RunMarker.alive(pid: ProcessInfo.processInfo.processIdentifier).write(
+                to: Self.runMarker, atomically: true, encoding: .utf8)
+        }
         // AppKit exceptions abort the process; the log at least says why.
         NSSetUncaughtExceptionHandler { exception in
             Log.error("uncaught-exception", [
@@ -932,8 +937,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // at the next boot and run the recovery for nothing.
         if let text = try? String(contentsOf: Self.runMarker, encoding: .utf8),
            RunMarker.pid(in: text) == ProcessInfo.processInfo.processIdentifier {
-            try? RunMarker.quitting(pid: ProcessInfo.processInfo.processIdentifier).write(
-                to: Self.runMarker, atomically: true, encoding: .utf8)
+            Log.attempt("quit: could not mark the run as quitting") {
+                try RunMarker.quitting(pid: ProcessInfo.processInfo.processIdentifier).write(
+                    to: Self.runMarker, atomically: true, encoding: .utf8)
+            }
         }
         // A draft still open keeps its text on the pasteboard, as every
         // other exit does.
@@ -979,11 +986,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let text = try? String(contentsOf: Self.pidFile, encoding: .utf8),
            Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
                == ProcessInfo.processInfo.processIdentifier {
-            try? FileManager.default.removeItem(at: Self.pidFile)
+            Log.attemptUnlessAbsent("quit: could not remove the pid file") {
+                try FileManager.default.removeItem(at: Self.pidFile)
+            }
         }
         if let text = try? String(contentsOf: Self.runMarker, encoding: .utf8),
            RunMarker.pid(in: text) == ProcessInfo.processInfo.processIdentifier {
-            try? FileManager.default.removeItem(at: Self.runMarker)
+            Log.attemptUnlessAbsent("quit: could not remove the run marker") {
+                try FileManager.default.removeItem(at: Self.runMarker)
+            }
         }
     }
 
@@ -1006,7 +1017,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func armCoachDemoIfRequested() {
         let flag = Paths.data.appendingPathComponent("coach.demo-request")
         guard FileManager.default.fileExists(atPath: flag.path) else { return }
-        try? FileManager.default.removeItem(at: flag)
+        Log.attemptUnlessAbsent("coach: could not remove the demo request") { try FileManager.default.removeItem(at: flag) }
         let taken = Set(config.graph.leaves().compactMap { $0.chain.first })
         let free = "abcdefghijklmnopqrstuvwxyz".map(String.init).filter { !taken.contains($0) }
         for name in ["Calculator", "Preview", "Notes", "Music", "FaceTime"] {
@@ -2103,7 +2114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         "domain": wrapped.domain,
                         "code": wrapped.code,
                         "underlying": underlying.map { "\($0.domain) \($0.code)" } ?? "-",
-                        "message": (underlying?.userInfo["_LSErrorMessage"] as? String) ?? error.localizedDescription,
+                        "message": (underlying?.userInfo["_LSErrorMessage"] as? String) ?? "\(error)",
                     ])
                     self.openDefaultBrowserSettings()
                     return
@@ -2385,7 +2396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch let error as Config.EditError {
             return error.description
         } catch {
-            return "could not write the config: \(error.localizedDescription)"
+            return FailureWords.sentence(for: ConfigWriteFailure(underlying: error), doing: "config-edit: could not write the config")
         }
         Log.info("config-edit", ["edit": logged ?? flash])
         applyConfigReload(successFlash: flash)
@@ -2796,11 +2807,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for bin in ["/opt/homebrew/bin", "/usr/local/bin"] {
             guard FileManager.default.isWritableFile(atPath: bin) else { continue }
             let link = bin + "/lodestar"
-            let target = bundlePath + "/Contents/MacOS/lodestar"
-            let existing = try? FileManager.default.destinationOfSymbolicLink(atPath: link)
-            if existing != target {
-                try? FileManager.default.removeItem(atPath: link)
-                try? FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
+            switch CLILink.maintain(link: link, target: bundlePath + "/Contents/MacOS/lodestar") {
+            case .current: break
+            case .created: Log.info("login-item", ["cli-link": "created", "path": link])
+            case .replaced(let was): Log.info("login-item", ["cli-link": "replaced", "path": link, "was": was])
+            case .leftAlone(let why):
+                Log.warning("login-item", ["cli-link": "left alone, it is not Lodestar's", "path": link, "why": why])
+            case .failed(let why): Log.error("login-item", ["cli-link": "failed", "path": link, "why": why])
             }
             break
         }
@@ -2834,28 +2847,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if !config.startAtLogin && exists {
             // Delete the plist without unloading: the running session
             // continues; nothing loads at the next login.
-            try? FileManager.default.removeItem(at: agent)
-            Log.info("login-item", ["action": "removed"])
+            do {
+                try FileManager.default.removeItem(at: agent)
+                Log.info("login-item", ["action": "removed"])
+            } catch {
+                Log.error("login-item", ["remove-failed": "\(error)"])
+            }
         }
     }
 
-    /// launchd's view of the agent job: nil when the label is not loaded
-    /// in this session, 0 when loaded and idle, else the pid it runs.
-    private func agentJobPid() -> pid_t? {
+    /// launchd's view of the agent job: loaded (with the pid it runs, 0 when
+    /// idle), not loaded, or unknown when launchctl could not be asked.
+    private func agentJobState() -> LoginAgent.State {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         task.arguments = ["list", "com.vaccone.lodestar"]
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = Pipe()
-        guard (try? task.run()) != nil else { return nil }
-        task.waitUntilExit()
-        guard task.terminationStatus == 0 else { return nil }
-        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        for line in out.split(separator: "\n") where line.contains("\"PID\"") {
-            if let pid = Int32(line.filter(\.isNumber)) { return pid }
+        do {
+            try task.run()
+        } catch {
+            return .unknown("launchctl could not be run: \(error)")
         }
-        return 0
+        task.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        return LoginAgent.state(exitStatus: task.terminationStatus, output: output)
     }
 
     /// A lodestar launched by the updater, Finder, or a rollback runs as
@@ -2876,19 +2893,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// stub takes for an uninstall.
     private func readoptIfUnsupervised(agent: URL, definitionChanged: Bool) {
         let me = ProcessInfo.processInfo.processIdentifier
-        let job = agentJobPid()
-        if definitionChanged, job != nil {
-            Log.info("login-item", ["action": "loading the new definition", "agent-pid": job ?? 0])
+        switch LoginAgent.readoption(state: agentJobState(), definitionChanged: definitionChanged, me: me) {
+        case .nothing:
+            return
+        case .unreadable(let why):
+            // Not knowing is not "not loaded": a bootstrap here would load a
+            // job that may be running. This instance stays the resident, and
+            // the next launch asks again.
+            Log.error("login-item", ["launchd": "could not be read, so nothing was changed", "why": why])
+            return
+        case .reload(let pid):
+            Log.info("login-item", ["action": "loading the new definition", "agent-pid": pid])
             reloadAgent(agent)
             return
-        }
-        switch job {
-        case .some(let pid) where pid == me:
-            return
-        case .some(let pid):
+        case .kickstart(let pid):
             Log.info("login-item", ["action": "readopting", "agent-pid": pid])
             handingOverToLaunchd = runLaunchctl(["kickstart", "gui/\(getuid())/com.vaccone.lodestar"])
-        case .none:
+        case .bootstrap:
             Log.info("login-item", ["action": "bootstrapping the agent"])
             handingOverToLaunchd = runLaunchctl(["bootstrap", "gui/\(getuid())", agent.path])
         }
@@ -3299,6 +3320,11 @@ app.setActivationPolicy(.accessory)
 // Work on other threads (a global queue, a URLSession completion, a
 // dedicated thread) and Task.detached do not inherit it, and their Stoic
 // events reach the unified log only.
-withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog(alsoInfoFor: ["xpc."])]) }) {
+// Foundation's errors are worded for a person by Stoic's Foundation rules (a
+// full disk, no network), and never by their own text.
+withAmbient({
+    $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog(alsoInfoFor: ["xpc."])])
+    $0.presenter = .foundation
+}) {
     app.run()
 }

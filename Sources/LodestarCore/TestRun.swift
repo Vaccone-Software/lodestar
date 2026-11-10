@@ -25,6 +25,7 @@ public enum TestRun {
     public static let home: URL = {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-test-home-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+        // stoic:allow(discarded-try): this initializer runs inside Paths' own (Paths.home reads it) and the log is built from Paths.data, so a log line from here would wait on the initializer it is inside; a home that could not be made makes Paths.prepare's createDirectory fail as well, and that one logs.
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }()

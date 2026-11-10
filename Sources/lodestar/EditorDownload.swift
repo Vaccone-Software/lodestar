@@ -345,7 +345,10 @@ final class EditorDownload {
         line = Task { [weak self] in
             await before?.value
             guard let self, !keepingPartial, let fetching, let manifest = self.manifests(fetching) else { return }
-            try? FileManager.default.removeItem(at: self.staging(manifest))
+            let staged = self.staging(manifest)
+            Log.attemptUnlessAbsent("editor: could not remove the half fetched model") {
+                try FileManager.default.removeItem(at: staged)
+            }
         }
     }
 

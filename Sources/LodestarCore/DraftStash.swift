@@ -87,7 +87,9 @@ public final class DraftStash: @unchecked Sendable {
     public func clear() {
         last = nil
         guard !stranded else { return }
-        try? file.fileSystem.remove(file.url.path)
+        Log.attemptUnlessAbsent("draft stash: could not remove the stash after a clean close") {
+            try file.fileSystem.remove(file.url.path)
+        }
     }
 
     /// The key the stash is sealed under may be back (the keychain unlocked,
@@ -113,7 +115,9 @@ public final class DraftStash: @unchecked Sendable {
         }
         stranded = false
         saidStranded = false
-        try? file.fileSystem.remove(file.url.path)
+        Log.attemptUnlessAbsent("draft stash: could not remove the stash after handing its words over") {
+            try file.fileSystem.remove(file.url.path)
+        }
     }
 
     public enum Recovered: Equatable {

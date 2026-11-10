@@ -239,13 +239,23 @@ final class ClipboardStore {
         io.async { [weak self] in
             guard let self else { return }
             let result = self.disk.open()
-            DispatchQueue.main.async { self.finishOpening(result, epoch: opening) }
+            // Asked here, on the queue that owns the journal's counters, and
+            // before any copy made while it opened is appended: main reading
+            // them after it had queued those appends would race them.
+            let owed = Owed(removals: self.disk.removalsOwed, fold: self.disk.needsCompaction)
+            DispatchQueue.main.async { self.finishOpening(result, owed: owed, epoch: opening) }
         }
     }
 
     /// Main. The journal has been read (and an older history taken in) off the
     /// main thread: publish it, and apply the copies that came while it opened.
-    private func finishOpening(_ result: SealedClipboard.OpenResult, epoch opening: Int) {
+    /// What the journal owed when it opened: a delete a crash cut short, or a fold.
+    private struct Owed {
+        var removals: Bool
+        var fold: Bool
+    }
+
+    private func finishOpening(_ result: SealedClipboard.OpenResult, owed: Owed, epoch opening: Int) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard opening == epoch, phase == .opening else { return }
         switch result {
@@ -296,7 +306,7 @@ final class ClipboardStore {
             queuedBytes = 0
             for pending in waiting { apply(pending) }
             if !waiting.isEmpty { Log.info("clipboard: applied \(waiting.count) copies made while it opened") }
-            if disk.removalsOwed {
+            if owed.removals {
                 // A delete that a crash cut short: its key is still in a record that opens.
                 deletionOwed = true
                 scheduleCompaction(after: Self.deletionDelay)

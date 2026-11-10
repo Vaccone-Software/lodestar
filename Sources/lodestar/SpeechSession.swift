@@ -41,6 +41,21 @@ enum SpeechStart {
     /// and the draft says the microphone did not start while the task
     /// that would have started it is parked for the life of the process.
     static let prepareDeadline: TimeInterval = 3
+    /// The least a start can be given and still land: an engine that is
+    /// running is heard from in a few hundred milliseconds.
+    static let minimumStart: TimeInterval = 0.25
+
+    /// Whether an attempt may begin with `remaining` of the start's budget
+    /// left, owing the radio a wait of up to `settle` first. An attempt that
+    /// cannot pay its settle and then start is not begun: the second attempt
+    /// used to start with 0.9 s of a 5.65 s budget against a settle of up to
+    /// 3.5 s, was abandoned at the deadline every time (4 of 4 cycles), and
+    /// left its start out on the engine's queue. Ending it at once lets the
+    /// draft ask again with a whole budget, which does have the room.
+    static func canBegin(remaining: TimeInterval, owing settle: TimeInterval) -> Bool {
+        remaining > settle + minimumStart
+    }
+
     /// The Mac's own microphone opens in about 150 ms; a bridge that has
     /// not opened in a second is not saving the wait it was for.
     static let bridgeDeadline: TimeInterval = 1
@@ -846,6 +861,36 @@ final class AudioInput: @unchecked Sendable {
         return now.timeIntervalSince(refusal.at) < refusalMemory
     }
 
+    /// The most a start owes the radio before it builds, in seconds: the
+    /// wait a remembered refusal of this device calls for, and none when no
+    /// flip is coming (the refusal was at a hands-free rate that is still
+    /// the rate).
+    static func settleOwed(refusal: (device: AudioDeviceID, rate: Double?, at: Date)?,
+                           device: AudioDeviceID?, rate: Double?, now: Date) -> TimeInterval {
+        guard let refusal,
+              owesSettle(refusal: (refusal.device, refusal.at), device: device, now: now),
+              RateSettle.flipComing(from: refusal.rate, rate: rate) else { return 0 }
+        return RateSettle.deadline
+    }
+
+    /// Whether a start may begin building, given what it owes the radio
+    /// and the time its caller has left (`until`; nil is no limit, as for
+    /// the restarts that have no budget).
+    static func mayBegin(owing settle: TimeInterval, until: Date?, now: Date) -> Bool {
+        guard let until else { return true }
+        return SpeechStart.canBegin(remaining: until.timeIntervalSince(now), owing: settle)
+    }
+
+    /// An attempt that was not begun because the wait it owes the radio
+    /// cannot fit in the time left.
+    struct NotBegun: Error, CustomStringConvertible {
+        let owed: TimeInterval
+        let remaining: TimeInterval
+        var description: String {
+            "the wait the radio is owed, up to \(String(format: "%.1f", owed)) s, does not fit in the \(String(format: "%.1f", max(0, remaining))) s left"
+        }
+    }
+
     /// The engine's rate went stale across a profile flip, so its start
     /// ran on a rate the radio had left.
     struct StaleRate: LocalizedError {
@@ -872,6 +917,8 @@ final class AudioInput: @unchecked Sendable {
         case .timedOut(let rate, let seconds):
             Log.info("draft", ["speech": "input rate did not settle", "hz": Int(rate ?? 0),
                                "ms": Int(seconds * 1000)])
+        case .alreadyThere(let rate):
+            Log.info("draft", ["speech": "input already at a phone rate, not waiting", "hz": Int(rate)])
         case .unreadable:
             break
         case .superseded:
@@ -929,6 +976,7 @@ final class AudioInput: @unchecked Sendable {
     /// stops the engine, and that engine is the newer session's.
     func start(device: String?, ticket: Int, sink: @escaping (AVAudioPCMBuffer) -> Void,
                lost: @escaping () -> Void = {},
+               until: Date? = nil,
                completion: @escaping (Result<(format: AVAudioFormat, name: String?), Error>) -> Void) {
         _ = asked(start: ticket)
         queue.async {
@@ -939,7 +987,7 @@ final class AudioInput: @unchecked Sendable {
             self.runningTicket = ticket
             self.sessionNumber += 1
             self.keeper.sessionBegan()
-            completion(Result { try self.startNow(device: device, sink: sink, lost: lost) })
+            completion(Result { try self.startNow(device: device, sink: sink, lost: lost, until: until) })
         }
     }
 
@@ -947,7 +995,7 @@ final class AudioInput: @unchecked Sendable {
     /// configuration change must not trust the node's own report of its
     /// format, which is what the stale check below reads.
     private func startNow(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
-                          lost: @escaping () -> Void, fresh: Bool = false) throws
+                          lost: @escaping () -> Void, fresh: Bool = false, until: Date? = nil) throws
         -> (format: AVAudioFormat, name: String?) {
         dispatchPrecondition(condition: .onQueue(queue))
         stopNow()
@@ -958,7 +1006,7 @@ final class AudioInput: @unchecked Sendable {
         #endif
         if fresh { discard() }
         let target = try resolveTarget(device: device, logs: true)
-        return try startEngine(target: target, sink: sink)
+        return try startEngine(target: target, sink: sink, until: until)
     }
 
     /// The device a start for `device` will most likely read, asked ahead
@@ -1011,7 +1059,8 @@ final class AudioInput: @unchecked Sendable {
         return target
     }
 
-    private func startEngine(target: AudioDeviceID?, sink: @escaping (AVAudioPCMBuffer) -> Void) throws
+    private func startEngine(target: AudioDeviceID?, sink: @escaping (AVAudioPCMBuffer) -> Void,
+                             until: Date? = nil) throws
         -> (format: AVAudioFormat, name: String?) {
         dispatchPrecondition(condition: .onQueue(queue))
         var attempt = 0
@@ -1023,11 +1072,21 @@ final class AudioInput: @unchecked Sendable {
         let tick = currentTick()
         let device = target ?? Self.defaultInput()
         let radio = device.map(Self.isBluetooth) ?? false
-        if radio, let device, Self.owesSettle(refusal: refusal.map { ($0.device, $0.at) },
-                                               device: device, now: Date()) {
-            let stale = refusal?.rate
-            refusal = nil
-            try settle(device, from: stale, tick: tick)
+        if radio, let device {
+            // Whether the wait a remembered refusal owes fits in the time
+            // this start has is decided before anything is built, here and
+            // nowhere else: an attempt that cannot pay it is not begun, and
+            // the refusal stays remembered for the ask that can.
+            let owed = Self.settleOwed(refusal: refusal, device: device,
+                                       rate: Self.nominalRate(of: device), now: Date())
+            guard Self.mayBegin(owing: owed, until: until, now: Date()) else {
+                throw NotBegun(owed: owed, remaining: until?.timeIntervalSinceNow ?? 0)
+            }
+            if Self.owesSettle(refusal: refusal.map { ($0.device, $0.at) }, device: device, now: Date()) {
+                let stale = refusal?.rate
+                refusal = nil
+                try settle(device, from: stale, tick: tick)
+            }
         }
         while true {
             // A kept engine serves only the device and format it was built
@@ -1088,7 +1147,17 @@ final class AudioInput: @unchecked Sendable {
                 if radio, let device { refusal = (device, builtRate, Date()) }
                 throw failure
             }
-            if radio, let device { try settle(device, from: builtRate, tick: tick) }
+            if radio, let device {
+                // The settle between the two engine attempts is owed the
+                // same way: not begun a second attempt it cannot pay for.
+                let owed = RateSettle.flipComing(from: builtRate, rate: Self.nominalRate(of: device))
+                    ? RateSettle.deadline : 0
+                guard Self.mayBegin(owing: owed, until: until, now: Date()) else {
+                    refusal = (device, builtRate, Date())
+                    throw NotBegun(owed: owed, remaining: until?.timeIntervalSinceNow ?? 0)
+                }
+                try settle(device, from: builtRate, tick: tick)
+            }
         }
         refusal = nil
         guard let engine else { throw NSError(domain: "draft", code: 3) }
@@ -1423,7 +1492,7 @@ private actor AnalyzerBox {
                 guard !stopped else { stopOwnBridge(); return }
             }
             let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
-            guard remaining > 0.25 else { break }
+            guard SpeechStart.canBegin(remaining: remaining, owing: 0) else { break }
             do {
                 started = try await Self.startMicrophone(microphone, ticket: micTicket, device: wanted, within: remaining,
                                                          stillWanted: stillWanted,
@@ -1584,13 +1653,14 @@ private actor AnalyzerBox {
         // the microphone" until it was closed and opened again. A
         // deadline turns that into an attempt that failed, which the
         // loop above can retry and the register line can report.
-        try await SpeechStart.startAudio(within: seconds) {
+        let until = Date().addingTimeInterval(seconds)
+        return try await SpeechStart.startAudio(within: seconds) {
             try await withCheckedThrowingContinuation { continuation in
                 Task { @MainActor in
                     guard stillWanted() else {
                         continuation.resume(throwing: CancellationError()); return
                     }
-                    microphone.start(device: device, ticket: ticket, sink: sink, lost: lost) { continuation.resume(with: $0) }
+                    microphone.start(device: device, ticket: ticket, sink: sink, lost: lost, until: until) { continuation.resume(with: $0) }
                 }
             }
         }

@@ -26,7 +26,12 @@ enum SettingsAsk {
                        completion: @escaping (String?) -> Void) {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
-            Task.detached {
+            // An ordinary Task, so Stoic's ambient context (where its events go)
+            // comes with it; the work does not need to be detached, since this
+            // function is not isolated to an actor, and the priority is the one a
+            // detached task had (a Task takes its creator's, which on the main
+            // thread is higher than a question about a setting wants).
+            Task(priority: .medium) {
                 let reply = try? await pick(question, catalog: catalog, choices: choices)
                 await MainActor.run { completion(reply == "none" ? nil : reply) }
             }

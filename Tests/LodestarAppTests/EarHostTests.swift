@@ -1,3 +1,5 @@
+import Stoic
+import StoicTesting
 import XCTest
 @testable import lodestar
 @testable import LodestarEars
@@ -13,7 +15,10 @@ final class SlowEar: SettlingEar, @unchecked Sendable {
     private var waiting: CheckedContinuation<Void, Never>?
     private var opened = false
     private var _fails = false
+    private var _whenLoading: (@Sendable () -> Void)?
     init(loaded: Bool = false) { _loaded = loaded }
+    /// Runs as the load begins, in whatever context the load was started in.
+    func whenLoading(_ body: @escaping @Sendable () -> Void) { lock.withLock { _whenLoading = body } }
     var isLoaded: Bool { lock.withLock { _loaded } }
     var unloads: Int { lock.withLock { _unloads } }
     /// The next load throws instead of finishing.
@@ -28,6 +33,7 @@ final class SlowEar: SettlingEar, @unchecked Sendable {
         waiter?.resume()
     }
     func load() async throws {
+        lock.withLock { _whenLoading }?()
         await withCheckedContinuation { continuation in
             let through = lock.withLock { () -> Bool in
                 if !opened { waiting = continuation }
@@ -274,5 +280,44 @@ final class EarHostTests: XCTestCase {
         let (host, _) = host(ear: SlowEar(loaded: true), loads: loads)
         host.warm()
         pump(until: { loads.count == 1 })
+    }
+
+    // MARK: - The context the work starts in
+
+    private func record(_ name: EventName) -> @Sendable () -> Void {
+        { Ambient.current.instrumentation.record(Event(name, level: .info)) }
+    }
+
+    /// The ear loads off the main thread, in a task, and what Stoic says from
+    /// there goes where the context that started it sends it: a detached task
+    /// starts with none, and its events reached the unified log and not the
+    /// app's own.
+    func testTheEarLoadsInTheAmbientContextThatWarmedIt() {
+        let ear = SlowEar()
+        ear.whenLoading(record("test.ear_loading"))
+        let (host, _) = host(ear: ear, loads: Loads())
+        let events = RecordingInstrumentation()
+        withAmbient({ $0.instrumentation = events }) { host.warm() }
+        ear.finishLoading()
+        pump(until: { events.names.contains("test.ear_loading") })
+        XCTAssertEqual(events.names.filter { $0 == "test.ear_loading" }.count, 1)
+    }
+
+    /// The language model's load is the same: started by the ear being whole,
+    /// from a task the ear's load started, it is in the same context.
+    func testTheLanguageModelLoadsInTheAmbientContextThatWarmedTheEar() {
+        let events = RecordingInstrumentation()
+        let host = EarHost(clock: clock.clock)
+        let loaded = Loads()
+        let model = DraftModel(model: .qwen36, loader: { _ in
+            loaded.note()
+            Ambient.current.instrumentation.record(Event("test.model_loading", level: .info))
+            return Quiet()
+        }, clearCache: {})
+        host.hasCleanup = { _ in true }
+        host.install(ear: SlowEar(loaded: true), tier: .max, model: model)
+        withAmbient({ $0.instrumentation = events }) { host.warm() }
+        pump(until: { events.names.contains("test.model_loading") })
+        XCTAssertEqual(loaded.count, 1)
     }
 }

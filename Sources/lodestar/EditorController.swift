@@ -347,7 +347,9 @@ final class EditorController: EditorLens {
     /// Nothing to read: every mark and card about the last field goes, and
     /// each mark still standing ends as left.
     private func clearField() {
-        if let field { record(ledger.clear(text: field.text, all: issues, at: clock.now()), app: field.appName) }
+        // The marks came down when the field went silent, not now: a mark
+        // stood only while it was drawn.
+        if let field { record(ledger.clear(text: field.text, all: issues, at: clock.now(), until: silentSince), app: field.appName) }
         ledger = EditorMarkLedger()
         silentSince = nil
         field = nil
@@ -497,8 +499,15 @@ final class EditorController: EditorLens {
     private func holdMarks() {
         marks = []
         geometryGeneration += 1
-        drawing.hide()
+        lowerMarks()
         hover?.hide()
+    }
+
+    /// The lines come down, and the ledger is told: a mark does not stand
+    /// while it is not drawn.
+    private func lowerMarks() {
+        drawing.hide()
+        ledger.hide(at: clock.now())
     }
 
     /// The marks and the sentences to send, worked out off the main thread
@@ -610,7 +619,7 @@ final class EditorController: EditorLens {
         let issues = self.issues
         guard !issues.isEmpty else {
             marks = []
-            drawing.hide()
+            lowerMarks()
             hover?.marksChanged()
             stand(drawn: [], all: [])
             return
@@ -636,8 +645,9 @@ final class EditorController: EditorLens {
     private func redraw(over field: EditorField) {
         if let canvas = field.windowFrame ?? field.frame?.insetBy(dx: -Grid.close, dy: -Grid.close), !marks.isEmpty {
             drawing.show(marks.map(\.rect), over: canvas)
+            ledger.show(at: clock.now())
         } else {
-            drawing.hide()
+            lowerMarks()
         }
     }
 

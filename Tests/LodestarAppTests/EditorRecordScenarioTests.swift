@@ -92,6 +92,59 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertEqual(actions(rig), ["stood", "left"])
     }
 
+    // MARK: - A mark stands only while it is drawn
+
+    /// The field went quiet 0.3 s after the mark was drawn and the grace ran
+    /// out two seconds on: the mark was on the screen for 0.3 s, and the rest
+    /// was a wait with nothing drawn.
+    func testAMarkHiddenSoonAfterItWasDrawnIsNeverShownWhenTheGraceEnds() {
+        let rig = EditorRig()
+        rig.type(typo)
+        rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
+        rig.clock.advance(by: 0.3)
+        rig.controller.receive(nil)
+        rig.clock.advance(by: 1.0)
+        rig.controller.receive(nil)
+        rig.clock.advance(by: 1.0)
+        rig.controller.receive(nil)
+        XCTAssertNil(rig.controller.field, "the grace has run out")
+        rig.drain()
+        XCTAssertTrue(rig.events.isEmpty, "it was drawn for 0.3 s: \(rig.events.map(\.action))")
+    }
+
+    func testAMarkThatStoodASecondAndAHalfIsRecordedAtThatWhenTheGraceEnds() throws {
+        let rig = standing()
+        rig.controller.receive(nil)
+        rig.clock.advance(by: 1.0)
+        rig.controller.receive(nil)
+        rig.clock.advance(by: 1.0)
+        rig.controller.receive(nil)
+        XCTAssertNil(rig.controller.field)
+        rig.drain()
+        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 1.5, accuracy: 0.11, "not 3.5, the wait was not drawn")
+    }
+
+    /// A field with nowhere to draw (no frame of its own, none for its window)
+    /// keeps its marks in the controller and draws nothing.
+    func testTimeWithTheLinesDownBecauseThereIsNowhereToDrawThemIsNotStanding() throws {
+        let rig = standing()
+        rig.clock.advance(by: 0.6)
+        let old = EditorRig.field(typo)
+        let bare = EditorField(element: old.element, pid: old.pid, appName: old.appName, bundleID: old.bundleID,
+                               text: old.text, caret: old.caret, frame: nil, windowFrame: nil)
+        rig.source.field = bare
+        rig.controller.receive(bare)
+        rig.settle("the lines come down") { rig.drawing.shown.isEmpty }
+        XCTAssertEqual(rig.controller.lensMarks.count, 1, "the mark is still known")
+        rig.clock.advance(by: 5)
+        rig.beat()
+        rig.drain()
+        leave(rig)
+        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 2.1, accuracy: 0.11, "1.5 s, then 0.6 s more before they came down")
+    }
+
     // MARK: - A mark's identity
 
     func testTypingBeforeAMarkDoesNotCountItAgain() {

@@ -14,6 +14,10 @@ import Foundation
 ///
 /// A mark is *shown* only if it stood a second or more, or the hand
 /// answered it: a mark that came and went inside a second was never read.
+/// It stands only while it is drawn. The ledger keeps one clock for all its
+/// marks and runs it only while they are on the screen (`hide` and `show`),
+/// so the time a field was silent, or a panel was down, is not time anyone
+/// could have read a mark in.
 /// It ends one of six ways: `fixed` (the lens, the card or ⏎), `answered`
 /// (kept, or learned), `byHand` (the hand edited its words and they now
 /// read as the fix, or no longer read as wrong), `edited` (the hand
@@ -65,11 +69,16 @@ public struct EditorMarkLedger {
         let original: String
         let replacement: String
         var range: NSRange
-        let since: Date
+        /// The ledger's visible clock when the mark was drawn.
+        let born: TimeInterval
         var absentSince: Date?
+        /// The visible clock when the mark went absent.
+        var absentReading: TimeInterval = 0
         /// When the hand first edited the mark's words: from then on the
         /// mark waits for the text to settle.
         var touched: Date?
+        /// The visible clock at that moment.
+        var touchedReading: TimeInterval = 0
 
         func reads(as issue: EditorIssue) -> Bool {
             kind == issue.kind && original == issue.original && replacement == issue.replacement
@@ -78,9 +87,59 @@ public struct EditorMarkLedger {
 
     private var standing: [Standing] = []
 
+    /// Seconds the marks have been on the screen, as of `ticked`. It runs
+    /// only while `visible`, and a mark stood for the difference between
+    /// the clock now and the clock when it was drawn.
+    private var clock: TimeInterval = 0
+    private var ticked: Date?
+    private var visible = true
+
     public init() {}
 
     public var count: Int { standing.count }
+
+    // MARK: - The visible clock
+
+    /// Brings the clock to `now` and answers it. Time moves only forward:
+    /// a moment before the last one the ledger heard changes nothing.
+    private mutating func advance(to now: Date) -> TimeInterval {
+        if let last = ticked {
+            if visible { clock += max(0, now.timeIntervalSince(last)) }
+            ticked = max(last, now)
+        } else {
+            ticked = now
+        }
+        return clock
+    }
+
+    /// The marks are off the screen (the field stopped answering, or the
+    /// panel they are drawn on came down): they stand no longer until
+    /// `show`.
+    public mutating func hide(at now: Date) {
+        _ = advance(to: now)
+        visible = false
+    }
+
+    /// The marks are on the screen again.
+    public mutating func show(at now: Date) {
+        _ = advance(to: now)
+        visible = true
+    }
+
+    /// The marks went off the screen at `until`, which the ledger was not
+    /// told at the time: if it has heard of a later moment since, the
+    /// difference is taken back out of the clock, on the footing that the
+    /// marks were drawn through it.
+    private mutating func stop(at until: Date, now: Date) {
+        guard until < now else { return }
+        if visible, let last = ticked, until < last {
+            clock = max(0, clock - last.timeIntervalSince(until))
+            ticked = until
+            visible = false
+        } else {
+            hide(at: until)
+        }
+    }
 
     // MARK: - Edits
 
@@ -98,6 +157,7 @@ public struct EditorMarkLedger {
         while s < o.count - p, s < n.count - p, o[o.count - 1 - s] == n[n.count - 1 - s] { s += 1 }
         let oldEnd = o.count - s, newEnd = n.count - s, delta = n.count - o.count
         let inserted = n[p..<newEnd]
+        let reading = advance(to: now)
         for i in standing.indices {
             let a = standing[i].range.location, b = a + standing[i].range.length
             var touches = p < b && oldEnd > a
@@ -107,7 +167,10 @@ public struct EditorMarkLedger {
                 let start = min(a, p)
                 let end = max(b, oldEnd) + delta
                 standing[i].range = NSRange(location: start, length: max(0, end - start))
-                if standing[i].touched == nil { standing[i].touched = now }
+                if standing[i].touched == nil {
+                    standing[i].touched = now
+                    standing[i].touchedReading = reading
+                }
             } else if oldEnd <= a {
                 standing[i].range.location += delta
             }
@@ -130,6 +193,7 @@ public struct EditorMarkLedger {
     public mutating func sync(drawn: [EditorIssue], all: [EditorIssue], text: String, caret: Int?,
                               quiet: Bool, at now: Date) -> Sync {
         var result = Sync()
+        let reading = advance(to: now)
         var claimed = Set<EditorIssue>()
         var live = Array(standing.indices)
         // A mark is the same mark where its words and its place are the
@@ -159,7 +223,7 @@ public struct EditorMarkLedger {
                 // checker does not mark it: wait for the hand to leave,
                 // unless the words already read as the fix.
                 guard quiet, !inside || Self.current(mark, in: text) == mark.replacement else { continue }
-                if let ending = Self.ending(mark, Self.judge(mark, text: text, all: all), until: touched) {
+                if let ending = Self.ending(mark, Self.judge(mark, text: text, all: all), stood: mark.touchedReading - mark.born) {
                     result.endings.append(ending)
                 }
                 ended.append(i)
@@ -167,17 +231,20 @@ public struct EditorMarkLedger {
                 standing[i].absentSince = nil
             } else {
                 let since = standing[i].absentSince ?? now
+                if standing[i].absentSince == nil { standing[i].absentReading = reading }
                 standing[i].absentSince = since
                 guard now.timeIntervalSince(since) >= Self.absence else { continue }
                 let outcome: Outcome = Self.reads(mark, in: text) ? .withdrawn : .edited
-                if let ending = Self.ending(mark, outcome, until: since) { result.endings.append(ending) }
+                if let ending = Self.ending(mark, outcome, stood: standing[i].absentReading - mark.born) {
+                    result.endings.append(ending)
+                }
                 ended.append(i)
             }
         }
         for index in ended.sorted(by: >) { standing.remove(at: index) }
         for issue in drawn where !claimed.contains(issue) {
             standing.append(Standing(kind: issue.kind, original: issue.original, replacement: issue.replacement,
-                                     range: issue.range, since: now))
+                                     range: issue.range, born: reading))
             result.appeared += 1
         }
         return result
@@ -187,11 +254,12 @@ public struct EditorMarkLedger {
     /// plainly read, however briefly it stood, so an answer is always
     /// shown.
     public mutating func answer(_ issue: EditorIssue, _ outcome: Outcome, at now: Date) -> Ending {
+        let reading = advance(to: now)
         let found = standing.firstIndex { $0.reads(as: issue) && $0.range == issue.range }
             ?? standing.firstIndex { $0.reads(as: issue) }
         var stood: TimeInterval = 0
         if let found {
-            stood = now.timeIntervalSince(standing[found].since)
+            stood = max(0, reading - standing[found].born)
             standing.remove(at: found)
         }
         return Ending(kind: issue.kind, outcome: outcome, stood: stood)
@@ -199,17 +267,22 @@ public struct EditorMarkLedger {
 
     /// The field was left, or the editor switched off: every mark still
     /// standing ends. One the hand was editing is judged on the text as
-    /// it was last read.
-    public mutating func clear(text: String, all: [EditorIssue], at now: Date) -> [Ending] {
+    /// it was last read. `until` is the moment the marks stopped being
+    /// drawn, when that is before `now`: a field that went silent was
+    /// cleared only when the grace ran out, and the marks were not on the
+    /// screen for that wait.
+    public mutating func clear(text: String, all: [EditorIssue], at now: Date, until: Date? = nil) -> [Ending] {
+        if let until { stop(at: until, now: now) }
+        let reading = advance(to: now)
         defer { standing = [] }
         return standing.compactMap { mark in
-            if let touched = mark.touched {
-                return Self.ending(mark, Self.judge(mark, text: text, all: all), until: touched)
+            if mark.touched != nil {
+                return Self.ending(mark, Self.judge(mark, text: text, all: all), stood: mark.touchedReading - mark.born)
             }
-            if let absent = mark.absentSince {
-                return Self.ending(mark, Self.reads(mark, in: text) ? .withdrawn : .edited, until: absent)
+            if mark.absentSince != nil {
+                return Self.ending(mark, Self.reads(mark, in: text) ? .withdrawn : .edited, stood: mark.absentReading - mark.born)
             }
-            return Self.ending(mark, .left, until: now)
+            return Self.ending(mark, .left, stood: reading - mark.born)
         }
     }
 
@@ -240,11 +313,10 @@ public struct EditorMarkLedger {
         current(mark, in: text) == mark.original
     }
 
-    /// The record of a mark that ended `until` some moment, or nothing: a
+    /// The record of a mark that stood `stood` seconds, or nothing: a
     /// mark that stood under a second was never read.
-    private static func ending(_ mark: Standing, _ outcome: Outcome, until: Date) -> Ending? {
-        let stood = until.timeIntervalSince(mark.since)
-        guard stood >= stand else { return nil }
+    private static func ending(_ mark: Standing, _ outcome: Outcome, stood: TimeInterval) -> Ending? {
+        guard stood >= Self.stand else { return nil }
         return Ending(kind: mark.kind, outcome: outcome, stood: stood)
     }
 }

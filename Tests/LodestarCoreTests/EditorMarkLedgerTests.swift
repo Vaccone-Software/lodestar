@@ -157,6 +157,44 @@ final class EditorMarkLedgerTests: XCTestCase {
         XCTAssertTrue(brief.clear(text: text, all: [issue], at: at(0.5)).isEmpty, "stood half a second: never read")
     }
 
+    // MARK: - A mark stands only while it is drawn
+
+    func testAMarkHiddenSoonAfterItWasDrawnWritesNothingWhenItIsCleared() {
+        var (ledger, issue) = ledgerWithMark()
+        ledger.hide(at: at(0.3))
+        let endings = ledger.clear(text: "We need to recieve them.", all: [issue], at: at(2.3))
+        XCTAssertTrue(endings.isEmpty, "it stood 0.3 s on the screen, and the other two seconds it was hidden")
+    }
+
+    func testTheTimeAMarkWasHiddenIsLeftOutOfHowLongItStood() throws {
+        var (ledger, issue) = ledgerWithMark()
+        ledger.hide(at: at(1.5))
+        ledger.show(at: at(3.5))
+        let ending = try XCTUnwrap(ledger.clear(text: "We need to recieve them.", all: [issue], at: at(4)).first)
+        XCTAssertEqual(ending.stood, 2.0, accuracy: 0.001, "1.5 s before it was hidden and 0.5 s after it came back")
+        XCTAssertEqual(ending.outcome, .left)
+    }
+
+    func testAnEndingGivenTheMomentTheMarksCameDownStopsTheClockThere() throws {
+        // The ledger was not told of the hiding.
+        var (ledger, issue) = ledgerWithMark()
+        let ending = try XCTUnwrap(ledger.clear(text: "We need to recieve them.", all: [issue], at: at(3.5), until: at(1.5)).first)
+        XCTAssertEqual(ending.stood, 1.5, accuracy: 0.001, "not 3.5")
+
+        // And one it heard of later than the moment it was cleared to.
+        var (later, laterIssue) = ledgerWithMark()
+        _ = later.sync(drawn: [laterIssue], all: [laterIssue], text: "We need to recieve them.", caret: 24, quiet: true, at: at(2.5))
+        let ended = try XCTUnwrap(later.clear(text: "We need to recieve them.", all: [laterIssue], at: at(3.5), until: at(1.5)).first)
+        XCTAssertEqual(ended.stood, 1.5, accuracy: 0.001, "what it counted after the marks came down is taken back")
+    }
+
+    func testAMarkAnsweredWhileTheMarksAreHiddenDidNotStandThroughTheHiding() throws {
+        var (ledger, issue) = ledgerWithMark()
+        ledger.hide(at: at(0.4))
+        let ending = ledger.answer(issue, .fixed(via: "keys"), at: at(5))
+        XCTAssertEqual(ending.stood, 0.4, accuracy: 0.001)
+    }
+
     func testTheFixAllBatchDoesNotEndTheMarksBetweenItsEdits() throws {
         // Two fixes at either end of the text, a mark left standing between them.
         let text = "Teh cat sat on recieve mat adn went."

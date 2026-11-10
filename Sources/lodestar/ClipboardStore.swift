@@ -649,7 +649,7 @@ final class ClipboardStore {
         // surely where the copy said: a bookmark per item, in item order.
         let bookmarks: [Data?] = items.prefix(Clipboard.fileBookmarksKept).map { item in
             guard let url = Clipboard.fileAddress(in: item).flatMap(Clipboard.fileURL(from:)) else { return nil }
-            return FileSense.withDeadline(FileSense.deadline) { Clipboard.bookmark(for: url) }
+            return FileSense.withDeadline(FileSense.deadline, label: FileSense.Read.place) { Clipboard.bookmark(for: url) }
         }
         DispatchQueue.main.async { self.bookmarksMade(id, bookmarks, storage: ref.storage) }
         var facts = urls.prefix(Clipboard.fileFactsKept).map { FileSense.fact(for: $0) }
@@ -836,7 +836,7 @@ final class ClipboardStore {
                 guard let key = candidate.ref.key,
                       case .items(let items) = files.readBlob(storage: candidate.ref.storage, key: key),
                       !items.isEmpty else { continue }
-                let found = FileSense.withDeadline(FileSense.deadline) {
+                let found = FileSense.withDeadline(FileSense.deadline, label: FileSense.Read.place) {
                     items.enumerated().map { item, content in
                         Clipboard.place(bookmark: candidate.bookmarks.indices.contains(item) ? candidate.bookmarks[item] : nil,
                                         address: Clipboard.fileAddress(in: content))

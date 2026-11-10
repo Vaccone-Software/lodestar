@@ -4,6 +4,7 @@ import ImageIO
 import LodestarCore
 import PDFKit
 import QuickLookThumbnailing
+import Stoic
 import UniformTypeIdentifiers
 
 /// What a copied file is and what it looks like, read once at the copy and
@@ -17,7 +18,38 @@ import UniformTypeIdentifiers
 /// that overruns is answered with what is known without it (a name, a type's
 /// icon) and left behind. No file's content is ever kept, and no name or path
 /// is ever logged.
+///
+/// The waiting is Stoic's `abandoningAfter` (a read that blocks) and
+/// `abandoningAsyncAfter` (one that awaits), each under a label of what is
+/// read. A read that overruns is left running as before, but it holds its
+/// place under its label until it returns, no label holds more than `slots`
+/// of them, they are counted (`AbandonedWork`), and once all of a label's
+/// are held by reads that have not come back the next is refused at once and
+/// answered as one that overran: a dead mount strands a few threads, not one
+/// for every copy until the pool is gone. The callers are synchronous (a
+/// queue of the store, the paste on the main thread), so each read is asked
+/// of Stoic from a task that the caller waits for.
 enum FileSense {
+    /// The reads that are told apart, one label each: a wedged one does not
+    /// refuse the others. Names of kinds of read, never of a file or a volume.
+    enum Read {
+        /// A file's facts: its attributes, where it came from, its pages or pixels.
+        static let facts = "file.facts"
+        /// The length of a sound or film.
+        static let duration = "file.duration"
+        /// The system's thumbnail of a file.
+        static let picture = "file.picture"
+        /// Where a file is now: its bookmark, made or followed.
+        static let place = "file.place"
+    }
+
+    /// How many reads of one label may be running or abandoned at once. Four:
+    /// the store's files queue, its pruning queue, a paste and a preview are
+    /// the callers that read at the same time, one each, so four are never
+    /// refused for being busy, and four that have not come back are a
+    /// volume that is not answering.
+    static let slots = 4
+
     /// How long one read of one file may take before the card goes on
     /// without it. A seam for the tests.
     nonisolated(unsafe) static var deadline: TimeInterval = 2
@@ -25,19 +57,14 @@ enum FileSense {
     /// A picture is 240 points at twice the pixels, as an image's thumbnail is.
     static let side = 480
 
-    /// How a read waits for its answer: until the group is done, for at most
-    /// the seconds it is given, and whether it was done. A seam for the
-    /// tests, which give a read the deadline they say it has and no other,
-    /// so a slow machine cannot make one overrun.
-    nonisolated(unsafe) static var wait: (DispatchGroup, TimeInterval) -> Bool = realWait
-
-    static func realWait(_ group: DispatchGroup, _ seconds: TimeInterval) -> Bool {
-        group.wait(timeout: .now() + seconds) == .success
-    }
+    /// The clock the deadlines are on; nil is Stoic's ambient one. A seam for
+    /// the tests, which give a read the deadline they say it has and no other
+    /// by moving a clock of their own, so a slow machine cannot make one overrun.
+    nonisolated(unsafe) static var clock: AnyClock?
 
     /// The system's thumbnail of a file, or nil. A seam for the tests, which
     /// stand in for QuickLook so a slow volume can be made to happen.
-    nonisolated(unsafe) static var thumbnailer: (URL) -> CGImage? = quickLook
+    nonisolated(unsafe) static var thumbnailer: (URL) async -> CGImage? = quickLook
 
     /// Whether a file's content is somewhere else. A seam for the tests, which
     /// cannot make a file iCloud has evicted.
@@ -54,17 +81,17 @@ enum FileSense {
     /// One file's name, folder, kind, size and one line more.
     static func fact(for url: URL) -> Clipboard.FileFact {
         let names = Clipboard.fileNames(of: url)
-        guard let read = withDeadline(deadline, { basics(of: url) }) else {
+        guard let read = withDeadline(deadline, label: Read.facts, { basics(of: url) }) else {
             return Clipboard.FileFact(name: names.name, folder: names.folder, kind: "Document")
         }
         var fact = read.fact
         // Where a download came from is the Mac's own note on the file, not
         // anything in it, and is read even for a file not on this Mac yet.
-        fact.site = withDeadline(deadline) { site(of: url) }
+        fact.site = withDeadline(deadline, label: Read.facts) { site(of: url) }
         // A file that is not on this Mac yet is described by what is known;
         // opening it to count its pages would download it.
         if !read.dataless, let type = read.type, !read.isFolder,
-           let described = withDeadline(deadline, { detail(of: url, type: type) }) {
+           let described = withDeadline(deadline, label: Read.facts, { detail(of: url, type: type) }) {
             fact.detail = described.detail
             fact.title = described.title
         }
@@ -157,15 +184,13 @@ enum FileSense {
         return nil
     }
 
+    /// A film's or a sound's length. The load awaits, so it is the async
+    /// form that gives up on it.
     private static func duration(of url: URL) -> Double? {
-        let asset = AVURLAsset(url: url)
-        let slot = Slot<Double>()
-        let done = DispatchSemaphore(value: 0)
-        Task.detached {
-            if let time = try? await asset.load(.duration) { slot.set(CMTimeGetSeconds(time)) }
-            done.signal()
+        withAsyncDeadline(deadline, label: Read.duration) {
+            guard let time = try? await AVURLAsset(url: url).load(.duration) else { return nil }
+            return CMTimeGetSeconds(time)
         }
-        return done.wait(timeout: .now() + deadline) == .success ? slot.value : nil
     }
 
     // MARK: - The picture
@@ -176,27 +201,76 @@ enum FileSense {
     /// not even an icon could be drawn.
     static func picture(of url: URL) -> Picture? {
         if !dataless(url, nil),
-           let image = withDeadline(deadline, { thumbnailer(url) }), let png = png(image) {
+           let image = withAsyncDeadline(deadline, label: Read.picture, { [thumbnailer] in await thumbnailer(url) }),
+           let png = png(image) {
             return Picture(png: png, pictured: true)
         }
         guard let icon = icon(of: url), let png = png(icon) else { return nil }
         return Picture(png: png, pictured: false)
     }
 
-    static func quickLook(_ url: URL) -> CGImage? {
+    /// QuickLook's thumbnail, awaited. Cancelled (at the deadline, by the wait
+    /// around it), the request is cancelled with QuickLook and the read is
+    /// answered at once with nothing, whether or not QuickLook ever calls back.
+    static func quickLook(_ url: URL) async -> CGImage? {
         let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side / 2, height: side / 2),
                                                    scale: 2, representationTypes: .thumbnail)
-        let slot = Slot<CGImage>()
-        let done = DispatchSemaphore(value: 0)
-        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { representation, _ in
-            slot.set(representation?.cgImage)
-            done.signal()
+        return await awaiting(
+            start: { answer in
+                QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { representation, _ in
+                    answer(representation?.cgImage)
+                }
+            },
+            cancel: { QLThumbnailGenerator.shared.cancel(request) })
+    }
+
+    /// A call that answers by callback, awaited, and given up on when the
+    /// task is cancelled: `cancel` is called and the answer is nil at once,
+    /// and a callback that comes after that is ignored. The callback may come
+    /// on any thread, once or never.
+    static func awaiting<T: Sendable>(start: (@escaping @Sendable (T?) -> Void) -> Void,
+                                      cancel: @escaping @Sendable () -> Void) async -> T? {
+        let pending = Pending<T>()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if pending.wait(continuation) { start { pending.answer($0) } }
+            }
+        } onCancel: {
+            cancel()
+            pending.answer(nil)
         }
-        if done.wait(timeout: .now() + deadline) == .timedOut {
-            QLThumbnailGenerator.shared.cancel(request)
-            return nil
+    }
+
+    /// The one answer of a callback-style call: the first of the callback and
+    /// the cancellation resumes the continuation, the other does nothing.
+    private final class Pending<T: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<T?, Never>?
+        private var answered = false
+        private var early: T?
+
+        /// Holds the continuation until there is an answer; false (and it is
+        /// resumed here) when the answer, a cancellation's, is already in.
+        func wait(_ continuation: CheckedContinuation<T?, Never>) -> Bool {
+            let resumed: Bool = lock.withLock {
+                if answered { return true }
+                self.continuation = continuation
+                return false
+            }
+            if resumed { continuation.resume(returning: early) }
+            return !resumed
         }
-        return slot.value
+
+        func answer(_ value: T?) {
+            let waiting: CheckedContinuation<T?, Never>? = lock.withLock {
+                guard !answered else { return nil }
+                answered = true
+                early = value
+                defer { continuation = nil }
+                return continuation
+            }
+            waiting?.resume(returning: value)
+        }
     }
 
     /// The icon the Finder would show, drawn into the same square a
@@ -225,24 +299,58 @@ enum FileSense {
 
     // MARK: - A deadline
 
-    /// `work` on another thread, given `seconds`. What overruns is left
-    /// running and forgotten; the caller has its answer, which is nil.
-    static func withDeadline<T>(_ seconds: TimeInterval, _ work: @escaping () -> T?) -> T? {
-        let slot = Slot<T>()
-        let group = DispatchGroup()
-        group.enter()
-        DispatchQueue.global(qos: .utility).async {
-            slot.set(work())
-            group.leave()
+    /// `work` on a thread of Dispatch's, given `seconds`, under `label`
+    /// (at most `limit` of its reads running or abandoned at once). What
+    /// overruns is left running and forgotten; the caller has its answer,
+    /// which is nil. So is the answer when the label is wedged (every place
+    /// under it held by a read that has not come back) and the read is
+    /// refused without being begun, and when the read never got its turn.
+    static func withDeadline<T: Sendable>(_ seconds: TimeInterval, label: String, limit: Int = slots,
+                                          _ work: @escaping @Sendable () -> T?) -> T? {
+        blocking { clock in
+            do throws(PolicyError<Never>) {
+                return try await abandoningAfter(.seconds(seconds), label: label, limit: limit, clock: clock,
+                                                 qos: .utility, operation: work)
+            } catch {
+                return nil
+            }
         }
-        return wait(group, seconds) ? slot.value : nil
     }
 
-    /// A value handed from one thread to another.
-    private final class Slot<T>: @unchecked Sendable {
+    /// The same for a read that awaits (a callback, an asset's load): it
+    /// runs as a task, is cancelled at the deadline in case it looks, and
+    /// holds its place under the label until it returns, cancelled or not.
+    static func withAsyncDeadline<T: Sendable>(_ seconds: TimeInterval, label: String, limit: Int = slots,
+                                               _ work: @escaping @concurrent @Sendable () async -> T?) -> T? {
+        blocking { clock in
+            do throws(PolicyError<Never>) {
+                return try await abandoningAsyncAfter(.seconds(seconds), label: label, limit: limit, clock: clock,
+                                                      operation: work)
+            } catch {
+                return nil
+            }
+        }
+    }
+
+    /// What `ask` answers, for a caller that is not async. The wait is on a
+    /// task that Stoic's wait answers by its deadline at the latest, so the
+    /// caller is not held past it; an ordinary Task, so the ambient context
+    /// of the caller (where Stoic's events go) comes with it. It needs a
+    /// thread of the cooperative pool for the moment it takes to start the
+    /// read, as `UpdateController.run`'s bridge does.
+    private static func blocking<T: Sendable>(_ ask: @escaping @Sendable (AnyClock?) async -> T?) -> T? {
+        let handoff = Handoff<T>()
+        let clock = Self.clock
+        Task { handoff.finish(await ask(clock)) }
+        return handoff.wait()
+    }
+
+    /// An answer handed from the task to the thread waiting for it.
+    private final class Handoff<T: Sendable>: @unchecked Sendable {
         private let lock = NSLock()
+        private let done = DispatchSemaphore(value: 0)
         private var stored: T?
-        func set(_ value: T?) { lock.lock(); stored = value; lock.unlock() }
-        var value: T? { lock.lock(); defer { lock.unlock() }; return stored }
+        func finish(_ value: T?) { lock.withLock { stored = value }; done.signal() }
+        func wait() -> T? { done.wait(); return lock.withLock { stored } }
     }
 }

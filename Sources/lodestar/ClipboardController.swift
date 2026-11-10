@@ -529,7 +529,7 @@ final class ClipboardController {
     func places(of clip: Clipboard.Clip, items stored: [ClipboardContent.Item]? = nil) -> [Clipboard.FilePlace]? {
         let items = stored ?? store.itemData(clip)
         let bookmarks = clip.fileBookmarks ?? []
-        return FileSense.withDeadline(Self.presenceDeadline) {
+        return FileSense.withDeadline(Self.presenceDeadline, label: FileSense.Read.place) {
             items.enumerated().map { item, content in
                 Clipboard.place(bookmark: bookmarks.indices.contains(item) ? bookmarks[item] : nil,
                                 address: Clipboard.fileAddress(in: content)).place

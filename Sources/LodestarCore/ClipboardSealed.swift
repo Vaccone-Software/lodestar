@@ -78,7 +78,7 @@ public enum ClipboardSealed {
 /// What one pasteboard item holds, as it is stored and put back: the plain
 /// text form, and every richer form the source app offered beside it.
 public enum ClipboardContent {
-    public struct Item {
+    public struct Item: Sendable {
         public var plain: Data?
         public var natives: [(type: String, data: Data)]
 

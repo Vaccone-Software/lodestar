@@ -2144,7 +2144,13 @@ final class DraftController {
 
     private func launch(_ job: EarJob) {
         earRunning = true
-        Task.detached { [weak self] in
+        // Not detached: a detached task starts without Stoic's ambient context
+        // (its events, clock and task ledger), so nothing this work records
+        // would reach the log. It runs off the main thread all the same: the
+        // controller is not an actor, so the task inherits none. The priority
+        // is the one a detached task has, named: an ordinary task would take
+        // the main thread's (measured: 25, user initiated, against 21).
+        Task(priority: .medium) { [weak self] in
             let began = Date()
             let again = try? await job.ear.transcribe(job.samples, context: job.context)
             let seconds = Date().timeIntervalSince(began)

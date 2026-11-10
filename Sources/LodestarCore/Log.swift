@@ -174,7 +174,15 @@ public final class AppendingFile {
         inode = fstat(descriptor, &status) == 0 ? status.st_ino : 0
         // A fresh file after a rotation does not inherit the flag the
         // boot sweep set on the one before it.
-        if Paths.isBehavioral(url.lastPathComponent) { Paths.excludeFromBackup(url) }
+        // Not Paths.excludeFromBackup: that logs its failure, and a line
+        // from inside the appender's lock would take the lock again.
+        if Paths.isBehavioral(url.lastPathComponent) {
+            var file = url
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            // stoic:allow(discarded-try): the log cannot log its own failure (this runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); a file left in backups is swept again by Paths.prepare at the next launch.
+            try? file.setResourceValues(values)
+        }
     }
 
     private func closeDescriptor() {

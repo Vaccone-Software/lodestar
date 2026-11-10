@@ -67,14 +67,13 @@ public enum UpdateFeed {
     /// - Parameters:
     ///   - transport: How the request reaches the network; a scripted one
     ///     in tests.
-    ///   - wallClock: What an HTTP-date `Retry-After` is counted from; a
-    ///     test pins it.
-    public static func client(transport: (any HTTPTransport)? = nil,
-                              wallClock: (@Sendable () -> Date)? = nil) -> HTTPClient {
+    ///
+    /// An HTTP-date `Retry-After` is counted from the ambient wall clock
+    /// (`Moment.now`), which a test pins with `withAmbient`.
+    public static func client(transport: (any HTTPTransport)? = nil) -> HTTPClient {
         var policy = HTTPPolicy.singleAttempt
         policy.attemptTimeout = attemptTimeout
         policy.maxResponseBytes = byteLimit
-        if let wallClock { policy.wallClock = wallClock }
         return HTTPClient(
             base: Updater.stableURL, policy: policy,
             transport: transport ?? URLSessionTransport(configuration: sessionConfiguration()),

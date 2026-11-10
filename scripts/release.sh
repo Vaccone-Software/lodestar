@@ -34,6 +34,16 @@ if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     rm -f dist/.built-from
     # Stoic's linter: a finding the baseline has not recorded (a new
     # `try?`, a clock read, an escape without a recorded reason) stops it.
+    # The formats this release writes become a promise every later build
+    # is tested against (Stoic design/32); a release whose samples were never
+    # recorded would quietly leave its own out.
+    for format in config feedback-entry state; do
+        [ -d "Tests/LodestarCoreTests/Compatibility/$format/$VERSION" ] || {
+            echo "✕ no compatibility fixtures for $format $VERSION (run: scripts/record-compat-fixtures.sh $VERSION, then commit them)"
+            exit 1
+        }
+    done
+
     echo "→ linting"
     ./scripts/lint.sh >/dev/null || { echo "✕ lint failed — no release with an unrecorded finding (run: scripts/lint.sh)"; exit 1; }
 

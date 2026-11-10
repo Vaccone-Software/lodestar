@@ -2840,7 +2840,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     Log.info("login-item", ["action": exists ? "updated" : "installed"])
                     rewritten = exists
                 } catch {
-                    Log.error("login-item", ["write-failed": "\(error)"])
+                    // The plist on disk is not this install's (or is not
+                    // there): readopting now would bootstrap the stale
+                    // definition, which may start another build at login.
+                    Log.error("login-item", ["write-failed": "\(error)", "readopt": "skipped"])
+                    return
                 }
             }
             readoptIfUnsupervised(agent: agent, definitionChanged: rewritten)

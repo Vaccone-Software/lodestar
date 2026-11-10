@@ -245,6 +245,120 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertEqual(stage.lastDraft?.peakDb, -46, "the loudest moment of this draft, not the last")
     }
 
+    // MARK: - The end line says which empty it was
+
+    /// The `draft end=` line a draft writes as it closes, whole.
+    private func endLine(_ stage: Stage, _ body: () -> Void) -> String {
+        var lines: [String] = []
+        let lock = NSLock()
+        Log.listener = { line in
+            guard line.contains(" draft end=") else { return }
+            lock.lock(); lines.append(line); lock.unlock()
+        }
+        defer { Log.listener = nil }
+        body()
+        lock.lock(); defer { lock.unlock() }
+        XCTAssertEqual(lines.count, 1, "one end line per draft: \(lines)")
+        return lines.first ?? ""
+    }
+
+    private func field(_ name: String, in line: String) -> String? {
+        // logfmt: name=value, the value quoted when it has a space.
+        guard let range = line.range(of: " \(name)=") else { return nil }
+        let rest = line[range.upperBound...]
+        if rest.hasPrefix("\"") {
+            return rest.dropFirst().prefix { $0 != "\"" }.description
+        }
+        return rest.prefix { !$0.isWhitespace }.description
+    }
+
+    /// An empty draft that heard sound and no words, on a Bluetooth
+    /// headset: the line says how much sound, that no word came, that the
+    /// mic was never paused, that nothing failed, and the kind of input.
+    func testTheEndLineSaysHowMuchSoundAndNoWords() {
+        let stage = Stage()
+        stage.draft.classifyInput = { _ in "bluetooth" }
+        let line = endLine(stage) {
+            stage.lode(".")
+            Stage.pump()
+            stage.pump(until: { stage.draft.inputClassName != nil }, turns: 400)
+            stage.speech.level(0.2, db: -46.2)
+            for _ in 0..<4 {
+                stage.clock.advance(by: 0.1)
+                stage.speech.level(0.2, db: -46.2)
+            }
+            stage.clock.advance(by: 0.1)
+            stage.speech.level(0, db: -60)
+            // A long silence in the readings is a paused mic, not sound.
+            stage.clock.advance(by: 5)
+            stage.speech.level(0.2, db: -46.2)
+            cmd(stage, "escape"); cmd(stage, "escape")
+        }
+        XCTAssertEqual(stage.lastDraft?.action, "empty")
+        // The old fields, in their old order, first.
+        XCTAssertTrue(line.contains(" draft end=empty words=0 typed=0 seconds="), line)
+        let order = ["end", "words", "typed", "seconds", "peakDb", "voiceSeconds", "firstWord", "paused", "startFailure", "input"]
+        let positions = order.compactMap { line.range(of: " \($0)=")?.lowerBound }
+        XCTAssertEqual(positions.count, order.count, line)
+        XCTAssertEqual(positions, positions.sorted(), "existing fields keep their places: \(line)")
+        XCTAssertEqual(field("peakDb", in: line), "-46")
+        // Four 0.1 s steps, then the 5 s gap counted as one level step.
+        XCTAssertEqual(Double(field("voiceSeconds", in: line) ?? "") ?? -1, 0.4 + DraftController.levelStep, accuracy: 0.051,
+                       "four 0.1 s steps and a gap that counts as one level step, to a tenth: \(line)")
+        XCTAssertEqual(field("firstWord", in: line), "none")
+        XCTAssertEqual(field("paused", in: line), "false")
+        XCTAssertEqual(field("startFailure", in: line), "none")
+        XCTAssertEqual(field("input", in: line), "bluetooth")
+    }
+
+    /// A mic that would not start, never heard anything, and was muted:
+    /// each is said, and the last failure is the one the session said.
+    func testTheEndLineSaysAMicThatNeverStartedAndWasMuted() {
+        let stage = Stage()
+        let line = endLine(stage) {
+            stage.speech.slowToListen = true
+            stage.lode(".")
+            stage.speech.fail("the microphone could not start")
+            stage.speech.fail("the microphone stopped")
+            stage.lode(".", shift: true)
+            cmd(stage, "escape"); cmd(stage, "escape")
+        }
+        XCTAssertEqual(field("startFailure", in: line), "the microphone stopped", line)
+        XCTAssertEqual(field("voiceSeconds", in: line), "0.0")
+        XCTAssertEqual(field("input", in: line), "none", "no input ever listened")
+        XCTAssertEqual(field("firstWord", in: line), "none")
+    }
+
+    /// Seconds to the first word, and a muted mic, and never the words.
+    func testTheEndLineSaysTheFirstWordAndAMutedMicButNotTheWords() {
+        let stage = Stage()
+        let line = endLine(stage) {
+            stage.lode(".")
+            stage.clock.advance(by: 1.5)
+            stage.speech.hear("the launch code is hunter two")
+            stage.speech.settle("The launch code is hunter two.")
+            stage.lode(".", shift: true)
+            stage.clock.advance(by: DraftController.pauseNote + 0.5)
+            cmd(stage, "escape"); cmd(stage, "escape")
+        }
+        XCTAssertEqual(field("firstWord", in: line), "1.5", line)
+        XCTAssertEqual(field("paused", in: line), "true", line)
+        XCTAssertFalse(line.contains("hunter"), "what was said is never in the line: \(line)")
+        XCTAssertFalse(line.contains("launch"), line)
+    }
+
+    /// A wedge is the failure the line names.
+    func testTheEndLineSaysAWedge() {
+        let stage = Stage()
+        let line = endLine(stage) {
+            stage.speech.slowToListen = true
+            stage.lode(".")
+            stage.speech.wedge()
+            cmd(stage, "escape"); cmd(stage, "escape")
+        }
+        XCTAssertEqual(field("startFailure", in: line), "the audio system is not answering", line)
+    }
+
     func testADraftWithNoAudioRecordsNoLevel() {
         // Nothing flowed: a different fact from a deaf device, and the
         // previous draft's level must not leak into this one.

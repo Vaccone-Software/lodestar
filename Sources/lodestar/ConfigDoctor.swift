@@ -157,10 +157,7 @@ func diagnoseReport() -> String {
     lines.append("═══ Lodestar diagnose · v\(Lodestar.version) · \(ISO8601DateFormatter().string(from: Date()))")
     lines.append("")
 
-    let pidPath = Paths.pidFile
-    if let raw = try? String(contentsOf: pidPath, encoding: .utf8),
-       let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-       kill(pid, 0) == 0 {
+    if let pid = runningLodestar() {
         lines.append("instance: running (pid \(pid))")
     } else {
         lines.append("instance: NOT RUNNING")
@@ -255,10 +252,7 @@ func runResetConfig() -> Never {
         exit(1)
     }
     print("✓ fresh default config written — \(Config.file.path)")
-    let pidPath = Paths.pidFile
-    if let raw = try? String(contentsOf: pidPath, encoding: .utf8),
-       let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-       kill(pid, 0) == 0 {
+    if let pid = runningLodestar() {
         kill(pid, SIGUSR2)
         print("✓ reloaded the running instance (pid \(pid))")
     }
@@ -311,10 +305,7 @@ func runConfigVerb(_ arguments: [String]) -> Never {
         Config.userTree()
     }
     func signalRunningInstance() {
-        let pidPath = Paths.pidFile
-        if let raw = try? String(contentsOf: pidPath, encoding: .utf8),
-           let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-           kill(pid, 0) == 0 {
+        if let pid = runningLodestar() {
             kill(pid, SIGUSR2)
             print("✓ applied to the running instance (pid \(pid))")
         }
@@ -440,12 +431,17 @@ func runApps() -> Never {
     exit(0)
 }
 
+/// The running Lodestar that is not this process, for the commands that
+/// signal it: the copy that holds the instance lock, or an older build's copy
+/// that wrote the pid file. Never a process that only has the number a stale
+/// pid file names (`SingleInstance.runningCopy`).
+func runningLodestar() -> Int32? {
+    SingleInstance.runningCopy(files: .init(lock: Paths.lockFile, pid: Paths.pidFile))
+}
+
 /// SIGUSR2 to the running instance — apply the config without the menu.
 func runReload() -> Never {
-    let pidPath = Paths.pidFile
-    guard let raw = try? String(contentsOf: pidPath, encoding: .utf8),
-          let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-          kill(pid, 0) == 0 else {
+    guard let pid = runningLodestar() else {
         print("✕ Lodestar is not running")
         exit(1)
     }
@@ -487,9 +483,7 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
         // A running instance holds its own copy and buffers; tell it and
         // wake it, or it writes that copy back over the deletion.
         store.requestClear(logbook: logbook, health: health)
-        if let raw = try? String(contentsOf: Paths.pidFile, encoding: .utf8),
-           let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-           kill(pid, 0) == 0 {
+        if let pid = runningLodestar() {
             kill(pid, SIGUSR2)
         }
         let what = logbook && health ? "the logbook and the health record"

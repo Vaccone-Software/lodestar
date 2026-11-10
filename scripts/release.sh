@@ -32,6 +32,11 @@ if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     # The commit these bytes are made from, for ship.sh to match before it
     # keeps a build across a stopped ship. Gone until the build succeeds.
     rm -f dist/.built-from
+    # Stoic's linter: a finding the baseline has not recorded (a new
+    # `try?`, a clock read, an escape without a recorded reason) stops it.
+    echo "→ linting"
+    ./scripts/lint.sh >/dev/null || { echo "✕ lint failed — no release with an unrecorded finding (run: scripts/lint.sh)"; exit 1; }
+
     echo "→ testing"
     ./scripts/test.sh || { echo "✕ tests failed — no release from a red suite (run: scripts/test.sh)"; exit 1; }
 

@@ -115,6 +115,12 @@ jobs:
       - name: Build
         run: swift build
 
+      # Stoic's linter, built from the pinned Stoic in .build/stoic-lint
+      # (cached with the build): a finding the baseline has not recorded
+      # fails the run before the suite is waited for.
+      - name: Lint
+        run: ./scripts/lint.sh
+
       # The tests draw real windows, so what they draw on matters: the
       # display's size and scale and the Mac's appearance. A runner is not
       # our desk (a Retina Mac in Dark), and a failure that only the runner

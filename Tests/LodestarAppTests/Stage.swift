@@ -129,6 +129,9 @@ final class FakeSpeech: SpeechSession {
     /// The session says it failed, the way a microphone that would not
     /// start, or stopped mid-take, does.
     func fail(_ why: String = "the microphone could not start") { onState?(.failed(why)) }
+    /// The audio stack has stopped answering, the way a headset start that
+    /// never came back and the starts queued behind it say it.
+    func wedge() { onState?(.wedged) }
     /// The grant was refused, the way a denied microphone prompt or a
     /// switch turned off in Privacy & Security reports it.
     func deny() { onState?(.denied) }

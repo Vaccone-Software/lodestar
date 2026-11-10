@@ -681,6 +681,7 @@ final class DraftController {
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0; retries = 0
+        resetMicrophoneRecord()
         resetPointer()
         layoutTyper.reset()
 
@@ -762,6 +763,7 @@ final class DraftController {
         openedAt = clock.now()
         typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
+        resetMicrophoneRecord()
         resetPointer()
         layoutTyper.reset()
         mode = .insert
@@ -795,7 +797,7 @@ final class DraftController {
             // been switched on the same key listens.
             if speechState == .denied, !microphoneGranted() {
                 openSettings(Self.microphoneSettings)
-            } else if !sessionStarted || speechState == .denied || (sessionSpoke && speechState?.retries == true) {
+            } else if !sessionStarted || speechState == .denied || (sessionSpoke && speechState?.asksAgain == true) {
                 listenAgain()
             }
             if mode != .insert { setMode(.insert) } else { resumeIfWanted() }
@@ -1112,6 +1114,34 @@ final class DraftController {
     /// `close()` for the record, so an empty draft can say whether the
     /// device was deaf (-140) or the room was only quiet.
     private var peakDb: Double?
+    /// What the end line says about the microphone, beside `peakDb` and
+    /// kept past `close()` the same way, so a draft that ended empty says
+    /// which empty it was: heard nothing, heard sound and no words, a mic
+    /// that was muted, or one that never started. Reset when a draft opens.
+    ///
+    /// Seconds of sound above `voiceFloor`: each reading that is above it
+    /// counts the time since the one before, up to `levelStep`, so a pause
+    /// in the readings (a paused mic, a restart) is not counted as sound.
+    private var voiceSeconds: TimeInterval = 0
+    private var lastLevelAt: Date?
+    static let levelStep: TimeInterval = 0.25
+    /// Whether the mic was paused (muted, or in normal mode) for as long as
+    /// `pauseNote` at any point. Leaving a draft pauses it too, a moment
+    /// before it closes, and that is not a mic that was off while the
+    /// draft was in use, so a shorter pause does not count.
+    private var micWasPaused = false
+    private var pausedSince: Date?
+    static let pauseNote: TimeInterval = 1
+    /// The last start failure the session said, as the line shows it (the
+    /// app's own words, never the person's), or nil if none did.
+    private var lastStartFailure: String?
+    /// The kind of the last input heard (built-in, bluetooth, usb or
+    /// other), as the voice record names it and never its name. Found off
+    /// the main thread, since CoreAudio is asked for it and is what a
+    /// wedged audio stack stops answering; read when the draft ends.
+    private(set) var inputClassName: String?
+    var classifyInput: @Sendable (String) -> String? = { AudioInput.transportClass(named: $0) }
+    private static let classQueue = DispatchQueue(label: "lodestar.draft.input-class", qos: .utility)
     /// Listening this long with nothing but zeros is said on the register
     /// line: "hearing nothing on <input>". Three seconds is past the
     /// engine's own watch on a wired input and inside a hand's patience;
@@ -1137,6 +1167,37 @@ final class DraftController {
     private var sessionSpoke = false
 
     // MARK: - Speech
+
+    private func notePause() {
+        if pausedSince == nil { pausedSince = clock.now() }
+    }
+
+    /// The mic is on again, or the draft has ended: a pause that lasted
+    /// `pauseNote` is kept.
+    private func noteResume() {
+        guard let since = pausedSince else { return }
+        pausedSince = nil
+        if clock.now().timeIntervalSince(since) >= Self.pauseNote { micWasPaused = true }
+    }
+
+    private func resetMicrophoneRecord() {
+        voiceSeconds = 0; lastLevelAt = nil; micWasPaused = false; pausedSince = nil
+        lastStartFailure = nil; inputClassName = nil
+    }
+
+    /// The input's kind, asked of CoreAudio on a queue of its own and kept
+    /// for this draft's end line; a draft that has ended meanwhile drops it.
+    private func classify(_ input: String) {
+        let ending = endings
+        let classify = classifyInput
+        Self.classQueue.async { [weak self] in
+            let kind = classify(input)
+            DispatchQueue.main.async {
+                guard let self, self.endings == ending else { return }
+                self.inputClassName = kind
+            }
+        }
+    }
 
     private func startListening() {
         guard speech.isAvailable else {
@@ -1175,9 +1236,22 @@ final class DraftController {
         listens += 1
         speech.listen(input: inputDevice, onState: { [weak self] state in
             guard let self, self.isOpen, self.session == mine else { return }
+            let was = self.speechState
             self.speechState = state
             self.sessionSpoke = true
+            if case .failed(let why) = state { self.lastStartFailure = why }
+            if state == .wedged { self.lastStartFailure = "the audio system is not answering" }
             if state.retries { self.scheduleRetry(session: mine) }
+            if state == .wedged {
+                // The timer must not rebuild the recognizer against it: a
+                // retry already waiting is let go, and the door asks.
+                self.retryWork?.cancel()
+                self.retryWork = nil
+                if was != .wedged {
+                    Log.error("draft", ["speech": "audio is wedged, not asking again on a timer",
+                                        "retries": self.retries, "listens": self.listens])
+                }
+            }
             if case .listening(let input) = state {
                 self.retries = 0
                 self.retryWork?.cancel()
@@ -1188,7 +1262,10 @@ final class DraftController {
                 let first = !self.listening
                 self.listening = true
                 self.inputName = input
-                if let input { self.inputsHeard.insert(input) }
+                if let input {
+                    self.inputsHeard.insert(input)
+                    self.classify(input)
+                }
                 self.watchForSilence(session: mine)
                 // The device actually read, when the session named it:
                 // a pinned input that fell back gates on what is open.
@@ -1197,14 +1274,21 @@ final class DraftController {
                     self.observations?.latency(surface: "draft-listen",
                                                seconds: self.clock.now().timeIntervalSince(self.openedAt))
                 }
-                if self.mode == .normal || !self.micWanted { self.speech.pause() }
+                if self.mode == .normal || !self.micWanted { self.notePause(); self.speech.pause() }
             }
             self.render()
         }, onLevel: { [weak self] level, db in
             guard let self, self.isOpen, self.session == mine else { return }
             self.level = level
             if db.isFinite { self.peakDb = max(self.peakDb ?? db, db) }
-            if level > Self.voiceFloor { self.lastVoiceAt = self.clock.now() }
+            let now = self.clock.now()
+            if level > Self.voiceFloor {
+                self.lastVoiceAt = now
+                if let before = self.lastLevelAt {
+                    self.voiceSeconds += min(max(0, now.timeIntervalSince(before)), Self.levelStep)
+                }
+            }
+            self.lastLevelAt = now
             self.panel.setLevel(level)
         }, onAlive: { [weak self] in
             guard let self, self.isOpen, self.session == mine, !self.heardAlive else { return }
@@ -1249,6 +1333,7 @@ final class DraftController {
                   !self.sessionSpoke else { return }
             Log.info("draft", ["speech": "no listening state", "seconds": Int(Self.listenWatchdogSeconds)])
             self.speechState = .failed("the microphone did not start")
+            self.lastStartFailure = "the microphone did not start"
             self.speech.stop {}
             self.sessionStarted = false
             self.scheduleRetry(session: mine)
@@ -1542,6 +1627,7 @@ final class DraftController {
     private func pauseSpeech() {
         guard listening else { return }
         micRunning = false
+        notePause()
         speech.pause()
     }
 
@@ -1551,6 +1637,7 @@ final class DraftController {
         // speaking replaces what is selected. Everywhere else it waits.
         guard mode == .insert || vim.selection(in: buffer) != nil else { return }
         micRunning = true
+        noteResume()
         speech.resume()
     }
 
@@ -2488,6 +2575,7 @@ final class DraftController {
 
     private func record(action: String, row: String?, destination: Destination?) {
         let now = clock.now()
+        noteResume()
         journal?.finish(action, text: buffer.text, at: now)
         observations?.drafted(
             app: destination?.name ?? "clipboard", door: door.rawValue, action: action, row: row,
@@ -2498,9 +2586,17 @@ final class DraftController {
             warm: wasWarm, peakDb: peakDb.map { $0.rounded() }, editing: sessionStyle, at: now)
         Log.info("draft", ["end": action, "words": spokenWords, "typed": typedCharacters,
                            "seconds": Int(now.timeIntervalSince(openedAt)),
-                           "peakDb": peakDb.map { Int($0) } ?? "none"])
+                           "peakDb": peakDb.map { Int($0) } ?? "none",
+                           "voiceSeconds": Self.tenths(voiceSeconds),
+                           "firstWord": firstWordAt.map { Self.tenths($0.timeIntervalSince(openedAt)) } ?? "none",
+                           "paused": micWasPaused,
+                           "startFailure": lastStartFailure ?? "none",
+                           "input": inputsHeard.isEmpty ? "none" : (inputClassName ?? "unknown")])
         measureVoice(app: destination?.name ?? "clipboard")
     }
+
+    /// Seconds to a tenth, for the end line.
+    private static func tenths(_ seconds: TimeInterval) -> Double { (seconds * 10).rounded() / 10 }
 
     /// The draft's voice, measured off the main thread from the audio the
     /// session holds, before the next session drops it. Only the numbers

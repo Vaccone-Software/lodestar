@@ -41,12 +41,73 @@ enum SpeechStart {
     /// and the draft says the microphone did not start while the task
     /// that would have started it is parked for the life of the process.
     static let prepareDeadline: TimeInterval = 3
+    /// The least a start can be given and still land: an engine that is
+    /// running is heard from in a few hundred milliseconds.
+    static let minimumStart: TimeInterval = 0.25
+
+    /// Whether an attempt may begin with `remaining` of the start's budget
+    /// left, owing the radio a wait of up to `settle` first. An attempt that
+    /// cannot pay its settle and then start is not begun: the second attempt
+    /// used to start with 0.9 s of a 5.65 s budget against a settle of up to
+    /// 3.5 s, was abandoned at the deadline every time (4 of 4 cycles), and
+    /// left its start out on the engine's queue. Ending it at once lets the
+    /// draft ask again with a whole budget, which does have the room.
+    static func canBegin(remaining: TimeInterval, owing settle: TimeInterval) -> Bool {
+        remaining > settle + minimumStart
+    }
+
     /// The Mac's own microphone opens in about 150 ms; a bridge that has
     /// not opened in a second is not saving the wait it was for.
     static let bridgeDeadline: TimeInterval = 1
 
+    /// One deadline label for each thing that can hang, because a label's
+    /// slots are shared by everything under it: the audio start, the bridge
+    /// and the recognizer's own waits once shared `speech.start`, so a
+    /// headset start that never came back, and the bridge that hung behind
+    /// it on the same queue, filled the four slots, and the recognizer's
+    /// `prepareToAnalyze`, which was fine, was refused in the same
+    /// millisecond and blamed. Each now fills only its own.
+    enum Label {
+        static let prepare = "speech.prepare"
+        static let bridge = "speech.bridge"
+        static let start = "speech.start"
+    }
+
     struct TimedOut: Error, CustomStringConvertible {
         var description: String { "the microphone did not answer" }
+    }
+
+    /// Every slot of a label holds a call that never came back: asking
+    /// again does not unwedge it, only the stuck call returning does. Said
+    /// apart from `TimedOut` so the audio start's wedge is not reported as
+    /// a start that merely failed and retried on a timer.
+    struct Wedged: Error, CustomStringConvertible {
+        let label: String
+        var description: String { "\(label) is wedged" }
+    }
+
+    /// What a session says when no start landed and nothing is hearing the
+    /// take. A wedge is its own state: it is neither a start that failed
+    /// and is asked for again on a timer, nor the recognizer's.
+    static func unstarted(wedged: Bool) -> SpeechState {
+        wedged ? .wedged : .failed("the microphone could not start")
+    }
+
+    /// The recognizer's own preparation and start, under its own label.
+    static func prepare<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withDeadline(prepareDeadline, label: Label.prepare, work)
+    }
+
+    /// The bridge microphone's opening, under its own label.
+    static func openBridge<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withDeadline(bridgeDeadline, label: Label.bridge, work)
+    }
+
+    /// The headset's audio start, which is the one that wedges: it waits
+    /// on an engine queue with CoreAudio on it.
+    static func startAudio<T: Sendable>(within seconds: TimeInterval,
+                                        _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withDeadline(seconds, label: Label.start, work)
     }
 
     /// Run `work`, or give up on it. Whatever is still waiting is left to
@@ -68,11 +129,12 @@ enum SpeechStart {
     ///
     /// A label holds at most `limit` of these, running or abandoned, and
     /// refuses once every slot is held by a start that never came back —
-    /// a wedged audio stack, which asking again does not unwedge. That
-    /// reads as a spent deadline too.
+    /// a wedged audio stack, which asking again does not unwedge. That is
+    /// `Wedged`, not a spent deadline. The label is always named, so no
+    /// caller shares slots with another by leaving it out.
     static func withDeadline<T: Sendable>(
         _ seconds: TimeInterval,
-        label: String = "speech.start",
+        label: String,
         limit: Int = 4,
         _ work: @escaping @Sendable () async throws -> T
     ) async throws -> T {
@@ -87,7 +149,7 @@ enum SpeechStart {
             case .rejected(let rejection):
                 if rejection.isCancellation { throw CancellationError() }
                 if rejection.reason == .abandonmentLimit {
-                    Log.error("speech: \(label) is wedged — every slot holds a start that never came back")
+                    throw Wedged(label: label)
                 }
                 throw TimedOut()
             }
@@ -107,6 +169,13 @@ enum SpeechState: Equatable {
     /// for the locale, or the analyzer reports itself unavailable.
     case unavailable
     case failed(String)
+    /// The audio stack has stopped answering: every slot the headset's
+    /// start may hold is held by a start that never came back (a CoreAudio
+    /// call stuck on its queue). Not a failure asking again can cure, so
+    /// the draft does not ask on a timer, and not the recognizer's, so it
+    /// is not said as one; a press still asks, and a stuck call that comes
+    /// back frees the next ask.
+    case wedged
 
     static let modelNotInstalled = "the speech model could not be installed"
 
@@ -121,6 +190,12 @@ enum SpeechState: Equatable {
         guard case .failed(let why) = self else { return false }
         return why != Self.modelNotInstalled
     }
+
+    /// Whether a press of the door asks again at once. Everything the draft
+    /// retries on a timer, and the wedge, which only a hand asks about:
+    /// the timer rebuilt the whole recognizer against it every few seconds
+    /// for about a minute, each refused in the same millisecond.
+    var asksAgain: Bool { retries || self == .wedged }
 }
 
 /// The recognizer behind the draft's speak door: one session per draft,
@@ -786,6 +861,37 @@ final class AudioInput: @unchecked Sendable {
         return now.timeIntervalSince(refusal.at) < refusalMemory
     }
 
+    /// The most a start owes the radio before it builds, in seconds: the
+    /// wait a remembered refusal of this device calls for, and none when no
+    /// flip is coming (the refusal was at a hands-free rate that is still
+    /// the rate).
+    static func settleOwed(refusal: (device: AudioDeviceID, rate: Double?, at: Date)?,
+                           device: AudioDeviceID?, rate: Double?, now: Date) -> TimeInterval {
+        guard let refusal,
+              owesSettle(refusal: (refusal.device, refusal.at), device: device, now: now),
+              RateSettle.flipComing(from: refusal.rate, rate: rate) else { return 0 }
+        return RateSettle.deadline
+    }
+
+    /// Whether a start may begin building, given what it owes the radio
+    /// and the time its caller has left (`until`; nil is no limit, as for
+    /// the restarts that have no budget).
+    static func mayBegin(owing settle: TimeInterval, until: Date?, now: Date) -> Bool {
+        guard let until else { return true }
+        return SpeechStart.canBegin(remaining: until.timeIntervalSince(now), owing: settle)
+    }
+
+    /// An attempt that was not begun because the wait it owes the radio
+    /// cannot fit in the time left.
+    struct NotBegun: LocalizedError, CustomStringConvertible {
+        let owed: TimeInterval
+        let remaining: TimeInterval
+        var errorDescription: String? { description }
+        var description: String {
+            "the wait the radio is owed, up to \(String(format: "%.1f", owed)) s, does not fit in the \(String(format: "%.1f", max(0, remaining))) s left"
+        }
+    }
+
     /// The engine's rate went stale across a profile flip, so its start
     /// ran on a rate the radio had left.
     struct StaleRate: LocalizedError {
@@ -812,6 +918,8 @@ final class AudioInput: @unchecked Sendable {
         case .timedOut(let rate, let seconds):
             Log.info("draft", ["speech": "input rate did not settle", "hz": Int(rate ?? 0),
                                "ms": Int(seconds * 1000)])
+        case .alreadyThere(let rate):
+            Log.info("draft", ["speech": "input already at a phone rate, not waiting", "hz": Int(rate)])
         case .unreadable:
             break
         case .superseded:
@@ -869,6 +977,7 @@ final class AudioInput: @unchecked Sendable {
     /// stops the engine, and that engine is the newer session's.
     func start(device: String?, ticket: Int, sink: @escaping (AVAudioPCMBuffer) -> Void,
                lost: @escaping () -> Void = {},
+               until: Date? = nil,
                completion: @escaping (Result<(format: AVAudioFormat, name: String?), Error>) -> Void) {
         _ = asked(start: ticket)
         queue.async {
@@ -879,7 +988,7 @@ final class AudioInput: @unchecked Sendable {
             self.runningTicket = ticket
             self.sessionNumber += 1
             self.keeper.sessionBegan()
-            completion(Result { try self.startNow(device: device, sink: sink, lost: lost) })
+            completion(Result { try self.startNow(device: device, sink: sink, lost: lost, until: until) })
         }
     }
 
@@ -887,7 +996,7 @@ final class AudioInput: @unchecked Sendable {
     /// configuration change must not trust the node's own report of its
     /// format, which is what the stale check below reads.
     private func startNow(device: String?, sink: @escaping (AVAudioPCMBuffer) -> Void,
-                          lost: @escaping () -> Void, fresh: Bool = false) throws
+                          lost: @escaping () -> Void, fresh: Bool = false, until: Date? = nil) throws
         -> (format: AVAudioFormat, name: String?) {
         dispatchPrecondition(condition: .onQueue(queue))
         stopNow()
@@ -898,7 +1007,7 @@ final class AudioInput: @unchecked Sendable {
         #endif
         if fresh { discard() }
         let target = try resolveTarget(device: device, logs: true)
-        return try startEngine(target: target, sink: sink)
+        return try startEngine(target: target, sink: sink, until: until)
     }
 
     /// The device a start for `device` will most likely read, asked ahead
@@ -951,7 +1060,8 @@ final class AudioInput: @unchecked Sendable {
         return target
     }
 
-    private func startEngine(target: AudioDeviceID?, sink: @escaping (AVAudioPCMBuffer) -> Void) throws
+    private func startEngine(target: AudioDeviceID?, sink: @escaping (AVAudioPCMBuffer) -> Void,
+                             until: Date? = nil) throws
         -> (format: AVAudioFormat, name: String?) {
         dispatchPrecondition(condition: .onQueue(queue))
         var attempt = 0
@@ -963,11 +1073,21 @@ final class AudioInput: @unchecked Sendable {
         let tick = currentTick()
         let device = target ?? Self.defaultInput()
         let radio = device.map(Self.isBluetooth) ?? false
-        if radio, let device, Self.owesSettle(refusal: refusal.map { ($0.device, $0.at) },
-                                               device: device, now: Date()) {
-            let stale = refusal?.rate
-            refusal = nil
-            try settle(device, from: stale, tick: tick)
+        if radio, let device {
+            // Whether the wait a remembered refusal owes fits in the time
+            // this start has is decided before anything is built, here and
+            // nowhere else: an attempt that cannot pay it is not begun, and
+            // the refusal stays remembered for the ask that can.
+            let owed = Self.settleOwed(refusal: refusal, device: device,
+                                       rate: Self.nominalRate(of: device), now: Date())
+            guard Self.mayBegin(owing: owed, until: until, now: Date()) else {
+                throw NotBegun(owed: owed, remaining: until?.timeIntervalSinceNow ?? 0)
+            }
+            if Self.owesSettle(refusal: refusal.map { ($0.device, $0.at) }, device: device, now: Date()) {
+                let stale = refusal?.rate
+                refusal = nil
+                try settle(device, from: stale, tick: tick)
+            }
         }
         while true {
             // A kept engine serves only the device and format it was built
@@ -1028,7 +1148,17 @@ final class AudioInput: @unchecked Sendable {
                 if radio, let device { refusal = (device, builtRate, Date()) }
                 throw failure
             }
-            if radio, let device { try settle(device, from: builtRate, tick: tick) }
+            if radio, let device {
+                // The settle between the two engine attempts is owed the
+                // same way: not begun a second attempt it cannot pay for.
+                let owed = RateSettle.flipComing(from: builtRate, rate: Self.nominalRate(of: device))
+                    ? RateSettle.deadline : 0
+                guard Self.mayBegin(owing: owed, until: until, now: Date()) else {
+                    refusal = (device, builtRate, Date())
+                    throw NotBegun(owed: owed, remaining: until?.timeIntervalSinceNow ?? 0)
+                }
+                try settle(device, from: builtRate, tick: tick)
+            }
         }
         refusal = nil
         guard let engine else { throw NSError(domain: "draft", code: 3) }
@@ -1294,7 +1424,7 @@ private actor AnalyzerBox {
         self.analyzer = analyzer
         var prepared: AVAudioFormat?
         do {
-            prepared = try await SpeechStart.withDeadline(SpeechStart.prepareDeadline) {
+            prepared = try await SpeechStart.prepare {
                 let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
                 try await analyzer.prepareToAnalyze(in: format)
                 return format
@@ -1326,7 +1456,7 @@ private actor AnalyzerBox {
         self.continuation = continuation
         guard let outFormat = format else { say(.failed("the recognizer has no audio format")); return }
         do {
-            try await SpeechStart.withDeadline(SpeechStart.prepareDeadline) {
+            try await SpeechStart.prepare {
                 try await analyzer.start(inputSequence: stream)
             }
         } catch {
@@ -1352,6 +1482,7 @@ private actor AnalyzerBox {
         var attempt = 0
         starting = true
         defer { starting = false }
+        var wedged = false
         while started == nil, attempt < SpeechStart.attempts {
             attempt += 1
             if attempt > 1 {
@@ -1362,7 +1493,7 @@ private actor AnalyzerBox {
                 guard !stopped else { stopOwnBridge(); return }
             }
             let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
-            guard remaining > 0.25 else { break }
+            guard SpeechStart.canBegin(remaining: remaining, owing: 0) else { break }
             do {
                 started = try await Self.startMicrophone(microphone, ticket: micTicket, device: wanted, within: remaining,
                                                          stillWanted: stillWanted,
@@ -1380,6 +1511,14 @@ private actor AnalyzerBox {
                 // Another attempt would refuse the same way.
                 stopOwnBridge()
                 say(.failed(off.why)); return
+            } catch let stuck as SpeechStart.Wedged {
+                // Every slot of the audio start holds a start that never
+                // came back: another would be refused the same way, and the
+                // draft must not ask again on a timer either.
+                Log.error("draft", ["speech": "audio start is wedged", "label": stuck.label,
+                                    "attempt": attempt])
+                wedged = true
+                break
             } catch is SpeechStart.TimedOut {
                 // The start is still out on the engine's queue. Another one
                 // would queue behind it and then stop whatever it started;
@@ -1414,7 +1553,7 @@ private actor AnalyzerBox {
                 // draft has said it failed.
                 stopOwnBridge()
                 microphone.stop(ticket: micTicket)
-                say(.failed("the microphone could not start"))
+                say(SpeechStart.unstarted(wedged: wedged))
             }
             return
         }
@@ -1452,7 +1591,7 @@ private actor AnalyzerBox {
         let bridge = self.bridge
         let ticket = bridge.reserveTicket()
         bridgeTicket = ticket
-        let opened = (try? await SpeechStart.withDeadline(SpeechStart.bridgeDeadline) {
+        let opened = (try? await SpeechStart.openBridge {
             await withCheckedContinuation { continuation in
                 bridge.start(device: builtIn, ticket: ticket, sink: { gate.fromBridge($0) }) {
                     continuation.resume(returning: $0)
@@ -1515,13 +1654,14 @@ private actor AnalyzerBox {
         // the microphone" until it was closed and opened again. A
         // deadline turns that into an attempt that failed, which the
         // loop above can retry and the register line can report.
-        try await SpeechStart.withDeadline(seconds) {
+        let until = Date().addingTimeInterval(seconds)
+        return try await SpeechStart.startAudio(within: seconds) {
             try await withCheckedThrowingContinuation { continuation in
                 Task { @MainActor in
                     guard stillWanted() else {
                         continuation.resume(throwing: CancellationError()); return
                     }
-                    microphone.start(device: device, ticket: ticket, sink: sink, lost: lost) { continuation.resume(with: $0) }
+                    microphone.start(device: device, ticket: ticket, sink: sink, lost: lost, until: until) { continuation.resume(with: $0) }
                 }
             }
         }

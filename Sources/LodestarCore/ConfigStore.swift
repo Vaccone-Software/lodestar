@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import StoicJSON
 import StoicSchema
 import StoicSettings
@@ -66,24 +67,23 @@ public enum ConfigStore {
 
     /// What the store held at one moment: the value the config was built from
     /// and the problem the file had.
-    public struct Snapshot: Equatable {
+    public struct Snapshot: Equatable, Sendable {
         public var value: ConfigFile
         public var problem: SettingsFileProblem?
     }
 
     // MARK: - One store per path
 
-    private final class Registry: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stores: [String: Store] = [:]
+    private final class Registry: Sendable {
+        private let stores = Mutex<[String: Store]>([:])
 
         func store(at path: String, open: () throws(StoreError) -> Store) throws(StoreError) -> Store {
-            lock.lock()
-            defer { lock.unlock() }
-            if let existing = stores[path] { return existing }
-            let opened = try open()
-            stores[path] = opened
-            return opened
+            try stores.withLock { (stores: inout [String: Store]) throws(StoreError) -> Store in
+                if let existing = stores[path] { return existing }
+                let opened = try open()
+                stores[path] = opened
+                return opened
+            }
         }
     }
 

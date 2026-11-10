@@ -15,6 +15,7 @@ public enum ActivePolicy {
     private struct State {
         var mode: Mode = .pointer
         var cachedPresentation: (frame: NSRect, at: Date)?
+        var frameOverride: NSRect?
     }
     private static let state = Mutex(State())
 
@@ -64,8 +65,8 @@ public enum ActivePolicy {
     /// all read off the display, and a test that ran on the developer's
     /// 1920-wide screen failed on a CI runner's narrower virtual one for
     /// three days, on the oldest clip's card being off the strip.
-    ///
-    /// Unlocked on purpose: only tests set it, on main, before the panel that
-    /// reads it exists.
-    nonisolated(unsafe) public static var frameOverride: NSRect?
+    public static var frameOverride: NSRect? {
+        get { state.withLock { $0.frameOverride } }
+        set { state.withLock { $0.frameOverride = newValue } }
+    }
 }

@@ -12,6 +12,7 @@ import CoreGraphics
 /// `setGlobalAXTimeout`) or that the element is still live. It promises that
 /// the handle itself, which has no state of ours to race on, may be passed
 /// between threads.
+// stoic:allow(unchecked-sendable): an AXUIElement is an immutable CF handle to an object in another process, and this code keeps no state on it, so passing it between threads shares nothing of ours to race on
 extension AXUIElement: @retroactive @unchecked Sendable {}
 
 /// Thin, synchronous wrappers over the C Accessibility API.

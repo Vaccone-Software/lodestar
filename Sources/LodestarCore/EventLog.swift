@@ -688,6 +688,7 @@ public struct FocusStamp: Equatable, Sendable {
 /// Threads: `io` owns the buffer, the open journal and the counter (each is
 /// touched there only); `state` owns what callers on any thread read and
 /// write, the two settings and the pending flush.
+// stoic:allow(unchecked-sendable): `pending`, `droppedWhilePaused` and `live` are touched only inside `io`, a serial queue (every method reaches them through `io.sync` or `io.async`, and `init` sets `live` before the log is shared); `_behavioralBound`, `_excludedFromBackup` and `flushWork` only inside `state.withLock`; every other stored property is a `let`
 public final class EventLog: @unchecked Sendable {
     public static let defaultFile = Paths.data.appendingPathComponent("events.jsonl")
     /// The window handed to the recommendation pass: every generator's

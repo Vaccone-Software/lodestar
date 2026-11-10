@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import NaturalLanguage
 
 /// What the editor marks: a word or a few that read wrong, with what they
@@ -98,18 +99,20 @@ public enum EditorText {
     /// enough for macOS to switch the tap off. Only the sentence under
     /// the caret is new; the rest are answered from here.
     public static func isForeign(_ sentence: String) -> Bool {
-        if let known = foreignLock.withLock({ foreignKnown[sentence] }) { return known }
+        if let known = foreign.withLock({ $0.known[sentence] }) { return known }
         let answer = recognizesForeign(sentence)
-        foreignLock.withLock {
-            if foreignKnown.updateValue(answer, forKey: sentence) == nil { foreignOrder.append(sentence) }
-            if foreignOrder.count > foreignCapacity { foreignKnown[foreignOrder.removeFirst()] = nil }
+        foreign.withLock {
+            if $0.known.updateValue(answer, forKey: sentence) == nil { $0.order.append(sentence) }
+            if $0.order.count > foreignCapacity { $0.known[$0.order.removeFirst()] = nil }
         }
         return answer
     }
 
-    private static let foreignLock = NSLock()
-    nonisolated(unsafe) private static var foreignKnown: [String: Bool] = [:]
-    nonisolated(unsafe) private static var foreignOrder: [String] = []
+    private struct ForeignAnswers {
+        var known: [String: Bool] = [:]
+        var order: [String] = []
+    }
+    private static let foreign = Mutex(ForeignAnswers())
     private static let foreignCapacity = 2_048
 
     private static func recognizesForeign(_ sentence: String) -> Bool {

@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import StoicJSON
 import StoicSettings
 
@@ -27,7 +28,7 @@ import StoicSettings
 /// moment after the write that made it returns (the stream is told before the
 /// write returns; this reads it). `onRecorded` is called on `queue` (the main
 /// queue), in order, once the entries are written.
-public final class ConfigHistoryRecorder: @unchecked Sendable {
+public final class ConfigHistoryRecorder: Sendable {
     /// What was recorded for one change.
     public struct Recorded: Sendable {
         public let change: SettingsChange<ConfigFile>
@@ -41,9 +42,11 @@ public final class ConfigHistoryRecorder: @unchecked Sendable {
     private let now: @Sendable () -> Date
     private let queue: DispatchQueue
     private let onRecorded: MainQueueOnly<((Recorded) -> Void)?>
-    private let state = NSLock()
-    private var task: Task<Void, Never>?
-    private var lastGroup: Int?
+    private struct Running {
+        var task: Task<Void, Never>?
+        var lastGroup: Int?
+    }
+    private let state = Mutex(Running())
 
     public init(store: ConfigStore.Store, file: URL = ConfigHistory.defaultFile,
                 now: @escaping @Sendable () -> Date = { Date() },
@@ -68,16 +71,14 @@ public final class ConfigHistoryRecorder: @unchecked Sendable {
                 self.record(change)
             }
         }
-        state.lock()
-        task = started
-        state.unlock()
+        state.withLock { $0.task = started }
     }
 
     public func stop() {
-        state.lock()
-        let ending = task
-        task = nil
-        state.unlock()
+        let ending = state.withLock { running -> Task<Void, Never>? in
+            defer { running.task = nil }
+            return running.task
+        }
         ending?.cancel()
     }
 
@@ -120,11 +121,11 @@ public final class ConfigHistoryRecorder: @unchecked Sendable {
     /// unique: two changes in one millisecond would be one group, and an undo
     /// would take back both.
     private func nextGroup(at date: Date) -> Int {
-        state.lock()
-        defer { state.unlock() }
-        let last = lastGroup ?? ConfigHistory.read(from: file).last?.group ?? 0
-        let group = max(Int(date.timeIntervalSince1970 * 1000), last + 1)
-        lastGroup = group
-        return group
+        state.withLock { running in
+            let last = running.lastGroup ?? ConfigHistory.read(from: file).last?.group ?? 0
+            let group = max(Int(date.timeIntervalSince1970 * 1000), last + 1)
+            running.lastGroup = group
+            return group
+        }
     }
 }

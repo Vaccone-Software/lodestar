@@ -171,4 +171,94 @@ final class DraftMicRetryTests: XCTestCase {
         stage.lode(".")
         XCTAssertEqual(stage.speech.listens, 2, "the door asks")
     }
+
+    // MARK: - An audio stack that has stopped answering
+
+    /// A wedge is not a start that failed. The timer asked again every few
+    /// seconds for about a minute, each ask rebuilding the whole recognizer
+    /// against an audio stack that refused it in the same millisecond, until
+    /// the app was relaunched. Now the line says what is wrong and the
+    /// draft waits for a hand.
+    func testAWedgeIsNotAskedForAgainOnATimer() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.wedge()
+        XCTAssertEqual(note(stage), "the audio system is not answering, lode . asks again")
+        XCTAssertEqual(stage.draft.state["retrying"] as? Bool, false, "nothing is being asked for")
+        for wait in DraftController.retrySeconds + Array(repeating: DraftController.retrySeconds.last!, count: 6) {
+            stage.clock.advance(by: wait)
+            XCTAssertEqual(stage.speech.listens, 1, "not after \(wait) s: the timer does not rebuild against a wedge")
+        }
+        stage.clock.advance(by: 120)
+        XCTAssertEqual(stage.speech.listens, 1)
+    }
+
+    /// A retry already waiting when the wedge is said is let go with it.
+    func testAWedgeCancelsTheRetryAlreadyWaiting() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.fail()
+        stage.speech.wedge()
+        stage.clock.advance(by: 60)
+        XCTAssertEqual(stage.speech.listens, 1)
+    }
+
+    /// A press still asks, at once, and the failed session is stopped first.
+    func testThePressAsksAgainWhileWedged() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.wedge()
+        stage.clock.advance(by: 30)
+        stage.speech.slowToListen = true
+        stage.lode(".")
+        XCTAssertEqual(stage.speech.listens, 2, "the door asks")
+        XCTAssertEqual(stage.speech.openSessions, 1, "the wedged session was stopped before the next began")
+    }
+
+    /// The wedge clears when a stuck call returns: the next ask listens,
+    /// and the failures after it are retried on the timer as before.
+    func testWhenTheWedgeClearsTheNextAskProceedsAndRetriesAreBack() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.wedge()
+        stage.speech.slowToListen = true
+        stage.lode(".")
+        stage.speech.ready()
+        XCTAssertEqual(stage.draft.state["listening"] as? Bool, true)
+        XCTAssertEqual(note(stage), "")
+        stage.speech.fail()
+        XCTAssertEqual(note(stage), "the microphone could not start, trying again")
+        stage.clock.advance(by: DraftController.retrySeconds[0])
+        XCTAssertEqual(stage.speech.listens, 3, "an ordinary failure is asked for again on the timer")
+    }
+
+    /// A wedge stays said while the draft stays wedged: asking again and
+    /// finding it still stuck is not a new entry.
+    func testAStillWedgedAskIsStillWedged() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.wedge()
+        stage.speech.slowToListen = true
+        stage.lode(".")
+        stage.speech.wedge()
+        XCTAssertEqual(stage.draft.speechState, .wedged)
+        stage.clock.advance(by: 60)
+        XCTAssertEqual(stage.speech.listens, 2)
+    }
+
+    func testAWedgeIsNotAFailureTheTimerRetriesAndAPressStillAsks() {
+        XCTAssertFalse(SpeechState.wedged.retries)
+        XCTAssertTrue(SpeechState.wedged.asksAgain)
+        XCTAssertTrue(SpeechState.failed("the microphone could not start").asksAgain)
+        for state in [SpeechState.denied, .unavailable, .failed(SpeechState.modelNotInstalled)] {
+            XCTAssertFalse(state.asksAgain, "\(state)")
+        }
+    }
+
+    /// The session says it: a start that was refused for a wedge is the
+    /// wedge's state, any other that landed nothing the ordinary failure.
+    func testASessionWithNoStartSaysWedgedOnlyForAWedge() {
+        XCTAssertEqual(SpeechStart.unstarted(wedged: true), .wedged)
+        XCTAssertEqual(SpeechStart.unstarted(wedged: false), .failed("the microphone could not start"))
+    }
 }

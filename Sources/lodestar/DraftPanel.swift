@@ -1362,6 +1362,7 @@ final class DraftPanel {
         case .denied: return "microphone not allowed, lode . opens Settings"
         case .unavailable: return "no speech recognizer for this language, typing only"
         case .failed(let why): return view.retrying ? "\(why), trying again" : why
+        case .wedged: return "the audio system is not answering, lode . asks again"
         case .listening where micWanted(view) && view.silent:
             return "hearing nothing on \(view.input ?? "the microphone")"
         default: break

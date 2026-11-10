@@ -795,7 +795,7 @@ final class DraftController {
             // been switched on the same key listens.
             if speechState == .denied, !microphoneGranted() {
                 openSettings(Self.microphoneSettings)
-            } else if !sessionStarted || speechState == .denied || (sessionSpoke && speechState?.retries == true) {
+            } else if !sessionStarted || speechState == .denied || (sessionSpoke && speechState?.asksAgain == true) {
                 listenAgain()
             }
             if mode != .insert { setMode(.insert) } else { resumeIfWanted() }
@@ -1175,9 +1175,20 @@ final class DraftController {
         listens += 1
         speech.listen(input: inputDevice, onState: { [weak self] state in
             guard let self, self.isOpen, self.session == mine else { return }
+            let was = self.speechState
             self.speechState = state
             self.sessionSpoke = true
             if state.retries { self.scheduleRetry(session: mine) }
+            if state == .wedged {
+                // The timer must not rebuild the recognizer against it: a
+                // retry already waiting is let go, and the door asks.
+                self.retryWork?.cancel()
+                self.retryWork = nil
+                if was != .wedged {
+                    Log.error("draft", ["speech": "audio is wedged, not asking again on a timer",
+                                        "retries": self.retries, "listens": self.listens])
+                }
+            }
             if case .listening(let input) = state {
                 self.retries = 0
                 self.retryWork?.cancel()

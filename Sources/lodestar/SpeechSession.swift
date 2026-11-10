@@ -71,6 +71,13 @@ enum SpeechStart {
         var description: String { "\(label) is wedged" }
     }
 
+    /// What a session says when no start landed and nothing is hearing the
+    /// take. A wedge is its own state: it is neither a start that failed
+    /// and is asked for again on a timer, nor the recognizer's.
+    static func unstarted(wedged: Bool) -> SpeechState {
+        wedged ? .wedged : .failed("the microphone could not start")
+    }
+
     /// The recognizer's own preparation and start, under its own label.
     static func prepare<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
         try await withDeadline(prepareDeadline, label: Label.prepare, work)
@@ -147,6 +154,13 @@ enum SpeechState: Equatable {
     /// for the locale, or the analyzer reports itself unavailable.
     case unavailable
     case failed(String)
+    /// The audio stack has stopped answering: every slot the headset's
+    /// start may hold is held by a start that never came back (a CoreAudio
+    /// call stuck on its queue). Not a failure asking again can cure, so
+    /// the draft does not ask on a timer, and not the recognizer's, so it
+    /// is not said as one; a press still asks, and a stuck call that comes
+    /// back frees the next ask.
+    case wedged
 
     static let modelNotInstalled = "the speech model could not be installed"
 
@@ -161,6 +175,12 @@ enum SpeechState: Equatable {
         guard case .failed(let why) = self else { return false }
         return why != Self.modelNotInstalled
     }
+
+    /// Whether a press of the door asks again at once. Everything the draft
+    /// retries on a timer, and the wedge, which only a hand asks about:
+    /// the timer rebuilt the whole recognizer against it every few seconds
+    /// for about a minute, each refused in the same millisecond.
+    var asksAgain: Bool { retries || self == .wedged }
 }
 
 /// The recognizer behind the draft's speak door: one session per draft,
@@ -1392,6 +1412,7 @@ private actor AnalyzerBox {
         var attempt = 0
         starting = true
         defer { starting = false }
+        var wedged = false
         while started == nil, attempt < SpeechStart.attempts {
             attempt += 1
             if attempt > 1 {
@@ -1420,6 +1441,14 @@ private actor AnalyzerBox {
                 // Another attempt would refuse the same way.
                 stopOwnBridge()
                 say(.failed(off.why)); return
+            } catch let stuck as SpeechStart.Wedged {
+                // Every slot of the audio start holds a start that never
+                // came back: another would be refused the same way, and the
+                // draft must not ask again on a timer either.
+                Log.error("draft", ["speech": "audio start is wedged", "label": stuck.label,
+                                    "attempt": attempt])
+                wedged = true
+                break
             } catch is SpeechStart.TimedOut {
                 // The start is still out on the engine's queue. Another one
                 // would queue behind it and then stop whatever it started;
@@ -1454,7 +1483,7 @@ private actor AnalyzerBox {
                 // draft has said it failed.
                 stopOwnBridge()
                 microphone.stop(ticket: micTicket)
-                say(.failed("the microphone could not start"))
+                say(SpeechStart.unstarted(wedged: wedged))
             }
             return
         }

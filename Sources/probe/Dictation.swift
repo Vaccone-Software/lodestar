@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import LodestarCore
 import Speech
+import Synchronization
 import LodestarEars
 import LodestarMLX
 
@@ -180,9 +181,9 @@ private func heard(_ event: [String: Any]) -> Heard {
 
 // MARK: - Transcribe
 
-private final class Box<T>: @unchecked Sendable {
-    var value: T
-    init(_ value: T) { self.value = value }
+private final class Box<T>: Sendable {
+    let value: Mutex<T>
+    init(_ value: T) { self.value = Mutex(value) }
 }
 
 private func dictationTranscribe(_ options: [String: String]) {
@@ -248,13 +249,13 @@ private func transcribe(_ url: URL) async throws -> [[String: Any]] {
                 if let c = run.transcriptionConfidence { d["c"] = c }
                 runs.append(d)
             }
-            events.value.append(["text": String(result.text.characters), "fin": result.isFinal, "runs": runs])
+            events.value.withLock { $0.append(["text": String(result.text.characters), "fin": result.isFinal, "runs": runs]) }
         }
     }
     let file = try AVAudioFile(forReading: url)
     try await analyzer.start(inputAudioFile: file, finishAfterFile: true)
     _ = try await reader.value
-    return events.value
+    return events.value.withLock { $0 }
 }
 
 // MARK: - Ear

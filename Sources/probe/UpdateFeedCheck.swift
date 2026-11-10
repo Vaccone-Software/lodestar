@@ -1,5 +1,6 @@
 import Foundation
 import LodestarCore
+import Synchronization
 
 /// `probe update-feed`: one real update check on each channel, through the
 /// client the app reads its feed with (`UpdateFeed.client`), and nothing
@@ -38,9 +39,8 @@ func runUpdateFeed() -> Never {
     exit(failed.isSet ? 1 : 0)
 }
 
-private final class Flag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-    func set() { lock.withLock { value = true } }
-    var isSet: Bool { lock.withLock { value } }
+private final class Flag: Sendable {
+    private let value = Mutex(false)
+    func set() { value.withLock { $0 = true } }
+    var isSet: Bool { value.withLock { $0 } }
 }

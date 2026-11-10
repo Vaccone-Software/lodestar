@@ -6,6 +6,7 @@ import Foundation
 /// Registering and dropping a notification is a message to the app, so
 /// the window model makes those calls on the app's own queue while main
 /// may invalidate the observer: the handle is read under a lock.
+// stoic:allow(unchecked-sendable): the observer handle is read and written only through `lock` (the `observer` accessor; `init` sets it before the object is shared), and `handler` and `pid` are `let`s whose handler is called only by the AX callback, which runs on the main run loop the observer's source is added to
 public final class AppObserver: @unchecked Sendable {
     public typealias Handler = (_ notification: String, _ element: AXUIElement) -> Void
 

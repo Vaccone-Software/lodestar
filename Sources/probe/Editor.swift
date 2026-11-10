@@ -3,6 +3,7 @@ import Vision
 import LodestarCore
 import Stoic
 import StoicTime
+import Synchronization
 
 // MARK: - The editor's questions
 
@@ -38,7 +39,11 @@ func runEditor(_ args: inout [String]) {
 
 /// Field contents are shown only for the probe's own test targets; for a
 /// real app's field only the length and whether the probe text is in it.
-nonisolated(unsafe) var showsContents = false
+var showsContents: Bool {
+    get { showsContentsSlot.withLock { $0 } }
+    set { showsContentsSlot.withLock { $0 = newValue } }
+}
+private let showsContentsSlot = Mutex(false)
 func shown(_ text: String) -> String {
     showsContents || (text.hasPrefix("Lodestar probe") && (text as NSString).length < 200)
         ? text.prefix(90).debugDescription

@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import Speech
 import Stoic
+import Synchronization
 
 /// `probe speech` — the questions the draft's shape depends on, asked of
 /// the macOS 26 Speech framework before a line of the bar is written:
@@ -63,7 +64,7 @@ func runSpeech(_ args: inout [String]) {
 }
 
 @available(macOS 26, *)
-final class SpeechProbe: @unchecked Sendable {
+final class SpeechProbe: Sendable {
     let seconds: Double
     let words: [String]
     let dictation: Bool
@@ -72,24 +73,90 @@ final class SpeechProbe: @unchecked Sendable {
     /// An audio file streamed at real-time pace instead of the microphone,
     /// so revision behavior and vocabulary can be measured unattended.
     let file: String?
-    /// Create and start the engine on the main thread, the way the app does.
-    var onMain = false
+    /// Everything the probe measures and holds changes from more than one
+    /// thread (the audio tap, the results task, the run), so all of it is
+    /// behind one lock, and each name below reads and writes through it.
+    private struct Measured {
+        var firstAudioAt: ContinuousClock.Instant?
+        var firstResultAt: ContinuousClock.Instant?
+        var restartAt: ContinuousClock.Instant?
+        var firstResultAfterRestartAt: ContinuousClock.Instant?
+        var volatileCount: Int = 0
+        var finalCount: Int = 0
+        var revisions: Int = 0
+        var lastTextByStart: [Double: String] = [:]
+        var settled: [(start: Double, text: String)] = []
+        var settledChangedLater: Int = 0
+        var engine: AVAudioEngine?
+        var continuation: AsyncStream<AnalyzerInput>.Continuation?
+        var converter: AVAudioConverter?
+        var analyzerFormat: AVAudioFormat?
+        var onMain: Bool = false
+    }
+    private let measured = Mutex(Measured())
 
     private let t0 = ContinuousClock.now
-    private var firstAudioAt: ContinuousClock.Instant?
-    private var firstResultAt: ContinuousClock.Instant?
-    private var restartAt: ContinuousClock.Instant?
-    private var firstResultAfterRestartAt: ContinuousClock.Instant?
-    private var volatileCount = 0
-    private var finalCount = 0
-    private var revisions = 0
-    private var lastTextByStart: [Double: String] = [:]
-    private var settled: [(start: Double, text: String)] = []
-    private var settledChangedLater = 0
-    private var engine: AVAudioEngine?
-    private var continuation: AsyncStream<AnalyzerInput>.Continuation?
-    private var converter: AVAudioConverter?
-    private var analyzerFormat: AVAudioFormat?
+    private var firstAudioAt: ContinuousClock.Instant? {
+        get { measured.withLock { $0.firstAudioAt } }
+        set { measured.withLock { $0.firstAudioAt = newValue } }
+    }
+    private var firstResultAt: ContinuousClock.Instant? {
+        get { measured.withLock { $0.firstResultAt } }
+        set { measured.withLock { $0.firstResultAt = newValue } }
+    }
+    private var restartAt: ContinuousClock.Instant? {
+        get { measured.withLock { $0.restartAt } }
+        set { measured.withLock { $0.restartAt = newValue } }
+    }
+    private var firstResultAfterRestartAt: ContinuousClock.Instant? {
+        get { measured.withLock { $0.firstResultAfterRestartAt } }
+        set { measured.withLock { $0.firstResultAfterRestartAt = newValue } }
+    }
+    private var volatileCount: Int {
+        get { measured.withLock { $0.volatileCount } }
+        set { measured.withLock { $0.volatileCount = newValue } }
+    }
+    private var finalCount: Int {
+        get { measured.withLock { $0.finalCount } }
+        set { measured.withLock { $0.finalCount = newValue } }
+    }
+    private var revisions: Int {
+        get { measured.withLock { $0.revisions } }
+        set { measured.withLock { $0.revisions = newValue } }
+    }
+    private var lastTextByStart: [Double: String] {
+        get { measured.withLock { $0.lastTextByStart } }
+        set { measured.withLock { $0.lastTextByStart = newValue } }
+    }
+    private var settled: [(start: Double, text: String)] {
+        get { measured.withLock { $0.settled } }
+        set { measured.withLock { $0.settled = newValue } }
+    }
+    private var settledChangedLater: Int {
+        get { measured.withLock { $0.settledChangedLater } }
+        set { measured.withLock { $0.settledChangedLater = newValue } }
+    }
+    private var engine: AVAudioEngine? {
+        get { measured.withLock { $0.engine } }
+        set { measured.withLock { $0.engine = newValue } }
+    }
+    private var continuation: AsyncStream<AnalyzerInput>.Continuation? {
+        get { measured.withLock { $0.continuation } }
+        set { measured.withLock { $0.continuation = newValue } }
+    }
+    private var converter: AVAudioConverter? {
+        get { measured.withLock { $0.converter } }
+        set { measured.withLock { $0.converter = newValue } }
+    }
+    private var analyzerFormat: AVAudioFormat? {
+        get { measured.withLock { $0.analyzerFormat } }
+        set { measured.withLock { $0.analyzerFormat = newValue } }
+    }
+    /// Create and start the engine on the main thread, the way the app does.
+    var onMain: Bool {
+        get { measured.withLock { $0.onMain } }
+        set { measured.withLock { $0.onMain = newValue } }
+    }
 
     init(seconds: Double, words: [String], dictation: Bool, cycle: Bool, requestSpeechAuth: Bool, file: String?) {
         self.seconds = seconds; self.words = words; self.dictation = dictation

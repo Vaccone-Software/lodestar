@@ -34,6 +34,7 @@ import StoicTime
 ///
 /// Threads: `lock` guards the buffer, the drop count and the install's
 /// name (any thread appends); `queue` owns `writer` and every file.
+// stoic:allow(unchecked-sendable): `lock` (an NSLock) guards `buffer`, `droppedRecords` and `resolvedInstall` in every method that touches them; `writer` is used only inside `queue`, a serial queue (`write` is private and reached only by `queue.async`, and `migrate` and the closes run in `queue.sync`); every other stored property is a `let`
 public final class PointerStore: @unchecked Sendable {
     public static let version: UInt16 = 2
     public static let recordSize = 16

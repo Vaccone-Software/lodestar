@@ -33,6 +33,7 @@ import StoicStore
 ///
 /// Every call is made on one queue (the draft's stash queue): a keystroke
 /// never reaches it.
+// stoic:allow(unchecked-sendable): every method is called on one serial queue (`stashQueue` in main.swift: the draft's write and clear, the history's reseal, the key's return and the launch recovery all run inside `stashQueue.async`), so the mutable fields are never touched from two threads
 public final class DraftStash: @unchecked Sendable {
     public static let name = "draft-in-flight"
 

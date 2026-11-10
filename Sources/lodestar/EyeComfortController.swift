@@ -2,6 +2,7 @@ import AppKit
 import LodestarCore
 import Stoic
 import StoicTime
+import Synchronization
 
 extension Notification.Name {
     /// Eye comfort moved: the level changed, or the switch did. Posted on
@@ -18,19 +19,21 @@ extension Notification.Name {
 ///
 /// Read from colour providers, which AppKit may call from a drawing thread,
 /// so the value is behind a lock.
-final class EyeComfortState: @unchecked Sendable {
+final class EyeComfortState: Sendable {
     static let shared = EyeComfortState()
 
-    private let lock = NSLock()
-    private var isEnabled = false
-    private var current = EyeComfort.full
-    private var clay = Palette.clay
-    private var night = Palette.night
+    private struct InForce {
+        var isEnabled = false
+        var current = EyeComfort.full
+        var clay = Palette.clay
+        var night = Palette.night
+    }
+    private let inForce = Mutex(InForce())
 
     /// Whether Eye comfort is on.
-    var enabled: Bool { lock.withLock { isEnabled } }
+    var enabled: Bool { inForce.withLock { $0.isEnabled } }
     /// The share of its luminance a bright colour keeps: 1 when it is off.
-    var level: Double { lock.withLock { current } }
+    var level: Double { inForce.withLock { $0.current } }
 
     /// Set what is in force; true when anything a surface draws has changed.
     /// Off is exactly off: the level is full and the palettes are the ones
@@ -38,19 +41,19 @@ final class EyeComfortState: @unchecked Sendable {
     @discardableResult
     func set(enabled: Bool, level: Double) -> Bool {
         let effective = enabled ? min(EyeComfort.full, max(EyeComfort.bedtime, level)) : EyeComfort.full
-        return lock.withLock {
-            let changed = isEnabled != enabled || current != effective
+        return inForce.withLock {
+            let changed = $0.isEnabled != enabled || $0.current != effective
             guard changed else { return false }
-            isEnabled = enabled
-            current = effective
-            clay = EyeComfort.steps(Palette.clay, level: effective)
-            night = EyeComfort.steps(Palette.night, level: effective)
+            $0.isEnabled = enabled
+            $0.current = effective
+            $0.clay = EyeComfort.steps(Palette.clay, level: effective)
+            $0.night = EyeComfort.steps(Palette.night, level: effective)
             return true
         }
     }
 
     /// The look at the level in force.
-    func steps(dark: Bool) -> Palette.Steps { lock.withLock { dark ? night : clay } }
+    func steps(dark: Bool) -> Palette.Steps { inForce.withLock { dark ? $0.night : $0.clay } }
 
     /// The inks a receded surface wears in a look, on that look's pane.
     func recededInks(dark: Bool) -> (ink: Readability.RGB, quietInk: Readability.RGB) {

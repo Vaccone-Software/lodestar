@@ -1,0 +1,25 @@
+{
+  "$schema": "lodestar-schema.json",
+  "version": "0.21.0",
+  "gestures": {
+    "back-forward": false,
+    "searcher": false
+  },
+  "web": {
+    "fallback": "work",
+    "links": {
+      "tracker": {
+        "profile": "work",
+        "url": "tracker.example.com"
+      }
+    },
+    "routes": {
+      "example.com": "work"
+    }
+  },
+  "profiles": {
+    "brave": {
+      "work": "Work"
+    }
+  }
+}

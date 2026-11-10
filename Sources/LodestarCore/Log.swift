@@ -57,7 +57,16 @@ public enum Log {
     /// A test hook: set before the code under test runs and cleared after.
     /// It runs on whichever thread logged, so what it touches is the
     /// test's to guard.
-    nonisolated(unsafe) public static var listener: ((String) -> Void)?
+    public static var listener: ((String) -> Void)? {
+        get { listenerSlot.withLock { $0 }.call }
+        set { listenerSlot.withLock { $0 = Listener(call: newValue) } }
+    }
+
+    // stoic:allow(unchecked-sendable): an immutable box for the closure a test hands to `listener`, which is the test's to guard (the doc on `listener` says so); the slot that holds the box is a Mutex, so the closure itself is swapped and read under a lock, and only a test ever sets it
+    private struct Listener: @unchecked Sendable {
+        var call: ((String) -> Void)?
+    }
+    private static let listenerSlot = Mutex(Listener(call: nil))
 
     /// Off under any test runner. `swift test` says so in the environment;
     /// `xcrun xctest` run directly (scripts/test.sh's shards) does not, so

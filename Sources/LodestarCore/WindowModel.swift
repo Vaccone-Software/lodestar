@@ -17,7 +17,7 @@ public protocol WindowAXReader: AnyObject, Sendable {
 }
 
 /// The real reader: the accessibility API itself.
-public final class LiveWindowAXReader: WindowAXReader, @unchecked Sendable {
+public final class LiveWindowAXReader: WindowAXReader {
     public init() {}
     public func windowID(of element: AXUIElement) -> CGWindowID? { LodestarCore.windowID(of: element) }
     public func reading(of element: AXUIElement) -> WindowModel.Reading? {

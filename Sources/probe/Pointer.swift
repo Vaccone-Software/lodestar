@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import Synchronization
 
 /// Which device made a pointer event, read off the event itself — the
 /// question the health instrument's pointer attribution waits on. Today it
@@ -15,9 +16,8 @@ import Foundation
 func runPointer(_ args: inout [String]) {
     var seconds = 20.0
     if let i = args.firstIndex(of: "--seconds"), i + 1 < args.count { seconds = Double(args[i + 1]) ?? seconds }
-    final class Tally: @unchecked Sendable {
-        let lock = NSLock()
-        var counts: [String: Int] = [:]
+    final class Tally: Sendable {
+        let counts = Mutex<[String: Int]>([:])
     }
     let tally = Tally()
     let types: [CGEventType] = [.mouseMoved, .leftMouseDown, .rightMouseDown, .leftMouseDragged, .scrollWheel]
@@ -43,7 +43,7 @@ func runPointer(_ args: inout [String]) {
             let momentum = event.getIntegerValueField(.scrollWheelEventMomentumPhase)
             key += " continuous=\(continuous) phased=\(phase != 0 || momentum != 0)"
         }
-        tally.lock.withLock { tally.counts[key, default: 0] += 1 }
+        tally.counts.withLock { $0[key, default: 0] += 1 }
         return Unmanaged.passUnretained(event)
     }, userInfo: Unmanaged.passUnretained(tally).toOpaque()) else {
         fail("could not install a listening tap (is this terminal trusted?)")
@@ -52,7 +52,7 @@ func runPointer(_ args: inout [String]) {
     CGEvent.tapEnable(tap: tap, enable: true)
     print("probe pointer: listening \(Int(seconds)) s — use one device, then the other")
     RunLoop.current.run(until: Date(timeIntervalSinceNow: seconds))
-    for (key, count) in tally.lock.withLock({ tally.counts }).sorted(by: { $0.key < $1.key }) {
+    for (key, count) in tally.counts.withLock({ $0 }).sorted(by: { $0.key < $1.key }) {
         print(String(format: "%6d  %@", count, key))
     }
 }

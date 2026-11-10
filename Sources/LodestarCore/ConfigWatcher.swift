@@ -1,10 +1,12 @@
 import Foundation
+import Synchronization
 import StoicJSON
 import StoicSettings
 import StoicStore
 
 /// A value that is handed across a thread boundary and used on one thread
 /// only. The watcher's callbacks are the app's, called on the main queue.
+// stoic:allow(unchecked-sendable): an immutable `let` box whose value every use site calls (or reads through) only on the main queue, inside `DispatchQueue.main.async` or a `queue` that is main in the app, so the value is never used on two threads at once
 struct MainQueueOnly<T>: @unchecked Sendable {
     let value: T
 }
@@ -40,15 +42,17 @@ struct WeakRef<T: AnyObject> {
 ///
 /// Runs: the reload and the streams on Stoic's own tasks, off
 /// the main thread; `arrived` on `queue` (the main queue).
-public final class ConfigWatcher: @unchecked Sendable {
+public final class ConfigWatcher: Sendable {
     private let store: ConfigStore.Store
     private let debounce: Duration
     private let queue: DispatchQueue
     private let arrived: MainQueueOnly<() -> Void>
     private let ledger = ConfigApplyLedger()
-    private let state = NSLock()
-    private var watch: SettingsWatch?
-    private var tasks: [Task<Void, Never>] = []
+    private struct Running {
+        var watch: SettingsWatch?
+        var tasks: [Task<Void, Never>] = []
+    }
+    private let state = Mutex(Running())
 
     public init(store: ConfigStore.Store, debounce: Duration = .milliseconds(300),
                 queue: DispatchQueue = .main, arrived: @escaping () -> Void) {
@@ -85,20 +89,16 @@ public final class ConfigWatcher: @unchecked Sendable {
                 self.notify()
             }
         }
-        state.lock()
-        watch = started
-        tasks = [changesTask, problemTask]
-        state.unlock()
+        state.withLock { $0 = Running(watch: started, tasks: [changesTask, problemTask]) }
     }
 
     public func stop() {
-        state.lock()
-        let ending = (watch, tasks)
-        watch = nil
-        tasks = []
-        state.unlock()
-        ending.0?.stop()
-        for task in ending.1 { task.cancel() }
+        let ending = state.withLock { running -> Running in
+            defer { running = Running() }
+            return running
+        }
+        ending.watch?.stop()
+        for task in ending.tasks { task.cancel() }
     }
 
     /// The app applied the config built from `snapshot` (every apply, its own
@@ -152,24 +152,19 @@ extension ConfigWatcher {
 /// is idempotent, but it flashes and re-runs ground truth; this says whether
 /// the store holds something the app has not applied. The explicit reload
 /// does not ask: it always applies.
-public final class ConfigApplyLedger: @unchecked Sendable {
-    private let lock = NSLock()
-    private var applied: ConfigStore.Snapshot?
+public final class ConfigApplyLedger: Sendable {
+    private let applied = Mutex<ConfigStore.Snapshot?>(nil)
 
     public init() {}
 
     /// Whether the store holds a value or a problem the app has not applied.
     public func needsApply(_ snapshot: ConfigStore.Snapshot) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return applied != snapshot
+        applied.withLock { $0 != snapshot }
     }
 
     /// The app applied this.
     public func didApply(_ snapshot: ConfigStore.Snapshot) {
-        lock.lock()
-        applied = snapshot
-        lock.unlock()
+        applied.withLock { $0 = snapshot }
     }
 
     /// The app made `change` itself and did not reload for it (a one-key
@@ -177,10 +172,10 @@ public final class ConfigApplyLedger: @unchecked Sendable {
     /// that did reload has applied something newer already, and this finds
     /// the ledger past `change.old` and leaves it.
     public func ownUpdate(_ change: SettingsChange<ConfigFile>) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard var current = applied, current.value == change.old else { return }
-        current.value = change.new
-        applied = current
+        applied.withLock { applied in
+            guard var current = applied, current.value == change.old else { return }
+            current.value = change.new
+            applied = current
+        }
     }
 }

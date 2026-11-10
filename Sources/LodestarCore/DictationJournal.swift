@@ -14,6 +14,7 @@ import StoicTime
 /// difference between the last of the machine's text and that. Owner-only,
 /// out of backups, and every file older than the days kept is deleted, at
 /// launch and with each write.
+// stoic:allow(unchecked-sendable): `current` and `events` (dictionaries of Any, which Mutex cannot hand across threads as Sendable) are read and written only between `lock.lock()` and `lock.unlock()` in `begin`, `finish` and `add`, and `folder` and `days` are `let`
 public final class DictationJournal: @unchecked Sendable {
     public let folder: URL
     public let days: Int

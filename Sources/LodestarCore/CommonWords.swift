@@ -1,5 +1,6 @@
 import Foundation
 import NaturalLanguage
+import Synchronization
 
 /// Whether a word is an ordinary English word, for the two questions
 /// dictation asks of every word it might change: may its capital be
@@ -11,13 +12,22 @@ import NaturalLanguage
 /// every Mac): the first alone holds every obscure word ever printed, the
 /// second alone holds names. Nothing is shipped or downloaded.
 public enum CommonWords {
-    private static let lock = NSLock()
+    /// The lists load once, on first use, from whichever thread asks first,
+    /// so the lists, the embedding and the URL they load from share one lock.
+    private struct State {
+        var frequentListURL: URL?
+        var frequent: [String: Int]?
+        var dictionary: Set<String>?
+        var vectors: NLEmbedding??
+    }
+    private static let state = Mutex(State())
+
     /// The everyday-words list, most frequent first (`packaging/common-words.txt`).
     /// Set before first use; without it every dictionary word counts as frequent.
-    nonisolated(unsafe) public static var frequentListURL: URL?
-    nonisolated(unsafe) private static var frequent: [String: Int]?
-    nonisolated(unsafe) private static var dictionary: Set<String>?
-    nonisolated(unsafe) private static var vectors: NLEmbedding??
+    public static var frequentListURL: URL? {
+        get { state.withLock { $0.frequentListURL } }
+        set { state.withLock { $0.frequentListURL = newValue } }
+    }
 
     /// Load both lists now, off the main thread, so the first dictation
     /// does not pay for it.
@@ -29,16 +39,16 @@ public enum CommonWords {
     /// its context, never by its sound alone.
     public static func isFrequent(_ word: String) -> Bool {
         let w = word.lowercased()
-        lock.lock()
-        if frequent == nil {
-            var table: [String: Int] = [:]
-            if let url = frequentListURL, let text = try? String(contentsOf: url, encoding: .utf8) {
-                for (rank, line) in text.split(separator: "\n").enumerated() { table[String(line)] = rank }
+        let table = state.withLock { state -> [String: Int] in
+            if state.frequent == nil {
+                var table: [String: Int] = [:]
+                if let url = state.frequentListURL, let text = try? String(contentsOf: url, encoding: .utf8) {
+                    for (rank, line) in text.split(separator: "\n").enumerated() { table[String(line)] = rank }
+                }
+                state.frequent = table
             }
-            frequent = table
+            return state.frequent ?? [:]
         }
-        let table = frequent ?? [:]
-        lock.unlock()
         if table.isEmpty { return isCommon(w) }
         return table[w] != nil && isCommon(w)
     }
@@ -46,15 +56,14 @@ public enum CommonWords {
     public static func isCommon(_ word: String) -> Bool {
         let w = word.lowercased()
         guard !w.isEmpty else { return false }
-        lock.lock()
-        if dictionary == nil {
-            let text = (try? String(contentsOfFile: "/usr/share/dict/words", encoding: .utf8)) ?? ""
-            dictionary = Set(text.split(separator: "\n").map(String.init))
+        let (inDictionary, embedding) = state.withLock { state -> (Bool, NLEmbedding?) in
+            if state.dictionary == nil {
+                let text = (try? String(contentsOfFile: "/usr/share/dict/words", encoding: .utf8)) ?? ""
+                state.dictionary = Set(text.split(separator: "\n").map(String.init))
+            }
+            if state.vectors == nil { state.vectors = .some(NLEmbedding.wordEmbedding(for: .english)) }
+            return (state.dictionary?.contains(w) ?? false, state.vectors ?? nil)
         }
-        if vectors == nil { vectors = .some(NLEmbedding.wordEmbedding(for: .english)) }
-        let inDictionary = dictionary?.contains(w) ?? false
-        let embedding = vectors ?? nil
-        lock.unlock()
         guard inDictionary else { return false }
         guard let embedding else { return true }
         return embedding.contains(w)

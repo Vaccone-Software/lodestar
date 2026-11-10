@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import LodestarCore
+import Synchronization
 
 /// Watching the pasteboard, and putting things back on it.
 ///
@@ -383,7 +384,11 @@ final class ClipboardController {
 
     /// How long a paste waits to learn whether a copy's files are still
     /// there. A seam for the tests.
-    nonisolated(unsafe) static var presenceDeadline: TimeInterval = 0.3
+    static var presenceDeadline: TimeInterval {
+        get { presenceDeadlineSeconds.withLock { $0 } }
+        set { presenceDeadlineSeconds.withLock { $0 = newValue } }
+    }
+    private static let presenceDeadlineSeconds = Mutex<TimeInterval>(0.3)
 
     /// `moving`: the card's files go on the board as for a paste, and the
     /// keystroke is the Finder's Move Item Here (⌥⌘V) instead of ⌘V, so the

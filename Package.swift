@@ -149,9 +149,12 @@ let package = Package(
                         .product(name: "StoicStore", package: "stoic"),
                         .product(name: "StoicApple", package: "stoic"),
                         .product(name: "StoicTime", package: "stoic"),
+                        .product(name: "StoicSchemaTesting", package: "stoic"),
                     ],
-                    // The editor's accuracy fixture, read by path.
-                    exclude: ["Fixtures"],
+                    // The editor's accuracy fixture, read by path, and the
+                    // released formats' payloads (CompatibilityTests), read
+                    // from beside the test file.
+                    exclude: ["Fixtures", "Compatibility"],
                     // For the leak guard's constructor (Overrides.swift).
                     swiftSettings: [.enableExperimentalFeature("SymbolLinkageMarkers")]),
         // The scenario harness: the real engine, glass, and coach wired the

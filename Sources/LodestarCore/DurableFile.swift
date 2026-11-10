@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import StoicStore
 
 /// The two ways Lodestar puts bytes on disk that must still be there after
@@ -124,13 +125,10 @@ public enum DurableFile {
 
 /// A value behind a lock, for the shared tables a few files need. Nothing
 /// that calls out belongs in `withLock`.
-final class Locked<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: Value
-    init(_ value: Value) { self.value = value }
-    func withLock<R>(_ body: (inout Value) -> R) -> R {
-        lock.lock()
-        defer { lock.unlock() }
-        return body(&value)
+final class Locked<Value>: Sendable {
+    private let mutex: Mutex<Value>
+    init(_ value: sending Value) { mutex = Mutex(value) }
+    func withLock<R: Sendable>(_ body: (inout Value) -> R) -> R {
+        mutex.withLock { body(&$0) }
     }
 }

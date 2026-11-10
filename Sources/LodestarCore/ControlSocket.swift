@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// The door a script comes in by.
 ///
@@ -25,7 +26,7 @@ import Foundation
 /// in front. The socket is `0600` in your own directory, which is the same
 /// protection your ssh keys have, and that is the whole of the bound: it
 /// keeps out other users, not your own processes.
-public final class ControlSocket: @unchecked Sendable {
+public final class ControlSocket: Sendable {
     /// Where the app listens. Injectable so the protocol can be exercised
     /// against a temporary path rather than the one a live instance owns.
     public static var defaultPath: URL { Paths.data.appendingPathComponent("control.sock") }
@@ -49,26 +50,29 @@ public final class ControlSocket: @unchecked Sendable {
     private static let readTimeout: Int = 2
 
     /// What is shared between main (start, stop, the verb) and the queue
-    /// below (accept): `lock` guards all three of these, and nothing is
-    /// called while it is held.
-    private let lock = NSLock()
-    private var verb: (([String]) -> [String: Any])?
-    private var _listener: Int32 = -1
-    private var _source: DispatchSourceRead?
+    /// below (accept): one lock guards all three of these, and nothing is
+    /// called while it is held. The verb is boxed as main's: it is set on
+    /// main and called only on main.
+    private struct Shared {
+        var verb: MainQueueOnly<([String]) -> [String: Any]>?
+        var listener: Int32 = -1
+        var source: DispatchSourceRead?
+    }
+    private let shared = Mutex(Shared())
 
     /// Runs on the main thread, because everything it touches does.
     public var handle: (([String]) -> [String: Any])? {
-        get { lock.withLock { verb } }
-        set { lock.withLock { verb = newValue } }
+        get { shared.withLock { $0.verb }?.value }
+        set { shared.withLock { $0.verb = newValue.map { MainQueueOnly(value: $0) } } }
     }
 
     private var listener: Int32 {
-        get { lock.withLock { _listener } }
-        set { lock.withLock { _listener = newValue } }
+        get { shared.withLock { $0.listener } }
+        set { shared.withLock { $0.listener = newValue } }
     }
     private var source: DispatchSourceRead? {
-        get { lock.withLock { _source } }
-        set { lock.withLock { _source = newValue } }
+        get { shared.withLock { $0.source } }
+        set { shared.withLock { $0.source = newValue } }
     }
     /// Accepting and the blocking read both happen here, never on main: one
     /// slow client must not be able to hold the keyboard.
@@ -204,9 +208,13 @@ public final class ControlSocket: @unchecked Sendable {
 
     /// How long a probe waits for the listener's answer, in milliseconds.
     ///
-    /// A test hook, set before the probe runs (LeakGuard puts it back):
-    /// unlocked, and read only by `claim`, on the thread that called `start`.
-    nonisolated(unsafe) static var probeWait: Int32 = 1_000
+    /// A test hook, set before the probe runs (LeakGuard puts it back) and
+    /// read only by `claim`, on the thread that called `start`.
+    static var probeWait: Int32 {
+        get { probeWaitMilliseconds.withLock { $0 } }
+        set { probeWaitMilliseconds.withLock { $0 = newValue } }
+    }
+    private static let probeWaitMilliseconds = Mutex<Int32>(1_000)
 
     private func serveOne() {
         let client = accept(listener, nil, nil)

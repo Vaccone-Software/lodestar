@@ -1,0 +1,11 @@
+{
+  "$schema": "lodestar-schema.json",
+  "version": "0.40.0",
+  "gestures": {
+    "cheat-sheet": false,
+    "menu-search": false
+  },
+  "observations": {
+    "enabled": false
+  }
+}

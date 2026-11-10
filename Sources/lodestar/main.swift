@@ -5,6 +5,7 @@ import StoicFoundation
 import StoicStore
 import LodestarEars
 import StoicTime
+import Synchronization
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The menu's first line: the name and the version, which is what
@@ -961,7 +962,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // starts reading while we are still in the middle of it must find
         // a state file that is already complete. The second save records
         // the emptied parking map when the restore does finish.
-        if !Self.purged {
+        if !Self.purged.withLock({ $0 }) {
             store?.save()
             health.quitting()
             health.flush()
@@ -977,7 +978,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let restoreStarted = ContinuousClock.now
         actions?.restoreAllParked()
         Log.info("terminating: restored", ["ms": Int(restoreStarted.secondsElapsed * 1000)])
-        if !Self.purged { store?.save() } // flush any coalesced write before the process dies
+        if !Self.purged.withLock({ $0 }) { store?.save() } // flush any coalesced write before the process dies
         // Only clear the pid file while it is still ours — in a takeover
         // (manual reinstall or self-update) the successor has already
         // written its own pid, and deleting it would blind the update
@@ -1134,7 +1135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // A purge removes the data and the keys that open it: a quit
             // that then saved would put sealed files back, under a key that
             // is gone.
-            if purge { Self.purged = true }
+            if purge { Self.purged.withLock { $0 = true } }
             var problems: [String] = []
             for step in plan.steps {
                 Log.info("uninstall", ["step": step.name])
@@ -3033,8 +3034,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let pidFile = Paths.pidFile
     /// Set by an uninstall that removes the data and its keys: from then on
     /// nothing is persisted, so a quit does not recreate what was removed.
-    /// Main thread only.
-    nonisolated(unsafe) private static var purged = false
+    private static let purged = Mutex(false)
     /// Present while a run is alive, removed by a graceful shutdown: the
     /// difference between "quit" and "died", readable at the next boot.
     private static let runMarker = Paths.data.appendingPathComponent("last-run")
@@ -3174,17 +3174,18 @@ if let first = cliArguments.first, ControlClient.verbs.contains(first) {
 if Array(cliArguments.prefix(2)) == ["editor", "check"] {
     Log.stdoutEnabled = false
     let done = DispatchSemaphore(value: 0)
-    nonisolated(unsafe) var code: Int32 = 1
+    let code = Mutex<Int32>(1)
     // Off the main actor, which this thread holds while it waits below, and at
     // the priority a detached task had from here (measured 2026-11-10: a plain
     // task started from the main thread runs at user-initiated, in that
     // thread's pool bucket).
     Task(priority: .medium) { @concurrent in
-        code = await EditorCheck.run()
+        let result = await EditorCheck.run()
+        code.withLock { $0 = result }
         done.signal()
     }
     done.wait()
-    exit(code)
+    exit(code.withLock { $0 })
 }
 if cliArguments.first == "health" {
     runHealthVerb(Array(cliArguments))

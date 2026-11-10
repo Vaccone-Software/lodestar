@@ -24,6 +24,7 @@ import StoicTime
 ///   folder; never deleted), a new ring is made and the history starts fresh,
 ///   and `Opened.movedAside` says so once;
 /// - ring missing and nothing sealed: the ring is made.
+// stoic:allow(unchecked-sendable): the journal and its counters (`journal`, `snapshotBytes`, `recordsSinceSnapshot`, `removalsSinceSnapshot`, `degraded`) are touched only on ClipboardStore's `io` serial queue, the one thread this type is documented to be called on, while `files` (a `let` of pure functions of a path and a key) is the only member another thread uses
 public final class SealedClipboard: @unchecked Sendable {
     public let root: URL
     public let files: ClipboardFiles

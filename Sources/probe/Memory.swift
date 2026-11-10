@@ -4,6 +4,7 @@ import LodestarCore
 import StoicSealed
 import Stoic
 import StoicTime
+import Synchronization
 
 /// `probe memory-seed`, `memory-rollup` and `memory-coach`: what the three
 /// launch-time readers of the logbook cost in memory, measured in a process of this
@@ -200,17 +201,18 @@ enum MemoryProbe {
             }
         }
         guard status == 0 else { return (0, 0) }
-        return (info.ri_phys_footprint, restarted ? info.ri_interval_max_phys_footprint : info.ri_lifetime_max_phys_footprint)
+        return (info.ri_phys_footprint, peakRestarted.withLock { $0 } ? info.ri_interval_max_phys_footprint : info.ri_lifetime_max_phys_footprint)
     }
 
-    private nonisolated(unsafe) static var restarted = false
+    private static let peakRestarted = Mutex(false)
 
     /// Start the peak over from the footprint as it is: `proc_reset_footprint_interval`,
     /// which libproc exports and its header does not.
     static func restartPeak() {
         typealias Reset = @convention(c) (Int32) -> Int32
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "proc_reset_footprint_interval") else { return }
-        restarted = unsafeBitCast(symbol, to: Reset.self)(getpid()) == 0
+        let reset = unsafeBitCast(symbol, to: Reset.self)(getpid()) == 0
+        peakRestarted.withLock { $0 = reset }
     }
 
     /// Hand back what the writing freed: a freed block stays in the footprint

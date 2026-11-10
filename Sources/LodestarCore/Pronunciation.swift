@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// How words sound, for matching a misheard word to a name by sound
 /// rather than by spelling: "load star" and Lodestar share almost no
@@ -11,10 +12,9 @@ import Foundation
 /// dictionary words it starts with ("kin" + "dora" for Kindora), then
 /// plain English spelling rules for whatever is left. Sounds are ARPAbet
 /// phones without stress.
-public final class Pronouncer: @unchecked Sendable {
-    private var table: [String: [[String]]]
-    private let lock = NSLock()
-    private var cache: [String: [String]] = [:]
+public final class Pronouncer: Sendable {
+    private let table: [String: [[String]]]
+    private let cache = Mutex<[String: [String]]>([:])
 
     /// A pronouncer over a dictionary in CMU's format: one word per line,
     /// its phones after it, a variant written `word(2)`, comments after
@@ -52,9 +52,7 @@ public final class Pronouncer: @unchecked Sendable {
     /// dictionary or its pieces.
     public func word(_ raw: String) -> [String] {
         let w = raw.replacingOccurrences(of: "’", with: "'")
-        lock.lock()
-        if let hit = cache[w] { lock.unlock(); return hit }
-        lock.unlock()
+        if let hit = cache.withLock({ $0[w] }) { return hit }
         let core = w.filter { $0.isLetter || $0.isNumber || $0 == "'" }
         var out: [String]
         if core.isEmpty {
@@ -75,9 +73,7 @@ public final class Pronouncer: @unchecked Sendable {
                 out = composed(lower)
             }
         }
-        lock.lock()
-        cache[w] = out
-        lock.unlock()
+        cache.withLock { $0[w] = out }
         return out
     }
 

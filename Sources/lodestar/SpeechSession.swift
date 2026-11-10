@@ -4,6 +4,7 @@ import LodestarCore
 import Speech
 import Stoic
 import StoicTime
+import Synchronization
 
 /// What the recognizer is doing, for the register line to say.
 /// How long one attempt at opening the microphone is given, and what a
@@ -418,6 +419,7 @@ extension AnalyzerSpeechSession {
 /// thread stops answering — every keystroke on the machine went dead
 /// until the watchdog brought it back. The actor that consumes the
 /// buffers never touches the engine directly.
+// stoic:allow(unchecked-sendable): `engine`, `engineDevice`, `engineFormat`, `tapInstalled`, `observer`, `inFlight`, `rebuildPending`, `refusal`, `runningTicket`, `sessionNumber`, `engineGeneration` and `keeper` are touched only on `queue`, a serial queue (each method that uses them asserts `dispatchPrecondition(condition: .onQueue(queue))` or runs inside `queue.async` or `queue.sync`); `tick`, `nextTicket` and `newestTicket` only under `tickLock`; `delivered` and `signalled` only under `deliveryLock`; `stand` exists in debug builds only, and a test sets it before a session starts
 final class AudioInput: @unchecked Sendable {
     /// The engine's queue. Calls made from the main thread keep their
     /// order here, so a stop queued before a start still lands first.
@@ -1848,6 +1850,7 @@ private actor AnalyzerBox {
 /// four ways on 2026-09-28. The queue started in 70 ms with its first
 /// buffer at 80. Let go the way `AudioInput` lets go of an engine, kept
 /// a while before it is disposed.
+// stoic:allow(unchecked-sendable): `opened` and `openTicket` are touched only on `queue`, a serial queue (`start`, `pause`, `resume`, `stop` and `stop(ticket:)` all do their work inside `queue.async`, and `stopNow` is called only from there); `nextTicket` only under `ticketLock`; `opener` is a `let`
 final class BridgeMic: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.vaccone.lodestar.audio.bridge", qos: .userInitiated)
     /// One bridge, open: how to pause, resume and let it go.
@@ -1996,6 +1999,7 @@ final class BridgeMic: @unchecked Sendable {
 /// would trade a voice for silence — and from then on only the headset.
 /// Both taps call in on their own audio threads, so the feed, which is
 /// not thread-safe, is only ever pushed under the lock.
+// stoic:allow(unchecked-sendable): every mutable field (`bridging`, `bridgeOpen`, `headsetLive`, `handedOver`, `openedAt` and the handover callback) is read and written only under `lock`, and `push` is a `let` called only with `lock` held
 final class Handover: @unchecked Sendable {
     private let lock = NSLock()
     private let push: (AVAudioPCMBuffer) -> Void
@@ -2006,7 +2010,11 @@ final class Handover: @unchecked Sendable {
     private var handedOver = false
     private var openedAt = ContinuousClock.now
     /// Runs on the audio thread, once, with how long the bridge stood in.
-    var onHandover: ((Int) -> Void)?
+    var onHandover: ((Int) -> Void)? {
+        get { lock.withLock { handoverCallback } }
+        set { lock.withLock { handoverCallback = newValue } }
+    }
+    private var handoverCallback: ((Int) -> Void)?
 
     init(push: @escaping (AVAudioPCMBuffer) -> Void) { self.push = push }
 
@@ -2074,6 +2082,7 @@ final class Handover: @unchecked Sendable {
 /// The audio tap's side: converts each buffer to the analyzer's format
 /// and hands it over. Owned by the tap's thread; the actor only makes it.
 @available(macOS 26, *)
+// stoic:allow(unchecked-sendable): `alive`, `converter`, `inFormat` and `lastLevelAt` are written only by `push` (and the `meter` it calls), which is reached only through `Handover`, whose lock is held around every push of both microphones' taps, or by `feed(file:)`, which stands in for the taps; `buffers` and `peak` are behind `flow`; every other stored property is a `let`
 private final class AudioFeed: @unchecked Sendable {
     private let outFormat: AVAudioFormat
     private let continuation: AsyncStream<AnalyzerInput>.Continuation
@@ -2088,12 +2097,19 @@ private final class AudioFeed: @unchecked Sendable {
     private var inFormat: AVAudioFormat?
     private var lastLevelAt: ContinuousClock.Instant?
     /// What flowed, for the log at the end: proof the tap delivered, and
-    /// how loud the loudest moment was.
-    private(set) var buffers = 0
-    private(set) var peak: Float = 0
-    /// Buffers the stream let go of because the recognizer was that far
-    /// behind. Owned by the tap's thread, like the rest.
-    private(set) var dropped = 0
+    /// how loud the loudest moment was. Read by the session's stop while a
+    /// last buffer may still be arriving, so behind a lock of their own.
+    private struct Flow {
+        var buffers = 0
+        var peak: Float = 0
+        /// Buffers the stream let go of because the recognizer was that far
+        /// behind.
+        var dropped = 0
+    }
+    private let flow = Mutex(Flow())
+    var buffers: Int { flow.withLock { $0.buffers } }
+    var peak: Float { flow.withLock { $0.peak } }
+    var dropped: Int { flow.withLock { $0.dropped } }
 
     /// How many converted buffers the recognizer's stream holds.
     static let backlogLimit = 4096
@@ -2110,7 +2126,7 @@ private final class AudioFeed: @unchecked Sendable {
     }
 
     func push(_ buffer: AVAudioPCMBuffer) {
-        buffers += 1
+        flow.withLock { $0.buffers += 1 }
         meter(buffer)
         if converter == nil || inFormat != buffer.format {
             inFormat = buffer.format
@@ -2130,8 +2146,11 @@ private final class AudioFeed: @unchecked Sendable {
         }
         if error == nil, out.frameLength > 0 {
             if case .dropped = continuation.yield(AnalyzerInput(buffer: out)) {
-                dropped += 1
-                if dropped == 1 {
+                let first = flow.withLock { flow in
+                    flow.dropped += 1
+                    return flow.dropped == 1
+                }
+                if first {
                     Log.info("draft", ["speech": "the recognizer is behind", "backlog": Self.backlogLimit])
                 }
             }
@@ -2174,7 +2193,7 @@ private final class AudioFeed: @unchecked Sendable {
         // top is a raised voice, its floor silence.
         let db = 20 * log10(max(rms, 1e-7))
         let level = max(0, min(1, (db + 55) / 45))
-        peak = max(peak, rms)
+        flow.withLock { $0.peak = max($0.peak, rms) }
         DispatchQueue.main.async { self.onLevel(level, Double(db)) }
     }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import Synchronization
 
 /// Chromium and Electron build no accessibility tree until an assistive
 /// client announces itself — and then they build it *lazily*, over
@@ -66,12 +67,12 @@ enum AXWarmer {
         }
     }
 
-    nonisolated(unsafe) private static var browserBundles: [String: Bool] = [:]
+    private static let browserBundles = Mutex<[String: Bool]>([:])
 
     /// A Chromium browser: renderer helpers inside its frameworks, and no
     /// Electron framework (Electron apps answer the manual flag).
     static func isChromiumBrowser(_ bundle: URL) -> Bool {
-        if let known = lock.withLock({ browserBundles[bundle.path] }) { return known }
+        if let known = browserBundles.withLock({ $0[bundle.path] }) { return known }
         let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
         let names = (try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? []
         var chromium = false
@@ -85,7 +86,7 @@ enum AXWarmer {
                 }
             }
         }
-        lock.withLock { browserBundles[bundle.path] = chromium }
+        browserBundles.withLock { $0[bundle.path] = chromium }
         return chromium
     }
 }

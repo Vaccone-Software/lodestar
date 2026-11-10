@@ -8,6 +8,7 @@
 struct Boxed<Value: Equatable & Sendable>: Equatable, Sendable {
     /// Mutated only while the one reference to it is the one mutating it
     /// (`update`), so a value shared between threads is never written to.
+    // stoic:allow(unchecked-sendable): copy on write: `update` writes a storage only after `isKnownUniquelyReferenced` says the writer holds the only reference, so a storage that two values or two threads can reach is never written
     private final class Storage: @unchecked Sendable {
         var value: Value
         init(_ value: Value) { self.value = value }

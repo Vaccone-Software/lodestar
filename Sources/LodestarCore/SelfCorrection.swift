@@ -63,10 +63,10 @@ extension Draft {
         // MARK: - Cues
 
         private static let between = #"[,.]?\s+"#
-        private static let scratch = try! NSRegularExpression(
-            pattern: #"[,.;]?\s*\b(?:scratch that|never mind|forget that)\b[,.;]?\s*"#, options: [.caseInsensitive])
-        private static let repair = try! NSRegularExpression(
-            pattern: #"[,.;]?\s*\b(?:no"# + between + #"wait(?:"# + between + #"I mean)?|wait"# + between
+        private static let scratch = NSRegularExpression.constant(
+            #"[,.;]?\s*\b(?:scratch that|never mind|forget that)\b[,.;]?\s*"#, options: [.caseInsensitive])
+        private static let repair = NSRegularExpression.constant(
+            #"[,.;]?\s*\b(?:no"# + between + #"wait(?:"# + between + #"I mean)?|wait"# + between
                 + #"no|no"# + between + #"I mean|sorry"# + between + #"I mean|or rather|or actually|no"#
                 + between + #"actually)\b[,.;]?\s*"#,
             options: [.caseInsensitive])

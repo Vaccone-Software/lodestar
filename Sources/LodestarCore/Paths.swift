@@ -39,6 +39,13 @@ public enum Paths {
     /// somewhere new looks dead and gets rolled back. Not worth it for a
     /// file containing one number.
     public static let pidFile = config.appendingPathComponent("lodestar.pid")
+
+    /// The lock a running copy holds for as long as it lives (`SingleInstance`).
+    /// In the data folder, which is private to its owner, and not beside the pid
+    /// file: nothing that reads the pid file reads this one, so it has no reason
+    /// to stay where a dotfiles repository would pick it up. Never deleted while
+    /// a copy holds it: a file made anew under the name is another lock.
+    public static let lockFile = data.appendingPathComponent("lodestar.lock")
     public static let update = config.appendingPathComponent("update", isDirectory: true)
 
     /// Create both roots, and keep the data directory off other users'

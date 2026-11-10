@@ -3029,32 +3029,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return RunMarker.diedUncleanly(contents: text, isAlive: { kill($0, 0) == 0 })
     }
 
+    /// The only-one-copy rule: this copy takes the instance lock (asking the one
+    /// that holds it to quit) and holds it until the process ends, which
+    /// `SingleInstance` itself sees to; the pid file it writes is what the update
+    /// watchdog and the CLI read.
     private func takeOverPidFile() {
-        if let text = try? String(contentsOf: Self.pidFile, encoding: .utf8),
-           let oldPid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
-           oldPid != ProcessInfo.processInfo.processIdentifier,
-           kill(oldPid, 0) == 0 {
-            Log.info("replacing running lodestar (pid \(oldPid))")
-            kill(oldPid, SIGTERM)
-            // Wait for it to actually go, rather than for a number that
-            // was never long enough: the outgoing process restores parked
-            // windows on its way out, which is unbounded AX work, so a
-            // fixed 600ms routinely left two instances holding state.json,
-            // observations.json and events.jsonl at once — last writer
-            // wins, and a coalesced write is simply lost.
-            let deadline = Date().addingTimeInterval(5)
-            while kill(oldPid, 0) == 0, Date() < deadline {
-                usleep(25_000)
-            }
-            if kill(oldPid, 0) == 0 {
-                Log.error("previous lodestar (pid \(oldPid)) did not exit in 5s — continuing anyway")
-            } else {
-                Log.info("previous lodestar exited; taking over")
-            }
-        }
-        try? "\(ProcessInfo.processInfo.processIdentifier)".write(
-            to: Self.pidFile, atomically: true, encoding: .utf8
-        )
+        SingleInstance(files: .init(lock: Paths.lockFile, pid: Self.pidFile)).takeOver()
     }
 
     private func installSignalHandler() {

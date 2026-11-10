@@ -44,6 +44,13 @@ func usage() -> Never {
                                        the same for the monthly roll (thirteen months, both logs)
       probe memory-coach [--events N]  the same for the coach's refresh (ninety days of whole events)
 
+      copy --pid-file P [--lock L] [--quit-seconds N] [--wait N] [--ignore-term] [--spawn-child]
+                                       a stand-in for a running Lodestar: takes over as the app does (with
+                                       --lock, holding the instance lock; without, by the pid file, as an
+                                       older build did), says BOOT/TOOK/READY/TERMED/EXITING, and ends on
+                                       SIGTERM (for the tests)
+      stranger --signal-log F          an unrelated process that writes down every signal it is sent
+
     the slice-0 questions, and the command that answers each:
       1. does _AXUIElementGetWindow bridge AX windows to real window-server ids?  -> list
       2. does off-screen parking hold, and does the id survive it?                -> park
@@ -85,6 +92,8 @@ case "memory-seed": runMemory(&arguments, rollup: false)
 case "memory-rollup": runMemory(&arguments, rollup: true)
 case "memory-coach": runMemory(&arguments, rollup: false, coach: true)
 case "memory-prepare": runMemoryPrepare(&arguments)
+case "copy": runCopy(&arguments)
+case "stranger": runStranger(&arguments)
 case "help", "--help", "-h": usage()
 default:
     fputs("probe: unknown command '\(command)'\n\n", stderr)

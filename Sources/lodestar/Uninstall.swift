@@ -66,9 +66,14 @@ struct UninstallPlan {
         /// when there is nothing to name, and then no step is made.
         var keychainItems: String
         var pidFile: URL
+        /// The lock a running copy holds, by which it is found (`SingleInstance`).
+        var lockFile: URL
         var bundleID: String
         var browserToRestore: String?
         var exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+
+        /// Where the running copy is found.
+        var instance: SingleInstance.Files { .init(lock: lockFile, pid: pidFile) }
     }
 
     /// Side effects the steps perform, replaceable by tests.
@@ -78,10 +83,10 @@ struct UninstallPlan {
         var forgetPermissions: (String) -> Void = UninstallPlan.forgetPermissions
         var resetAlertSelection: () -> Void = AlertSound.resetSelection
         var stopAgent: () -> Void = UninstallPlan.stopAgent
-        var stopInstance: (URL) -> Void = UninstallPlan.stopInstance
-        /// Wait for the instance the pid file names to be gone; false if it is
-        /// still there after a while.
-        var awaitInstanceExit: (URL) -> Bool = UninstallPlan.awaitInstanceExit
+        var stopInstance: (SingleInstance.Files) -> Void = { UninstallPlan.stopInstance($0) }
+        /// Wait for the running instance to be gone; false if it is still
+        /// there after a while.
+        var awaitInstanceExit: (SingleInstance.Files) -> Bool = { UninstallPlan.awaitInstanceExit($0) }
         /// Delete every key Lodestar keeps in the login keychain; answers one
         /// line for each it could not delete.
         var deleteKeys: () -> [String] = UninstallPlan.deleteKeys
@@ -118,8 +123,8 @@ struct UninstallPlan {
             // app itself skips its own pid and relies on `AppDelegate.purged`.)
             if world.exists(world.pidFile) {
                 steps.append(.reporting("stop the running Lodestar, so it cannot save over what is removed") {
-                    actions.stopInstance(world.pidFile)
-                    return actions.awaitInstanceExit(world.pidFile)
+                    actions.stopInstance(world.instance)
+                    return actions.awaitInstanceExit(world.instance)
                         ? [] : ["Lodestar is still running and may write files again when it quits; quit it, then run lodestar uninstall --purge again"]
                 })
             }
@@ -141,7 +146,7 @@ struct UninstallPlan {
         // Last: this may be the process running the plan.
         steps.append(Step(name: "stop Lodestar") {
             actions.stopAgent()
-            actions.stopInstance(world.pidFile)
+            actions.stopInstance(world.instance)
         })
         return UninstallPlan(steps: steps, kept: purge ? [] : world.dataRoots)
     }
@@ -183,6 +188,7 @@ struct UninstallPlan {
                 } ?? []),
             keychainItems: keychainItemsNote,
             pidFile: Paths.pidFile,
+            lockFile: Paths.lockFile,
             bundleID: Bundle.main.bundleIdentifier ?? agentLabel,
             browserToRestore: browser)
     }
@@ -243,26 +249,18 @@ struct UninstallPlan {
         run("/bin/launchctl", ["bootout", "gui/\(getuid())/\(agentLabel)"])
     }
 
-    /// An instance launchd does not supervise, found by the pid file.
-    private static func stopInstance(_ pidFile: URL) {
-        guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
-              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
-              pid != ProcessInfo.processInfo.processIdentifier, kill(pid, 0) == 0
-        else { return }
-        kill(pid, SIGTERM)
+    /// An instance launchd does not supervise, found by the lock it holds (or,
+    /// for an older build that holds none, by the pid file it wrote). Never a
+    /// process that only has the number a stale pid file names.
+    static func stopInstance(_ files: SingleInstance.Files, processes: any InstanceProcesses = SystemProcesses()) {
+        SingleInstance.stopRunningCopy(files: files, processes: processes)
     }
 
-    /// Whether the instance the pid file names is gone (or is this process),
-    /// waiting up to ten seconds: a quitting instance restores parked windows,
-    /// which is unbounded work in other apps.
-    static func awaitInstanceExit(_ pidFile: URL) -> Bool {
-        guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
-              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
-              pid != ProcessInfo.processInfo.processIdentifier
-        else { return true }
-        let deadline = Date().addingTimeInterval(10)
-        while kill(pid, 0) == 0, Date() < deadline { usleep(50_000) }
-        return kill(pid, 0) != 0
+    /// Whether the running instance is gone (or is this process), waiting up
+    /// to ten seconds: a quitting instance restores parked windows, which is
+    /// unbounded work in other apps.
+    static func awaitInstanceExit(_ files: SingleInstance.Files, processes: any InstanceProcesses = SystemProcesses()) -> Bool {
+        SingleInstance.awaitNoRunningCopy(files: files, processes: processes)
     }
 
     private static func run(_ executable: String, _ arguments: [String]) {

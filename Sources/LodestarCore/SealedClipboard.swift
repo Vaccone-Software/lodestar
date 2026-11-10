@@ -2,6 +2,7 @@ import Foundation
 import Stoic
 import StoicSealed
 import StoicStore
+import StoicTime
 
 /// The clipboard history on disk, sealed: the index journal, the blobs and
 /// thumbnails beside it, the state of the key, the migration of an older
@@ -81,7 +82,7 @@ public final class SealedClipboard: @unchecked Sendable {
     }
 
     public func open() -> OpenResult {
-        let started = Date()
+        let started = ContinuousClock.now
         SealedDirectory.ensure(root.path, fileSystem: fileSystem)
         var movedAside: String?
 
@@ -143,7 +144,7 @@ public final class SealedClipboard: @unchecked Sendable {
 
         return .ready(Opened(entries: current.entries, movedAside: movedAside, migration: migration, quarantined: quarantined,
                              unreadable: unreadable, orphansRemoved: orphans,
-                             seconds: Date().timeIntervalSince(started)))
+                             seconds: started.secondsElapsed))
     }
 
     /// Whether `v2/` holds anything sealed: a journal with records or a
@@ -180,7 +181,7 @@ public final class SealedClipboard: @unchecked Sendable {
 
     /// `v2/` into `clipboard-unreadable-YYYY-MM-DD/`. Never deletes.
     private func moveAside(reason: String) -> String? {
-        let stamp = RecordFiles.dateStamp(Date())
+        let stamp = RecordFiles.dateStamp(Moment.now.date)
         var name = "clipboard-unreadable-\(stamp)"
         var attempt = 1
         while (try? fileSystem.exists(root.appendingPathComponent(name).path)) == true {

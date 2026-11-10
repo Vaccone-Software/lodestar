@@ -1,5 +1,7 @@
 import Foundation
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// Keeps a record of memory in the log, so a freeze can be read afterward.
 ///
@@ -38,7 +40,7 @@ final class MemoryWatch {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         // The first look waits for the launch to be over.
         timer.schedule(deadline: .now() + 30, repeating: Self.look, leeway: .seconds(5))
-        timer.setEventHandler { [weak self] in self?.beat(at: Date()) }
+        timer.setEventHandler { [weak self] in self?.beat(at: Moment.now.date) }
         timer.resume()
         self.timer = timer
         let signal = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: queue)

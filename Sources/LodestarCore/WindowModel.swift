@@ -1,5 +1,7 @@
 import AppKit
 import ApplicationServices
+import Stoic
+import StoicTime
 
 /// What the window model asks of accessibility: every one of these is a
 /// message to another app, answered when that app's main thread gets to
@@ -167,7 +169,7 @@ public final class WindowModel {
     private var focusSerial = 0
     /// The launch scan: apps still being read, and when it began.
     private var seedsOutstanding = 0
-    private var seedStarted = Date()
+    private var seedStarted = ContinuousClock.now
 
     public init(reader: WindowAXReader = LiveWindowAXReader(),
                 appLookup: @escaping (pid_t) -> AppInfo? = { pid in
@@ -207,7 +209,7 @@ public final class WindowModel {
         // quiet so nothing treats the existing world as newly arrived. It
         // runs on the apps' queues: launch no longer waits on every window
         // of every app before the key tap can answer.
-        seedStarted = Date()
+        seedStarted = ContinuousClock.now
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
             seedsOutstanding += 1
             attach(AppInfo(app), seeding: true)
@@ -468,7 +470,7 @@ public final class WindowModel {
         // The windows found are still being read; the count is of those
         // tracked by now plus those on their way.
         let tracked = windows.values.filter(\.isAlive).count
-        onTrace?("seeded \(tracked) windows, \(pendingTracks.count) reading, ms=\(Int(Date().timeIntervalSince(seedStarted) * 1000))")
+        onTrace?("seeded \(tracked) windows, \(pendingTracks.count) reading, ms=\(Int(seedStarted.secondsElapsed * 1000))")
     }
 
     /// The app's observer, made on first need.
@@ -515,7 +517,7 @@ public final class WindowModel {
     private func bury(_ id: CGWindowID) {
         guard var w = windows[id], w.isAlive else { return }
         w.isAlive = false
-        w.deadAt = Date()
+        w.deadAt = Moment.now.date
         windows[id] = w
         // The record keeps its element for life, so the reverse key is
         // derivable — one removal, not a rebuild of the whole map. The
@@ -651,7 +653,7 @@ public final class WindowModel {
     /// a few minutes, then leave — an always-on process must not accumulate
     /// a retained AXUIElement per window ever closed.
     private func pruneDead(olderThan interval: TimeInterval = 300) {
-        let cutoff = Date().addingTimeInterval(-interval)
+        let cutoff = Moment.now.date.addingTimeInterval(-interval)
         let expired = windows.filter { !$0.value.isAlive && ($0.value.deadAt ?? .distantPast) < cutoff }
         guard !expired.isEmpty else { return }
         for (id, w) in expired {
@@ -699,7 +701,7 @@ public final class WindowModel {
 
     private func setFocus(_ id: CGWindowID) {
         if var w = windows[id] {
-            w.lastFocused = Date()
+            w.lastFocused = Moment.now.date
             windows[id] = w
         }
         guard focusedID != id else { return }

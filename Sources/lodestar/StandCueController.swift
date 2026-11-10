@@ -1,5 +1,7 @@
 import AppKit
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// The walk, in the app: feeds `StandCue` the hand's input and the
 /// stopping points it makes, and shows the cue when one is earned and the
@@ -49,7 +51,7 @@ final class StandCueController {
                 guard let cg = event.cgEvent, Coach.isHumanOrigin(
                     sourceStateID: cg.getIntegerValueField(.eventSourceStateID),
                     postingPID: cg.getIntegerValueField(.eventSourceUnixProcessID)) else { return }
-                DispatchQueue.main.async { self?.input(at: self?.now() ?? Date()) }
+                DispatchQueue.main.async { self?.input(at: self?.now() ?? Moment.now.date) }
             }) {
                 monitors.append(monitor)
             }

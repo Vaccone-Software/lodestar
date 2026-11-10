@@ -74,11 +74,11 @@ final class SpeechProbe: @unchecked Sendable {
     /// Create and start the engine on the main thread, the way the app does.
     var onMain = false
 
-    private let t0 = Date()
-    private var firstAudioAt: Date?
-    private var firstResultAt: Date?
-    private var restartAt: Date?
-    private var firstResultAfterRestartAt: Date?
+    private let t0 = ContinuousClock.now
+    private var firstAudioAt: ContinuousClock.Instant?
+    private var firstResultAt: ContinuousClock.Instant?
+    private var restartAt: ContinuousClock.Instant?
+    private var firstResultAfterRestartAt: ContinuousClock.Instant?
     private var volatileCount = 0
     private var finalCount = 0
     private var revisions = 0
@@ -95,7 +95,7 @@ final class SpeechProbe: @unchecked Sendable {
         self.cycle = cycle; self.requestSpeechAuth = requestSpeechAuth; self.file = file
     }
 
-    private func age() -> String { String(format: "%6.2fs", Date().timeIntervalSince(t0)) }
+    private func age() -> String { String(format: "%6.2fs", t0.secondsElapsed) }
     private func log(_ s: String) { print("\(age())  \(s)"); fflush(stdout) }
 
     func run() async throws {
@@ -165,9 +165,9 @@ final class SpeechProbe: @unchecked Sendable {
         let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
         log("analyzer format \(format.map { "\($0.sampleRate)Hz ch\($0.channelCount) \($0.commonFormat.rawValue)" } ?? "nil")")
         analyzerFormat = format
-        let prepStart = Date()
+        let prepStart = ContinuousClock.now
         try await analyzer.prepareToAnalyze(in: format)
-        log(String(format: "prepareToAnalyze took %.0fms", Date().timeIntervalSince(prepStart) * 1000))
+        log(String(format: "prepareToAnalyze took %.0fms", prepStart.secondsElapsed * 1000))
 
         // 4. results
         let resultsTask: Task<Void, Never>
@@ -202,7 +202,7 @@ final class SpeechProbe: @unchecked Sendable {
             log("— stopping the audio engine (normal-mode silence) —")
             stopEngine()
             try await Task.sleep(for: .seconds(1.5))
-            restartAt = Date()
+            restartAt = ContinuousClock.now
             log("— restarting the audio engine —")
             try startEngine()
             try await Task.sleep(for: .seconds(seconds * 0.6))
@@ -213,9 +213,9 @@ final class SpeechProbe: @unchecked Sendable {
         // 6. finish
         stopEngine()
         cont.finish()
-        let finStart = Date()
+        let finStart = ContinuousClock.now
         try await analyzer.finalizeAndFinishThroughEndOfInput()
-        log(String(format: "finalize took %.0fms", Date().timeIntervalSince(finStart) * 1000))
+        log(String(format: "finalize took %.0fms", finStart.secondsElapsed * 1000))
         try await Task.sleep(for: .milliseconds(300))
         resultsTask.cancel()
         summary()
@@ -234,7 +234,7 @@ final class SpeechProbe: @unchecked Sendable {
         log(String(format: "streaming %@ (%.1fs) at real-time pace", url.lastPathComponent, total))
         let sliceFrames = AVAudioFrameCount(audio.processingFormat.sampleRate / 10)
         var streamedFrames: AVAudioFramePosition = 0
-        let wall = Date()
+        let wall = ContinuousClock.now
         while streamedFrames < audio.length {
             guard let slice = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: sliceFrames) else { break }
             try audio.read(into: slice, frameCount: sliceFrames)
@@ -249,11 +249,11 @@ final class SpeechProbe: @unchecked Sendable {
                 if consumed { status.pointee = .noDataNow; return nil }
                 consumed = true; status.pointee = .haveData; return slice
             }
-            if firstAudioAt == nil { firstAudioAt = Date() }
+            if firstAudioAt == nil { firstAudioAt = ContinuousClock.now }
             if error == nil, out.frameLength > 0 { cont.yield(AnalyzerInput(buffer: out)) }
             // Real-time pacing: sleep until the wall clock catches up with the audio clock.
             let audioClock = Double(streamedFrames) / audio.processingFormat.sampleRate
-            let ahead = audioClock - Date().timeIntervalSince(wall)
+            let ahead = audioClock - wall.secondsElapsed
             if ahead > 0 { try await Task.sleep(for: .milliseconds(Int(ahead * 1000))) }
         }
         log("file streamed")
@@ -272,12 +272,12 @@ final class SpeechProbe: @unchecked Sendable {
         log("formats: output \(inFormat.sampleRate)Hz ch\(inFormat.channelCount)  input \(input.inputFormat(forBus: 0).sampleRate)Hz  main=\(Thread.isMainThread)")
         guard let outFormat = analyzerFormat else { throw NSError(domain: "probe", code: 1) }
         converter = AVAudioConverter(from: inFormat, to: outFormat)
-        let startedAt = Date()
+        let startedAt = ContinuousClock.now
         input.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { [weak self] buffer, _ in
             guard let self, let converter = self.converter, let cont = self.continuation else { return }
             if self.firstAudioAt == nil {
-                self.firstAudioAt = Date()
-                self.log(String(format: "first audio buffer %.0fms after engine start", Date().timeIntervalSince(startedAt) * 1000))
+                self.firstAudioAt = ContinuousClock.now
+                self.log(String(format: "first audio buffer %.0fms after engine start", startedAt.secondsElapsed * 1000))
             }
             let ratio = outFormat.sampleRate / inFormat.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 16
@@ -295,7 +295,7 @@ final class SpeechProbe: @unchecked Sendable {
         engine.prepare()
         try engine.start()
         self.engine = engine
-        log(String(format: "engine.start took %.0fms (input %.0fHz ch%d)", Date().timeIntervalSince(startedAt) * 1000, inFormat.sampleRate, inFormat.channelCount))
+        log(String(format: "engine.start took %.0fms (input %.0fHz ch%d)", startedAt.secondsElapsed * 1000, inFormat.sampleRate, inFormat.channelCount))
     }
 
     private func stopEngine() {
@@ -305,16 +305,16 @@ final class SpeechProbe: @unchecked Sendable {
     }
 
     private func note(text: String, range: CMTimeRange, final: Bool) {
-        let now = Date()
+        let now = ContinuousClock.now
         if firstResultAt == nil {
             firstResultAt = now
             if let a = firstAudioAt {
-                log(String(format: "FIRST RESULT %.0fms after first audio", now.timeIntervalSince(a) * 1000))
+                log(String(format: "FIRST RESULT %.0fms after first audio", a.duration(to: now).inSeconds * 1000))
             }
         }
         if let r = restartAt, firstResultAfterRestartAt == nil, now > r {
             firstResultAfterRestartAt = now
-            log(String(format: "first result after restart: %.0fms", now.timeIntervalSince(r) * 1000))
+            log(String(format: "first result after restart: %.0fms", r.duration(to: now).inSeconds * 1000))
         }
         let start = range.start.seconds
         if final {
@@ -335,11 +335,11 @@ final class SpeechProbe: @unchecked Sendable {
     private func summary() {
         print("\n— summary —")
         if let a = firstAudioAt, let r = firstResultAt {
-            print(String(format: "first result after first audio: %.0fms", r.timeIntervalSince(a) * 1000))
+            print(String(format: "first result after first audio: %.0fms", a.duration(to: r).inSeconds * 1000))
         } else { print("no results received") }
         if let r = restartAt {
             if let f = firstResultAfterRestartAt {
-                print(String(format: "first result after engine restart: %.0fms", f.timeIntervalSince(r) * 1000))
+                print(String(format: "first result after engine restart: %.0fms", r.duration(to: f).inSeconds * 1000))
             } else { print("no result after engine restart") }
         }
         print("volatile results \(volatileCount), final results \(finalCount), volatile revisions \(revisions), volatile results reaching into settled audio \(settledChangedLater)")

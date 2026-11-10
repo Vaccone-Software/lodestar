@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The settings window's mind: which panes exist, which rows each holds,
 /// what every row is worth right now, and the three-layer key grammar the
@@ -913,7 +915,7 @@ public enum SettingsModel {
 
     /// The History page's lines, newest first: what changed, in words,
     /// who changed it, and when.
-    public static func historyItems(_ entries: [ConfigHistory.Entry], now: Date = Date(),
+    public static func historyItems(_ entries: [ConfigHistory.Entry], now: Date = Moment.now.date,
                                     calendar: Calendar = .current) -> [HistoryItem] {
         let time = DateFormatter()
         time.dateFormat = "HH:mm"

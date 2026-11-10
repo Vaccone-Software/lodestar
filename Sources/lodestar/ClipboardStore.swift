@@ -4,6 +4,8 @@ import ImageIO
 import UniformTypeIdentifiers
 import LodestarCore
 import StoicSealed
+import Stoic
+import StoicTime
 import Synchronization
 
 /// Clipboard history: the clips held in memory, and their bytes sealed on disk
@@ -311,8 +313,8 @@ final class ClipboardStore {
     /// history has opened (or the time is up).
     @discardableResult
     func waitUntilOpen(timeout: TimeInterval = 30) -> Phase {
-        let deadline = Date().addingTimeInterval(timeout)
-        while phase == .opening, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.002)) }
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while phase == .opening, ContinuousClock.now < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.002)) }
         return phase
     }
 
@@ -426,11 +428,11 @@ final class ClipboardStore {
         saveNow()
         io.async { [weak self] in
             guard let self else { return }
-            let started = Date()
+            let started = ContinuousClock.now
             switch self.disk.compact(rotatingKey: true) {
             case .compacted(let records, let bytes):
                 Log.info("clipboard: folded \(records) records into a snapshot of \(bytes / 1024) KB",
-                         ["ms": Int(Date().timeIntervalSince(started) * 1000)])
+                         ["ms": Int(started.secondsElapsed * 1000)])
                 DispatchQueue.main.async {
                     self.deletionOwed = false
                     self.compactions += 1
@@ -530,7 +532,7 @@ final class ClipboardStore {
         }
         let arrival = Queued(id: id, kind: kind, items: items, imageData: imageData, preview: preview,
                              sourceBundleID: sourceBundleID, sourceAppName: sourceAppName, sourceHost: sourceHost,
-                             lines: lines, characters: characters, created: Date(), bytes: bytes)
+                             lines: lines, characters: characters, created: Moment.now.date, bytes: bytes)
         switch phase {
         case .ready:
             apply(arrival)
@@ -795,17 +797,17 @@ final class ClipboardStore {
     nonisolated(unsafe) static var prunePeriod: TimeInterval = 300
     private var pruneScheduled = false
     private var pruning = false
-    private var pruneDue: Date?
+    private var pruneDue: ContinuousClock.Instant?
 
     /// Look the cards of files over soon: after a copy, when the strip
     /// closes, and every `prunePeriod` in between.
     func pruneGoneFilesSoon(after delay: TimeInterval = 1) {
-        let due = Date().addingTimeInterval(delay)
-        guard prunesGoneFiles, !pruneScheduled || due < (pruneDue ?? .distantFuture) else { return }
+        let due = ContinuousClock.now + .seconds(delay)
+        guard prunesGoneFiles, !pruneScheduled || pruneDue.map({ due < $0 }) ?? true else { return }
         pruneScheduled = true
         pruneDue = due
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, let planned = self.pruneDue, planned <= Date().addingTimeInterval(0.05) else { return }
+            guard let self, let planned = self.pruneDue, planned <= ContinuousClock.now + .seconds(0.05) else { return }
             self.pruneScheduled = false
             self.pruneDue = nil
             self.pruneGoneFiles()
@@ -1057,7 +1059,7 @@ final class ClipboardStore {
         refs[newID] = ref
         let counted = Clipboard.counts(of: text)
         let kept = Clipboard.Clip(
-            id: newID, kind: .text, created: Date(),
+            id: newID, kind: .text, created: Moment.now.date,
             sourceBundleID: source?.sourceBundleID, sourceAppName: source?.sourceAppName,
             preview: Clipboard.preview(of: text), bytes: data.count,
             sourceHost: source?.sourceHost,

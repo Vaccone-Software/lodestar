@@ -17,7 +17,7 @@ final class AppIndex {
     /// the graph-summon path, and an O(n) scan with a lowercase per entry
     /// was the price of throwing the scan dictionary's keys away.
     private var byLowerName: [String: Entry] = [:]
-    private var lastScan = Date.distantPast
+    private var lastScan: ContinuousClock.Instant?
     private var scanning = false
     /// Resolved icons, living exactly as long as the entries they came from.
     private var icons: [String: NSImage?] = [:]
@@ -37,14 +37,14 @@ final class AppIndex {
     /// ~150 Info.plists, and the searcher's first keystroke after idle must
     /// not pay for it. Queries keep the current entries until the swap.
     func refreshIfStale() {
-        guard Date().timeIntervalSince(lastScan) > 30, !scanning else { return }
+        guard lastScan.map({ $0.secondsElapsed > 30 }) ?? true, !scanning else { return }
         scanning = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let found = AppIndex.scanDisk()
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.install(AppIndex.mergeRunning(into: found))
-                self.lastScan = Date()
+                self.lastScan = ContinuousClock.now
                 self.scanning = false
             }
         }
@@ -53,7 +53,7 @@ final class AppIndex {
     /// Synchronous full scan — the boot path, before any panel exists.
     func refresh() {
         install(AppIndex.mergeRunning(into: AppIndex.scanDisk()))
-        lastScan = Date()
+        lastScan = ContinuousClock.now
     }
 
     /// Swap in a fresh index. The icon table survives a swap that changed

@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// Which app comes next — the question predicted warming asks.
 ///
@@ -243,7 +245,7 @@ public struct NextApp: Equatable {
     /// but the stream is held, so a launch that does this once does not cost
     /// the ring's size in memory.
     public static func seed(from log: EventLog, days: Int = EventLog.advisorWindowDays, retune: Bool,
-                            current: Tuning, now: Date = Date()) -> Seed {
+                            current: Tuning, now: Date = Moment.now.date) -> Seed {
         seed(focuses: log.focusStream(days: days, now: now), retune: retune, current: current)
     }
 

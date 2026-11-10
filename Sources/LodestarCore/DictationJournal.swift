@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// What dictation heard and what it did with it, kept for a few days to
 /// make it better: the one record in Lodestar that holds words, so only a
@@ -34,7 +36,7 @@ public final class DictationJournal: @unchecked Sendable {
     public init(folder: URL = Paths.data.appendingPathComponent("dictation-journal", isDirectory: true), days: Int) {
         self.folder = folder
         self.days = days
-        prune(now: Date())
+        prune(now: Moment.now.date)
     }
 
     /// A dictation begins, going to `app`.

@@ -4,6 +4,8 @@ import CoreGraphics
 import Carbon.HIToolbox
 import IOKit.ps
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// The hands' pulse, gathered: keystroke counts arrive from the main event
 /// tap (which already sees every key), clicks, motion and scroll bursts
@@ -150,7 +152,7 @@ final class HealthMonitor {
     /// The key came back (the keychain unlocked): settle what the pause held.
     /// Main thread.
     func resume() {
-        queue.async { [self] in resumeLedgerLocked(now: Date()) }
+        queue.async { [self] in resumeLedgerLocked(now: Moment.now.date) }
     }
 
     // Main-thread state.
@@ -242,7 +244,7 @@ final class HealthMonitor {
         /// continuous — so continuity names no device, the phase does).
         var touch: Bool
 
-        init(type: CGEventType, event: CGEvent, now: Date = Date()) {
+        init(type: CGEventType, event: CGEvent, now: Date = Moment.now.date) {
             self.type = type
             at = EventTime.date(of: event) ?? now
             location = event.location
@@ -365,7 +367,7 @@ final class HealthMonitor {
 
     /// A hardware keystroke, from the main tap. An autorepeat keydown
     /// counts as the hand being present and nothing more.
-    func noteKey(backspace: Bool, autorepeat: Bool = false, at now: Date = Date()) {
+    func noteKey(backspace: Bool, autorepeat: Bool = false, at now: Date = Moment.now.date) {
         guard enabled else { return }
         queue.async { [self] in
             if !autorepeat {
@@ -415,7 +417,7 @@ final class HealthMonitor {
     }
 
     /// A press released, and how long it was held.
-    func noteHold(_ seconds: Double, at now: Date = Date()) {
+    func noteHold(_ seconds: Double, at now: Date = Moment.now.date) {
         guard enabled else { return }
         queue.async { [self] in
             if let flushed = pulse.hold(seconds, at: now) { emitPulse(flushed) }
@@ -423,14 +425,14 @@ final class HealthMonitor {
     }
 
     /// How late the tap ran after the event's stamp.
-    func noteJitter(_ seconds: Double, at now: Date = Date()) {
+    func noteJitter(_ seconds: Double, at now: Date = Moment.now.date) {
         guard enabled else { return }
         queue.async { [self] in
             if let flushed = pulse.jitter(seconds, at: now) { emitPulse(flushed) }
         }
     }
 
-    func noteTapReset(at now: Date = Date()) {
+    func noteTapReset(at now: Date = Moment.now.date) {
         guard enabled else { return }
         queue.async { [self] in
             if let flushed = pulse.tapReset(at: now) { emitPulse(flushed) }
@@ -443,7 +445,7 @@ final class HealthMonitor {
     /// is written down (`BlindLedger.start`), then secure input is sampled
     /// and sleep is listened for.
     private func startSeeing() {
-        let now = Date()
+        let now = Moment.now.date
         queue.async { [self] in beginSeeingLocked(at: now) }
         secureOn = false
         secureSeenOffAt = nil
@@ -515,7 +517,7 @@ final class HealthMonitor {
         secureTimer = nil
         for observer in sleepObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         sleepObservers = []
-        let now = Date()
+        let now = Moment.now.date
         queue.sync {
             ledger.stop(why, at: now)
             saveLedgerLocked()
@@ -530,7 +532,7 @@ final class HealthMonitor {
     }
 
     /// Main. One sample of secure input; the harness calls it directly.
-    func sampleSecureInput(now: Date = Date()) {
+    func sampleSecureInput(now: Date = Moment.now.date) {
         let on = secureInput()
         if on, !secureOn {
             noteBlindBegan(.secureInput, at: secureSeenOffAt ?? now, resolution: Self.secureInputInterval)
@@ -542,7 +544,7 @@ final class HealthMonitor {
     }
 
     /// A span begins and is open until `noteBlindEnded`.
-    func noteBlindBegan(_ kind: BlindKind, at start: Date = Date(), startBound: Bool = false,
+    func noteBlindBegan(_ kind: BlindKind, at start: Date = Moment.now.date, startBound: Bool = false,
                         resolution: Double? = nil) {
         guard enabled else { return }
         queue.async { [self] in
@@ -553,7 +555,7 @@ final class HealthMonitor {
         }
     }
 
-    func noteBlindEnded(_ kind: BlindKind, at end: Date = Date()) {
+    func noteBlindEnded(_ kind: BlindKind, at end: Date = Moment.now.date) {
         guard enabled else { return }
         queue.async { [self] in
             guard let event = ledger.end(kind, at: end) else { return }
@@ -854,7 +856,7 @@ final class HealthMonitor {
     /// younger than the return ceiling stays pending so the key that
     /// follows it can still join; a wheel burst stays open until its gap
     /// has passed. Returns the events to deliver.
-    private func drainPendingLocked(all: Bool = false, now: Date = Date()) -> [ObservationEvent] {
+    private func drainPendingLocked(all: Bool = false, now: Date = Moment.now.date) -> [ObservationEvent] {
         var out: [ObservationEvent] = []
         let holdClicks = all ? Date.distantFuture : now.addingTimeInterval(-PointerTracker.returnCeiling)
         let clicks = pendingClicks.filter { $0.at < holdClicks }
@@ -990,7 +992,7 @@ final class HealthMonitor {
         stats.screens = NSScreen.screens.count
         stats.displays = Environment.displays()
         stats.layout = Environment.layoutID()
-        stats.tz = TimeZone.current.secondsFromGMT(for: stats.start)
+        stats.tz = TimeZone.device.secondsFromGMT(for: stats.start)
         var event = ObservationEvent(t: stats.start, kind: .window)
         event.window = stats
         observations?.healthWindow(event)
@@ -1106,7 +1108,7 @@ final class HealthMonitor {
     }
 
     /// Main. One minute's housekeeping; the harness calls it directly.
-    func tick(now: Date = Date()) {
+    func tick(now: Date = Moment.now.date) {
         queue.async { [self] in
             let events = drainPendingLocked(now: now)
             for event in events { deliverAsync(event) }
@@ -1192,7 +1194,7 @@ final class HealthMonitor {
         pressureMonitor = NSEvent.addGlobalMonitorForEvents(matching: .pressure) { [weak self] event in
             guard let self else { return }
             let sample = (Int(event.stage), Double(event.pressure),
-                          event.cgEvent.flatMap(EventTime.date(of:)) ?? Date())
+                          event.cgEvent.flatMap(EventTime.date(of:)) ?? Moment.now.date)
             self.queue.async {
                 self.lastPressure = sample
                 self.pressureSamples += 1

@@ -1,6 +1,7 @@
 import Foundation
 import LodestarCore
 import Stoic
+import StoicTime
 
 /// Which step of launch is under way, and how long each one took.
 ///
@@ -73,6 +74,6 @@ final class LaunchStages {
         guard sysctl(&name, 4, &info, &size, nil, 0) == 0 else { return nil }
         let began = info.kp_proc.p_starttime
         let start = TimeInterval(began.tv_sec) + TimeInterval(began.tv_usec) / 1_000_000
-        return Int((Date().timeIntervalSince1970 - start) * 1000)
+        return Int((Moment.now.date.timeIntervalSince1970 - start) * 1000)
     }
 }

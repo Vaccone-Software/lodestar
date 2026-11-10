@@ -64,9 +64,9 @@ func runSmoke(_ args: inout [String]) {
         event.post(tap: .cghidEventTap)
     }
     let f20: CGKeyCode = 0x5A
-    let end = Date().addingTimeInterval(seconds)
+    let end = ContinuousClock.now + .seconds(seconds)
     var round = 0
-    while Date() < end {
+    while ContinuousClock.now < end {
         let here = CGEvent(source: nil)?.location ?? .zero
         switch round % 4 {
         case 0:
@@ -86,9 +86,9 @@ func runSmoke(_ args: inout [String]) {
             }
         }
         round += 1
-        RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
     }
-    RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
 
     let (seen, sent, lost) = meter.lock.withLock { (meter.seen, meter.sent, meter.posted.count) }
     if lost > 0 {

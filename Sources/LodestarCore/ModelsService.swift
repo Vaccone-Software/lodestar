@@ -79,7 +79,7 @@ public final class ModelsService: Sendable {
 
     private func loadLanguageModel(_ spec: LanguageModelSpec) async throws(ModelsFailure) -> String {
         try await onLane(gated: true) { [self] () async throws -> String in
-            let started = Date()
+            let started = ContinuousClock.now
             let model = try await engine.loadLanguageModel(spec)
             // Given up on while it loaded: nobody will ask it anything.
             guard !Task.isCancelled else {
@@ -89,7 +89,7 @@ public final class ModelsService: Sendable {
             let handle = UUID().uuidString
             state.withLock { $0.models[handle] = model }
             host?.hold(Self.reason(handle))
-            Log.info("models", ["loaded": spec.label, "ms": Int(Date().timeIntervalSince(started) * 1000)])
+            Log.info("models", ["loaded": spec.label, "ms": Int(started.secondsElapsed * 1000)])
             return handle
         }
     }

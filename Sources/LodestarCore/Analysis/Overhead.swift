@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The product's own score: actual input cost against its computed floor,
 /// per channel. The floor is a keystroke-level reading (Card, Moran &
@@ -76,7 +78,7 @@ public struct Overhead: Equatable {
 
     public static func compute(events: [ObservationEvent], latency: LatencyModel?,
                                health: Health.Summary?, clicks: Health.Clicks?,
-                               days: Int = 28, now: Date = Date()) -> Overhead {
+                               days: Int = 28, now: Date = Moment.now.date) -> Overhead {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let window = events.filter { $0.t >= cutoff }
         let interKey = health?.interKeyMean

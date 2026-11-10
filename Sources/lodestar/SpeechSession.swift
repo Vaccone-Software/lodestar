@@ -3,6 +3,7 @@ import Foundation
 import LodestarCore
 import Speech
 import Stoic
+import StoicTime
 
 /// What the recognizer is doing, for the register line to say.
 /// How long one attempt at opening the microphone is given, and what a
@@ -191,7 +192,7 @@ enum SpeechStart {
     /// Runs on the caller's actor (the session's), so the closures it is
     /// handed may read that actor's state.
     static func startLoop(
-        began: Date,
+        began: ContinuousClock.Instant,
         isolation: isolated (any Actor)? = #isolation,
         start: (_ within: TimeInterval) async throws -> Started,
         bridgeAgain: () -> Void,
@@ -212,7 +213,7 @@ enum SpeechStart {
                 try? await Ambient.sleep(for: .seconds(SpeechStart.settleSeconds))
                 guard !stopped() else { stopOwnBridge(); return .ended }
             }
-            let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
+            let remaining = SpeechStart.startBudget - began.secondsElapsed
             guard SpeechStart.canBegin(remaining: remaining, owing: 0) else { break }
             do {
                 started = try await start(remaining)
@@ -242,7 +243,7 @@ enum SpeechStart {
                 // would queue behind it and then stop whatever it started;
                 // the whole budget is spent, so this is the end of it.
                 Log.info("draft", ["speech": "audio start timed out", "attempt": attempt,
-                                   "seconds": (Date().timeIntervalSince(began) * 10).rounded() / 10])
+                                   "seconds": (began.secondsElapsed * 10).rounded() / 10])
                 break
             } catch {
                 Log.info("draft", ["speech": "audio start failed", "attempt": attempt,
@@ -729,7 +730,7 @@ final class AudioInput: @unchecked Sendable {
         if let moved = Self.rateMoved(built: engineFormat, now: Self.reading(of: engine)) {
             Log.info("draft", ["speech": "audio configuration changed", "stale": true,
                                "fromHz": Int(moved.from), "toHz": Int(moved.to)])
-            if let device = engineDevice, Self.isBluetooth(device) { refusal = (device, moved.from, Date()) }
+            if let device = engineDevice, Self.isBluetooth(device) { refusal = (device, moved.from, Moment.now.date) }
             rebuildPending = false
             rebuild(attempt: 1, session: session)
             return
@@ -738,7 +739,7 @@ final class AudioInput: @unchecked Sendable {
         do {
             try engine.start()
             rebuildPending = false
-            keeper.ran(running: engine.isRunning, at: Date())
+            keeper.ran(running: engine.isRunning, at: Moment.now.date)
             Log.info("draft", ["speech": "audio configuration changed", "restarted": true, "attempt": attempt])
         } catch {
             Log.info("draft", ["speech": "audio configuration changed",
@@ -1002,11 +1003,11 @@ final class AudioInput: @unchecked Sendable {
     /// goes on regardless: -10868 has causes that are not a flip.
     private func settle(_ device: AudioDeviceID, from stale: Double?, tick: Int) throws {
         dispatchPrecondition(condition: .onQueue(queue))
-        let began = Date()
+        let began = ContinuousClock.now
         let outcome = RateSettle.wait(
             from: stale, rate: { Self.nominalRate(of: device) },
             superseded: { self.currentTick() != tick },
-            clock: { Date().timeIntervalSince(began) },
+            clock: { began.secondsElapsed },
             pause: { Thread.sleep(forTimeInterval: $0) })
         switch outcome {
         case .settled(let rate, let seconds):
@@ -1176,11 +1177,11 @@ final class AudioInput: @unchecked Sendable {
             // nowhere else: an attempt that cannot pay it is not begun, and
             // the refusal stays remembered for the ask that can.
             let owed = Self.settleOwed(refusal: refusal, device: device,
-                                       rate: Self.nominalRate(of: device), now: Date())
-            guard Self.mayBegin(owing: owed, until: until, now: Date()) else {
+                                       rate: Self.nominalRate(of: device), now: Moment.now.date)
+            guard Self.mayBegin(owing: owed, until: until, now: Moment.now.date) else {
                 throw NotBegun(owed: owed, remaining: until?.timeIntervalSinceNow ?? 0)
             }
-            if Self.owesSettle(refusal: refusal.map { ($0.device, $0.at) }, device: device, now: Date()) {
+            if Self.owesSettle(refusal: refusal.map { ($0.device, $0.at) }, device: device, now: Moment.now.date) {
                 let stale = refusal?.rate
                 refusal = nil
                 try settle(device, from: stale, tick: tick)
@@ -1242,7 +1243,7 @@ final class AudioInput: @unchecked Sendable {
             discard()
             attempt += 1
             if attempt > 1 {
-                if radio, let device { refusal = (device, builtRate, Date()) }
+                if radio, let device { refusal = (device, builtRate, Moment.now.date) }
                 throw failure
             }
             if radio, let device {
@@ -1250,8 +1251,8 @@ final class AudioInput: @unchecked Sendable {
                 // same way: not begun a second attempt it cannot pay for.
                 let owed = RateSettle.flipComing(from: builtRate, rate: Self.nominalRate(of: device))
                     ? RateSettle.deadline : 0
-                guard Self.mayBegin(owing: owed, until: until, now: Date()) else {
-                    refusal = (device, builtRate, Date())
+                guard Self.mayBegin(owing: owed, until: until, now: Moment.now.date) else {
+                    refusal = (device, builtRate, Moment.now.date)
                     throw NotBegun(owed: owed, remaining: until?.timeIntervalSinceNow ?? 0)
                 }
                 try settle(device, from: builtRate, tick: tick)
@@ -1265,7 +1266,7 @@ final class AudioInput: @unchecked Sendable {
                            "inHz": Int(input.inputFormat(forBus: 0).sampleRate),
                            "inCh": Int(input.inputFormat(forBus: 0).channelCount),
                            "voiceProcessing": input.isVoiceProcessingEnabled])
-        keeper.started(running: engine.isRunning, at: Date())
+        keeper.started(running: engine.isRunning, at: Moment.now.date)
         watchForSilence(generation: engineGeneration)
         return (format, name)
     }
@@ -1323,7 +1324,7 @@ final class AudioInput: @unchecked Sendable {
         queue.async {
             guard self.tapInstalled, let engine = self.engine else { return }
             Log.attempt("draft", ["speech": "engine did not restart after a pause"]) { try engine.start() }
-            self.keeper.ran(running: engine.isRunning, at: Date())
+            self.keeper.ran(running: engine.isRunning, at: Moment.now.date)
             // Coming back from a pause is a start like any other, and an
             // engine can be deaf on either side of one.
             self.watchForSilence(generation: self.engineGeneration)
@@ -1374,7 +1375,7 @@ final class AudioInput: @unchecked Sendable {
         // indicts the device too, which is what stops the next draft
         // opening the same silence. A session stopped sooner, which is
         // what a timed-out start's retry is, says nothing about either.
-        logCharge(keeper.stopped(at: Date(), inFlight: inFlight != nil, hasEngine: engine != nil,
+        logCharge(keeper.stopped(at: Moment.now.date, inFlight: inFlight != nil, hasEngine: engine != nil,
                                  signalled: heardSignal, window: { self.deafnessWindow },
                                  device: engineDevice, roster: { Set(Self.inputDevices().map(\.id)) }))
         inFlight = nil
@@ -1577,7 +1578,7 @@ private actor AnalyzerBox {
         // streams). The engine's own immediate rebuild cannot outwait
         // that, so the settling happens here, off the main thread,
         // across a few attempts.
-        let began = Date()
+        let began = ContinuousClock.now
         starting = true
         defer { starting = false }
         var started: SpeechStart.Started?
@@ -1721,7 +1722,7 @@ private actor AnalyzerBox {
         // the microphone" until it was closed and opened again. A
         // deadline turns that into an attempt that failed, which the
         // loop above can retry and the register line can report.
-        let until = Date().addingTimeInterval(seconds)
+        let until = Moment.now.date.addingTimeInterval(seconds)
         return try await SpeechStart.startAudio(within: seconds) {
             try await withCheckedThrowingContinuation { continuation in
                 Task { @MainActor in
@@ -1986,7 +1987,7 @@ final class Handover: @unchecked Sendable {
     private var headsetLive = false
     /// The headset took over, and the bridge was let go for good.
     private var handedOver = false
-    private var openedAt = Date()
+    private var openedAt = ContinuousClock.now
     /// Runs on the audio thread, once, with how long the bridge stood in.
     var onHandover: ((Int) -> Void)?
 
@@ -1996,7 +1997,7 @@ final class Handover: @unchecked Sendable {
         lock.withLock {
             bridgeOpen = true
             bridging = !headsetLive
-            openedAt = Date()
+            openedAt = ContinuousClock.now
         }
     }
 
@@ -2042,7 +2043,7 @@ final class Handover: @unchecked Sendable {
         if !headsetLive, !bridging || AudioInput.hasSignal(buffer) {
             headsetLive = true
             if bridging {
-                handedAfter = Int(Date().timeIntervalSince(openedAt) * 1000)
+                handedAfter = Int(openedAt.secondsElapsed * 1000)
                 handedOver = true
             }
             bridging = false
@@ -2068,7 +2069,7 @@ private final class AudioFeed: @unchecked Sendable {
     private var alive = false
     private var converter: AVAudioConverter?
     private var inFormat: AVAudioFormat?
-    private var lastLevelAt = Date.distantPast
+    private var lastLevelAt: ContinuousClock.Instant?
     /// What flowed, for the log at the end: proof the tap delivered, and
     /// how loud the loudest moment was.
     private(set) var buffers = 0
@@ -2124,10 +2125,10 @@ private final class AudioFeed: @unchecked Sendable {
     /// RMS of the first channel, as a 0…1 level, at most ten times a
     /// second: enough for a meter, nothing for a recognizer.
     private func meter(_ buffer: AVAudioPCMBuffer) {
-        let now = Date()
+        let now = ContinuousClock.now
         // Every buffer is read until one carries signal; after that, ten
         // a second.
-        guard !alive || now.timeIntervalSince(lastLevelAt) > 0.1, let data = buffer.floatChannelData,
+        guard !alive || lastLevelAt.map({ $0.duration(to: now) > .milliseconds(100) }) ?? true, let data = buffer.floatChannelData,
               buffer.frameLength > 0 else { return }
         let samples = UnsafeBufferPointer(start: data[0], count: Int(buffer.frameLength))
         var sum: Float = 0
@@ -2139,7 +2140,7 @@ private final class AudioFeed: @unchecked Sendable {
             alive = true
             DispatchQueue.main.async { self.onAlive() }
         }
-        guard now.timeIntervalSince(lastLevelAt) > 0.1 else { return }
+        guard lastLevelAt.map({ $0.duration(to: now) > .milliseconds(100) }) ?? true else { return }
         lastLevelAt = now
         // Speech at a normal distance sits around -30 dBFS; the meter's
         // top is a raised voice, its floor silence.

@@ -243,12 +243,12 @@ final class EarHost {
         // takes its creator's, which is the main thread's, and a model load
         // should not.
         Task(priority: .medium) { [weak self] in
-            let began = Date()
+            let began = ContinuousClock.now
             let whole: Bool
             do {
                 try await ear.load()
                 whole = true
-                Log.info("draft", ["ear": ear.name, "loaded ms": Int(Date().timeIntervalSince(began) * 1000)])
+                Log.info("draft", ["ear": ear.name, "loaded ms": Int(began.secondsElapsed * 1000)])
             } catch {
                 whole = false
                 Log.info("draft", ["ear": ear.name, "load failed": "\(error)"])

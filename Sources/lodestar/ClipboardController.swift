@@ -188,11 +188,11 @@ final class ClipboardController {
         // from another device — makes it wait on that app or the network,
         // and on main that wait held the key tap. A slow one says so, by
         // its shape, wherever it happened.
-        let captureStarted = Date()
+        let captureStarted = ContinuousClock.now
         let source = NSWorkspace.shared.frontmostApplication
         reader.read(sourceBundleID: source?.bundleIdentifier, excludedApps: excludedApps) { [weak self] snapshot in
             guard let self, let snapshot else { return }
-            let ms = Int(Date().timeIntervalSince(captureStarted) * 1000)
+            let ms = Int(captureStarted.secondsElapsed * 1000)
             if ms >= 250 {
                 Log.info("clipboard", ["slow-capture-ms": ms, "items": snapshot.items.count,
                                        "types": snapshot.items.reduce(0) { $0 + $1.types.count }])

@@ -1,5 +1,7 @@
 import Foundation
 import StoicStore
+import Stoic
+import StoicTime
 
 /// The raw record: one fixed-width row per press, one file per local day,
 /// kept for as long as the disk allows.
@@ -179,7 +181,7 @@ public final class KeyStore: @unchecked Sendable {
     }
 
     func header(for day: String, roster: [String]) -> DayFile.Header {
-        let start = Self.dayStart(of: day, calendar: calendar) ?? Date()
+        let start = Self.dayStart(of: day, calendar: calendar) ?? Moment.now.date
         return DayFile.Header(
             magic: Self.magic, version: Self.version, recordSize: UInt16(Self.recordSize),
             tzOffset: Int32(calendar.timeZone.secondsFromGMT(for: start)),
@@ -264,7 +266,7 @@ public final class KeyStore: @unchecked Sendable {
     public func migrateLegacy() -> RecordMigration {
         queue.sync {
             let outcome = writer.migrate(decodedCount: { Self.decode(segment: $0)?.presses.count ?? -1 })
-            writer.closeDays(before: Self.day(of: Date(), calendar: calendar))
+            writer.closeDays(before: Self.day(of: Moment.now.date, calendar: calendar))
             return outcome
         }
     }

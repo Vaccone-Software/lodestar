@@ -1,5 +1,7 @@
 import CoreGraphics
 import Foundation
+import Stoic
+import StoicTime
 
 /// A launched app's window arrives asynchronously; intents wait for it.
 /// The first live intent matching an arriving window claims it; a window
@@ -30,7 +32,7 @@ public struct IntentQueue {
     /// The first live matching intent's action, consumed. Expired intents
     /// are pruned on every claim.
     public mutating func claim(_ window: WindowModel.Window,
-                               now: Date = Date()) -> ((WindowModel.Window) -> Void)? {
+                               now: Date = Moment.now.date) -> ((WindowModel.Window) -> Void)? {
         intents.removeAll { $0.expires < now }
         guard let index = intents.firstIndex(where: { $0.matches(window) }) else { return nil }
         return intents.remove(at: index).action

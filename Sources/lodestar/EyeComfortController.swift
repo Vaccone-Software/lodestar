@@ -1,5 +1,7 @@
 import AppKit
 import LodestarCore
+import Stoic
+import StoicTime
 
 extension Notification.Name {
     /// Eye comfort moved: the level changed, or the switch did. Posted on
@@ -153,7 +155,7 @@ final class EyeComfortController {
         if let cached = placeCache, cached.identifier == zone.identifier { return cached.place }
         let tables = ["/usr/share/zoneinfo/zone1970.tab", "/usr/share/zoneinfo/zone.tab"]
             .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }
-        let now = Date()
+        let now = Moment.now.date
         let standard = TimeInterval(zone.secondsFromGMT(for: now)) - zone.daylightSavingTimeOffset(for: now)
         // A zone that keeps daylight time in January and not in July is in
         // the south; one that keeps neither says nothing, and the north is

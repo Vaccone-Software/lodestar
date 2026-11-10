@@ -1,5 +1,7 @@
 import Foundation
 import StoicStore
+import Stoic
+import StoicTime
 
 /// The raw record of the pointer, beneath the folded reaches: every
 /// report the device made on the way to a target, every press with what
@@ -217,7 +219,7 @@ public final class PointerStore: @unchecked Sendable {
     }
 
     func header(for day: String, roster: [String]) -> DayFile.Header {
-        let start = DayFile.dayStart(of: day, calendar: calendar) ?? Date()
+        let start = DayFile.dayStart(of: day, calendar: calendar) ?? Moment.now.date
         return DayFile.Header(
             magic: Self.magic, version: Self.version, recordSize: UInt16(Self.recordSize),
             tzOffset: Int32(calendar.timeZone.secondsFromGMT(for: start)),
@@ -271,7 +273,7 @@ public final class PointerStore: @unchecked Sendable {
     public func migrateLegacy() -> RecordMigration {
         queue.sync {
             let outcome = writer.migrate(decodedCount: { Self.decode(segment: $0)?.records.count ?? -1 })
-            writer.closeDays(before: DayFile.day(of: Date(), calendar: calendar))
+            writer.closeDays(before: DayFile.day(of: Moment.now.date, calendar: calendar))
             return outcome
         }
     }

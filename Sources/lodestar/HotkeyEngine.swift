@@ -375,7 +375,7 @@ final class HotkeyEngine {
     private var bringSourceTyped: String?
     private var bringSourceSelection = 0
     private var bringTarget: pid_t = 0
-    private var bringOpenedAt = Date.distantPast
+    private var bringOpenedAt: ContinuousClock.Instant?
     /// The lines Bring searches, rebuilt only when the windows or the
     /// source change, not on every keystroke.
     private var bringIndex: (key: String, sources: [Bring.Source], lines: [Bring.Line])?
@@ -1323,11 +1323,11 @@ final class HotkeyEngine {
                 // Whatever the opening gesture left down does not count.
                 carriedIntoKeep = (event?.flags ?? CGEventSource.flagsState(.combinedSessionState))
                     .intersection([.maskShift, .maskCommand, .maskAlternate, .maskControl])
-                let began = Date()
+                let began = ContinuousClock.now
                 renderStrip()
                 recordCaretCover()
                 observations?.latency(surface: "strip",
-                                      seconds: Date().timeIntervalSince(began))
+                                      seconds: began.secondsElapsed)
                 walkSignal?(.clipboardOpened)
             case .exitPaste:
                 // Keep turning to Bring is not Keep ending: the session is
@@ -1408,11 +1408,11 @@ final class HotkeyEngine {
                 bringSourceTyped = nil
                 renderBring()
             case .exitBring:
-                if bringOpenedAt != .distantPast {
-                    Log.info("bring", ["seconds": Int(Date().timeIntervalSince(bringOpenedAt) * 10) / 10,
+                if let bringOpenedAt {
+                    Log.info("bring", ["seconds": Int(bringOpenedAt.secondsElapsed * 10) / 10,
                                        "windows": bringReader.windows.count, "typed": bringQuery.count])
                 }
-                bringOpenedAt = .distantPast
+                bringOpenedAt = nil
                 bringReader.stop()
                 bringIndex = nil
                 bringFound = nil
@@ -2427,7 +2427,7 @@ extension HotkeyEngine: EngineWorld {
         bringQuery = carryingQuery ? (pasteQuery ?? "") : ""
         bringSource = nil
         bringSourceTyped = nil
-        bringOpenedAt = Date()
+        bringOpenedAt = ContinuousClock.now
         if carryingQuery { strip.hide() }
         if bringWindows == nil {
             bringReader.onUpdate = { [weak self] in

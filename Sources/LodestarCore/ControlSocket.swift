@@ -148,9 +148,9 @@ public final class ControlSocket: @unchecked Sendable {
     /// process is accepting connections on it. A live one is given
     /// `waiting` seconds to go away before it is believed.
     static func claim(_ path: String, waiting: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(waiting)
+        let deadline = ContinuousClock.now + .seconds(waiting)
         while isListening(at: path) {
-            guard Date() < deadline else { return false }
+            guard ContinuousClock.now < deadline else { return false }
             Thread.sleep(forTimeInterval: 0.05)
         }
         unlink(path)

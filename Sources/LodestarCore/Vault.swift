@@ -4,6 +4,7 @@ import StoicApple
 import StoicSealed
 import StoicSealedKeychain
 import StoicStore
+import StoicTime
 import Synchronization
 
 /// Where the keys of the sealed records live, and what each state of them
@@ -402,7 +403,7 @@ public final class Vault: Sendable {
         /// `health-unreadable-YYYY-MM-DD/` (never deleted), and the next
         /// write makes a new ring. Returns the folder.
         @discardableResult
-        public func startNewRecord(now: Date = Date()) -> String? {
+        public func startNewRecord(now: Date = Moment.now.date) -> String? {
             opening.withLock { _ -> String? in
                 guard case .keyLost = availability else { return nil }
                 let sealed = RecordFiles.sealed(of: name, in: directory, fileSystem: fileSystem)

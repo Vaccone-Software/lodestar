@@ -2,6 +2,8 @@ import AppKit
 import CoreGraphics
 import CoreMediaIO
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// Is any camera live? The one interruptibility signal worth a system
 /// call: a meeting is the moment the coach must never pick. Public
@@ -11,7 +13,7 @@ enum CameraProbe {
     private static var cached = false
     private static var cachedAt = Date.distantPast
 
-    static func anyCameraRunning(now: Date = Date()) -> Bool {
+    static func anyCameraRunning(now: Date = Moment.now.date) -> Bool {
         if now.timeIntervalSince(cachedAt) < 30 { return cached }
         cachedAt = now
         cached = probe()
@@ -132,7 +134,7 @@ final class CoachController {
     /// When this suggestion first took the slot, remembered across
     /// restarts. Defaults to now, which is the old process-scoped
     /// behaviour — correct for a controller nobody has wired a store to.
-    var standingSinceFor: (String) -> Date = { _ in Date() }
+    var standingSinceFor: (String) -> Date = { _ in Moment.now.date }
     var flash: (String) -> Void = { _ in }
     /// Lodestar speaking briefly, in its voice: a note that goes on its
     /// own. The decline's memory rides here.

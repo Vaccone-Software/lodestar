@@ -1,5 +1,7 @@
 import Foundation
 import StoicStore
+import Stoic
+import StoicTime
 
 /// When the instrument could not see.
 ///
@@ -184,7 +186,7 @@ public enum BlindSummary {
         public let seconds: Double
     }
 
-    public static func rows(events: [ObservationEvent], days: Int, now: Date = Date()) -> [Row] {
+    public static func rows(events: [ObservationEvent], days: Int, now: Date = Moment.now.date) -> [Row] {
         rows(events: events, from: now.addingTimeInterval(-Double(days) * 86_400), to: now)
     }
 

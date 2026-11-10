@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// When the shell waits.
 ///
@@ -17,7 +19,7 @@ struct Clock {
     let after: (TimeInterval, DispatchWorkItem) -> Void
 
     static let live = Clock(
-        now: { Date() },
+        now: { Moment.now.date },
         after: { delay, work in
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
         })

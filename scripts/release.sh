@@ -57,6 +57,15 @@ if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     echo "→ self-test on the signed build"
     "$APP/Contents/MacOS/lodestar" --self-test || { echo "✕ self-test failed — refusing to release"; exit 1; }
 
+    # One real update check on each channel through the client this build
+    # reads its feed with, nothing applied: a build that cannot read the
+    # feed can never be told of its own fix, and the tests script the
+    # network. The probe is the same LodestarCore the app was linked from.
+    echo "→ the update feed, read by this build's client"
+    swift build -c release --arch arm64 --product probe >/dev/null
+    "$(swift build -c release --arch arm64 --show-bin-path)/probe" update-feed \
+        || { echo "✕ the update feed could not be read — refusing to release"; exit 1; }
+
     # What the site reads from a release: the schema the binary emits,
     # written to the site checkout. (Its download button follows stable,
     # which the site works out for itself.)

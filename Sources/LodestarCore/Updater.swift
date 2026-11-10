@@ -42,6 +42,11 @@ public enum Updater {
     /// answer from here can do is hold an update back (a wrong digest
     /// included: the zip would fail it, and the update with it).
     public static let stableURL = URL(string: "https://lodestar.vaccone.software/api/stable")!
+    /// The preview channel's answer: GitHub's list of the ten newest
+    /// releases, prereleases among them.
+    public static let previewURL = URL(string: Lodestar.repository
+        .replacingOccurrences(of: "https://github.com/", with: "https://api.github.com/repos/")
+        + "/releases?per_page=10")!
 
     /// Where every release's files live. The site's zip URL must be exactly
     /// the one GitHub serves for the tag it names.

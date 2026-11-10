@@ -1392,17 +1392,21 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                 if index == highlightRow {
                     highlightRow = nil
                     let control = row.control
-                    let arm = ArmedRow(place: place, page: openPage, row: index, path: row.path)
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self else { return }
-                        switch control {
-                        case .number, .text:
-                            if let field = self.fields[index] { self.panel.makeFirstResponder(field) }
-                        case .toggle, .choice:
-                            self.armedRow = arm
-                        default:
-                            break
+                    switch control {
+                    case .number, .text:
+                        // Focus waits for the field to be in the window,
+                        // which it is once this render has finished.
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, let field = self.fields[index] else { return }
+                            self.panel.makeFirstResponder(field)
                         }
+                    case .toggle, .choice:
+                        // The arm is state, not focus: set now, so the
+                        // return that works it never depends on the main
+                        // queue having had its turn first.
+                        armedRow = ArmedRow(place: place, page: openPage, row: index, path: row.path)
+                    default:
+                        break
                     }
                 }
             }

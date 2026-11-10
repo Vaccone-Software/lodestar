@@ -192,6 +192,9 @@ final class EditorDownload {
     private let downloader: Downloader
     private let spaceMargin: UInt64
     private let waitingGrace: Duration
+    /// How the download's reports reach the main thread, where the state
+    /// changes: the main queue, but for a test that holds them.
+    private let onMain: (@escaping @Sendable () -> Void) -> Void
 
     /// Which fetch is current: bumped by fetch and cancel on the main
     /// thread, read by the download, so a late report from a cancelled
@@ -219,14 +222,19 @@ final class EditorDownload {
     ///   - waitingGrace: How long a request may wait for its answer before
     ///     Settings says it is waiting for a connection: a request is always
     ///     "waiting" for the first moments, and that is not worth saying.
+    ///   - onMain: Runs a block on the main thread. A test holds the blocks,
+    ///     to have a report in flight when the fetch it came from is
+    ///     cancelled or replaced.
     init(root: URL = EditorModels.root,
          transport: (any HTTPTransport)? = nil,
          fileSystem: any FileSystem = PosixFileSystem(newFileMode: 0o644, newDirectoryMode: 0o755),
          manifests: @escaping (ModelID) -> EditorManifest? = ModelID.manifest,
          policy: DownloadPolicy = EditorDownload.retryPolicy,
          spaceMargin: UInt64 = 2_000_000_000,
-         waitingGrace: Duration = .seconds(3)) {
+         waitingGrace: Duration = .seconds(3),
+         onMain: @escaping (@escaping @Sendable () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) }) {
         self.root = root
+        self.onMain = onMain
         self.manifests = manifests
         self.fileSystem = fileSystem
         self.spaceMargin = spaceMargin
@@ -344,7 +352,7 @@ final class EditorDownload {
     // MARK: - The work
 
     private func post(_ state: State, generation: Int) {
-        DispatchQueue.main.async { [weak self] in
+        onMain { [weak self] in
             guard let self, self.generation == generation else { return }
             self.state = state
             if state == .ready, let model = self.model {
@@ -509,7 +517,7 @@ extension EditorDownload {
     /// does not pass for a new one.
     fileprivate func applyWaiting(number: Int, from progress: Progress) {
         let generation = progress.generation
-        DispatchQueue.main.async { [weak self] in
+        onMain { [weak self] in
             guard let self, self.generation == generation, progress.isCurrent(number) else { return }
             self.state = .waiting
         }

@@ -95,7 +95,9 @@ public final class DictationJournal: @unchecked Sendable {
     private func write(_ entry: [String: Any], now: Date) {
         guard let data = try? JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]) else { return }
         let fm = FileManager.default
-        try? fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        Log.attempt("dictation journal: could not make its folder") {
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
         Paths.excludeFromBackup(folder)
         let file = folder.appendingPathComponent(Self.day(now) + ".jsonl")
         let line = data + Data("\n".utf8)
@@ -117,7 +119,9 @@ public final class DictationJournal: @unchecked Sendable {
         guard let names = try? fm.contentsOfDirectory(atPath: folder.path) else { return }
         let oldest = Self.day(now.addingTimeInterval(-Double(max(0, days)) * 86_400))
         for name in names where name.hasSuffix(".jsonl") && String(name.dropLast(6)) < oldest {
-            try? fm.removeItem(at: folder.appendingPathComponent(name))
+            Log.attemptUnlessAbsent("dictation journal: could not remove an old day") {
+                try fm.removeItem(at: folder.appendingPathComponent(name))
+            }
         }
     }
 

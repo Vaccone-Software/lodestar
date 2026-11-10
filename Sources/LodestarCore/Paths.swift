@@ -58,18 +58,24 @@ public enum Paths {
     /// the only copy of it.
     public static func prepare() {
         let fm = FileManager.default
-        try? fm.createDirectory(at: config, withIntermediateDirectories: true)
-        try? fm.createDirectory(
-            at: data, withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        Log.attempt("paths: could not make the config folder") {
+            try fm.createDirectory(at: config, withIntermediateDirectories: true)
+        }
+        Log.attempt("paths: could not make the data folder") {
+            try fm.createDirectory(
+                at: data, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        }
         // `createDirectory` leaves an existing directory's mode alone, so
         // a data directory made before the mode was asked for stayed
         // world-readable for months. Set it every launch, and sweep the
         // files inside: the behavioral record — app switches, hosts, the
         // hands' pulse — is browser-history-grade, and nothing on this
         // machine but you has business reading it.
-        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: data.path)
+        Log.attempt("paths: could not make the data folder owner-only") {
+            try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: data.path)
+        }
         // The directory itself used to carry the backup exclusion, which
         // kept the health record out with everything else. Cleared here
         // and re-applied to the behavioral files one by one, every
@@ -78,7 +84,9 @@ public enum Paths {
         var directory = data
         var values = URLResourceValues()
         values.isExcludedFromBackup = false
-        try? directory.setResourceValues(values)
+        Log.attempt("paths: could not clear the backup exclusion from the data folder") {
+            try directory.setResourceValues(values)
+        }
         if let names = try? fm.contentsOfDirectory(atPath: data.path) {
             for name in names {
                 let item = data.appendingPathComponent(name)
@@ -99,7 +107,9 @@ public enum Paths {
         for sub in [KeyStore.subdirectory, PointerStore.subdirectory] {
             let folder = data.appendingPathComponent(sub, isDirectory: true)
             guard fm.fileExists(atPath: folder.path) else { continue }
-            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            Log.attempt("paths: could not make a health folder owner-only", ["folder": sub]) {
+                try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            }
             for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] {
                 restrict(folder.appendingPathComponent(name))
             }
@@ -126,15 +136,16 @@ public enum Paths {
         var url = url
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
-        try? url.setResourceValues(values)
+        Log.attemptUnlessAbsent("paths: could not exclude a file from backup") { try url.setResourceValues(values) }
     }
 
     /// Owner-only. Atomic writes replace the inode, and the fresh file
     /// takes the process umask — 0644 — so every writer of the record
     /// calls this after the write, and `prepare` sweeps at boot.
     public static func restrict(_ file: URL) {
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
-                                               ofItemAtPath: file.path)
+        Log.attemptUnlessAbsent("paths: could not make a file owner-only") {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        }
     }
 
     /// One-way move of the files that predate the split. Runs at boot,
@@ -160,7 +171,7 @@ public enum Paths {
                 // nothing reads any more — breaths would simply appear gone.
                 // Copy instead, so the data exists at the new home even if
                 // the old one lingers, and say so.
-                try? fm.copyItem(at: old, to: new)
+                Log.attempt("paths: could not copy \(name) either") { try fm.copyItem(at: old, to: new) }
                 Log.error("paths: could not move \(name) (\(error)) — copied instead, old file left in place")
             }
         }

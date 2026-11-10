@@ -134,10 +134,14 @@ enum ClipboardMigration {
         var phases: [(String, Double)] = []
 
         // A staging folder from a run that died is discarded: v1 is intact, so it is redone.
-        try? fileSystem.removeTree(staging.base.path)
+        Log.attemptUnlessAbsent("clipboard migration: could not remove the staging folder a run that died left") {
+            try fileSystem.removeTree(staging.base.path)
+        }
         staging.prepare(fileSystem: fileSystem)
         func abandon(_ words: String) -> Result<MigrationReport, MigrationFailure> {
-            try? fileSystem.removeTree(staging.base.path)
+            Log.attemptUnlessAbsent("clipboard migration: could not remove the staging folder of an abandoned migration") {
+                try fileSystem.removeTree(staging.base.path)
+            }
             return .failure(MigrationFailure(words: words))
         }
 
@@ -172,14 +176,18 @@ enum ClipboardMigration {
             // A `v2` with nothing sealed in it (a fresh start that has had no
             // copy yet) is in the way of the rename, and holds nothing.
             if clipboard.files.base.path != staging.base.path, !clipboard.hasSealedData() {
-                try? fileSystem.removeTree(clipboard.files.base.path)
+                Log.attemptUnlessAbsent("clipboard migration: could not remove the empty v2 folder that is in the way of the rename") {
+                    try fileSystem.removeTree(clipboard.files.base.path)
+                }
             }
             phases.append(("folded and synced", Date().timeIntervalSince(started)))
             try fileSystem.rename(from: staging.base.path, to: clipboard.files.base.path)
             try fileSystem.syncDirectory(root.path)
             phases.append(("published", Date().timeIntervalSince(started)))
         } catch {
-            try? journal.close()
+            Log.attempt("clipboard migration: could not close the staging journal of an abandoned migration") {
+                try journal.close()
+            }
             return abandon("\(error)")
         }
 
@@ -399,7 +407,9 @@ enum ClipboardMigration {
             if (try? fileSystem.removeTree(root.appendingPathComponent(name).path)) != nil { removed += 1 }
         }
         if (try? fileSystem.remove(ClipboardV1.indexFile(root).path)) != nil { removed += 1 }
-        try? fileSystem.syncDirectory(root.path)
+        Log.attempt("clipboard migration: could not sync the clipboard folder after removing the old files") {
+            try fileSystem.syncDirectory(root.path)
+        }
         report.removedFiles = removed
         report.left = ClipboardV1.plaintextFiles(root)
     }

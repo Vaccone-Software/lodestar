@@ -138,7 +138,7 @@ extension ConfigWatcher {
         DispatchQueue.global(qos: .userInitiated).async {
             // Never throws for a hand-edited file: one that cannot be used is
             // the store's `fileProblem`, which `apply` reports.
-            try? store?.reload()
+            if let store { Log.attempt("config-watch: could not read the file after a change") { try store.reload() } }
             queue.async { handler.value() }
         }
     }

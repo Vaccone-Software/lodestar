@@ -25,7 +25,9 @@ public enum TestRun {
     public static let home: URL = {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-test-home-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        Log.attempt("test run: could not make the scratch home") {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
         return url
     }()
 }

@@ -314,12 +314,16 @@ final class DayWriter {
     private func remember(_ day: String, _ opened: OpenDay) { open[day] = opened }
 
     func closeAll() {
-        for (_, day) in open { try? day.journal.close() }
+        for (_, day) in open {
+            Log.attempt("day store: could not close a day's journal") { try day.journal.close() }
+        }
         open = [:]
     }
 
     private func forget(_ day: String) {
-        if let known = open.removeValue(forKey: day) { try? known.journal.close() }
+        if let known = open.removeValue(forKey: day) {
+            Log.attempt("day store: could not close a day's journal") { try known.journal.close() }
+        }
     }
 
     // MARK: Appending
@@ -413,7 +417,7 @@ final class DayWriter {
 
     private func logSize(of path: String) -> Int? {
         guard (try? fileSystem.exists(path)) == true, let file = try? fileSystem.open(path, mode: .read) else { return nil }
-        defer { _ = try? fileSystem.close(file) }
+        defer { Log.attempt("day store: could not close a log file after measuring it") { try fileSystem.close(file) } }
         return try? fileSystem.size(of: file)
     }
 

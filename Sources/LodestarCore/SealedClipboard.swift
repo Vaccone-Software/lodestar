@@ -211,7 +211,7 @@ public final class SealedClipboard: @unchecked Sendable {
                 let folded = ClipboardIndexState.fold(replay)
                 let nothingOpens = !replay.failures.isEmpty && replay.snapshot == nil && replay.records.isEmpty
                 if attempt == 0, nothingOpens, replay.failures.allSatisfy({ if case .unknownKey = $0.error { true } else { false } }) {
-                    try? opened.close()
+                    Log.attempt("clipboard: could not close the history that did not open") { try opened.close() }
                     guard let folder = moveAside(reason: "none of the sealed history opens with the clipboard key") else {
                         return .failure(Unavailable(words: "the unreadable history could not be moved aside", retryable: false))
                     }
@@ -336,7 +336,7 @@ public final class SealedClipboard: @unchecked Sendable {
 
     /// Close the journal (the file and, if any, its lock).
     public func close() {
-        try? journal?.close()
+        Log.attempt("clipboard: could not close the journal") { try journal?.close() }
         journal = nil
     }
 
@@ -364,9 +364,13 @@ public final class SealedClipboard: @unchecked Sendable {
         for name in RecordFiles.names(in: root.path, fileSystem: fileSystem)
         where name == "v2" || name == "v2.migrating" || name == "items" || name == "thumbs" || name == "index.json"
             || name.hasPrefix("index.json.") || name.hasPrefix("clipboard-unreadable-") {
-            try? fileSystem.removeTree(root.appendingPathComponent(name).path)
+            Log.attemptUnlessAbsent("clipboard: could not remove a clipboard file", ["name": name]) {
+                try fileSystem.removeTree(root.appendingPathComponent(name).path)
+            }
         }
-        try? fileSystem.syncDirectory(root.path)
+        Log.attempt("clipboard: could not sync the folder after removing its files") {
+            try fileSystem.syncDirectory(root.path)
+        }
     }
 
     // MARK: - What is there, for the report

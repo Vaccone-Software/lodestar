@@ -169,7 +169,7 @@ public final class StateStore {
     }
 
     public private(set) var state = PersistedState()
-    private var pendingSave: DispatchWorkItem?
+    private var pendingSave: Task<Void, Never>?
     private var reportedSaveFailure = false
 
     /// Where the store is with the disk.
@@ -353,13 +353,12 @@ public final class StateStore {
     /// hard kill loses half a second of frecency, which is noise.
     private func saveSoon() {
         guard pendingSave == nil else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+        let store = MainQueueOnly(value: WeakRef(self))
+        pendingSave = onMain(after: .milliseconds(500)) {
+            guard let self = store.value.object else { return }
             self.pendingSave = nil
             self.save()
         }
-        pendingSave = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     // MARK: - Breaths

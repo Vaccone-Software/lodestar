@@ -1,6 +1,7 @@
 import ApplicationServices
 import Foundation
 import LodestarCore
+import Synchronization
 
 /// The names of the code being talked about, for the draft to write as the
 /// code does: "draft controller dot swift" → `DraftController.swift`.
@@ -41,24 +42,19 @@ enum RepoNames {
         return nil
     }
 
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var cache: [String: (at: Date, index: CodeNames.Index)] = [:]
+    private static let cache = Mutex<[String: (at: Date, index: CodeNames.Index)]>([:])
     private static let freshFor: TimeInterval = 600
 
     /// The repository's names, read off the main thread when they are not
     /// already fresh; `done` runs on the main thread.
     static func index(for root: URL, done: @escaping (CodeNames.Index?) -> Void) {
-        lock.lock()
-        let cached = cache[root.path]
-        lock.unlock()
+        let cached = cache.withLock { $0[root.path] }
         if let cached, Date().timeIntervalSince(cached.at) < freshFor { done(cached.index); return }
         DispatchQueue.global(qos: .utility).async {
             let began = Date()
             let names = CodeNames.gather(root)
             let index = CodeNames.Index(names: names, pronouncer: DictationLexicon.pronouncer)
-            lock.lock()
-            cache[root.path] = (Date(), index)
-            lock.unlock()
+            cache.withLock { $0[root.path] = (Date(), index) }
             Log.info("draft", ["code names": index.count, "repository": root.lastPathComponent,
                                "ms": Int(Date().timeIntervalSince(began) * 1000)])
             DispatchQueue.main.async { done(index) }

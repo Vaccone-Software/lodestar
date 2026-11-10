@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import Synchronization
 
 /// The field the hand is typing in, read through accessibility.
 struct EditorField {
@@ -152,6 +153,7 @@ enum EditorAX {
         return placeMemory.answer(for: element) { walkUpToWebArea(element) }
     }
 
+    // stoic:allow(nonisolated-unsafe): read and written only by `isInsideWebArea`, whose first line is `dispatchPrecondition(condition: .onQueue(queue))`, so every access is on the editor's one serial AX queue
     nonisolated(unsafe) static var placeMemory = PlaceMemory()
 
     /// The walk itself, bounded: nil when it did not finish (a timeout, a
@@ -354,8 +356,7 @@ enum EditorAX {
         chromium || electron || bundleID?.lowercased() == "com.microsoft.outlook"
     }
 
-    nonisolated(unsafe) private static var typed: [String: Bool] = [:]
-    private static let typedLock = NSLock()
+    private static let typed = Mutex<[String: Bool]>([:])
 
     /// The same question of a running app, read once per bundle: Chromium
     /// browsers carry renderer helpers and Electron apps carry their
@@ -364,11 +365,11 @@ enum EditorAX {
         guard let bundle = NSRunningApplication(processIdentifier: pid)?.bundleURL else {
             return fixesByTyping(bundleID: bundleID, chromium: false, electron: false)
         }
-        if let known = typedLock.withLock({ typed[bundle.path] }) { return known }
+        if let known = typed.withLock({ $0[bundle.path] }) { return known }
         let electron = FileManager.default.fileExists(
             atPath: bundle.appendingPathComponent("Contents/Frameworks/Electron Framework.framework").path)
         let answer = fixesByTyping(bundleID: bundleID, chromium: AXWarmer.isChromiumBrowser(bundle), electron: electron)
-        typedLock.withLock { typed[bundle.path] = answer }
+        typed.withLock { $0[bundle.path] = answer }
         return answer
     }
 

@@ -5,6 +5,7 @@ import LodestarCore
 import PDFKit
 import QuickLookThumbnailing
 import Stoic
+import Synchronization
 import UniformTypeIdentifiers
 
 /// What a copied file is and what it looks like, read once at the copy and
@@ -52,7 +53,18 @@ enum FileSense {
 
     /// How long one read of one file may take before the card goes on
     /// without it. A seam for the tests.
-    nonisolated(unsafe) static var deadline: TimeInterval = 2
+    static var deadline: TimeInterval {
+        get { seams.withLock { $0.deadline } }
+        set { seams.withLock { $0.deadline = newValue } }
+    }
+    /// The seams that are plain values, behind one lock: a read on a pool
+    /// thread meets a test's write at once, never half of it.
+    private struct Seams {
+        var deadline: TimeInterval = 2
+        var backstop: TimeInterval = 1
+        var clock: AnyClock?
+    }
+    private static let seams = Mutex(Seams())
 
     /// A picture is 240 points at twice the pixels, as an image's thumbnail is.
     static let side = 480
@@ -60,14 +72,19 @@ enum FileSense {
     /// The clock the deadlines are on; nil is Stoic's ambient one. A seam for
     /// the tests, which give a read the deadline they say it has and no other
     /// by moving a clock of their own, so a slow machine cannot make one overrun.
-    nonisolated(unsafe) static var clock: AnyClock?
+    static var clock: AnyClock? {
+        get { seams.withLock { $0.clock } }
+        set { seams.withLock { $0.clock = newValue } }
+    }
 
     /// The system's thumbnail of a file, or nil. A seam for the tests, which
     /// stand in for QuickLook so a slow volume can be made to happen.
+    // stoic:allow(nonisolated-unsafe): a test seam that only tests assign, on the main thread before the read that uses it begins (LeakGuard puts it back after); production never writes it, so every read sees the initial value or the one a test set before it
     nonisolated(unsafe) static var thumbnailer: (URL) async -> CGImage? = quickLook
 
     /// Whether a file's content is somewhere else. A seam for the tests, which
     /// cannot make a file iCloud has evicted.
+    // stoic:allow(nonisolated-unsafe): a test seam that only tests assign, on the main thread before the read that uses it begins (LeakGuard puts it back after); production never writes it, so every read sees the initial value or the one a test set before it
     nonisolated(unsafe) static var dataless: (URL, URLUbiquitousItemDownloadingStatus?) -> Bool = isDataless
 
     struct Picture {
@@ -243,31 +260,34 @@ enum FileSense {
 
     /// The one answer of a callback-style call: the first of the callback and
     /// the cancellation resumes the continuation, the other does nothing.
-    private final class Pending<T: Sendable>: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<T?, Never>?
-        private var answered = false
-        private var early: T?
+    private final class Pending<T: Sendable>: Sendable {
+        private struct State {
+            var continuation: CheckedContinuation<T?, Never>?
+            var answered = false
+            var early: T?
+        }
+        private let state = Mutex(State())
 
         /// Holds the continuation until there is an answer; false (and it is
         /// resumed here) when the answer, a cancellation's, is already in.
         func wait(_ continuation: CheckedContinuation<T?, Never>) -> Bool {
-            let resumed: Bool = lock.withLock {
-                if answered { return true }
-                self.continuation = continuation
-                return false
+            let early: T?? = state.withLock { state in
+                if state.answered { return .some(state.early) }
+                state.continuation = continuation
+                return nil
             }
-            if resumed { continuation.resume(returning: early) }
-            return !resumed
+            guard let early else { return true }
+            continuation.resume(returning: early)
+            return false
         }
 
         func answer(_ value: T?) {
-            let waiting: CheckedContinuation<T?, Never>? = lock.withLock {
-                guard !answered else { return nil }
-                answered = true
-                early = value
-                defer { continuation = nil }
-                return continuation
+            let waiting: CheckedContinuation<T?, Never>? = state.withLock { state in
+                guard !state.answered else { return nil }
+                state.answered = true
+                state.early = value
+                defer { state.continuation = nil }
+                return state.continuation
             }
             waiting?.resume(returning: value)
         }
@@ -357,26 +377,29 @@ enum FileSense {
 
     /// How long past a read's deadline its caller waits for the task that
     /// asked for it, when that task has not answered. A seam for the tests.
-    nonisolated(unsafe) static var backstop: TimeInterval = 1
+    static var backstop: TimeInterval {
+        get { seams.withLock { $0.backstop } }
+        set { seams.withLock { $0.backstop = newValue } }
+    }
 
     /// How the task that asks for a read is started. A seam for the tests,
     /// which stand in for a pool that never starts it.
+    // stoic:allow(nonisolated-unsafe): a test seam that only tests assign, on the main thread before the read that uses it begins (LeakGuard puts it back after); production never writes it, so every read sees the initial value or the one a test set before it
     nonisolated(unsafe) static var start: (@escaping @Sendable () async -> Void) -> Void = { work in
         Task { await work() }
     }
 
     /// An answer handed from the task to the thread waiting for it.
-    private final class Handoff<T: Sendable>: @unchecked Sendable {
-        private let lock = NSLock()
+    private final class Handoff<T: Sendable>: Sendable {
+        private let stored = Mutex<T?>(nil)
         private let done = DispatchSemaphore(value: 0)
-        private var stored: T?
-        func finish(_ value: T?) { lock.withLock { stored = value }; done.signal() }
-        func wait() -> T? { done.wait(); return lock.withLock { stored } }
+        func finish(_ value: T?) { stored.withLock { $0 = value }; done.signal() }
+        func wait() -> T? { done.wait(); return stored.withLock { $0 } }
         /// The answer if it came within `seconds`; a wait that ran out is
         /// told from an answer of nothing by the outer nil.
         func wait(for seconds: TimeInterval) -> T?? {
             guard done.wait(timeout: .now() + seconds) == .success else { return nil }
-            return .some(lock.withLock { stored })
+            return .some(stored.withLock { $0 })
         }
     }
 }

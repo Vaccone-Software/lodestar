@@ -3,6 +3,7 @@ import CoreGraphics
 import Foundation
 import LodestarCore
 import StoicSealed
+import Synchronization
 
 /// `lodestar --self-test`: the built binary proves, on real threads, that
 /// the part which once froze cannot. A release script runs it on the
@@ -135,11 +136,10 @@ enum SelfTest {
         return false
     }
 
-    private final class Box<Value>: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stored: Value?
-        func set(_ value: Value) { lock.withLock { stored = value } }
-        var value: Value? { lock.withLock { stored } }
+    private final class Box<Value: Sendable>: Sendable {
+        private let stored = Mutex<Value?>(nil)
+        func set(_ value: Value) { stored.withLock { $0 = value } }
+        var value: Value? { stored.withLock { $0 } }
     }
 
     /// The clipboard reader the bundle carries, launched by launchd by its

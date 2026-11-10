@@ -1,5 +1,6 @@
 import Foundation
 import LodestarCore
+import Synchronization
 
 /// What dictation knows about how words sound and which are everyday
 /// ones: the pronunciation dictionary and the frequency list the app
@@ -8,7 +9,11 @@ import LodestarCore
 enum DictationLexicon {
     /// A pronouncer given instead of the bundled one: the stage's, read
     /// from the repository.
-    nonisolated(unsafe) static var given: Pronouncer?
+    static var given: Pronouncer? {
+        get { givenPronouncer.withLock { $0 } }
+        set { givenPronouncer.withLock { $0 = newValue } }
+    }
+    private static let givenPronouncer = Mutex<Pronouncer?>(nil)
     static var pronouncer: Pronouncer { given ?? bundled }
 
     private static let bundled: Pronouncer = {

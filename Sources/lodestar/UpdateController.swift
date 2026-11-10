@@ -2,6 +2,7 @@ import AppKit
 import LodestarCore
 import Stoic
 import StoicStore
+import Synchronization
 
 /// Silent self-update for the installed app. The cycle: check the releases
 /// feed daily, download and unpack the zip in the background, verify it,
@@ -418,6 +419,7 @@ final class UpdateController {
 
     /// Lights the mark as far as the download has come, from the downloading
     /// task to the main thread, once for each face that changes.
+    // stoic:allow(unchecked-sendable): `controller` is weak, set once in `init`, and used only inside `DispatchQueue.main.async`; `shown` is read and written only under `lock`
     private final class MarkLight: @unchecked Sendable {
         private weak var controller: UpdateController?
         private let lock = NSLock()
@@ -590,6 +592,7 @@ final class UpdateController {
         Self.run(launchPath, arguments, within: deadline, ambient: ambient)
     }
 
+    // stoic:allow(unchecked-sendable): an immutable box around one Process: `run()` and `waitUntilExit()` happen on the one task that started it, and the only call made from another thread is `stop()` (`isRunning`, `terminate()`, then a kill by pid), made only once the deadline has given up on that wait, which is how a Process is ended from outside a thread blocked in `waitUntilExit`
     private final class HeldProcess: @unchecked Sendable {
         let process: Process
         init(_ process: Process) { self.process = process }
@@ -604,11 +607,10 @@ final class UpdateController {
         }
     }
 
-    private final class OutcomeBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stored = RunOutcome.failed
-        var value: RunOutcome { lock.withLock { stored } }
-        func set(_ outcome: RunOutcome) { lock.withLock { stored = outcome } }
+    private final class OutcomeBox: Sendable {
+        private let stored = Mutex(RunOutcome.failed)
+        var value: RunOutcome { stored.withLock { $0 } }
+        func set(_ outcome: RunOutcome) { stored.withLock { $0 = outcome } }
     }
 
     // MARK: - The swap

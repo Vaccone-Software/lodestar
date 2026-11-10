@@ -45,9 +45,21 @@ final class ClipboardStore {
     }
 
     /// How long after the last delete the log is folded and the key rotated.
-    nonisolated(unsafe) static var deletionDelay: TimeInterval = 2
+    static var deletionDelay: TimeInterval {
+        get { delays.withLock { $0.deletion } }
+        set { delays.withLock { $0.deletion = newValue } }
+    }
     /// How long after the last write the log is folded once it has grown (at idle).
-    nonisolated(unsafe) static var foldDelay: TimeInterval = 5
+    static var foldDelay: TimeInterval {
+        get { delays.withLock { $0.fold } }
+        set { delays.withLock { $0.fold = newValue } }
+    }
+    private struct Delays {
+        var deletion: TimeInterval = 2
+        var fold: TimeInterval = 5
+        var prune: TimeInterval = 300
+    }
+    private static let delays = Mutex(Delays())
     /// The most a queue of copies, waiting for the index to open, may hold.
     static let queuedByteLimit = 512_000_000
 
@@ -310,7 +322,7 @@ final class ClipboardStore {
                 // A delete that a crash cut short: its key is still in a record that opens.
                 deletionOwed = true
                 scheduleCompaction(after: Self.deletionDelay)
-            } else if disk.needsCompaction {
+            } else if owed.fold {
                 scheduleCompaction(after: Self.foldDelay)
             }
             onThumbnail?()
@@ -800,7 +812,10 @@ final class ClipboardStore {
     /// file a test has just deleted must stay to be pasted.
     var prunesGoneFiles = true
     /// How often the cards of files are looked over when nothing else asks.
-    nonisolated(unsafe) static var prunePeriod: TimeInterval = 300
+    static var prunePeriod: TimeInterval {
+        get { delays.withLock { $0.prune } }
+        set { delays.withLock { $0.prune = newValue } }
+    }
     private var pruneScheduled = false
     private var pruning = false
     private var pruneDue: Date?

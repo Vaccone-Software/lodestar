@@ -241,15 +241,14 @@ final class ModelsClient: Sendable {
 /// A language model loaded in the models service, asked through it: the
 /// editor's and the draft's backend for Standard and Full. Letting the last
 /// reference go lets the model go in the service.
-final class ServiceLanguageModel: EditorBackend, @unchecked Sendable {
+final class ServiceLanguageModel: EditorBackend, Sendable {
     let client: ModelsClient
     let handle: String
     /// The run of the service that holds it, nil if that run was lost
     /// before its load's answer was read.
     let run: Int?
     let label: String
-    private let lock = NSLock()
-    private var refused = false
+    private let refused = Mutex(false)
 
     init(client: ModelsClient, handle: String, run: Int?, label: String) {
         self.client = client
@@ -259,7 +258,7 @@ final class ServiceLanguageModel: EditorBackend, @unchecked Sendable {
     }
 
     /// The service it was loaded in has ended, or said it no longer holds it.
-    var isLost: Bool { lock.withLock { refused } || run == nil || client.run != run }
+    var isLost: Bool { refused.withLock { $0 } || run == nil || client.run != run }
 
     func respond(to sentence: String, instructions: String) async throws -> String {
         try await asked { try await self.client.respond(self.handle, to: sentence, instructions: instructions) }
@@ -277,7 +276,7 @@ final class ServiceLanguageModel: EditorBackend, @unchecked Sendable {
         do {
             return try await work()
         } catch ModelsFailure.notLoaded {
-            lock.withLock { refused = true }
+            refused.withLock { $0 = true }
             throw ModelsFailure.notLoaded
         }
     }
@@ -294,7 +293,7 @@ final class ServiceLanguageModel: EditorBackend, @unchecked Sendable {
 /// `ifStuck`): the only way a stuck evaluation stops. After the service
 /// ended, the ear is no longer loaded, and the next phrase loads it again
 /// first.
-final class ServiceEar: SettlingEar, @unchecked Sendable {
+final class ServiceEar: SettlingEar, Sendable {
     let name: String
     let folder: URL
     private let client: ModelsClient
@@ -302,10 +301,12 @@ final class ServiceEar: SettlingEar, @unchecked Sendable {
     /// The slowest phrase logged took nine seconds, a cold load a few.
     let loadDeadline: TimeInterval
     let phraseDeadline: TimeInterval
-    private let lock = NSLock()
     /// Loaded and not unloaded since: a phrase may load it again.
-    private var wanted = false
-    private var loadedRun: Int?
+    private struct Loading {
+        var wanted = false
+        var loadedRun: Int?
+    }
+    private let loading = Mutex(Loading())
 
     init(name: String, folder: URL, client: ModelsClient = .shared, gate: MLXGate = .shared,
          loadDeadline: TimeInterval = 120, phraseDeadline: TimeInterval = 30) {
@@ -318,20 +319,20 @@ final class ServiceEar: SettlingEar, @unchecked Sendable {
     }
 
     var isLoaded: Bool {
-        let loaded = lock.withLock { loadedRun }
+        let loaded = loading.withLock { $0.loadedRun }
         return loaded != nil && loaded == client.run
     }
 
     func load() async throws {
-        lock.withLock { wanted = true }
+        loading.withLock { $0.wanted = true }
         let spec = EarSpec(name: name, directory: folder.path)
         let run = try await laned(loadDeadline, "the ear did not load") { try await self.client.loadEar(spec) }
-        lock.withLock { if wanted { loadedRun = run } }
+        loading.withLock { if $0.wanted { $0.loadedRun = run } }
     }
 
     func transcribe(_ samples: [Float], context: [String]) async throws -> Heard {
         if !isLoaded {
-            guard lock.withLock({ wanted }) else { throw ModelsFailure.notLoaded }
+            guard loading.withLock({ $0.wanted }) else { throw ModelsFailure.notLoaded }
             Log.info("draft", ["ear": name, "loading again": "the models service started afresh"])
             try await load()
         }
@@ -340,15 +341,15 @@ final class ServiceEar: SettlingEar, @unchecked Sendable {
                 try await self.client.transcribe(samples, context: context)
             }
         } catch ModelsFailure.notLoaded {
-            lock.withLock { loadedRun = nil }
+            loading.withLock { $0.loadedRun = nil }
             throw ModelsFailure.notLoaded
         }
     }
 
     func unload() {
-        lock.withLock {
-            wanted = false
-            loadedRun = nil
+        loading.withLock {
+            $0.wanted = false
+            $0.loadedRun = nil
         }
         client.unloadEar()
     }

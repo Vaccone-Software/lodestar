@@ -326,6 +326,25 @@ final class EditorDownloadTests: XCTestCase {
         }
     }
 
+    /// A request that fails inside the grace before "waiting for a
+    /// connection" is said as failed, and stays so: the grace that request
+    /// started ends with the fetch, and never says "waiting" over the
+    /// failure. Settings said "waiting for a connection that is not metered"
+    /// three seconds after a quick 404, and kept saying it.
+    func testAFailureInsideTheGraceIsNotSaidOverByIt() async throws {
+        try await run { clock, _ in
+            let transport = transport(weights: [.status(404)])
+            let download = download(transport, grace: .seconds(3))
+            download.fetch(.standard)
+            await settle(download, clock, .never) { self.isFailed($0) }
+            XCTAssertEqual(download.state, .failed("could not be downloaded (404)"))
+            await clock.advance(by: .seconds(10))
+            for _ in 0..<20 { await Task.yield() }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertEqual(download.state, .failed("could not be downloaded (404)"), "the grace said waiting over it")
+        }
+    }
+
     /// A 4xx is the server saying the request is wrong; asking again every
     /// five minutes for ever fixes nothing. It is said, once, as a failure
     /// the person can ask to retry from Settings.

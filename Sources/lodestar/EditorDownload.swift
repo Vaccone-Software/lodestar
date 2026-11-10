@@ -395,11 +395,14 @@ final class EditorDownload {
             }, operation: {
                 try await downloader.download(bundle) { phase.set($0.phase); progress.report($0) }
             })
+            progress.end()
             Log.info("editor", ["downloaded": manifest.folder, "bytes": manifest.total, "durable": result.isDurable])
             post(.ready, generation: generation)
         } catch is CancellationError {
             // Stopped by a newer fetch or a cancel, which say what is next.
+            progress.end()
         } catch {
+            progress.end()
             let placing = phase.value == .placing
             Log.error("editor: download of \(manifest.folder) failed: \(error)")
             post(.failed(Self.words(for: error, placing: placing)), generation: generation)
@@ -443,7 +446,7 @@ private final class Phase: Sendable {
 
 /// What the downloader's reports and events become in the editor's state,
 /// on the downloading task, handed to the main thread by `post`.
-// stoic:allow(unchecked-sendable): `model` (weak) and `manifest` are set once in `init` and only read; off the main thread the only things done through `model` are `post`, which hands the state to `onMain`, and a read of `waitingGrace`, a `let`; `retrying` and `sequence` are touched only under `lock`
+// stoic:allow(unchecked-sendable): `model` (weak) and `manifest` are set once in `init` and only read; off the main thread the only things done through `model` are `post`, which hands the state to `onMain`, and a read of `waitingGrace`, a `let`; `retrying`, `sequence` and `ended` are touched only under `lock`
 private final class Progress: @unchecked Sendable {
     private weak var model: EditorDownload?
     private let manifest: EditorManifest
@@ -454,6 +457,8 @@ private final class Progress: @unchecked Sendable {
     private var retrying: String?
     /// Counts reports, so a wait that has been answered since is not said.
     private var sequence = 0
+    /// Set when the fetch ends, so no wait is said after it.
+    private var ended = false
 
     init(model: EditorDownload, manifest: EditorManifest, generation: Int) {
         self.model = model
@@ -505,7 +510,12 @@ private final class Progress: @unchecked Sendable {
         }
     }
 
-    func isCurrent(_ number: Int) -> Bool { lock.withLock { sequence == number && retrying == nil } }
+    func isCurrent(_ number: Int) -> Bool { lock.withLock { !ended && sequence == number && retrying == nil } }
+
+    /// The fetch is over, however it ended: a grace still running says
+    /// nothing, since what the fetch said last (ready, failed) is the answer
+    /// and "waiting" no longer is. Called before that answer is posted.
+    func end() { lock.withLock { ended = true } }
 }
 
 extension EditorDownload {

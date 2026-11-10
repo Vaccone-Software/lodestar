@@ -16,7 +16,9 @@ import LodestarCore
 /// stands only for the time it was on the screen, and a mark ends only
 /// when its field comes back with its text gone, or when the shelf lets it
 /// go: after `keep`, when the shelf is over `capacity`, or when the editor
-/// is switched off. It then ends with the time it really stood.
+/// is switched off, and then it ended away. It ends with the time it
+/// really stood, and as replaced when the field came back with its text
+/// written over.
 ///
 /// What is kept is the field's text, which the controller already holds
 /// for the live field, in memory and for at most ten minutes. Nothing from
@@ -97,7 +99,7 @@ struct EditorMarkShelf {
         if let best { result.parked = parked.remove(at: best) }
         for index in parked.indices.reversed()
         where parked[index].field.isSame(as: read) && !Self.matches(parked[index].field, read) {
-            result.ended.append(finish(parked.remove(at: index), at: now))
+            result.ended.append(finish(parked.remove(at: index), at: now, how: .replaced))
         }
         return result
     }
@@ -117,9 +119,9 @@ struct EditorMarkShelf {
         return parked.map { finish($0, at: now) }
     }
 
-    private func finish(_ held: Parked, at now: Date) -> Ended {
+    private func finish(_ held: Parked, at now: Date, how: EditorMarkLedger.Outcome = .away) -> Ended {
         var ledger = held.ledger
         return Ended(app: held.field.appName,
-                     endings: ledger.clear(text: held.field.text, all: held.issues, at: now, until: held.hiddenAt))
+                     endings: ledger.clear(text: held.field.text, all: held.issues, at: now, until: held.hiddenAt, how: how))
     }
 }

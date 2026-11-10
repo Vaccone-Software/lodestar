@@ -437,7 +437,7 @@ final class EditorController: EditorLens {
                 } else {
                     // Sent, cleared or replaced whole: the marks were left
                     // standing, not edited into something.
-                    record(ledger.clear(text: fieldTextSeen, all: issues, at: now), app: read.appName)
+                    record(ledger.clear(text: fieldTextSeen, all: issues, at: now, how: .replaced), app: read.appName)
                     ledger = EditorMarkLedger()
                 }
             }
@@ -706,8 +706,10 @@ final class EditorController: EditorLens {
                 observations?.edited(action: "changed", kind: kind, app: app, stood: ending.stood, at: now)
             case .withdrawn:
                 observations?.edited(action: "withdrawn", kind: kind, app: app, stood: ending.stood, at: now)
-            case .left:
-                observations?.edited(action: "left", kind: kind, app: app, stood: ending.stood, at: now)
+            case .replaced:
+                observations?.edited(action: "replaced", kind: kind, app: app, stood: ending.stood, at: now)
+            case .away:
+                observations?.edited(action: "away", kind: kind, app: app, stood: ending.stood, at: now)
             }
         }
     }

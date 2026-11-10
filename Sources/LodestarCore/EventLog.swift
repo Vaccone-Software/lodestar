@@ -149,8 +149,12 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
         /// `seconds` how long it stood: `applied` (a fix, `row` the road),
         /// `dismissed` (kept or learned, `rec` name | sentence, `source` the
         /// mark's kind), `byhand` (the hand fixed it), `changed` (the hand
-        /// edited its words into something else), `left` (the field was
-        /// left with it standing); `withdrawn` (the editor dropped it
+        /// edited its words into something else), `replaced` (the field's
+        /// text was written over in place with it standing: a send, or a
+        /// cleared field), `away` (the hand went elsewhere with it standing,
+        /// and it was not returned to); `left` is the same two, not told
+        /// apart, as older builds wrote it and `EditorRecord` still reads it;
+        /// `withdrawn` (the editor dropped it
         /// itself, and never counted as stood); `undone` (a fix taken
         /// back, `rec` its kind). Records from before `stood` have `shown`,
         /// written the instant a mark was placed, beside `applied`,

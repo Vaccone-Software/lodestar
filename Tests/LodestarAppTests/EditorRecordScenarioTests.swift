@@ -53,7 +53,7 @@ final class EditorRecordScenarioTests: XCTestCase {
 
         leave(rig)
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"], "one mark, counted once")
+        XCTAssertEqual(actions(rig), ["stood", "away"], "one mark, counted once")
     }
 
     func testANewElementWithTheSameTextIsTheSameField() {
@@ -70,7 +70,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertTrue(rig.events.isEmpty)
         leave(rig)
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "away"])
     }
 
     func testAnotherFieldIsAnotherFieldAndEndsTheOldMarks() {
@@ -78,7 +78,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.clock.advance(by: 0.3)
         rig.type("Something else entirely, typed in the same app.")
         rig.drain()
-        XCTAssertEqual(actions(rig), ["stood", "left"], "the text is not the text it was")
+        XCTAssertEqual(actions(rig), ["stood", "replaced"], "the text is not the text it was")
     }
 
     /// A message sent empties the same element: the marks were left
@@ -87,7 +87,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         let rig = standing()
         rig.type("")
         rig.drain()
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "replaced"])
     }
 
     func testAFieldThatStaysGoneIsClearedAfterTheGrace() {
@@ -101,7 +101,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertNil(rig.controller.field)
         XCTAssertTrue(rig.events.isEmpty, "waiting on the shelf for the hand's return")
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "away"])
     }
 
     // MARK: - A mark stands only while it is drawn
@@ -134,7 +134,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertNil(rig.controller.field)
         rig.drain()
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "away"])
         XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 1.5, accuracy: 0.11, "not 3.5, the wait was not drawn")
     }
 
@@ -155,7 +155,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.drain()
         leave(rig)
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "away"])
         XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 2.1, accuracy: 0.11, "1.5 s, then 0.6 s more before they came down")
     }
 
@@ -182,7 +182,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.drain()
         leave(rig)
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"], "one mark, not two")
+        XCTAssertEqual(actions(rig), ["stood", "away"], "one mark, not two")
         XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 3.0, accuracy: 0.11,
                        "1.5 s, then 1.5 s: not the two minutes away, not the ten more on the shelf")
     }
@@ -199,7 +199,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.clock.advance(by: 2)
         rig.beat()
         rig.drain()
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "away"])
         XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 1.5, accuracy: 0.11, "not ten minutes")
         XCTAssertEqual(rig.controller.parkedFields, 0)
     }
@@ -213,10 +213,10 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.beat()
         rig.drain()
         XCTAssertEqual(rig.controller.parkedFields, 1, "TextEdit's draft is still waiting")
-        rig.type("All is well here.")
+        rig.type("All is well here.", pid: 6000, app: "Mail", bundle: "com.apple.mail")
         rig.drain()
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left", "stood", "left"], "two drafts, two marks: \(rig.events.compactMap(\.app))")
+        XCTAssertEqual(actions(rig), ["stood", "away", "stood", "away"], "two drafts, two marks: \(rig.events.compactMap(\.app))")
         XCTAssertEqual(Set(rig.events.compactMap(\.app)), ["textedit", "notes"])
     }
 
@@ -246,7 +246,34 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.type("All is well here.", pid: 5151, app: "Notes", bundle: "com.apple.Notes")
         rig.drain()
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"], "one mark")
+        XCTAssertEqual(actions(rig), ["stood", "away"], "one mark")
+    }
+
+    /// The hand went off with a draft, and it was sent from there: back in the
+    /// same field with the text written over, the marks were not walked away
+    /// from but replaced.
+    func testADraftThatComesBackWrittenOverEndsAsReplaced() {
+        let rig = standing()
+        leave(rig)
+        rig.clock.advance(by: 60)
+        rig.type("")
+        rig.drain()
+        XCTAssertEqual(actions(rig), ["stood", "replaced"])
+        XCTAssertEqual(rig.controller.parkedFields, 0)
+    }
+
+    /// A mark left standing is recorded with how it was left: the text written
+    /// over in place is not the hand going away.
+    func testWrittenOverInPlaceAndGoneAwayAreRecordedApart() {
+        let sent = standing()
+        sent.type("")
+        sent.drain()
+        XCTAssertEqual(actions(sent), ["stood", "replaced"])
+
+        let away = standing()
+        leave(away)
+        expire(away)
+        XCTAssertEqual(actions(away), ["stood", "away"])
     }
 
     /// The text came back changed past recognition: not the draft that was left.
@@ -269,7 +296,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         leave(rig)
         XCTAssertEqual(rig.controller.parkedFields, 2)
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left", "stood", "left"], "two drafts, two marks")
+        XCTAssertEqual(actions(rig), ["stood", "away", "stood", "away"], "two drafts, two marks")
     }
 
     /// The hand is in a terminal, which the editor never reads: no read comes,
@@ -282,7 +309,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertEqual(rig.controller.parkedFields, 1)
         rig.clock.advance(by: EditorMarkShelf.keep + 1)
         rig.controller.poll()
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "away"])
         XCTAssertEqual(rig.controller.parkedFields, 0)
     }
 
@@ -293,7 +320,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertEqual(rig.controller.parkedFields, 1)
         rig.controller.apply(enabled: false, engine: .standard, language: "en_US", vocabulary: [], skipApps: [])
         rig.drain()
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "away"])
         XCTAssertEqual(rig.controller.parkedFields, 0)
     }
 
@@ -308,7 +335,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.drain()
         leave(rig)
         expire(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "away"])
     }
 
     // MARK: - How a mark ends

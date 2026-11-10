@@ -87,6 +87,7 @@ final class EditorMarkShelfTests: XCTestCase {
         let back = shelf.resume(for: field("Something else entirely, typed after a send."), at: at(60))
         XCTAssertNil(back.parked)
         XCTAssertEqual(stood(back.ended), [1.5], "with the time it really stood, not the time away")
+        XCTAssertEqual(back.ended.flatMap(\.endings).map(\.outcome), [.replaced])
         XCTAssertEqual(shelf.count, 0)
     }
 
@@ -103,7 +104,9 @@ final class EditorMarkShelfTests: XCTestCase {
         _ = shelf.park(ledger(), of: field(), issues: [typo], hiddenAt: at(1.5), at: at(1.5))
         XCTAssertTrue(shelf.expire(at: at(1.5 + EditorMarkShelf.keep - 1)).isEmpty)
         XCTAssertEqual(shelf.count, 1)
-        XCTAssertEqual(stood(shelf.expire(at: at(1.5 + EditorMarkShelf.keep))), [1.5], "not ten minutes")
+        let ended = shelf.expire(at: at(1.5 + EditorMarkShelf.keep))
+        XCTAssertEqual(stood(ended), [1.5], "not ten minutes")
+        XCTAssertEqual(ended.flatMap(\.endings).map(\.outcome), [.away], "the hand went elsewhere and did not come back")
         XCTAssertEqual(shelf.count, 0)
     }
 

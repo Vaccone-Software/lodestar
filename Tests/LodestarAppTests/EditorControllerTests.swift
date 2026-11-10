@@ -549,7 +549,7 @@ final class EditorControllerTests: XCTestCase {
         rig.clock.advance(by: EditorMarkShelf.keep + 1)
         rig.beat()
         rig.drain()
-        XCTAssertEqual(rig.events.map(\.action), ["stood", "left"])
+        XCTAssertEqual(rig.events.map(\.action), ["stood", "away"])
     }
 
     /// Spelling asks no model: the spell checker and the rules mark, and

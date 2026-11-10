@@ -18,14 +18,16 @@ import Foundation
 /// marks and runs it only while they are on the screen (`hide` and `show`),
 /// so the time a field was silent, or a panel was down, is not time anyone
 /// could have read a mark in.
-/// It ends one of six ways: `fixed` (the lens, the card or ⏎), `answered`
+/// It ends one of seven ways: `fixed` (the lens, the card or ⏎), `answered`
 /// (kept, or learned), `byHand` (the hand edited its words and they now
 /// read as the fix, or no longer read as wrong), `edited` (the hand
 /// edited them into something else that still reads wrong), `withdrawn`
 /// (the editor dropped it with the words unchanged: the model read the
-/// sentence and overruled the spell checker) and `left` (the field was
-/// left with it standing). A withdrawn mark was never the hand's to
-/// judge, so it is not counted as shown.
+/// sentence and overruled the spell checker), `replaced` (the field's text
+/// was written over in place with the mark standing: a send, or a cleared
+/// field) and `away` (the hand went elsewhere with it standing, and did
+/// not come back to it). A withdrawn mark was never the hand's to judge,
+/// so it is not counted as shown.
 ///
 /// Only kinds and durations leave the ledger. The words it holds for
 /// matching are the ones the controller already holds, and none is ever
@@ -44,7 +46,10 @@ public struct EditorMarkLedger {
         case byHand
         case edited
         case withdrawn
-        case left
+        /// The text it stood in was written over in place.
+        case replaced
+        /// The hand went elsewhere and the field was not returned to.
+        case away
     }
 
     public struct Ending: Equatable {
@@ -270,8 +275,10 @@ public struct EditorMarkLedger {
     /// it was last read. `until` is the moment the marks stopped being
     /// drawn, when that is before `now`: a field that went silent was
     /// cleared only when the grace ran out, and the marks were not on the
-    /// screen for that wait.
-    public mutating func clear(text: String, all: [EditorIssue], at now: Date, until: Date? = nil) -> [Ending] {
+    /// screen for that wait. `how` says what left them standing: the text
+    /// written over in place, or the hand gone away.
+    public mutating func clear(text: String, all: [EditorIssue], at now: Date, until: Date? = nil,
+                               how: Outcome = .away) -> [Ending] {
         if let until { stop(at: until, now: now) }
         let reading = advance(to: now)
         defer { standing = [] }
@@ -282,7 +289,7 @@ public struct EditorMarkLedger {
             if mark.absentSince != nil {
                 return Self.ending(mark, Self.reads(mark, in: text) ? .withdrawn : .edited, stood: mark.absentReading - mark.born)
             }
-            return Self.ending(mark, .left, stood: reading - mark.born)
+            return Self.ending(mark, how, stood: reading - mark.born)
         }
     }
 

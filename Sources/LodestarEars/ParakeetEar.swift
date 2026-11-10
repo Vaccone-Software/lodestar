@@ -164,23 +164,15 @@ private final class Models: @unchecked Sendable {
             return try decode(samples, declaredLength: aligned, audioFrames: (aligned + frame - 1) / frame,
                               startFrame: 0, frameOffset: 0, isLast: true)
         }
-        // Overlapping windows, heard at once (Core ML queues them for the
-        // Neural Engine), then joined in order.
+        // Overlapping windows, heard a few at a time (ParakeetSeams.hear),
+        // then joined in order.
         let windows = ParakeetSeams.windows(total: samples.count)
-        let heard = try await withThrowingTaskGroup(of: (Int, [ParakeetToken]).self) { group in
-            for (index, window) in windows.enumerated() {
-                group.addTask {
-                    let audio = Array(samples[window.contextStart..<window.end])
-                    let tokens = try self.decode(
-                        audio, declaredLength: audio.count,
-                        audioFrames: (audio.count - window.context + frame - 1) / frame,
-                        startFrame: window.context / frame, frameOffset: window.start / frame, isLast: window.isLast)
-                    return (index, tokens)
-                }
-            }
-            var byIndex: [Int: [ParakeetToken]] = [:]
-            for try await (index, tokens) in group { byIndex[index] = tokens }
-            return windows.indices.map { byIndex[$0] ?? [] }
+        let heard = try await ParakeetSeams.hear(windows) { window in
+            let audio = Array(samples[window.contextStart..<window.end])
+            return try self.decode(
+                audio, declaredLength: audio.count,
+                audioFrames: (audio.count - window.context + frame - 1) / frame,
+                startFrame: window.context / frame, frameOffset: window.start / frame, isLast: window.isLast)
         }
         var merged = heard[0]
         for next in heard.dropFirst() {

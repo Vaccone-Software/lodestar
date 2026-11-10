@@ -1,4 +1,5 @@
 import Foundation
+import Stoic
 
 // Audio longer than the encoder's 15 s window, heard in overlapping windows
 // and joined at the seams without losing or doubling a word.
@@ -39,6 +40,35 @@ enum ParakeetSeams {
         var end: Int
         var isLast: Bool
         var context: Int { start - contextStart }
+    }
+
+    /// How many windows are heard at once. A window is blocking Core ML work
+    /// (the mel spectrogram on the CPU, the encoder on the Neural Engine, which
+    /// takes one prediction at a time), and it holds a thread of the
+    /// cooperative pool for as long as it takes: one window's CPU work is
+    /// overlapped with another's time on the engine by two in flight, and the
+    /// third keeps the engine from waiting on the hand-off between them. More
+    /// only queue behind the engine while holding pool threads the rest of the
+    /// app (the draft's own tasks among them) needs, which a long hold,
+    /// one window per fifteen seconds, would otherwise take all of.
+    static let hearingLimit = 3
+
+    /// Every window decoded with `decode`, at most `limit` at a time, in the
+    /// windows' order. The first window to fail ends the rest and its error
+    /// is thrown, as an unbounded task group threw it.
+    static func hear(_ windows: [Window], limit: Int = hearingLimit,
+                     decode: @escaping @Sendable (Window) throws -> [ParakeetToken]) async throws -> [[ParakeetToken]] {
+        do throws(PolicyError<any Error>) {
+            return try await mapConcurrent(windows, limit: limit, label: "parakeet.windows") { (window: Window) async throws(any Error) -> [ParakeetToken] in
+                try decode(window)
+            }
+        } catch {
+            switch error {
+            case .failed(let failure): throw failure
+            // The caller was cancelled: the windows that never ran have no answer.
+            case .rejected: throw CancellationError()
+            }
+        }
     }
 
     /// The windows that cover `total` samples (more than one window's worth).

@@ -245,7 +245,7 @@ enum SpeechStart {
                 break
             } catch {
                 Log.info("draft", ["speech": "audio start failed", "attempt": attempt,
-                                   "error": "\(error.localizedDescription)"])
+                                   "error": "\(error)"])
             }
         }
         if let started { return .started(started) }
@@ -741,7 +741,7 @@ final class AudioInput: @unchecked Sendable {
             Log.info("draft", ["speech": "audio configuration changed", "restarted": true, "attempt": attempt])
         } catch {
             Log.info("draft", ["speech": "audio configuration changed",
-                               "restart failed": error.localizedDescription, "attempt": attempt])
+                               "restart failed": "\(error)", "attempt": attempt])
             guard attempt < 4 else {
                 rebuildPending = false
                 rebuild(attempt: 1, session: session)
@@ -772,7 +772,7 @@ final class AudioInput: @unchecked Sendable {
                                "attempt": attempt, "inHz": Int(started.format.sampleRate)])
         } catch {
             Log.info("draft", ["speech": "audio configuration changed",
-                               "rebuild failed": error.localizedDescription, "attempt": attempt])
+                               "rebuild failed": "\(error)", "attempt": attempt])
             // The failed start stopped the session's engine, so a give-up
             // here is a session with no microphone: it is told, and the
             // draft asks again from the top.
@@ -1235,7 +1235,7 @@ final class AudioInput: @unchecked Sendable {
                 failure = StaleRate(from: moved.from, to: moved.to)
             } catch {
                 Log.info("draft", ["speech": "engine start failed", "attempt": attempt + 1,
-                                   "error": error.localizedDescription])
+                                   "error": "\(error)"])
                 failure = error
             }
             discard()

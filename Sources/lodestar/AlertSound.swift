@@ -45,7 +45,7 @@ enum AlertSound {
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
             try fresh.write(to: target, options: .atomic)
         } catch {
-            return "failed: \(error.localizedDescription)"
+            return "failed: \(error)"
         }
         return existed ? "replaced" : "installed"
     }

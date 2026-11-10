@@ -426,7 +426,7 @@ final class Actions {
         configuration.activates = true
         SystemEvents.openApplication(at: entry.url, configuration: configuration) { _, error in
             if let error {
-                DispatchQueue.main.async { Log.error("launch \(name): \(error.localizedDescription)") }
+                DispatchQueue.main.async { Log.error("launch \(name): \(error)") }
             }
         }
     }

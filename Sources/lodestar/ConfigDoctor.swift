@@ -248,6 +248,7 @@ func runResetConfig() -> Never {
         print("✕ \(error)")
         exit(1)
     } catch {
+        // stoic:allow(error-text-shown): printed by the `lodestar reset-config` verb to the person's own terminal, not shown in any panel, where Foundation's sentence about their own file is what they came to read.
         print("✕ could not write the default config: \(error.localizedDescription)")
         exit(1)
     }

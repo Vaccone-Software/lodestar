@@ -136,6 +136,7 @@ enum FileSense {
         // which is capitalised and what the hand has seen; a type's
         // description is the lowercase fallback when the system has none.
         let described = values?.localizedTypeDescription
+            // stoic:allow(error-text-shown): `type` is a UTType, and its localizedDescription is the system's name for a kind of file ("plain text"), not an error's text.
             ?? type?.localizedDescription.map { $0.prefix(1).uppercased() + $0.dropFirst() }
         var fact = Clipboard.FileFact(name: names.name, folder: names.folder, kind: described ?? "Document",
                                       type: type?.identifier)

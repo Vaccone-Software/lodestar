@@ -1,6 +1,7 @@
 import AppKit
 import LodestarCore
 import Stoic
+import StoicFoundation
 import StoicStore
 import LodestarEars
 
@@ -2103,7 +2104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         "domain": wrapped.domain,
                         "code": wrapped.code,
                         "underlying": underlying.map { "\($0.domain) \($0.code)" } ?? "-",
-                        "message": (underlying?.userInfo["_LSErrorMessage"] as? String) ?? error.localizedDescription,
+                        "message": (underlying?.userInfo["_LSErrorMessage"] as? String) ?? "\(error)",
                     ])
                     self.openDefaultBrowserSettings()
                     return
@@ -2385,7 +2386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch let error as Config.EditError {
             return error.description
         } catch {
-            return "could not write the config: \(error.localizedDescription)"
+            return FailureWords.sentence(for: ConfigWriteFailure(underlying: error), doing: "config-edit: could not write the config")
         }
         Log.info("config-edit", ["edit": logged ?? flash])
         applyConfigReload(successFlash: flash)
@@ -3309,6 +3310,11 @@ app.setActivationPolicy(.accessory)
 // Work on other threads (a global queue, a URLSession completion, a
 // dedicated thread) and Task.detached do not inherit it, and their Stoic
 // events reach the unified log only.
-withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog(alsoInfoFor: ["xpc."])]) }) {
+// Foundation's errors are worded for a person by Stoic's Foundation rules (a
+// full disk, no network), and never by their own text.
+withAmbient({
+    $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog(alsoInfoFor: ["xpc."])])
+    $0.presenter = .foundation
+}) {
     app.run()
 }

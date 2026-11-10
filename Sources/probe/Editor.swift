@@ -878,7 +878,12 @@ private func bringForward(_ app: NSRunningApplication?) {
     let task = Process()
     task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
     task.arguments = ["-e", "tell application id \"\(id)\" to activate"]
-    try? task.run()
+    do {
+        try task.run()
+    } catch {
+        FileHandle.standardError.write(Data("probe: could not bring \(id) forward: \(error)\n".utf8))
+        return
+    }
     task.waitUntilExit()
 }
 
@@ -904,7 +909,11 @@ private func ocrWord(_ crop: CGImage) -> String {
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = false
-    try? VNImageRequestHandler(cgImage: scaled, options: [:]).perform([request])
+    do {
+        try VNImageRequestHandler(cgImage: scaled, options: [:]).perform([request])
+    } catch {
+        FileHandle.standardError.write(Data("probe: text recognition failed: \(error)\n".utf8))
+    }
     return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
 }
 

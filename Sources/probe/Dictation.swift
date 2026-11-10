@@ -160,9 +160,20 @@ private func dictationSettle(_ options: [String: String], raw: Bool) {
         }
         hyps[id] = buffer
     }
-    let data = try! JSONSerialization.data(withJSONObject: hyps, options: [.prettyPrinted, .sortedKeys])
-    try! data.write(to: URL(fileURLWithPath: out))
+    writeResults(hyps, to: out, doing: "settle")
     print("settle: \(hyps.count) items -> \(out)  \(totals.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")
+}
+
+/// The results file the probe is run to make: written, or the probe says why
+/// not and stops, since a run whose results were lost has produced nothing.
+private func writeResults(_ hyps: [String: String], to out: String, doing: String) {
+    do {
+        let data = try JSONSerialization.data(withJSONObject: hyps, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: out))
+    } catch {
+        print("\(doing): could not write \(out): \(error)")
+        exit(74)
+    }
 }
 
 private func heard(_ event: [String: Any]) -> Heard {
@@ -213,7 +224,11 @@ private func dictationTranscribe(_ options: [String: String]) {
                 FileHandle.standardError.write("transcribe \(id): \(error)\n".data(using: .utf8)!)
             }
         }
-        try? handle.close()
+        do {
+            try handle.close()
+        } catch {
+            FileHandle.standardError.write("transcribe: could not close \(out): \(error)\n".data(using: .utf8)!)
+        }
         done.signal()
     }
     done.wait()
@@ -336,9 +351,10 @@ private func dictationEar(_ options: [String: String]) {
                 handle.write("\n".data(using: .utf8)!)
                 FileHandle.standardError.write("[\(n + 1)/\(items.count)] \(id) \(String(format: "%.3f", seconds)) s, \(footprintMB().now) MB\n".data(using: .utf8)!)
             }
-            try? handle.close()
+            try handle.close()
         } catch {
             print("ear: \(error)")
+            exit(70)
         }
         done.signal()
     }
@@ -461,8 +477,7 @@ private func dictationDraft(_ options: [String: String]) {
         done.signal()
     }
     done.wait()
-    let data = try! JSONSerialization.data(withJSONObject: hyps, options: [.prettyPrinted, .sortedKeys])
-    try! data.write(to: URL(fileURLWithPath: out))
+    writeResults(hyps, to: out, doing: "draft")
     let sorted = times.sorted()
     let p50 = sorted.isEmpty ? 0 : sorted[sorted.count / 2]
     let p90 = sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, sorted.count * 9 / 10)]
@@ -481,7 +496,11 @@ private func dictationRecord(_ options: [String: String]) {
         print("record: cannot read \(corpusPath)"); exit(66)
     }
     let out = URL(fileURLWithPath: (outDir as NSString).expandingTildeInPath, isDirectory: true)
-    try? FileManager.default.createDirectory(at: out.appendingPathComponent("audio"), withIntermediateDirectories: true)
+    do {
+        try FileManager.default.createDirectory(at: out.appendingPathComponent("audio"), withIntermediateDirectories: true)
+    } catch {
+        print("record: cannot make \(out.path): \(error)"); exit(73)
+    }
     let manifestURL = out.appendingPathComponent("manifest.json")
     var items: [[String: Any]] = []
     if let old = try? Data(contentsOf: manifestURL),
@@ -548,7 +567,11 @@ private func dictationRecord(_ options: [String: String]) {
         items.removeAll { $0["id"] as? String == id }
         items.append(item)
         let manifest: [String: Any] = ["sample_rate": 16_000, "format": "WAV PCM 16-bit mono", "items": items]
-        try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted]).write(to: manifestURL)
+        do {
+            try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted]).write(to: manifestURL)
+        } catch {
+            print("record: cannot write \(manifestURL.path): \(error)"); exit(74)
+        }
     }
     print("\n\(items.count) recordings in \(out.path). Thank you.")
 }

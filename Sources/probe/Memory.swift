@@ -46,13 +46,24 @@ func runMemory(_ args: inout [String], rollup: Bool, coach: Bool = false) {
 
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("lodestar-memprobe-\(getpid())", isDirectory: true)
-    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
+    func removeScratch() {
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            fputs("probe: could not remove \(directory.path): \(error)\n", stderr)
+        }
+    }
+    defer { removeScratch() }
     // `exit` runs no `defer`, so a failure takes the folder with it first.
     func fail(_ why: String) -> Never {
         fputs("probe: \(why)\n", stderr)
-        try? FileManager.default.removeItem(at: directory)
+        removeScratch()
         exit(1)
+    }
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    } catch {
+        fail("could not make \(directory.path): \(error)")
     }
 
     // A year and a month for the roll, which has months to roll; eighty days
@@ -158,7 +169,11 @@ enum MemoryProbe {
         for name in custody.names {
             items[name] = (custody.contents(of: name) ?? []).map { String(format: "%02x", $0) }.joined()
         }
-        try? JSONEncoder().encode(items).write(to: directory.appendingPathComponent("memprobe-key.json"))
+        do {
+            try JSONEncoder().encode(items).write(to: directory.appendingPathComponent("memprobe-key.json"))
+        } catch {
+            fputs("probe: could not write the key: \(error)\n", stderr)
+        }
     }
 
     static func readKey(in directory: URL) -> [String: [UInt8]]? {

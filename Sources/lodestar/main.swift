@@ -3,6 +3,7 @@ import LodestarCore
 import Stoic
 import StoicStore
 import LodestarEars
+import StoicTime
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The menu's first line: the name and the version, which is what
@@ -44,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var draftEditor: DraftEditor?
     private let editorConsent = EditorConsent()
     private let editorDownload = EditorDownload()
-    private var lastSettingsProgress = Date.distantPast
+    private var lastSettingsProgress: ContinuousClock.Instant?
     private var coach: CoachController!
     private var updater: UpdateController!
     private var clipboardController: ClipboardController!
@@ -407,7 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editorConsent.clear = { [weak self] in self?.hud.hide() }
         editorConsent.accepted = { [weak self] in
             guard let self else { return }
-            self.store.setEditorConsent(Date())
+            self.store.setEditorConsent(Moment.now.date)
             Log.info("editor", ["consent": "accepted"])
             self.applyEditor(self.config)
         }
@@ -423,8 +424,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Progress redraws Settings at most every two seconds; a change
             // of state (waiting, checking, failed) at once.
             if case .downloading = self.editorDownload.state,
-               Date().timeIntervalSince(self.lastSettingsProgress) < 2 { return }
-            self.lastSettingsProgress = Date()
+               self.lastSettingsProgress.map({ $0.secondsElapsed < 2 }) ?? false { return }
+            self.lastSettingsProgress = ContinuousClock.now
             self.settings.machineStateChanged()
         }
         editorDownload.finished = { [weak self] engine in
@@ -705,7 +706,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   dismiss: { [weak self] in self?.linkChip.dismiss() ?? false }),
         ])
         coach.standingSinceFor = { [weak self] id in
-            self?.store.coachStandingSince(id) ?? Date()
+            self?.store.coachStandingSince(id) ?? Moment.now.date
         }
         // A link you just clicked outranks a suggestion about links in
         // general: the chip is answering a thing the hand did seconds ago,
@@ -827,12 +828,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return self.engine.isQuiet && !self.presenting.isOn
         }
         updater.lastActivity = { [weak self] in
-            guard let self else { return Date() }
+            guard let self else { return Moment.now.date }
             let idle = CGEventSource.secondsSinceLastEventType(
                 .hidSystemState, eventType: CGEventType(rawValue: ~0)!)
             return Updater.lastSignOfLife(engineActivity: self.engine.lastActivityAt,
                                           humanInput: self.engine.lastHumanInputAt,
-                                          systemIdleSeconds: idle, now: Date())
+                                          systemIdleSeconds: idle, now: Moment.now.date)
         }
         updater.flash = { [weak self] text in self?.hud.flash(text) }
         updater.voice = { [weak self] sentence, detail, mark, stands in
@@ -968,9 +969,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // the app the person just quit.
         watchdog.stop()
         Log.info("terminating: restoring parked windows")
-        let restoreStarted = Date()
+        let restoreStarted = ContinuousClock.now
         actions?.restoreAllParked()
-        Log.info("terminating: restored", ["ms": Int(Date().timeIntervalSince(restoreStarted) * 1000)])
+        Log.info("terminating: restored", ["ms": Int(restoreStarted.secondsElapsed * 1000)])
         if !Self.purged { store?.save() } // flush any coalesced write before the process dies
         // Only clear the pid file while it is still ours — in a takeover
         // (manual reinstall or self-update) the successor has already
@@ -1250,7 +1251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         walk.lessonCompleted = { [weak self] lesson in
             guard let self else { return }
             self.store.setCurriculumRecord(
-                Curriculum.completed(self.store.curriculumRecords[lesson], at: Date()), for: lesson)
+                Curriculum.completed(self.store.curriculumRecords[lesson], at: Moment.now.date), for: lesson)
         }
         walk.lessonPassed = { [weak self] lesson in self?.billLesson(lesson) }
         coach.lessonDue = { [weak self] in
@@ -1267,7 +1268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // other lessons: two days of quiet means two days of quiet.
             let lastCoachOffer = record.ledger.map(\.lastOfferedAt)
                 .filter { $0 != .distantPast }.max()
-            return Curriculum.next(now: Date(), since: record.since,
+            return Curriculum.next(now: Moment.now.date, since: record.since,
                                    verbsLastUsed: record.verbsLastUsed ?? [:],
                                    records: self.store.curriculumRecords,
                                    walkDone: self.store.walkCompletedVersion != nil,
@@ -1303,7 +1304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func billLesson(_ lesson: Curriculum.Lesson) {
         guard lessonAwaitingBill == lesson else { return }
         lessonAwaitingBill = nil
-        store.setCurriculumRecord(Curriculum.offered(store.curriculumRecords[lesson], at: Date()), for: lesson)
+        store.setCurriculumRecord(Curriculum.offered(store.curriculumRecords[lesson], at: Moment.now.date), for: lesson)
     }
 
     private func installMeetings() {
@@ -1788,7 +1789,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// A closer model is offered once a fix has been taken.
     private func openWalkDoor(_ door: Walk.Door) {
         guard door == .write else { return }
-        if !store.editorConsented { store.setEditorConsent(Date()) }
+        if !store.editorConsented { store.setEditorConsent(Moment.now.date) }
         guard !config.editorEnabled else { return }
         let noModel = config.editorModel.isEmpty
         if let problem = rewriteConfig(flash: "", logged: "editor.enabled", edit: { tree in
@@ -3256,18 +3257,18 @@ if let i = cliArguments.firstIndex(of: "__strip-preview") {
 // line of text — with the time each took.
 if cliArguments.contains("__bring-read") {
     let reader = BringReader()
-    let started = Date()
+    let started = ContinuousClock.now
     var printed = 0
     reader.onUpdate = {
         let windows = reader.windows
         for window in windows.dropFirst(printed) {
-            print(String(format: "%5d ms  rank %2d  %@  lines=%d", Int(Date().timeIntervalSince(started) * 1000),
+            print(String(format: "%5d ms  rank %2d  %@  lines=%d", Int(started.secondsElapsed * 1000),
                          window.source.rank, window.source.app, window.lines.count))
         }
         printed = windows.count
         if !reader.reading {
             print("done: \(windows.count) windows, \(windows.reduce(0) { $0 + $1.lines.count }) lines, "
-                  + "\(Int(Date().timeIntervalSince(started) * 1000)) ms")
+                  + "\(Int(started.secondsElapsed * 1000)) ms")
             exit(0)
         }
     }

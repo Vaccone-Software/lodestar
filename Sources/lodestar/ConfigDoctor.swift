@@ -2,6 +2,8 @@ import AppKit
 import EventKit
 import Foundation
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// The checks that go beyond parsing: ground truth against the browser,
 /// semantic warnings, schema emission. Shared by startup, Reload Config,
@@ -154,7 +156,7 @@ func runDiagnose() -> Never {
 /// the window offers it and never sends it on its own.
 func diagnoseReport() -> String {
     var lines: [String] = []
-    lines.append("═══ Lodestar diagnose · v\(Lodestar.version) · \(ISO8601DateFormatter().string(from: Date()))")
+    lines.append("═══ Lodestar diagnose · v\(Lodestar.version) · \(ISO8601DateFormatter().string(from: Moment.now.date))")
     lines.append("")
 
     if let pid = runningLodestar() {
@@ -234,7 +236,7 @@ func diagnoseReport() -> String {
 /// The backup makes it reversible — reset must never cost the user their
 /// registry, graph, or links.
 func runResetConfig() -> Never {
-    let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+    let stamp = ISO8601DateFormatter().string(from: Moment.now.date).replacingOccurrences(of: ":", with: "-")
     let backup = Config.directory.appendingPathComponent("\(Config.file.lastPathComponent).backup-\(stamp)")
     do {
         let kept = try Config.reset(backingUpTo: backup)
@@ -536,7 +538,7 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
         runObservationsEngine(context)
     }
 
-    let days = max(1, Int(Date().timeIntervalSince(o.since) / 86400))
+    let days = max(1, Int(Moment.now.date.timeIntervalSince(o.since) / 86400))
     print("observations · \(days) day\(days == 1 ? "" : "s") · \(events.count) events"
         + " · nothing here leaves this machine")
     // The archive is part of what is kept, so it is part of what is shown.
@@ -691,7 +693,7 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
     // marks shown. Records from before this counted a mark on placement,
     // however briefly it stood and however often the field was read again,
     // so they are kept apart and never share a rate with these.
-    let editorCutoff = Date().addingTimeInterval(-28 * 86_400)
+    let editorCutoff = Moment.now.date.addingTimeInterval(-28 * 86_400)
     let edits = events.filter { $0.kind == .editor && $0.t >= editorCutoff }
     if !edits.isEmpty {
         print("editor")
@@ -702,10 +704,11 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
     // The draft, as counts: how often each door opens, how it ends, how
     // much was said, and the two waits — to the first word, to the first
     // key. Never the text; there is none in the record to print.
-    let cutoff = Date().addingTimeInterval(-28 * 86_400)
+    let cutoff = Moment.now.date.addingTimeInterval(-28 * 86_400)
     let drafts = events.filter { $0.kind == .draft && $0.t >= cutoff && $0.action != "empty" }
     if !drafts.isEmpty {
-        let days = max(1, Set(drafts.map { Calendar.current.startOfDay(for: $0.t) }).count)
+        let calendar = Calendar.device
+        let days = max(1, Set(drafts.map { calendar.startOfDay(for: $0.t) }).count)
         let spoke = drafts.filter { $0.source == "speak" }.count
         let pasted = drafts.filter { $0.action == "pasted" || $0.action == "replaced" }.count
         let copied = drafts.filter { $0.action == "copied" }.count
@@ -1225,18 +1228,18 @@ func runObservations(clear: Bool, logbookOnly: Bool = false, healthOnly: Bool = 
         }
         var pacing: [String] = []
         if let spoke = o.ledger.map(\.lastOfferedAt).filter({ $0 != .distantPast }).max() {
-            pacing.append("last spoke \(relative(Date().timeIntervalSince(spoke))) ago")
+            pacing.append("last spoke \(relative(Moment.now.date.timeIntervalSince(spoke))) ago")
         } else {
             pacing.append("has not spoken yet")
         }
         if let standing = Coach.standingOffer(observations: o,
                                               recommendations: recommendations,
-                                              now: Date()) {
+                                              now: Moment.now.date) {
             pacing.append("standing: \(Coach.chip(for: standing, observations: o).headline)")
-            let wait = Coach.showingWait(observations: o, rec: standing, now: Date())
+            let wait = Coach.showingWait(observations: o, rec: standing, now: Moment.now.date)
             pacing.append(wait > 0 ? "may show in \(relative(wait)) at the earliest"
                                    : "free to show at the next quiet boundary")
-        } else if Coach.slotBusy(observations: o, now: Date()) {
+        } else if Coach.slotBusy(observations: o, now: Moment.now.date) {
             pacing.append("nothing standing · a habit is still being learned")
         } else {
             pacing.append("nothing standing · no finding has cleared the gates")
@@ -1318,7 +1321,7 @@ func runObservationsEngine(_ context: Advisor.Context) -> Never {
         print("")
     }
 
-    let now = Date()
+    let now = Moment.now.date
     let demands = o.apps.keys.compactMap { app -> (String, Demand)? in
         let counts = Demand.weeklyCounts(app: app, events: context.events, now: now)
         guard let demand = Demand.fit(weeklyCounts: counts) else { return nil }
@@ -1355,12 +1358,12 @@ func runObservationsEngine(_ context: Advisor.Context) -> Never {
 
     // Which app comes next, every strategy scored in shadow over the real
     // focus stream — the table predicted warming picks its model from.
-    let tuneBegan = Date()
+    let tuneBegan = ContinuousClock.now
     let tuning = NextApp.tune(events: context.events)
-    let tuneSeconds = Date().timeIntervalSince(tuneBegan)
-    let scoreBegan = Date()
+    let tuneSeconds = tuneBegan.secondsElapsed
+    let scoreBegan = ContinuousClock.now
     let nextApp = NextApp.evaluate(events: context.events, tuning: tuning)
-    let scoreSeconds = Date().timeIntervalSince(scoreBegan)
+    let scoreSeconds = scoreBegan.secondsElapsed
     if let switches = nextApp.first?.switches {
         print("next app (hit rate of the top 1 · 2 · 3 predictions, over \(switches) switches)")
         for score in nextApp {

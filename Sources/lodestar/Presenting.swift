@@ -1,6 +1,8 @@
 import AppKit
 import CoreAudio
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// Are you on a call right now?
 ///
@@ -77,7 +79,7 @@ final class Presenting {
     }
 
     private func apply(calendar: Bool, microphoneOpen open: Bool) {
-        let clock = Date()
+        let clock = Moment.now.date
         if open {
             microphoneSince = microphoneSince ?? clock
         } else {

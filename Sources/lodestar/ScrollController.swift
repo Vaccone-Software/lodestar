@@ -49,7 +49,7 @@ final class ScrollController {
     /// arrives off the keystroke that made it, after the mode has already
     /// redrawn, which is why the pill cannot simply read the label then.
     var onAimed: (() -> Void)?
-    private var began = Date()
+    private var began = ContinuousClock.now
     private var inSession = false
     private var keysPressed = 0
     private var pages = 0
@@ -70,7 +70,7 @@ final class ScrollController {
     private(set) var fast = false
 
     private var heldKeys: Set<String> = []
-    private var lastKeyDown: [String: Date] = [:]
+    private var lastKeyDown: [String: ContinuousClock.Instant] = [:]
     private var smoothTimer: DispatchSourceTimer?
     private var verticalRemainder: Double = 0
     private var horizontalRemainder: Double = 0
@@ -124,7 +124,7 @@ final class ScrollController {
         aimPoint = nil
         aimLabel = nil
         pendingG = false
-        began = Date()
+        began = ContinuousClock.now
         inSession = true
         keysPressed = 0
         pages = 0
@@ -138,20 +138,20 @@ final class ScrollController {
             appName = focused.appName
             appIcon = NSRunningApplication(processIdentifier: focused.pid)?.icon
             windowFrame = focused.frame
-            discoverPanes(of: focused.element, began: Date())
+            discoverPanes(of: focused.element, began: ContinuousClock.now)
             warpToCurrent()
         case .front(let front):
             appName = front.localizedName ?? "App"
             appIcon = front.icon
             windowFrame = .zero
-            retryDiscovery(generation: discoveryGeneration, began: Date(), attempts: 0)
+            retryDiscovery(generation: discoveryGeneration, began: ContinuousClock.now, attempts: 0)
         }
     }
 
     /// Ask the model again until the focused window exists, then discover
     /// its panes. The keys never waited: this refines aim, it does not
     /// gate the mode.
-    private func retryDiscovery(generation: Int, began: Date, attempts: Int) {
+    private func retryDiscovery(generation: Int, began: ContinuousClock.Instant, attempts: Int) {
         guard discoveryGeneration == generation, attempts < 16 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self, self.discoveryGeneration == generation else { return }
@@ -168,7 +168,7 @@ final class ScrollController {
         }
     }
 
-    private func discoverPanes(of element: AXUIElement, began: Date) {
+    private func discoverPanes(of element: AXUIElement, began: ContinuousClock.Instant) {
         let generation = discoveryGeneration
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var found = ScrollAreas.panes(of: element)
@@ -177,7 +177,7 @@ final class ScrollController {
             DispatchQueue.main.async {
                 guard let self, self.discoveryGeneration == generation else { return }
                 self.panes = found
-                self.latency?("scroll-panes", Date().timeIntervalSince(began))
+                self.latency?("scroll-panes", began.secondsElapsed)
                 self.onPanesDiscovered?()
             }
         }
@@ -195,7 +195,7 @@ final class ScrollController {
         stopSmoothTimer()
         guard inSession else { return }
         inSession = false
-        let seconds = Date().timeIntervalSince(began)
+        let seconds = began.secondsElapsed
         Log.info("scroll", ["exit": reason.rawValue, "seconds": Int(seconds),
                             "keys": keysPressed, "pages": pages, "ends": ends,
                             "aims": aims, "landed": aimsLanded, "away": aimsAway])
@@ -233,7 +233,7 @@ final class ScrollController {
             }
             return
         }
-        lastKeyDown[key] = Date()
+        lastKeyDown[key] = ContinuousClock.now
         heldKeys.insert(key)
         if HotkeyEngine.traceTap { Log.info("smooth: down \(key) held=\(heldKeys.sorted())") }
         startSmoothTimerIfNeeded()
@@ -277,7 +277,7 @@ final class ScrollController {
         for key in heldKeys {
             if let code = Keys.codes[key],
                !CGEventSource.keyState(.hidSystemState, key: CGKeyCode(code)),
-               Date().timeIntervalSince(lastKeyDown[key] ?? .distantPast) > 0.8 {
+               lastKeyDown[key].map({ $0.secondsElapsed > 0.8 }) ?? true {
                 heldKeys.remove(key)
             }
         }

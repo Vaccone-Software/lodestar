@@ -379,9 +379,9 @@ enum EditorAX {
     /// it moved, for a quarter second.
     private static func settleCaret(_ element: AXUIElement, at wanted: NSRange) {
         select(element, wanted)
-        let deadline = Date().addingTimeInterval(0.25)
+        let deadline = ContinuousClock.now + .seconds(0.25)
         var steady = 0
-        while Date() < deadline, steady < 3 {
+        while ContinuousClock.now < deadline, steady < 3 {
             usleep(30_000)
             if selectedRange(element) == wanted {
                 steady += 1
@@ -395,11 +395,11 @@ enum EditorAX {
     /// Wait, briefly, for the field to read `target` — some apps apply an
     /// accessibility write a quarter second late.
     private static func settles(_ element: AXUIElement, to target: String, within seconds: Double) -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
+        let deadline = ContinuousClock.now + .seconds(seconds)
         repeat {
             if AX.string(element, kAXValueAttribute as String) == target { return true }
             usleep(30_000)
-        } while Date() < deadline
+        } while ContinuousClock.now < deadline
         return AX.string(element, kAXValueAttribute as String) == target
     }
 }

@@ -1,6 +1,8 @@
 #if DEBUG
 import AppKit
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// A visual harness for the clipboard strip: renders one menu placement
 /// against fixed sample clips so the layout can be looked at, not just
@@ -121,7 +123,7 @@ enum StripPreview {
                   app bundle: String? = nil, minutes: Double = 3,
                   kind: Clipboard.Kind = .text) -> Clipboard.Clip {
             Clipboard.Clip(id: id, kind: kind,
-                           created: Date().addingTimeInterval(-60 * minutes),
+                           created: Moment.now.date.addingTimeInterval(-60 * minutes),
                            sourceBundleID: bundle,
                            sourceAppName: bundle == nil ? nil : "Ghostty",
                            preview: text, bytes: text.utf8.count,
@@ -146,7 +148,7 @@ enum StripPreview {
         /// about it.
         func files(_ id: String, _ paths: [String], minutes: Double = 3) -> Clipboard.Clip {
             Clipboard.Clip(id: id, kind: .text,
-                           created: Date().addingTimeInterval(-60 * minutes),
+                           created: Moment.now.date.addingTimeInterval(-60 * minutes),
                            sourceBundleID: "com.apple.finder", sourceAppName: "Finder",
                            preview: paths.joined(separator: "\n"),
                            bytes: 600,
@@ -398,7 +400,7 @@ enum StripPreview {
         // key beside the line naming the holder, or lit when the keys come back (held up
         // here, so it can be photographed).
         if variant == 144 {
-            let notice = HeldKeyNotice(clock: Clock(now: { Date() }, after: { _, _ in }))
+            let notice = HeldKeyNotice(clock: Clock(now: { Moment.now.date }, after: { _, _ in }))
             let terminal = ProcessInfo.processInfo.environment["NOTICE"] == "terminal"
             let holder = terminal
                 ? SecureInputNotice.Holder(pid: 1, name: "Ghostty", bundleID: "com.mitchellh.ghostty")
@@ -552,7 +554,7 @@ enum StripPreview {
         if (120...126).contains(variant) {
             func made(_ id: String, _ text: String, _ app: String, _ minutes: Double,
                       slot: Int? = nil, name: String? = nil, kind: Clipboard.Kind = .text) -> Clipboard.Clip {
-                Clipboard.Clip(id: id, kind: kind, created: Date().addingTimeInterval(-60 * minutes),
+                Clipboard.Clip(id: id, kind: kind, created: Moment.now.date.addingTimeInterval(-60 * minutes),
                                sourceBundleID: "sample.\(app)", sourceAppName: app,
                                preview: text, bytes: text.utf8.count, pinnedSlot: slot, keptName: name)
             }
@@ -720,7 +722,7 @@ enum StripPreview {
                     return NSImage(data: picture.png)
                 }
                 paths[id] = urls
-                return Clipboard.Clip(id: id, kind: .file, created: Date().addingTimeInterval(-60 * minutes),
+                return Clipboard.Clip(id: id, kind: .file, created: Moment.now.date.addingTimeInterval(-60 * minutes),
                                       sourceBundleID: "com.apple.finder", sourceAppName: "Finder",
                                       preview: urls.map(\.lastPathComponent).joined(separator: "\n"), bytes: 1,
                                       nativeTypes: [Clipboard.fileURLType],
@@ -743,7 +745,7 @@ enum StripPreview {
             // time from last week.
             strip.timeZones = [TimeZone(identifier: "Asia/Tokyo")!]
             let hour = 3600.0
-            let unix = { (seconds: Double) in String(Int(Date().timeIntervalSince1970 - seconds)) }
+            let unix = { (seconds: Double) in String(Int(Moment.now.date.timeIntervalSince1970 - seconds)) }
             strip.show(recents: [clip("t0", unix(6 * hour), app: "com.mitchellh.ghostty", minutes: 1),
                                  clip("t1", unix(30 * hour) + "000", minutes: 4),
                                  clip("t2", "2026-09-25T13:14:17.123+09:00", minutes: 6),

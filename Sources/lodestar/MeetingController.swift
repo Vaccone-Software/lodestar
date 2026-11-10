@@ -1,6 +1,8 @@
 import AppKit
 import EventKit
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// Meetings at the door: the shell around `Meetings` (LodestarCore). This
 /// owns the two surfaces and the one system sense — the chip that offers
@@ -145,7 +147,7 @@ final class MeetingController: NSObject {
     /// from the chip. The chip is spent by the join, so it stops being
     /// evidence at the exact moment the meeting starts mattering.
     var inProgress: Bool {
-        Meetings.inProgress(occurrences: occurrences, now: Date())
+        Meetings.inProgress(occurrences: occurrences, now: Moment.now.date)
     }
 
     /// Calendar and account names for the settings picker — ground truth,
@@ -248,7 +250,7 @@ final class MeetingController: NSObject {
     /// the standing occurrence's phase is recomputed, and the chip redraws
     /// only when its words would differ. A meeting that has ended, or
     /// one whose window has passed, hands back to the full evaluation.
-    func advanceCountdown(now: Date = Date()) {
+    func advanceCountdown(now: Date = Moment.now.date) {
         guard let standing = current else { return }
         guard now < standing.occurrence.end else { evaluate(); return }
         let phase = Meetings.phase(untilStart: standing.occurrence.start.timeIntervalSince(now))
@@ -286,7 +288,7 @@ final class MeetingController: NSObject {
         guard !refreshing else { return }
         refreshing = true
         let store = store
-        let now = Date()
+        let now = Moment.now.date
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let predicate = store.predicateForEvents(
                 withStart: now.addingTimeInterval(-12 * 3600),
@@ -331,7 +333,7 @@ final class MeetingController: NSObject {
     }
 
     private func evaluate() {
-        let candidate = Meetings.candidate(occurrences: occurrences, now: Date(),
+        let candidate = Meetings.candidate(occurrences: occurrences, now: Moment.now.date,
                                            leadMinutes: config.meetingsLeadMinutes,
                                            spent: loadSpent())
         current = candidate
@@ -387,7 +389,7 @@ final class MeetingController: NSObject {
         let resolved = resolve(occurrence)
         spend(occurrence, action: "joined",
               decider: resolved.deciderLabel,
-              lead: Date().timeIntervalSince(occurrence.start))
+              lead: Moment.now.date.timeIntervalSince(occurrence.start))
         // Never the title and never the URL in the log. Where something
         // opened is what a bug report needs.
         if let native = Meetings.nativeJoin(for: occurrence.link),
@@ -778,7 +780,7 @@ final class MeetingController: NSObject {
     /// The preview's meeting, on the controller's own occurrences and
     /// evaluated at once.
     private func stage(title: String, startingIn offset: TimeInterval) {
-        let start = Date().addingTimeInterval(offset)
+        let start = Moment.now.date.addingTimeInterval(offset)
         let occurrence = Meetings.Occurrence(
             eventID: "preview", title: title,
             start: start, end: start.addingTimeInterval(30 * 60),

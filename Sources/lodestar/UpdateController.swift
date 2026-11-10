@@ -2,6 +2,7 @@ import AppKit
 import LodestarCore
 import Stoic
 import StoicStore
+import StoicTime
 
 /// Silent self-update for the installed app. The cycle: check the releases
 /// feed daily, download and unpack the zip in the background, verify it,
@@ -618,7 +619,7 @@ final class UpdateController {
         if !force {
             guard enabled, Updater.mayApply(
                 engineQuiet: engineQuiet(),
-                secondsSinceActivity: Date().timeIntervalSince(lastActivity())
+                secondsSinceActivity: Moment.now.date.timeIntervalSince(lastActivity())
             ) else { return }
         }
         guard canSwap(installURL: installURL, force: force) else {

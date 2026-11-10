@@ -1,5 +1,7 @@
 import AppKit
 import LodestarCore
+import Stoic
+import StoicTime
 import UniformTypeIdentifiers
 
 /// Keep: the clips as the hands hold them.
@@ -202,7 +204,7 @@ final class ClipboardStrip {
     /// The moment a timestamp's note is felt against, and the zone that is
     /// "your clock": the real ones, a seam for the tests, because what a
     /// note says depends on the hour it is read at.
-    var now: () -> Date = { Date() }
+    var now: () -> Date = { Moment.now.date }
     var localZone: TimeZone = .current
     /// The units a measurement is read into.
     var units = ClipQuantity.System.regional()

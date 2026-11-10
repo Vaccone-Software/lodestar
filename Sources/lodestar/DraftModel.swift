@@ -113,7 +113,7 @@ actor DraftModel {
         dropIfLost()
         if backend != nil { return }
         if let loading { _ = await loading.value; return }
-        let began = Date()
+        let began = ContinuousClock.now
         let model = self.model
         let loader = self.loader
         let calls = self.calls
@@ -139,7 +139,7 @@ actor DraftModel {
         calls.loadEnded(succeeded: backend != nil)
         if backend != nil {
             calls.backendReplaced()
-            Log.info("intent", ["model": model.rawValue, "loaded ms": Int(Date().timeIntervalSince(began) * 1000)])
+            Log.info("intent", ["model": model.rawValue, "loaded ms": Int(began.secondsElapsed * 1000)])
         }
     }
 
@@ -178,12 +178,12 @@ actor DraftModel {
             warmed.insert(prompt)
             guard self.backend != nil else { return nil }
         }
-        let began = Date()
+        let began = ContinuousClock.now
         let answer = await calls.ask(deadline: EditorModel.rewriteDeadline, wait: EditorModel.rewriteWait) {
             try? await backend.rewrite(text, prompt: prompt)
         }.value
         Log.info("intent", ["asked": text.count, "answered": answer != nil,
-                            "ms": Int(Date().timeIntervalSince(began) * 1000), "engine": model.rawValue])
+                            "ms": Int(began.secondsElapsed * 1000), "engine": model.rawValue])
         return answer
     }
 

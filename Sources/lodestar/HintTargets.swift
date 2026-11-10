@@ -93,7 +93,7 @@ enum HintTargets {
         let windowElement = window.element
         let windowFrame = window.frame
         let pid = window.pid
-        let began = Date()
+        let began = ContinuousClock.now
 
         DispatchQueue.global(qos: .userInitiated).async {
             let app = AXUIElementCreateApplication(pid)
@@ -114,7 +114,7 @@ enum HintTargets {
             // took the point (probe owners, 2026-09-15).
             var announced = false
             let windowArea = max(windowFrame.width * windowFrame.height, 1)
-            let deadline = Date().addingTimeInterval(1.2)
+            let deadline = ContinuousClock.now + .seconds(1.2)
             let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
                          kAXChildrenAttribute] as CFArray
 
@@ -144,7 +144,7 @@ enum HintTargets {
             /// one — the innermost thing that presses under the point.
             @discardableResult
             func walk(_ element: AXUIElement, depth: Int) -> Bool {
-                guard depth < 28, visited < 9000, Date() < deadline else { return false }
+                guard depth < 28, visited < 9000, ContinuousClock.now < deadline else { return false }
                 visited += 1
 
                 var values: CFArray?
@@ -211,7 +211,7 @@ enum HintTargets {
             }
 
             walk(windowElement, depth: 0)
-            let elapsed = Int(Date().timeIntervalSince(began) * 1000)
+            let elapsed = Int(began.secondsElapsed * 1000)
 
             DispatchQueue.main.async {
                 Log.info("hints", ["targets": found.count, "byAction": byAction,

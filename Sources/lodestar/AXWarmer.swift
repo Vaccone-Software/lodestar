@@ -23,21 +23,21 @@ enum AXWarmer {
     /// The most a single warm may wait on the app. A responsive app
     /// answers in microseconds; a hung one is not worth a quarter second.
     private static let timeout: Float = 0.25
-    private static var warmedAt: [pid_t: Date] = [:]
+    private static var warmedAt: [pid_t: ContinuousClock.Instant] = [:]
     private static let lock = NSLock()
 
     /// Returns whether an AX call was actually made — false when the
     /// throttle answered instead.
     @discardableResult
     static func warm(_ pid: pid_t) -> Bool {
-        let now = Date()
+        let now = ContinuousClock.now
         lock.lock()
         // Pruned on the way in rather than grown for the life of the process.
         // An entry older than the interval can only ever answer "warm it
         // again", so keeping it bought nothing and cost a slot for every pid
         // this machine has ever focused — unbounded, in an app that runs for
         // weeks. What survives the filter is exactly what the throttle needs.
-        warmedAt = warmedAt.filter { now.timeIntervalSince($0.value) < interval }
+        warmedAt = warmedAt.filter { $0.value.duration(to: now).inSeconds < interval }
         guard warmedAt[pid] == nil else {
             lock.unlock()
             return false

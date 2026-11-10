@@ -1,5 +1,7 @@
 import AppKit
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// The entry point: a floating fuzzy searcher, styled like it belongs to the
 /// OS — glass, SF type, accent-filled selection. Two levels: apps (default),
@@ -96,8 +98,8 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// The app whose closed road has been confirmed once this session —
     /// the second ↵ opens it.
     private var confirmedRoad: String?
-    private var openedAt: Date?
-    private var firstKeyAt: Date?
+    private var openedAt: ContinuousClock.Instant?
+    private var firstKeyAt: ContinuousClock.Instant?
     private var rows: [Row] = []
     private var rowViews: [SearcherRowView] = []
     private var viewCache: [String: SearcherRowView] = [:]
@@ -230,7 +232,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         mode = .apps
         field.setPlaceholder("Where to?")
         field.stringValue = ""
-        openedAt = Date()
+        openedAt = ContinuousClock.now
         firstKeyAt = nil
         confirmedRoad = nil
         setFooter(nil)
@@ -375,7 +377,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     // MARK: - Keyboard
 
     func controlTextDidChange(_ notification: Notification) {
-        if firstKeyAt == nil, !field.stringValue.isEmpty { firstKeyAt = Date() }
+        if firstKeyAt == nil, !field.stringValue.isEmpty { firstKeyAt = ContinuousClock.now }
         requery()
     }
 
@@ -479,7 +481,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
             reposition()
             return
         }
-        let now = Date()
+        let now = ContinuousClock.now
         hide()
         // What the search actually cost, measured rather than assumed:
         // the characters, the ranks, and the seconds — everything the
@@ -493,13 +495,13 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 rank: selected,
                 listLength: rows.count,
                 openToFirstKey: firstKeyAt.flatMap { first in
-                    openedAt.map { first.timeIntervalSince($0) }
+                    openedAt.map { $0.duration(to: first).inSeconds }
                 },
-                openToCommit: openedAt.map { now.timeIntervalSince($0) }
+                openToCommit: openedAt.map { $0.duration(to: now).inSeconds }
             )
             actions.pick(entry, beside: beside, cost: cost)
         case .window(let window):
-            observations?.reached(window.appName, via: .chooser, at: now)
+            observations?.reached(window.appName, via: .chooser, at: Moment.now.date)
             actions.summonWindow(window.id, beside: beside)
         }
         openedAt = nil

@@ -42,7 +42,7 @@ enum RepoNames {
     }
 
     private static let lock = NSLock()
-    nonisolated(unsafe) private static var cache: [String: (at: Date, index: CodeNames.Index)] = [:]
+    nonisolated(unsafe) private static var cache: [String: (at: ContinuousClock.Instant, index: CodeNames.Index)] = [:]
     private static let freshFor: TimeInterval = 600
 
     /// The repository's names, read off the main thread when they are not
@@ -51,16 +51,16 @@ enum RepoNames {
         lock.lock()
         let cached = cache[root.path]
         lock.unlock()
-        if let cached, Date().timeIntervalSince(cached.at) < freshFor { done(cached.index); return }
+        if let cached, cached.at.secondsElapsed < freshFor { done(cached.index); return }
         DispatchQueue.global(qos: .utility).async {
-            let began = Date()
+            let began = ContinuousClock.now
             let names = CodeNames.gather(root)
             let index = CodeNames.Index(names: names, pronouncer: DictationLexicon.pronouncer)
             lock.lock()
-            cache[root.path] = (Date(), index)
+            cache[root.path] = (ContinuousClock.now, index)
             lock.unlock()
             Log.info("draft", ["code names": index.count, "repository": root.lastPathComponent,
-                               "ms": Int(Date().timeIntervalSince(began) * 1000)])
+                               "ms": Int(began.secondsElapsed * 1000)])
             DispatchQueue.main.async { done(index) }
         }
     }

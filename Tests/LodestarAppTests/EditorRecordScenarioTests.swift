@@ -26,6 +26,14 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.drain()
     }
 
+    /// The shelf lets go of the fields it holds once its keeping has run out,
+    /// and a beat finds it.
+    private func expire(_ rig: EditorRig) {
+        rig.clock.advance(by: EditorMarkShelf.keep + 1)
+        rig.beat()
+        rig.drain()
+    }
+
     private func actions(_ rig: EditorRig) -> [String] { rig.events.compactMap(\.action) }
 
     // MARK: - A field that flickers
@@ -44,7 +52,8 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertTrue(rig.events.isEmpty, "a flicker writes nothing")
 
         leave(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"], "one mark, counted once")
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away"], "one mark, counted once")
     }
 
     func testANewElementWithTheSameTextIsTheSameField() {
@@ -60,7 +69,8 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.settle("the mark follows the new element") { rig.controller.lensMarks.count == 1 }
         XCTAssertTrue(rig.events.isEmpty)
         leave(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away"])
     }
 
     func testAnotherFieldIsAnotherFieldAndEndsTheOldMarks() {
@@ -68,7 +78,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.clock.advance(by: 0.3)
         rig.type("Something else entirely, typed in the same app.")
         rig.drain()
-        XCTAssertEqual(actions(rig), ["stood", "left"], "the text is not the text it was")
+        XCTAssertEqual(actions(rig), ["stood", "replaced"], "the text is not the text it was")
     }
 
     /// A message sent empties the same element: the marks were left
@@ -77,7 +87,7 @@ final class EditorRecordScenarioTests: XCTestCase {
         let rig = standing()
         rig.type("")
         rig.drain()
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertEqual(actions(rig), ["stood", "replaced"])
     }
 
     func testAFieldThatStaysGoneIsClearedAfterTheGrace() {
@@ -89,7 +99,229 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.clock.advance(by: 1.0)
         rig.controller.receive(nil)
         XCTAssertNil(rig.controller.field)
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        XCTAssertTrue(rig.events.isEmpty, "waiting on the shelf for the hand's return")
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away"])
+    }
+
+    // MARK: - A mark stands only while it is drawn
+
+    /// The field went quiet 0.3 s after the mark was drawn and the grace ran
+    /// out two seconds on: the mark was on the screen for 0.3 s, and the rest
+    /// was a wait with nothing drawn.
+    func testAMarkHiddenSoonAfterItWasDrawnIsNeverShownWhenTheGraceEnds() {
+        let rig = EditorRig()
+        rig.type(typo)
+        rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
+        rig.clock.advance(by: 0.3)
+        rig.controller.receive(nil)
+        rig.clock.advance(by: 1.0)
+        rig.controller.receive(nil)
+        rig.clock.advance(by: 1.0)
+        rig.controller.receive(nil)
+        XCTAssertNil(rig.controller.field, "the grace has run out")
+        rig.drain()
+        XCTAssertTrue(rig.events.isEmpty, "it was drawn for 0.3 s: \(rig.events.map(\.action))")
+    }
+
+    func testAMarkThatStoodASecondAndAHalfIsRecordedAtThatWhenTheGraceEnds() throws {
+        let rig = standing()
+        rig.controller.receive(nil)
+        rig.clock.advance(by: 1.0)
+        rig.controller.receive(nil)
+        rig.clock.advance(by: 1.0)
+        rig.controller.receive(nil)
+        XCTAssertNil(rig.controller.field)
+        rig.drain()
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away"])
+        XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 1.5, accuracy: 0.11, "not 3.5, the wait was not drawn")
+    }
+
+    /// A field with nowhere to draw (no frame of its own, none for its window)
+    /// keeps its marks in the controller and draws nothing.
+    func testTimeWithTheLinesDownBecauseThereIsNowhereToDrawThemIsNotStanding() throws {
+        let rig = standing()
+        rig.clock.advance(by: 0.6)
+        let old = EditorRig.field(typo)
+        let bare = EditorField(element: old.element, pid: old.pid, appName: old.appName, bundleID: old.bundleID,
+                               text: old.text, caret: old.caret, frame: nil, windowFrame: nil)
+        rig.source.field = bare
+        rig.controller.receive(bare)
+        rig.settle("the lines come down") { rig.drawing.shown.isEmpty }
+        XCTAssertEqual(rig.controller.lensMarks.count, 1, "the mark is still known")
+        rig.clock.advance(by: 5)
+        rig.beat()
+        rig.drain()
+        leave(rig)
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away"])
+        XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 2.1, accuracy: 0.11, "1.5 s, then 0.6 s more before they came down")
+    }
+
+    // MARK: - A draft that is left and returned to
+
+    /// Back in the field the hand left, with the text as it was.
+    private func comeBack(_ rig: EditorRig, to text: String? = nil) {
+        rig.type(text ?? typo)
+        rig.settle("the mark is drawn again") { rig.controller.lensMarks.count == 1 }
+    }
+
+    /// The same unsent draft, looked in on twice, is one mark: the second
+    /// stand carries on from the first, and the time away is not standing.
+    func testReturningToTheSameUnsentTextIsTheSameMark() throws {
+        let rig = standing()
+        leave(rig)
+        XCTAssertTrue(rig.events.isEmpty, "left on the shelf, not ended")
+        XCTAssertEqual(rig.controller.parkedFields, 1)
+        rig.clock.advance(by: 120)
+        comeBack(rig)
+        XCTAssertEqual(rig.controller.parkedFields, 0, "taken off the shelf")
+        rig.clock.advance(by: 1.5)
+        rig.beat()
+        rig.drain()
+        leave(rig)
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away"], "one mark, not two")
+        XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 3.0, accuracy: 0.11,
+                       "1.5 s, then 1.5 s: not the two minutes away, not the ten more on the shelf")
+    }
+
+    /// A draft left for the afternoon was sent or forgotten: its marks end as
+    /// they stood when it was left, the moment the shelf lets them go.
+    func testAMarkOnTheShelfEndsWithItsTrueTimeWhenTheKeepingRunsOut() throws {
+        let rig = standing()
+        leave(rig)
+        rig.clock.advance(by: EditorMarkShelf.keep - 1)
+        rig.beat()
+        rig.drain()
+        XCTAssertTrue(rig.events.isEmpty, "still kept")
+        rig.clock.advance(by: 2)
+        rig.beat()
+        rig.drain()
+        XCTAssertEqual(actions(rig), ["stood", "away"])
+        XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 1.5, accuracy: 0.11, "not ten minutes")
+        XCTAssertEqual(rig.controller.parkedFields, 0)
+    }
+
+    /// The same words in another app are another draft.
+    func testTheSameTextInAnotherAppDoesNotTakeTheLedger() {
+        let rig = standing()
+        rig.type(typo, pid: 5151, app: "Notes", bundle: "com.apple.Notes")
+        rig.settle("the mark in Notes") { rig.controller.lensMarks.count == 1 }
+        rig.clock.advance(by: 1.5)
+        rig.beat()
+        rig.drain()
+        XCTAssertEqual(rig.controller.parkedFields, 1, "TextEdit's draft is still waiting")
+        rig.type("All is well here.", pid: 6000, app: "Mail", bundle: "com.apple.mail")
+        rig.drain()
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away", "stood", "away"], "two drafts, two marks: \(rig.events.compactMap(\.app))")
+        XCTAssertEqual(Set(rig.events.compactMap(\.app)), ["textedit", "notes"])
+    }
+
+    /// Another field in the same app, with other words in it, is another field
+    /// and leaves the first one's marks where they are.
+    func testAnotherFieldInTheSameAppLeavesTheShelfedDraftWaiting() {
+        let rig = standing()
+        let other = EditorRig.field("Lunch is at noon today.")
+        let rebuilt = EditorField(element: AXUIElementCreateSystemWide(), pid: other.pid, appName: other.appName,
+                                  bundleID: other.bundleID, text: other.text, caret: other.caret,
+                                  frame: other.frame, windowFrame: other.windowFrame)
+        rig.source.field = rebuilt
+        rig.controller.receive(rebuilt)
+        rig.drain()
+        XCTAssertEqual(rig.controller.parkedFields, 1)
+        XCTAssertTrue(rig.events.isEmpty)
+        // The first field comes back as it was: the same mark.
+        let first = EditorRig.field(typo)
+        let again = EditorField(element: AXUIElementCreateApplication(1), pid: first.pid, appName: first.appName,
+                                bundleID: first.bundleID, text: first.text, caret: first.caret,
+                                frame: first.frame, windowFrame: first.windowFrame)
+        rig.clock.advance(by: 60)
+        rig.source.field = again
+        rig.controller.receive(again)
+        rig.settle("the mark is back") { rig.controller.lensMarks.count == 1 }
+        XCTAssertEqual(rig.controller.parkedFields, 0)
+        rig.type("All is well here.", pid: 5151, app: "Notes", bundle: "com.apple.Notes")
+        rig.drain()
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away"], "one mark")
+    }
+
+    /// The hand went off with a draft, and it was sent from there: back in the
+    /// same field with the text written over, the marks were not walked away
+    /// from but replaced.
+    func testADraftThatComesBackWrittenOverEndsAsReplaced() {
+        let rig = standing()
+        leave(rig)
+        rig.clock.advance(by: 60)
+        rig.type("")
+        rig.drain()
+        XCTAssertEqual(actions(rig), ["stood", "replaced"])
+        XCTAssertEqual(rig.controller.parkedFields, 0)
+    }
+
+    /// A mark left standing is recorded with how it was left: the text written
+    /// over in place is not the hand going away.
+    func testWrittenOverInPlaceAndGoneAwayAreRecordedApart() {
+        let sent = standing()
+        sent.type("")
+        sent.drain()
+        XCTAssertEqual(actions(sent), ["stood", "replaced"])
+
+        let away = standing()
+        leave(away)
+        expire(away)
+        XCTAssertEqual(actions(away), ["stood", "away"])
+    }
+
+    /// The text came back changed past recognition: not the draft that was left.
+    func testTextThatCameBackChangedPastRecognitionIsNotTheDraftThatWasLeft() {
+        let rig = standing()
+        leave(rig)
+        rig.clock.advance(by: 30)
+        let words = "Meeting notes: please recieve the parcel before noon."
+        let fresh = EditorField(element: AXUIElementCreateSystemWide(), pid: 4242, appName: "TextEdit",
+                                bundleID: "com.apple.TextEdit", text: words, caret: words.utf16.count,
+                                frame: CGRect(x: 80, y: 180, width: 800, height: 400),
+                                windowFrame: CGRect(x: 0, y: 0, width: 1000, height: 800))
+        rig.source.field = fresh
+        rig.controller.receive(fresh)
+        rig.settle("its own mark") { rig.controller.lensMarks.count == 1 }
+        rig.clock.advance(by: 1.5)
+        rig.beat()
+        rig.drain()
+        XCTAssertEqual(rig.controller.parkedFields, 1, "the old draft is still waiting, and this one is not it")
+        leave(rig)
+        XCTAssertEqual(rig.controller.parkedFields, 2)
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away", "stood", "away"], "two drafts, two marks")
+    }
+
+    /// The hand is in a terminal, which the editor never reads: no read comes,
+    /// and the beat alone lets the shelf go.
+    func testTheShelfLetsGoOnTheBeatWhileTheHandIsInAnAppThatIsNeverRead() {
+        let rig = standing()
+        rig.controller.frontmostApp = { (777, "com.mitchellh.ghostty", "Ghostty") }
+        rig.controller.poll()
+        XCTAssertNil(rig.controller.field)
+        XCTAssertEqual(rig.controller.parkedFields, 1)
+        rig.clock.advance(by: EditorMarkShelf.keep + 1)
+        rig.controller.poll()
+        XCTAssertEqual(actions(rig), ["stood", "away"])
+        XCTAssertEqual(rig.controller.parkedFields, 0)
+    }
+
+    /// Switched off, the editor reads nothing again: what it held ends.
+    func testSwitchingTheEditorOffEndsTheMarksOnTheShelf() {
+        let rig = standing()
+        leave(rig)
+        XCTAssertEqual(rig.controller.parkedFields, 1)
+        rig.controller.apply(enabled: false, engine: .standard, language: "en_US", vocabulary: [], skipApps: [])
+        rig.drain()
+        XCTAssertEqual(actions(rig), ["stood", "away"])
+        XCTAssertEqual(rig.controller.parkedFields, 0)
     }
 
     // MARK: - A mark's identity
@@ -102,7 +334,8 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.beat()
         rig.drain()
         leave(rig)
-        XCTAssertEqual(actions(rig), ["stood", "left"])
+        expire(rig)
+        XCTAssertEqual(actions(rig), ["stood", "away"])
     }
 
     // MARK: - How a mark ends

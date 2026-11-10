@@ -545,7 +545,11 @@ final class EditorControllerTests: XCTestCase {
         XCTAssertTrue(rig.events.isEmpty, "a mark still standing has not ended")
         rig.type("All is well here.", pid: 5151, app: "Notes", bundle: "com.apple.Notes")
         rig.drain()
-        XCTAssertEqual(rig.events.map(\.action), ["stood", "left"])
+        XCTAssertTrue(rig.events.isEmpty, "left on the shelf, for the hand's return")
+        rig.clock.advance(by: EditorMarkShelf.keep + 1)
+        rig.beat()
+        rig.drain()
+        XCTAssertEqual(rig.events.map(\.action), ["stood", "away"])
     }
 
     /// Spelling asks no model: the spell checker and the rules mark, and

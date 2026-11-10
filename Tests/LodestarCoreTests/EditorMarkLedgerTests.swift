@@ -145,16 +145,68 @@ final class EditorMarkLedgerTests: XCTestCase {
         XCTAssertEqual(ledger.count, 0)
     }
 
-    func testLeavingTheFieldEndsEveryMarkStandingAsLeft() {
+    func testLeavingTheFieldEndsEveryMarkStandingAsAway() {
         var (ledger, issue) = ledgerWithMark()
         let text = "We need to recieve them."
         XCTAssertEqual(ledger.clear(text: text, all: [issue], at: at(30)),
-                       [EditorMarkLedger.Ending(kind: .spelling, outcome: .left, stood: 30)])
+                       [EditorMarkLedger.Ending(kind: .spelling, outcome: .away, stood: 30)])
         XCTAssertEqual(ledger.count, 0)
 
         var brief = EditorMarkLedger()
         _ = brief.sync(drawn: [issue], all: [issue], text: text, caret: 24, quiet: true, at: at(0))
         XCTAssertTrue(brief.clear(text: text, all: [issue], at: at(0.5)).isEmpty, "stood half a second: never read")
+    }
+
+    // MARK: - A mark stands only while it is drawn
+
+    func testAMarkHiddenSoonAfterItWasDrawnWritesNothingWhenItIsCleared() {
+        var (ledger, issue) = ledgerWithMark()
+        ledger.hide(at: at(0.3))
+        let endings = ledger.clear(text: "We need to recieve them.", all: [issue], at: at(2.3))
+        XCTAssertTrue(endings.isEmpty, "it stood 0.3 s on the screen, and the other two seconds it was hidden")
+    }
+
+    func testTheTimeAMarkWasHiddenIsLeftOutOfHowLongItStood() throws {
+        var (ledger, issue) = ledgerWithMark()
+        ledger.hide(at: at(1.5))
+        ledger.show(at: at(3.5))
+        let ending = try XCTUnwrap(ledger.clear(text: "We need to recieve them.", all: [issue], at: at(4)).first)
+        XCTAssertEqual(ending.stood, 2.0, accuracy: 0.001, "1.5 s before it was hidden and 0.5 s after it came back")
+        XCTAssertEqual(ending.outcome, .away)
+    }
+
+    func testAnEndingGivenTheMomentTheMarksCameDownStopsTheClockThere() throws {
+        // The ledger was not told of the hiding.
+        var (ledger, issue) = ledgerWithMark()
+        let ending = try XCTUnwrap(ledger.clear(text: "We need to recieve them.", all: [issue], at: at(3.5), until: at(1.5)).first)
+        XCTAssertEqual(ending.stood, 1.5, accuracy: 0.001, "not 3.5")
+
+        // And one it heard of later than the moment it was cleared to.
+        var (later, laterIssue) = ledgerWithMark()
+        _ = later.sync(drawn: [laterIssue], all: [laterIssue], text: "We need to recieve them.", caret: 24, quiet: true, at: at(2.5))
+        let ended = try XCTUnwrap(later.clear(text: "We need to recieve them.", all: [laterIssue], at: at(3.5), until: at(1.5)).first)
+        XCTAssertEqual(ended.stood, 1.5, accuracy: 0.001, "what it counted after the marks came down is taken back")
+    }
+
+    func testAMarkClearedSaysHowItWasLeft() throws {
+        let text = "We need to recieve them."
+        var (away, issue) = ledgerWithMark()
+        let ended = try XCTUnwrap(away.clear(text: text, all: [issue], at: at(2)).first)
+        XCTAssertEqual(ended.outcome, .away, "the hand went elsewhere, unless said otherwise")
+        XCTAssertTrue(ended.shown)
+
+        var (written, other) = ledgerWithMark()
+        let replaced = try XCTUnwrap(written.clear(text: "", all: [other], at: at(2), how: .replaced).first)
+        XCTAssertEqual(replaced.outcome, .replaced)
+        XCTAssertEqual(replaced.stood, 2, accuracy: 0.001)
+        XCTAssertTrue(replaced.shown)
+    }
+
+    func testAMarkAnsweredWhileTheMarksAreHiddenDidNotStandThroughTheHiding() throws {
+        var (ledger, issue) = ledgerWithMark()
+        ledger.hide(at: at(0.4))
+        let ending = ledger.answer(issue, .fixed(via: "keys"), at: at(5))
+        XCTAssertEqual(ending.stood, 0.4, accuracy: 0.001)
     }
 
     func testTheFixAllBatchDoesNotEndTheMarksBetweenItsEdits() throws {
@@ -239,6 +291,102 @@ final class EditorRecordTests: XCTestCase {
         XCTAssertTrue(lines.contains { $0.contains("8 marks · 1 fixed") }, "the old era keeps its own numbers: \(lines)")
         XCTAssertTrue(lines.contains { $0.contains("the draft, apart: 1 fixed") }, "\(lines)")
         XCTAssertEqual(EditorRecord(events: []).report(), [])
+    }
+
+    // MARK: - How a mark was left
+
+    func testHowAMarkWasLeftIsCountedApartAndTheOlderLeftStaysItsOwn() {
+        let events = [event("stood", at: 100), event("left", seconds: 9, at: 100),
+                      event("stood", at: 101), event("replaced", seconds: 4, at: 101),
+                      event("stood", kind: "grammar", at: 102), event("away", kind: "grammar", seconds: 3, at: 102),
+                      event("stood", at: 103), event("away", seconds: 2, at: 103)]
+        let t = EditorRecord(events: events.shuffled()).total
+        XCTAssertEqual(t.shown, 4)
+        XCTAssertEqual(t.left, 1, "as older builds wrote it: not told apart")
+        XCTAssertEqual(t.replaced, 1)
+        XCTAssertEqual(t.away, 2)
+        XCTAssertEqual(t.standing, 4, "left standing, however it was recorded")
+    }
+
+    /// A small record, as the report prints it: two eras of "left" in it.
+    private var small: [ObservationEvent] {
+        var events: [ObservationEvent] = []
+        func mark(_ outcome: String, kind: String, app: String, t: TimeInterval, seconds: Double = 5) {
+            events.append(event("stood", kind: kind, app: app, at: t))
+            events.append(event(outcome, kind: kind, app: app, seconds: seconds, at: t))
+        }
+        var t = 100.0
+        for outcome in ["applied", "applied", "byhand", "away", "away", "left"] { mark(outcome, kind: "spelling", app: "telegram", t: t); t += 1 }
+        for outcome in ["replaced", "away"] { mark(outcome, kind: "grammar", app: "telegram", t: t); t += 1 }
+        for outcome in ["applied", "away"] { mark(outcome, kind: "grammar", app: "slack", t: t); t += 1 }
+        return events
+    }
+
+    func testTheReportSaysHowMarksWereLeftAndNeverMixesTheKindsSilently() throws {
+        let lines = EditorRecord(events: small).report()
+        func line(_ prefix: String) throws -> String { try XCTUnwrap(lines.first { $0.hasPrefix(prefix) }, "\(lines)") }
+        XCTAssertTrue(try line("  edited into something else").contains("left standing 60%"), "\(lines)")
+        XCTAssertEqual(try line("  left standing:"), "  left standing: text replaced 10% · went elsewhere 40% · not recorded 10%")
+        XCTAssertEqual(try line("  grammar"), "  grammar   4 shown    25% useful  fixed 25% · by hand 0% · edited 0% · left 75% · kept 0%")
+        XCTAssertEqual(try line("  by app"), "  by app, spelling and grammar together:")
+        XCTAssertEqual(try line("  telegram"), "  telegram              8 marks    38% useful  2 fixed · 1 by hand · 0 edited · 5 left (3 spelling, 2 grammar) · 0 kept")
+        XCTAssertEqual(try line("  slack"), "  slack                 2 marks    50% useful  1 fixed · 0 by hand · 0 edited · 1 left (1 grammar) · 0 kept")
+        let widest = lines.map(\.count).max() ?? 0
+        XCTAssertLessThanOrEqual(widest, 125, "the width the report already uses: \(lines)")
+    }
+
+    func testTheLeftLineIsLeftOutWhenTheRecordHasNoNewOutcomes() {
+        let events = [event("stood", at: 100), event("left", seconds: 9, at: 100)]
+        let lines = EditorRecord(events: events).report()
+        XCTAssertFalse(lines.contains { $0.hasPrefix("  left standing:") }, "older records say nothing more than left: \(lines)")
+        XCTAssertTrue(lines.contains { $0.contains("left standing 100%") }, "\(lines)")
+    }
+
+    /// The log moves lines as the bytes they are and reads only their stamp,
+    /// so an outcome it has no name for is carried through a compaction. A
+    /// record from before the outcomes were told apart and one from after
+    /// fold into one count.
+    func testAnOlderMonthWithLeftAndANewerWithReplacedAndAwayFoldTogetherThroughACompaction() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("record-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl"))
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func stamped(_ action: String, kind: String? = "spelling", at date: Date, seconds: Double? = nil) -> [ObservationEvent] {
+            var shown = ObservationEvent(t: date, kind: .editor)
+            shown.action = "stood"
+            shown.rec = kind
+            shown.app = "telegram"
+            var ended = ObservationEvent(t: date, kind: .editor)
+            ended.action = action
+            ended.rec = kind
+            ended.app = "telegram"
+            ended.seconds = seconds
+            return [shown, ended]
+        }
+        let older = now.addingTimeInterval(-70 * 86_400), newer = now.addingTimeInterval(-3600)
+        for e in stamped("left", at: older, seconds: 9) + stamped("left", kind: "grammar", at: older, seconds: 4)
+            + stamped("replaced", at: newer, seconds: 3) + stamped("away", kind: "grammar", at: newer, seconds: 6)
+            + stamped("away", at: newer, seconds: 2) { log.append(e) }
+        log.flush()
+        log.compact(now: now)
+        let live = SealedFixture.text(of: log.file)
+        XCTAssertFalse(live.contains("\"left\""), "the older month has moved to its shard")
+        XCTAssertTrue(live.contains("replaced"), "and the newer month has stayed")
+
+        let back = SealedFixture.eventLog(log.file).readAll()
+        XCTAssertEqual(back.filter { $0.action == "left" }.count, 2, "the old outcome is kept, not dropped")
+        XCTAssertEqual(back.filter { $0.action == "replaced" }.count, 1)
+        XCTAssertEqual(back.filter { $0.action == "away" }.count, 2, "and so is the new one, after the compaction")
+        let record = EditorRecord(events: back)
+        XCTAssertEqual(record.total.shown, 5)
+        XCTAssertEqual(record.total.left, 2)
+        XCTAssertEqual(record.total.replaced, 1)
+        XCTAssertEqual(record.total.away, 2)
+        XCTAssertEqual(record.byKind["spelling"]?.standing, 3)
+        XCTAssertEqual(record.byKind["grammar"]?.standing, 2)
+        XCTAssertEqual(record.byAppKind["telegram"]?["grammar"]?.standing, 2)
     }
 
     func testFixesTakenBackAreNotFixed() {

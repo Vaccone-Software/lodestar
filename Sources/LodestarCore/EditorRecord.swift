@@ -32,9 +32,19 @@ public struct EditorRecord: Equatable {
         public var kept = 0
         public var byHand = 0
         public var edited = 0
+        /// Left standing, as older builds wrote it: sent, cleared or gone
+        /// away, not told apart.
         public var left = 0
+        /// Left standing because the text was written over in place: a
+        /// send, or a cleared field.
+        public var replaced = 0
+        /// Left standing because the hand went elsewhere.
+        public var away = 0
         /// Marks the editor withdrew itself: not part of `shown`.
         public var withdrawn = 0
+
+        /// Left standing, however it was recorded.
+        public var standing: Int { left + replaced + away }
 
         /// Fixed by Lodestar and left fixed.
         public var fixed: Int { max(0, applied - takenBack) }
@@ -88,6 +98,9 @@ public struct EditorRecord: Equatable {
     public let total: Tally
     public let byKind: [String: Tally]
     public let byApp: [String: Tally]
+    /// Each app's tally by the kind of mark, for the lines that must not
+    /// mix spelling and grammar without saying so.
+    public let byAppKind: [String: [String: Tally]]
     /// How long the marks the hand edited had stood before it did:
     /// under 3 seconds, 3 to 30, and longer.
     public let handStood: [Int]
@@ -101,6 +114,7 @@ public struct EditorRecord: Equatable {
         let cut = edits.first { $0.action == "stood" && $0.app != Self.draftApp }?.t
         since = cut
         var total = Tally(), kinds: [String: Tally] = [:], apps: [String: Tally] = [:]
+        var appKinds: [String: [String: Tally]] = [:]
         var hand = [0, 0, 0]
         var legacy = Legacy(), draft = Draft()
 
@@ -108,6 +122,7 @@ public struct EditorRecord: Equatable {
             change(&total)
             change(&kinds[kind, default: Tally()])
             change(&apps[event.app ?? "?", default: Tally()])
+            change(&appKinds[event.app ?? "?", default: [:]][kind, default: Tally()])
         }
 
         for event in edits {
@@ -131,6 +146,8 @@ public struct EditorRecord: Equatable {
                 case "byhand": bump(event, kind: kind) { $0.byHand += 1 }
                 case "changed": bump(event, kind: kind) { $0.edited += 1 }
                 case "left": bump(event, kind: kind) { $0.left += 1 }
+                case "replaced": bump(event, kind: kind) { $0.replaced += 1 }
+                case "away": bump(event, kind: kind) { $0.away += 1 }
                 case "withdrawn": bump(event, kind: kind) { $0.withdrawn += 1 }
                 default: break
                 }
@@ -163,6 +180,7 @@ public struct EditorRecord: Equatable {
         self.total = total
         byKind = kinds
         byApp = apps
+        byAppKind = appKinds
         handStood = hand
         self.legacy = legacy
         self.draft = draft
@@ -186,6 +204,16 @@ extension EditorRecord {
             let calendar = Calendar.current
             return "\(calendar.shortMonthSymbols[calendar.component(.month, from: date) - 1]) \(calendar.component(.day, from: date))"
         }
+        /// Which kinds of mark an app's left marks were, so a count that
+        /// spans spelling and grammar says so: " (10 spelling, 1 grammar)".
+        func kindsLeft(in app: String) -> String {
+            let kinds = byAppKind[app] ?? [:]
+            let order = ["spelling", "grammar"] + kinds.keys.filter { $0 != "spelling" && $0 != "grammar" }.sorted()
+            let parts = order.compactMap { kind in
+                kinds[kind].flatMap { $0.standing > 0 ? "\($0.standing) \(kind == "?" ? "unknown" : kind)" : nil }
+            }
+            return parts.isEmpty ? "" : " (" + parts.joined(separator: ", ") + ")"
+        }
         var lines: [String] = []
         if let since {
             let t = total
@@ -193,14 +221,21 @@ extension EditorRecord {
             lines.append("  \(t.shown) marks shown · \(percent(t.useful, of: t)) useful"
                          + " (\(percent(t.fixed, of: t)) fixed by Lodestar + \(percent(t.byHand, of: t)) fixed by hand)")
             lines.append("  edited into something else \(percent(t.edited, of: t))"
-                         + " · left standing \(percent(t.left, of: t))"
+                         + " · left standing \(percent(t.standing, of: t))"
                          + " · kept \(percent(t.kept, of: t))"
                          + " · \(t.takenBack) fixes taken back · \(t.withdrawn) withdrawn by the editor, not counted")
+            if t.replaced + t.away > 0 {
+                // How the marks left standing were left. A record from before
+                // the two were told apart says only that they were left.
+                let how = [("text replaced", t.replaced), ("went elsewhere", t.away), ("not recorded", t.left)]
+                    .filter { $0.1 > 0 }.map { "\($0.0) \(percent($0.1, of: t))" }
+                lines.append("  left standing: " + how.joined(separator: " · "))
+            }
             for kind in ["spelling", "grammar"] {
                 guard let k = byKind[kind], k.shown > 0 else { continue }
                 lines.append("  \(pad(kind, 10))\(pad("\(k.shown) shown", 11))\(pad("\(percent(k.useful, of: k)) useful", 12))"
                              + "fixed \(percent(k.fixed, of: k)) · by hand \(percent(k.byHand, of: k))"
-                             + " · edited \(percent(k.edited, of: k)) · left \(percent(k.left, of: k))"
+                             + " · edited \(percent(k.edited, of: k)) · left \(percent(k.standing, of: k))"
                              + " · kept \(percent(k.kept, of: k))")
             }
             if handStood.reduce(0, +) > 0 {
@@ -208,9 +243,11 @@ extension EditorRecord {
                 lines.append("  the hand's own edits came after the mark had stood: \(spans)")
             }
             let busiest = byApp.filter { $0.value.shown > 0 }.sorted { ($0.value.shown, $1.key) > ($1.value.shown, $0.key) }
+            if !busiest.isEmpty { lines.append("  by app, spelling and grammar together:") }
             for (app, a) in busiest.prefix(6) {
                 lines.append("  \(pad(app, 22))\(pad("\(a.shown) marks", 11))\(pad("\(percent(a.useful, of: a)) useful", 12))"
-                             + "\(a.fixed) fixed · \(a.byHand) by hand · \(a.edited) edited · \(a.left) left · \(a.kept) kept")
+                             + "\(a.fixed) fixed · \(a.byHand) by hand · \(a.edited) edited"
+                             + " · \(a.standing) left\(kindsLeft(in: app)) · \(a.kept) kept")
             }
         }
         if !legacy.isEmpty {

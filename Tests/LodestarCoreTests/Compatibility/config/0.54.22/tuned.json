@@ -1,0 +1,122 @@
+{
+  "$schema": "lodestar-schema.json",
+  "version": "0.54.22",
+  "lode": {
+    "tap": false,
+    "trigger": "left-command"
+  },
+  "app": {
+    "active-display": "focus",
+    "auto-update": false,
+    "channel": "preview",
+    "show-menu-bar": false,
+    "sounds": false,
+    "start-at-login": false,
+    "units": "metric"
+  },
+  "gestures": {
+    "hints": false,
+    "scroll": false
+  },
+  "web": {
+    "clicks": {
+      "browser": "com.apple.Safari",
+      "enabled": true
+    },
+    "fallback": "brave:Work",
+    "links": {
+      "docs": {
+        "url": "example.com/docs"
+      },
+      "tracker": {
+        "profile": "brave:Work",
+        "url": "tracker.example.com"
+      }
+    },
+    "routes": {
+      "example.com": "brave:Work"
+    },
+    "search-url": "https://duckduckgo.com/?q=%s"
+  },
+  "scroll": {
+    "smooth": false,
+    "speed": 2200,
+    "step": 80
+  },
+  "select": {
+    "copy-on-complete": true
+  },
+  "meetings": {
+    "calendars": {
+      "Work": "work@example.com"
+    },
+    "enabled": true,
+    "lead-minutes": 10
+  },
+  "clipboard": {
+    "enabled": true,
+    "exclude": {
+      "password": true
+    },
+    "exclude-apps": {
+      "com.example.Vault": true
+    },
+    "max-size-mb": 200,
+    "save-to": "~/Pictures",
+    "time-zones": {
+      "America/New_York": true
+    }
+  },
+  "editor": {
+    "enabled": true,
+    "language": "",
+    "model": "",
+    "skip-apps": {
+      "com.example.Terminal": true
+    }
+  },
+  "observations": {
+    "health": true,
+    "health-mb": 512,
+    "logbook": false,
+    "logbook-mb": 128
+  },
+  "coach": {
+    "enabled": false,
+    "stand": false,
+    "stand-after": 45
+  },
+  "keys": {
+    "10": "§"
+  },
+  "graph": {
+    "b": {
+      "p": "brave:Personal",
+      "w": "brave:Work"
+    },
+    "s": "Slack"
+  },
+  "appearance": {
+    "eye-comfort": false
+  },
+  "draft": {
+    "editing-style": "vim",
+    "input": "Desk Microphone",
+    "model": "",
+    "words": {
+      "Lodestar": true
+    }
+  },
+  "health": {
+    "keyboards": {
+      "Desk Keyboard": {
+        "space": "either thumb"
+      }
+    }
+  },
+  "mice": {
+    "reversed-wheels": {
+      "1133:49271": "Desk Mouse"
+    }
+  }
+}

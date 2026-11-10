@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// Where Keep, the clipboard strip, loses its openings. The abandonment
 /// line says how many strip openings ended in nothing; this says what the
@@ -84,7 +86,7 @@ public struct KeepReport: Equatable {
     public var searches: Int { searchPasted + searchActed + searchLeft }
 
     /// Nil when the strip was not opened in the window.
-    public static func compute(events: [ObservationEvent], days: Int = 28, now: Date = Date(),
+    public static func compute(events: [ObservationEvent], days: Int = 28, now: Date = Moment.now.date,
                                calendar: Calendar = .current) -> KeepReport? {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let opens = events.filter {

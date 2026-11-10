@@ -1,6 +1,8 @@
 import Foundation
 import StoicJSON
 import StoicSettings
+import Stoic
+import StoicTime
 
 /// Writes the config's history from the store's stream of changes.
 ///
@@ -46,7 +48,7 @@ public final class ConfigHistoryRecorder: @unchecked Sendable {
     private var lastGroup: Int?
 
     public init(store: ConfigStore.Store, file: URL = ConfigHistory.defaultFile,
-                now: @escaping @Sendable () -> Date = { Date() },
+                now: @escaping @Sendable () -> Date = { Moment.now.date },
                 queue: DispatchQueue = .main,
                 onRecorded: ((Recorded) -> Void)? = nil) {
         self.store = store

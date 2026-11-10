@@ -1,5 +1,7 @@
 import Foundation
 import StoicStore
+import Stoic
+import StoicTime
 
 /// One observed event, flat on purpose: every field the analysis layer will
 /// ever ask about is a column here, and a JSONL line is the whole record.
@@ -852,7 +854,7 @@ public final class EventLog: @unchecked Sendable {
     /// of archive costs a ninety-day reader nothing, and what falls before
     /// the window is let go as each line is read, not filtered out of an
     /// array of the whole of the shards after it.
-    public func recent(days: Int, now: Date = Date()) -> [ObservationEvent] {
+    public func recent(days: Int, now: Date = Moment.now.date) -> [ObservationEvent] {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         return io.sync {
             var events: [ObservationEvent] = []
@@ -869,7 +871,7 @@ public final class EventLog: @unchecked Sendable {
     /// decodes already holds everything buffered — safe from any thread,
     /// which is where the coach's recommendation pass runs it. `days`
     /// bounds the window; nil reads the whole ring.
-    public func snapshot(days: Int? = nil, now: Date = Date()) -> [ObservationEvent] {
+    public func snapshot(days: Int? = nil, now: Date = Moment.now.date) -> [ObservationEvent] {
         io.sync { flushLocked() }
         guard let days else { return readAll() }
         return recent(days: days, now: now)
@@ -915,14 +917,14 @@ public final class EventLog: @unchecked Sendable {
     }
 
     /// Rotate closed months into shards and drop what has aged out.
-    public func compact(now: Date = Date()) {
+    public func compact(now: Date = Moment.now.date) {
         io.sync { self.compactLocked(now: now) }
     }
 
     /// The boot path: same rotation, but launch never waits on it — the
     /// live file is a full decode and rewrite, and the tap should be
     /// standing before the disk has finished settling history.
-    public func compactSoon(now: Date = Date()) {
+    public func compactSoon(now: Date = Moment.now.date) {
         io.async { self.compactLocked(now: now) }
     }
 
@@ -1434,7 +1436,7 @@ extension EventLog {
     /// focus, but a shard at a time and a line at a time, so what is held at
     /// any moment is one month's bytes and the focuses found, never a
     /// decoded event.
-    public func focusStream(days: Int, now: Date = Date()) -> [FocusStamp] {
+    public func focusStream(days: Int, now: Date = Moment.now.date) -> [FocusStamp] {
         io.sync { flushLocked() }
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let found: [FocusStamp] = io.sync {

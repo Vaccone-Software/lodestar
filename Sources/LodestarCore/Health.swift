@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The hands' pulse: counts and moments over all input, folded into one
 /// event per quarter hour. Pure and value-typed so the whole accumulation
@@ -298,7 +300,7 @@ public struct HealthPulse: Equatable {
     /// Close the open window unconditionally — shutdown's path, and the
     /// switch being turned off. Either way the bout is over: whatever
     /// comes back later starts a new one.
-    public mutating func flush(now: Date = Date()) -> ObservationEvent? {
+    public mutating func flush(now: Date = Moment.now.date) -> ObservationEvent? {
         let pulse = closedWindow()
         reset(windowStart: nil)
         endBout()
@@ -365,7 +367,7 @@ public struct HealthPulse: Equatable {
     /// Stamped at the window's start, so a pulse lands in the hour and the
     /// month it describes.
     private func build() -> ObservationEvent {
-        var event = ObservationEvent(t: windowStart ?? Date(), kind: .pulse)
+        var event = ObservationEvent(t: windowStart ?? Moment.now.date, kind: .pulse)
         event.keys = keys
         event.backspaces = backspaces
         event.clicks = clicks
@@ -577,7 +579,7 @@ public enum Health {
     public static let stretchGap: TimeInterval = 20 * 60
 
     public static func summary(events: [ObservationEvent], days: Int,
-                               now: Date = Date(),
+                               now: Date = Moment.now.date,
                                calendar: Calendar = .current) -> Summary? {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let pulses = events.filter { $0.kind == .pulse && $0.t >= cutoff }

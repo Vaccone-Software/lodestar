@@ -1,5 +1,7 @@
 import Foundation
 import StoicStore
+import Stoic
+import StoicTime
 
 /// Owns both halves of the observation system: the event log (the truth)
 /// and the aggregate view (the cache). Every semantic method builds one
@@ -266,7 +268,7 @@ public final class ObservationStore {
     /// 0 the trigger→first-letter recall; `peeked` says the map was up
     /// before the first letter landed.
     public func chainCompleted(_ letters: [String], gaps: [TimeInterval], peeked: Bool,
-                               at now: Date = Date()) {
+                               at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .chain)
         event.chain = letters.map { $0.lowercased() }
         event.gaps = gaps
@@ -278,7 +280,7 @@ public final class ObservationStore {
     /// there is. `hover` is how long the hand sat on the prefix first:
     /// an instant escape is "wrong tool", a long one is "couldn't recall".
     public func chainAbandoned(_ letters: [String], hover: TimeInterval,
-                               at now: Date = Date()) {
+                               at now: Date = Moment.now.date) {
         guard !letters.isEmpty else { return }
         var event = ObservationEvent(t: now, kind: .abandon)
         event.chain = letters.map { $0.lowercased() }
@@ -288,7 +290,7 @@ public final class ObservationStore {
 
     /// A key that was not legal where it was pressed. The key itself is the
     /// evidence: it is the letter the hand believed in.
-    public func wrongKey(after letters: [String], pressed: String, at now: Date = Date()) {
+    public func wrongKey(after letters: [String], pressed: String, at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .wrongKey)
         event.chain = letters.map { $0.lowercased() }
         event.pressed = pressed.lowercased()
@@ -298,7 +300,7 @@ public final class ObservationStore {
     /// An app was reached, and by which road. `cost` rides along for the
     /// launcher, where the road's price was actually measured.
     public func reached(_ app: String, via route: Observations.Route,
-                        cost: Observations.LauncherCost? = nil, at now: Date = Date()) {
+                        cost: Observations.LauncherCost? = nil, at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .reach)
         event.app = app.lowercased()
         event.route = route.rawValue
@@ -317,7 +319,7 @@ public final class ObservationStore {
     /// in the layout it brought back. Recorded as a reach by the breath
     /// road for each of them, so the coach can see a breath being used —
     /// before this, an accepted breath left no trace at all.
-    public func breathRestored(path: String, apps: [String], at now: Date = Date()) {
+    public func breathRestored(path: String, apps: [String], at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .reach)
         event.route = Observations.Route.breath.rawValue
         event.chain = [path.lowercased()]
@@ -329,7 +331,7 @@ public final class ObservationStore {
     /// The hand stood `app` beside `beside` — the apps already in the
     /// layout it joined. Only apps other than the arrival count; two
     /// windows of one app side by side are not a pair a breath could hold.
-    public func composed(app: String, beside: [String], at now: Date = Date()) {
+    public func composed(app: String, beside: [String], at now: Date = Moment.now.date) {
         let arrival = app.lowercased()
         let others = Set(beside.map { $0.lowercased() }).subtracting([arrival, ""])
         guard !arrival.isEmpty, !others.isEmpty else { return }
@@ -347,7 +349,7 @@ public final class ObservationStore {
     /// answer was about, for the outcomes whose `kind` says something else
     /// (a dismissal's reach). `EventLog` lists what the actions mean.
     public func edited(action: String, kind: String?, app: String, via: String? = nil,
-                       mark: String? = nil, stood: TimeInterval? = nil, at now: Date = Date()) {
+                       mark: String? = nil, stood: TimeInterval? = nil, at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .editor)
         event.action = action
         event.rec = kind
@@ -360,7 +362,7 @@ public final class ObservationStore {
     }
 
     /// The launcher opened, took typing, and was escaped without a pick.
-    public func launcherAbandoned(typed: Int, at now: Date = Date()) {
+    public func launcherAbandoned(typed: Int, at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .launcherAbandon)
         event.typed = typed
         record(event)
@@ -375,7 +377,7 @@ public final class ObservationStore {
                          outcome: String?, typed: Int, seconds: TimeInterval,
                          matches: Int? = nil, firstKey: TimeInterval? = nil,
                          entryChips: Int? = nil, pointerOn: Bool? = nil,
-                         at now: Date = Date()) {
+                         at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .select)
         event.pointerOn = pointerOn
         event.app = app.lowercased()
@@ -394,7 +396,7 @@ public final class ObservationStore {
     /// word the aim landed on.
     public func scrolled(app: String, seconds: TimeInterval, keys: Int, pages: Int,
                          ends: Int, aims: Int, aimsLanded: Int, aimsAway: Int,
-                         exit: String, at now: Date = Date()) {
+                         exit: String, at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .scroll)
         event.app = app.lowercased()
         event.seconds = seconds
@@ -413,7 +415,7 @@ public final class ObservationStore {
                         seconds: TimeInterval, typed: Int, words: Int, backspaces: Int,
                         switches: Int, pointerActs: Int = 0, firstKey: TimeInterval?, firstWord: TimeInterval?,
                         warm: Bool, peakDb: Double? = nil, editing: Draft.EditingStyle,
-                        at now: Date = Date()) {
+                        at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .draft)
         event.app = app.lowercased()
         event.source = door
@@ -433,7 +435,7 @@ public final class ObservationStore {
         record(event)
     }
 
-    public func verbUsed(_ verb: String, at now: Date = Date()) {
+    public func verbUsed(_ verb: String, at now: Date = Moment.now.date) {
         guard !verb.isEmpty else { return }
         var event = ObservationEvent(t: now, kind: .verb)
         event.verb = verb
@@ -446,7 +448,7 @@ public final class ObservationStore {
                        rank: Int?, typed: Int, seconds: TimeInterval,
                        firstKey: TimeInterval?, matches: Int? = nil, visible: Int? = nil,
                        recents: Int? = nil, depth: Int? = nil,
-                       closed: String? = nil, after: String? = nil, at now: Date = Date()) {
+                       closed: String? = nil, after: String? = nil, at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .paste)
         event.app = app.lowercased()
         event.action = action
@@ -468,7 +470,7 @@ public final class ObservationStore {
     /// A destination opened in a browser profile. The host, never the URL:
     /// the path and query are the content, the host is the routing fact.
     public func webOpened(host: String?, profile: String, source: String, row: String? = nil,
-                          at now: Date = Date()) {
+                          at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .web)
         event.host = host?.lowercased()
         event.profile = profile
@@ -479,7 +481,7 @@ public final class ObservationStore {
 
     /// Focus landed on an app, by any road — Lodestar's or the system's.
     public func focused(app: String, road: String? = nil, pulled: Bool? = nil,
-                        at now: Date = Date()) {
+                        at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .focus)
         event.app = app.lowercased()
         // The road, when the shell could name one (`FocusRoads`), and
@@ -492,7 +494,7 @@ public final class ObservationStore {
     /// The meeting chip's life. Provider and decider only — a meeting's
     /// title and link are the content, and the content is nobody's.
     public func meetingChip(action: String, provider: String, decider: String?,
-                            lead: Double? = nil, at now: Date = Date()) {
+                            lead: Double? = nil, at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .meeting)
         event.action = action
         event.app = provider
@@ -504,7 +506,7 @@ public final class ObservationStore {
     /// A graph binding changed at config reload. Every edit is a natural
     /// experiment; the epoch stamp is what makes it readable as one.
     public func epochBumped(address letters: [String], change: String,
-                            to: [String]? = nil, at now: Date = Date()) {
+                            to: [String]? = nil, at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .epoch)
         event.address = Observations.key(letters)
         event.change = change
@@ -518,7 +520,7 @@ public final class ObservationStore {
     /// The coach spoke or was answered. Events like everything else, so
     /// the ledger the curriculum runs on is rebuildable like everything
     /// else. `action` is offered | accepted | never.
-    public func coach(action: String, rec: Recommendation, at now: Date = Date()) {
+    public func coach(action: String, rec: Recommendation, at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .coach)
         event.action = action
         event.rec = rec.kind.rawValue
@@ -607,7 +609,7 @@ public final class ObservationStore {
     private var healthClearedAt: Date?
 
     /// The instrument observing itself: a surface's warmup, in seconds.
-    public func latency(surface: String, seconds: TimeInterval, at now: Date = Date()) {
+    public func latency(surface: String, seconds: TimeInterval, at now: Date = Moment.now.date) {
         guard seconds > 0, !surface.isEmpty else { return }
         var event = ObservationEvent(t: now, kind: .latency)
         event.verb = surface
@@ -645,7 +647,7 @@ public final class ObservationStore {
     /// month, one write. Boot calls it; a long-lived process re-calls it
     /// on its daily cadence, because a machine that never reboots still
     /// crosses month ends.
-    public func rollupSoon(now: Date = Date()) {
+    public func rollupSoon(now: Date = Moment.now.date) {
         guard enabled else { return }
         rollupQueue.async { [rollupFile, fileSystem, ring = vault.ring(.logbook), log, healthLog, rollupWillRun] in
             rollupWillRun?()
@@ -660,7 +662,7 @@ public final class ObservationStore {
     /// The roll, on the rollup queue and waited for: what `rollupSoon` queues,
     /// for a caller that needs the archive written when it returns.
     @discardableResult
-    public func roll(now: Date = Date()) -> Rollup.Outcome {
+    public func roll(now: Date = Moment.now.date) -> Rollup.Outcome {
         rollupQueue.sync {
             Self.roll(log: log, healthLog: healthLog, file: rollupFile, ring: vault.ring(.logbook),
                       fileSystem: fileSystem, now: now)
@@ -703,7 +705,7 @@ public final class ObservationStore {
     /// cleared only if the rollup can be read; if it cannot, it is left as it
     /// is and the log says so.
     public func clearHealth() {
-        healthClearedAt = Date()
+        healthClearedAt = Moment.now.date
         healthLog.clear()
         let directory = file.deletingLastPathComponent()
         let root = directory.path

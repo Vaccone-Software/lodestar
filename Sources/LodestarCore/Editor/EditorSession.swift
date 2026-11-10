@@ -1,4 +1,6 @@
 import AppKit
+import Stoic
+import StoicTime
 
 /// The instant layer: the system's spell checker over finished words.
 /// Main thread, as NSSpellChecker asks; a paragraph costs about 1.5 ms.
@@ -202,7 +204,7 @@ public final class EditorSession {
     private var dismissedOrder: [String] = []
 
     /// `now` is the clock the retries wait on; tests hand in their own.
-    public init(now: @escaping () -> Date = { Date() }) { self.now = now }
+    public init(now: @escaping () -> Date = { Moment.now.date }) { self.now = now }
 
     /// A model answer for a sentence, kept — or nil, the model had none,
     /// which is remembered with a time to ask again.

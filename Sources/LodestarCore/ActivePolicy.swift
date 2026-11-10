@@ -1,4 +1,6 @@
 import AppKit
+import Stoic
+import StoicTime
 import Synchronization
 
 /// Where is "here"? The single answer every surface consults — layouts
@@ -49,7 +51,7 @@ public enum ActivePolicy {
     /// what a hand can notice, far below what the queries were costing.
     public static var presentationFrame: NSRect {
         if let frameOverride { return frameOverride }
-        let now = Date()
+        let now = Moment.now.date
         if let cached = state.withLock({ $0.cachedPresentation }), now.timeIntervalSince(cached.at) < 0.25 {
             return cached.frame
         }

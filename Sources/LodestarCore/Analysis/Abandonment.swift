@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// Where effort leaked: each surface a gesture opens, the share of its
 /// openings that ended in nothing, and the seconds those endings cost.
@@ -41,7 +43,7 @@ public struct Abandonment: Equatable {
     }
 
     public static func compute(events: [ObservationEvent], days: Int = 28,
-                               now: Date = Date(), calendar: Calendar = .current) -> Abandonment {
+                               now: Date = Moment.now.date, calendar: Calendar = .current) -> Abandonment {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let window = events.filter { $0.t >= cutoff }
         var stamps: Set<String> = []

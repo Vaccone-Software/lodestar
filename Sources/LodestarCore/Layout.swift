@@ -558,9 +558,9 @@ public final class LayoutController {
     private func perform(moves: [(WindowModel.Window, CGRect)],
                          completion: @escaping () -> Void) {
         guard let moveQueue else {
-            let began = Date()
+            let began = ContinuousClock.now
             for (window, frame) in moves { mover.setFrame(window, frame) }
-            onMoves?(Date().timeIntervalSince(began), moves.count)
+            onMoves?(began.secondsElapsed, moves.count)
             completion()
             return
         }
@@ -569,9 +569,9 @@ public final class LayoutController {
         let report = MainQueueOnly(value: onMoves)
         let done = MainQueueOnly(value: completion)
         moveQueue.async { [mover] in
-            let began = Date()
+            let began = ContinuousClock.now
             for (window, frame) in moves { mover.setFrame(window, frame) }
-            let took = Date().timeIntervalSince(began)
+            let took = began.secondsElapsed
             DispatchQueue.main.async {
                 report.value?(took, moves.count)
                 done.value()

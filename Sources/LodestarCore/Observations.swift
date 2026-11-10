@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// What Lodestar knows about how you reach things: the materialized view
 /// over the event log, and the substrate every model reads.
@@ -895,23 +897,23 @@ public struct Observations: Codable, Equatable, Sendable {
         return max(1, weeks.values.filter { $0 > 0 }.count)
     }
 
-    public func observedWeeks(address letters: [String], now: Date = Date()) -> Int {
+    public func observedWeeks(address letters: [String], now: Date = Moment.now.date) -> Int {
         observedWeeks(addressKey: Self.key(letters), now: now)
     }
 
-    public func observedWeeks(addressKey: String, now: Date = Date()) -> Int {
+    public func observedWeeks(addressKey: String, now: Date = Moment.now.date) -> Int {
         let record = addresses[addressKey]
         return Self.observedWeeks(firstWeek: record?.firstWeek,
                                   weeks: record?.weeks ?? [:], now: now)
     }
 
-    public func observedWeeks(app: String, now: Date = Date()) -> Int {
+    public func observedWeeks(app: String, now: Date = Moment.now.date) -> Int {
         let record = apps[app.lowercased()]
         return Self.observedWeeks(firstWeek: record?.firstWeek,
                                   weeks: record?.weeks ?? [:], now: now)
     }
 
-    public func observedWeeks(host: String, now: Date = Date()) -> Int {
+    public func observedWeeks(host: String, now: Date = Moment.now.date) -> Int {
         let record = hosts[host]
         return Self.observedWeeks(firstWeek: record?.firstWeek,
                                   weeks: record?.weeks ?? [:], now: now)

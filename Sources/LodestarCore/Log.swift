@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 import Synchronization
 
 /// Structured, rotating file log at ~/.local/share/lodestar/lodestar.log,
@@ -92,7 +94,7 @@ public enum Log {
     }
 
     private static func write(_ level: String, _ event: String, _ fields: [(key: String, value: Any)]) {
-        var line = "\(formatter.string(from: Date())) \(level) \(event)"
+        var line = "\(formatter.string(from: Moment.now.date)) \(level) \(event)"
         for (key, value) in fields {
             line += " \(key)=\(format(value))"
         }

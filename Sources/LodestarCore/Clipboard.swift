@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The clipboard history, extracted pure: what may be recorded, what a clip
 /// is, which slot a pin occupies, and what gets trimmed. The effectful half
@@ -543,7 +545,7 @@ public enum Clipboard {
     /// cannot say that. "Ago" is the word that makes the letter mean
     /// something to a hand that has never seen the card: "3m" could be
     /// a size; "3m ago" is a time.
-    public static func age(of clip: Clip, now: Date = Date()) -> String {
+    public static func age(of clip: Clip, now: Date = Moment.now.date) -> String {
         let seconds = max(0, now.timeIntervalSince(clip.created))
         if seconds < 45 { return "just now" }
         if seconds < 3600 { return "\(Int(seconds / 60))m ago" }
@@ -938,7 +940,7 @@ public extension Clipboard {
     /// line), a column its sum. The card shows this same text while `⌃`
     /// is held, so what is seen is what pastes.
     static func reading(of clip: Clip, units: ClipQuantity.System,
-                        zones: [TimeZone] = [], now: Date = Date(), paths: [URL]? = nil) -> String? {
+                        zones: [TimeZone] = [], now: Date = Moment.now.date, paths: [URL]? = nil) -> String? {
         // A copy of files reads as where its files are now, for whatever
         // takes only text: a shell first of all.
         if clip.pastesAsFiles { return paths.flatMap { $0.isEmpty ? nil : quotedPaths($0) } }

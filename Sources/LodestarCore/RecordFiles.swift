@@ -1,6 +1,8 @@
 import Foundation
 import StoicSealed
 import StoicStore
+import Stoic
+import StoicTime
 
 /// Which files in the data directory belong to which sealed record, in
 /// which form, by name. One place, so the key policy (what is sealed and
@@ -180,7 +182,7 @@ public enum RecordFiles {
     /// Returns the folder's name, or nil if anything could not be moved
     /// (what was moved stays moved; the rest stays where it is).
     static func moveAside(
-        _ relative: [String], in directory: String, folder: String, fileSystem: any FileSystem, now: Date = Date()
+        _ relative: [String], in directory: String, folder: String, fileSystem: any FileSystem, now: Date = Moment.now.date
     ) -> String? {
         let stamp = dateStamp(now)
         var name = "\(folder)-\(stamp)"

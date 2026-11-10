@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 import LodestarCore
 import StoicSealed
+import Stoic
+import StoicTime
 
 /// `probe memory-seed`, `memory-rollup` and `memory-coach`: what the three
 /// launch-time readers of the logbook cost in memory, measured in a process of this
@@ -36,11 +38,11 @@ func runMemory(_ args: inout [String], rollup: Bool, coach: Bool = false) {
         }
         index += 1
     }
-    let started = Date()
+    let started = ContinuousClock.now
     func say(_ text: String) {
         let (current, peak) = MemoryProbe.footprint()
         FileHandle.standardError.write(Data(String(
-            format: "%6.1fs footprint %d MB interval-peak %d MB  %@\n", Date().timeIntervalSince(started),
+            format: "%6.1fs footprint %d MB interval-peak %d MB  %@\n", started.secondsElapsed,
             current >> 20, peak >> 20, text).utf8))
     }
 
@@ -69,7 +71,7 @@ func runMemory(_ args: inout [String], rollup: Bool, coach: Bool = false) {
     }
     let vault = Vault(custody: InMemoryKeyCustody(key), directory: directory)
     let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: vault)
-    let now = Date()
+    let now = Moment.now.date
     say("written \(events) events, by the child")
 
     MemoryProbe.letGo()
@@ -139,7 +141,7 @@ func runMemoryPrepare(_ args: inout [String]) {
     let custody = InMemoryKeyCustody()
     let vault = Vault(custody: custody, directory: directory)
     let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: vault)
-    let now = Date()
+    let now = Moment.now.date
     MemoryProbe.write(events: events, spanDays: spanDays, now: now, store: store, health: health)
     if rotate {
         store.log.compact(now: now)

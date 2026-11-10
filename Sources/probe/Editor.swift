@@ -1,6 +1,8 @@
 import AppKit
 import Vision
 import LodestarCore
+import Stoic
+import StoicTime
 
 // MARK: - The editor's questions
 
@@ -241,9 +243,9 @@ private func replaceRange(_ element: AXUIElement, _ range: NSRange, with text: S
 }
 
 private func milliseconds(_ body: () -> Void) -> Double {
-    let start = Date()
+    let start = ContinuousClock.now
     body()
-    return Date().timeIntervalSince(start) * 1000
+    return start.secondsElapsed * 1000
 }
 
 private func app(named name: String) -> (NSRunningApplication, AXUIElement) {
@@ -316,7 +318,7 @@ private func editorSurvey(_ args: inout [String]) {
 // MARK: - field
 
 private final class NotificationLog {
-    var seen: [(String, Date)] = []
+    var seen: [(String, ContinuousClock.Instant)] = []
 }
 
 private func editorField(_ args: inout [String]) {
@@ -764,7 +766,7 @@ private func listen(field: AXUIElement, pid: pid_t) {
     let callback: AXObserverCallback = { _, _, notification, refcon in
         guard let refcon else { return }
         let log = Unmanaged<NotificationLog>.fromOpaque(refcon).takeUnretainedValue()
-        log.seen.append((notification as String, Date()))
+        log.seen.append((notification as String, ContinuousClock.now))
     }
     guard AXObserverCreate(pid, callback, &observer) == .success, let observer else {
         print("notifications: could not create an observer")
@@ -785,10 +787,10 @@ private func listen(field: AXUIElement, pid: pid_t) {
     let length = AX.int(field, kAXNumberOfCharactersAttribute as String) ?? 0
     select(field, NSRange(location: length, length: 0))
     log.seen.removeAll()
-    var start = Date()
+    var start = ContinuousClock.now
     AXUIElementSetAttributeValue(field, kAXSelectedTextAttribute as CFString, " ok" as CFString)
     pump(0.6)
-    let programmatic = log.seen.map { "\($0.0.replacingOccurrences(of: "AX", with: "")) +\(Int($0.1.timeIntervalSince(start) * 1000))ms" }
+    let programmatic = log.seen.map { "\($0.0.replacingOccurrences(of: "AX", with: "")) +\(Int(start.duration(to: $0.1).inSeconds * 1000))ms" }
 
     // A keystroke, as the hand would type it.
     AXUIElementSetAttributeValue(field, kAXFocusedAttribute as CFString, kCFBooleanTrue)
@@ -800,10 +802,10 @@ private func listen(field: AXUIElement, pid: pid_t) {
         return
     }
     log.seen.removeAll()
-    start = Date()
+    start = ContinuousClock.now
     postKey(7, flags: [], to: pid)      // x
     pump(0.6)
-    let typed = log.seen.map { "\($0.0.replacingOccurrences(of: "AX", with: "")) +\(Int($0.1.timeIntervalSince(start) * 1000))ms" }
+    let typed = log.seen.map { "\($0.0.replacingOccurrences(of: "AX", with: "")) +\(Int(start.duration(to: $0.1).inSeconds * 1000))ms" }
     postKey(51, flags: [], to: pid)     // delete, taking the x back
     pump(0.3)
     let value = AX.string(field, kAXValueAttribute as String) ?? ""

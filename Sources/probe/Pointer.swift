@@ -51,7 +51,7 @@ func runPointer(_ args: inout [String]) {
     CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
     CGEvent.tapEnable(tap: tap, enable: true)
     print("probe pointer: listening \(Int(seconds)) s — use one device, then the other")
-    RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: seconds))
     for (key, count) in tally.lock.withLock({ tally.counts }).sorted(by: { $0.key < $1.key }) {
         print(String(format: "%6d  %@", count, key))
     }

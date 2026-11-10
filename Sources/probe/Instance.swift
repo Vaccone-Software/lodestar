@@ -117,8 +117,8 @@ private func olderBuildTakeOver(pidFile: URL, selfPid: Int32, wait: Double) {
        let oldPid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
        oldPid != selfPid, kill(oldPid, 0) == 0 {
         kill(oldPid, SIGTERM)
-        let deadline = Date().addingTimeInterval(wait)
-        while kill(oldPid, 0) == 0, Date() < deadline { usleep(25_000) }
+        let deadline = ContinuousClock.now + .seconds(wait)
+        while kill(oldPid, 0) == 0, ContinuousClock.now < deadline { usleep(25_000) }
     }
     try? "\(selfPid)".write(to: pidFile, atomically: true, encoding: .utf8)
 }

@@ -308,9 +308,9 @@ private func dictationEar(_ options: [String: String]) {
     let done = DispatchSemaphore(value: 0)
     Task {
         do {
-            let began = Date()
+            let began = ContinuousClock.now
             try await ear.load()
-            FileHandle.standardError.write("ear: \(ear.name) loaded in \(String(format: "%.1f", Date().timeIntervalSince(began))) s, footprint \(footprintMB().now) MB\n".data(using: .utf8)!)
+            FileHandle.standardError.write("ear: \(ear.name) loaded in \(String(format: "%.1f", began.secondsElapsed)) s, footprint \(footprintMB().now) MB\n".data(using: .utf8)!)
             defer {
                 let memory = footprintMB()
                 FileHandle.standardError.write("ear: footprint \(memory.now) MB, peak \(memory.peak) MB\n".data(using: .utf8)!)
@@ -320,9 +320,9 @@ private func dictationEar(_ options: [String: String]) {
             for (n, item) in items.enumerated() {
                 guard let id = item["id"] as? String, let file = item["file"] as? String else { continue }
                 let audio = try samples16k(root.appendingPathComponent(file))
-                let start = Date()
+                let start = ContinuousClock.now
                 let heard = try await ear.transcribe(audio, context: context)
-                let seconds = Date().timeIntervalSince(start)
+                let seconds = start.secondsElapsed
                 let runs: [[String: Any]] = heard.words.map { word in
                     var d: [String: Any] = ["t": word.text]
                     if let s = word.start { d["s"] = s }
@@ -426,9 +426,9 @@ private func dictationDraft(_ options: [String: String]) {
                     let runLanded = String(before.dropFirst(runOffset!)) + landed
                     let samples = held.slice(from: max(0, runTime! - 0.2), to: end + 0.3)
                     phrases += 1
-                    let began = Date()
+                    let began = ContinuousClock.now
                     let again = try? await ear.transcribe(samples, context: context)
-                    times.append(Date().timeIntervalSince(began))
+                    times.append(began.secondsElapsed)
                     if let again, let text = settler.resettled(again, landed: runLanded, after: runBefore, context: context) {
                         if text != runLanded { changed += 1 }
                         buffer = runBefore + text
@@ -442,9 +442,9 @@ private func dictationDraft(_ options: [String: String]) {
                     let samples = held.slice(from: max(0, start - 0.2), to: end + 0.3)
                     if samples.count >= 8_000 {
                         phrases += 1
-                        let began = Date()
+                        let began = ContinuousClock.now
                         let again = try? await ear.transcribe(samples, context: context)
-                        times.append(Date().timeIntervalSince(began))
+                        times.append(began.secondsElapsed)
                         if let again {
                             if let text = settler.resettled(again, landed: landed, after: before, context: context) {
                                 if text != landed { landed = text; changed += 1 }

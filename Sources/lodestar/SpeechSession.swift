@@ -208,7 +208,7 @@ enum SpeechStart {
                 // The headset's engine goes down and comes back: the bridge,
                 // if one is open, covers the gap.
                 bridgeAgain()
-                try? await Task.sleep(for: .seconds(SpeechStart.settleSeconds))
+                try? await Ambient.sleep(for: .seconds(SpeechStart.settleSeconds))
                 guard !stopped() else { stopOwnBridge(); return .ended }
             }
             let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
@@ -1492,7 +1492,7 @@ private actor AnalyzerBox {
                     let progress = request.progress
                     let ticker = Task {
                         while !Task.isCancelled {
-                            try? await Task.sleep(for: .milliseconds(500))
+                            try? await Ambient.sleep(for: .milliseconds(500))
                             say(.preparing(progress: progress.fractionCompleted))
                         }
                     }
@@ -1740,7 +1740,9 @@ private actor AnalyzerBox {
             return
         }
         let sliceFrames = AVAudioFrameCount(audio.processingFormat.sampleRate / 10)
-        let wall = Date()
+        // Paced on Stoic's clock, like every wait here, so a test can move it.
+        let clock = Ambient.current.clock
+        let wall = clock.now
         var streamed: AVAudioFramePosition = 0
         Log.info("draft", ["speech": "feeding file", "file": url.lastPathComponent,
                            "seconds": Int(Double(audio.length) / audio.processingFormat.sampleRate)])
@@ -1750,8 +1752,9 @@ private actor AnalyzerBox {
             streamed += AVAudioFramePosition(slice.frameLength)
             feed.push(slice)
             let audioClock = Double(streamed) / audio.processingFormat.sampleRate
-            let ahead = audioClock - Date().timeIntervalSince(wall)
-            if ahead > 0 { try? await Task.sleep(for: .milliseconds(Int(ahead * 1000))) }
+            let elapsed = wall.duration(to: clock.now)
+            let ahead = audioClock - (Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
+            if ahead > 0 { try? await Ambient.sleep(for: .milliseconds(Int(ahead * 1000))) }
         }
         Log.info("draft", ["speech": "file fed"])
     }

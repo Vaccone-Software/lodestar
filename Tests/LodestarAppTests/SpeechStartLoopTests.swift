@@ -1,5 +1,8 @@
 import AVFoundation
 import LodestarCore
+import Stoic
+import StoicTesting
+import Testing
 import XCTest
 @testable import lodestar
 
@@ -69,6 +72,19 @@ final class SpeechStartLoopTests: XCTestCase {
             stopped: { run.stopped },
             stopOwnBridge: { run.note("stopOwnBridge") },
             say: { run.say($0) })
+    }
+
+    /// The loop run to its end on a clock the test owns: the settle between
+    /// two attempts is waited out in virtual time, so a test of a second
+    /// attempt takes no real 650 ms.
+    private func loopThroughTheSettle(_ run: Run, began: Date = Date()) async -> SpeechStart.Outcome {
+        let clock = TestClock()
+        return await withTestAmbient(clock: clock) {
+            let waiting = Task { await self.loop(run, began: began) }
+            await clock.waitForSleepers()
+            await clock.advance(by: .seconds(SpeechStart.settleSeconds))
+            return await waiting.value
+        }
     }
 
     private func assertStarted(_ outcome: SpeechStart.Outcome, file: StaticString = #filePath, line: UInt = #line) {
@@ -184,13 +200,34 @@ final class SpeechStartLoopTests: XCTestCase {
         XCTAssertTrue(said[0].contains("INFO draft speech=\"audio start failed\" attempt=1 error=\"engine glitch\""), "\(said)")
     }
 
+    /// The settle is waited on Stoic's clock, so a test moves it: no second
+    /// attempt begins until the whole settle has passed, and the bridge is
+    /// armed before it, not after.
+    func testTheSettleIsWaitedOnStoicsClock() async {
+        let clock = TestClock()
+        let run = Run()
+        run.script = [Glitch()]
+        await withTestAmbient(clock: clock) {
+            let waiting = Task { await self.loop(run) }
+            await clock.waitForSleepers()
+            XCTAssertEqual(run.steps, ["start", "bridgeAgain"], "armed, and settling")
+            await clock.advance(by: .seconds(SpeechStart.settleSeconds - 0.01))
+            XCTAssertEqual(run.count("start"), 1, "the radio has not had its settle yet")
+            XCTAssertEqual(clock.sleeperCount, 1)
+            await clock.advance(by: .seconds(0.01))
+            self.assertStarted(await waiting.value)
+            XCTAssertEqual(run.steps, ["start", "bridgeAgain", "start"])
+            XCTAssertEqual(clock.sleeperCount, 0, "nothing is left waiting")
+        }
+    }
+
     /// Two failures are the end: the bridge was armed once, before the
     /// second attempt, and not after the last; the session says nothing
     /// itself and reports an ordinary failure, not a wedge.
     func testTwoFailuresAreTheEndAndAreNotAWedge() async {
         let run = Run()
         run.script = [Glitch(), Glitch()]
-        assertUnstarted(await loop(run), wedged: false)
+        assertUnstarted(await loopThroughTheSettle(run), wedged: false)
         XCTAssertEqual(run.steps, ["start", "bridgeAgain", "start"])
         XCTAssertEqual(run.said, [])
         let said = speech(lines.all)
@@ -203,7 +240,7 @@ final class SpeechStartLoopTests: XCTestCase {
     func testALaterAttemptSaysWhichAttemptItWas() async {
         let run = Run()
         run.script = [Glitch(), SpeechStart.TimedOut()]
-        assertUnstarted(await loop(run), wedged: false)
+        assertUnstarted(await loopThroughTheSettle(run), wedged: false)
         XCTAssertEqual(run.steps, ["start", "bridgeAgain", "start"])
         let said = speech(lines.all)
         XCTAssertEqual(said.count, 2, "\(said)")
@@ -213,7 +250,7 @@ final class SpeechStartLoopTests: XCTestCase {
     func testAWedgeOnTheSecondAttemptIsAWedge() async {
         let run = Run()
         run.script = [Glitch(), SpeechStart.Wedged(label: "speech.start")]
-        assertUnstarted(await loop(run), wedged: true)
+        assertUnstarted(await loopThroughTheSettle(run), wedged: true)
         XCTAssertEqual(run.steps, ["start", "bridgeAgain", "start"])
     }
 
@@ -221,7 +258,7 @@ final class SpeechStartLoopTests: XCTestCase {
     func testACancelOnTheSecondAttemptEndsTheSessionSilently() async {
         let run = Run()
         run.script = [Glitch(), CancellationError()]
-        assertEnded(await loop(run))
+        assertEnded(await loopThroughTheSettle(run))
         XCTAssertEqual(run.steps, ["start", "bridgeAgain", "start", "stopOwnBridge"])
         XCTAssertEqual(run.said, [])
     }
@@ -233,13 +270,21 @@ final class SpeechStartLoopTests: XCTestCase {
     func testASessionStoppedDuringTheSettleIsNotStartedAgain() async {
         let run = Run()
         run.script = [Glitch()]
-        let outcome = await SpeechStart.startLoop(
-            began: Date(),
-            start: { try run.start($0) },
-            bridgeAgain: { run.note("bridgeAgain"); run.stopped = true },
-            stopped: { run.stopped },
-            stopOwnBridge: { run.note("stopOwnBridge") },
-            say: { run.say($0) })
+        let clock = TestClock()
+        let outcome = await withTestAmbient(clock: clock) {
+            let waiting = Task {
+                await SpeechStart.startLoop(
+                    began: Date(),
+                    start: { try run.start($0) },
+                    bridgeAgain: { run.note("bridgeAgain"); run.stopped = true },
+                    stopped: { run.stopped },
+                    stopOwnBridge: { run.note("stopOwnBridge") },
+                    say: { run.say($0) })
+            }
+            await clock.waitForSleepers()
+            await clock.advance(by: .seconds(SpeechStart.settleSeconds))
+            return await waiting.value
+        }
         assertEnded(outcome)
         XCTAssertEqual(run.steps, ["start", "bridgeAgain", "stopOwnBridge"], "no second start")
         XCTAssertEqual(run.said, [])

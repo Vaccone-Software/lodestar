@@ -1420,6 +1420,7 @@ public final class EventLog: @unchecked Sendable {
             guard flushWork == nil else { return }
             flushWork = Task { [weak self] in
                 do { try await Ambient.sleep(for: .seconds(5)) } catch { return }
+                guard !Task.isCancelled else { return }
                 self?.flushSoon()
             }
         }

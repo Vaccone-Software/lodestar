@@ -1291,7 +1291,10 @@ final class AudioInput: @unchecked Sendable {
     /// not rebuild forever.
     private func watchForSilence(generation: Int) {
         let window = deafnessWindow
-        after(.seconds(window), on: queue) { [weak self] in
+        // A watchdog: counted while the Mac is awake, so a lid closed
+        // mid-draft does not fire it at wake, before the engine has had a
+        // chance to deliver.
+        after(.seconds(window), on: queue, clock: Ambient.current.livenessClock) { [weak self] in
             guard let self else { return }
             let watching = self.engineGeneration == generation && self.inFlight != nil
                 && self.engine?.isRunning == true

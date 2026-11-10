@@ -25,11 +25,14 @@ let package = Package(
         // The tokenizer and template packages that use it accept any 1.x.
         .package(url: "https://github.com/apple/swift-collections", "1.3.0"..<"1.4.0"),
         // Stoic: deadlines, bounded retry, atomic and locked files, crash-loop
-        // detection, the HTTP client and the durable outbox a note waits in.
+        // detection, the HTTP client, the durable outbox a note waits in, and
+        // StoicXPC, the one way the app calls its two bundled services
+        // (their lifecycle, deadlines, retries by repeat safety, ending and
+        // killing, idle exit and watchdog are decided there, once).
         // Ours (Vaccone Software).
         // The sealed records, clipboard and downloads need its Crypto trait
         // (swift-crypto, which is CryptoKit on Apple platforms).
-        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.4.2"), traits: ["Crypto"]),
+        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.5.0"), traits: ["Crypto"]),
     ],
     targets: [
         // The AX layer every slice builds on. Its one dependency is Stoic,
@@ -53,6 +56,9 @@ let package = Package(
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicSealedKeychain", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
+            // The models' and the reader's methods are declared here, once,
+            // for the app and both services (design/25).
+            .product(name: "StoicXPC", package: "stoic"),
         ], swiftSettings: [
             // Swift 6 language mode for Core alone: its data races are
             // compile errors. Every other target is still Swift 5 (see
@@ -92,15 +98,23 @@ let package = Package(
             .product(name: "StoicDownloads", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
+            .product(name: "StoicXPC", package: "stoic"),
         ]),
         // The clipboard's reader: an XPC service the app carries in
         // Contents/XPCServices (scripts/make-app.sh assembles it), so a copy
-        // whose read waits never waits on the app's main thread.
-        .executableTarget(name: "LodestarClipboardReader", dependencies: ["LodestarCore"]),
+        // whose read waits never waits on the app's main thread. An XPCHost.
+        .executableTarget(name: "LodestarClipboardReader", dependencies: [
+            "LodestarCore",
+            .product(name: "StoicXPC", package: "stoic"),
+        ]),
         // The models service: an XPC service the app carries in
         // Contents/XPCServices (scripts/make-app.sh assembles it, with MLX's
-        // kernels in its own Resources), the one process that runs MLX.
-        .executableTarget(name: "LodestarModels", dependencies: ["LodestarCore", "LodestarMLX"]),
+        // kernels in its own Resources), the one process that runs MLX. An
+        // XPCHost.
+        .executableTarget(name: "LodestarModels", dependencies: [
+            "LodestarCore", "LodestarMLX",
+            .product(name: "StoicXPC", package: "stoic"),
+        ]),
         // Slice 0: the window-identity probe. Throwaway by design.
         .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars", "LodestarMLX"]),
         // A stand-in app with plain windows, for the tests that move real
@@ -137,6 +151,8 @@ let package = Package(
             .product(name: "StoicDownloads", package: "stoic"),
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicStore", package: "stoic"),
+            // XPCSimulatedService: the real host in this process, on a TestClock.
+            .product(name: "StoicXPC", package: "stoic"),
         ], swiftSettings: [.enableExperimentalFeature("SymbolLinkageMarkers")]),
     ],
     // Tools 6.1 for the Crypto trait; the code stays in Swift 5 mode, as it

@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "breaths",
+    "parked"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer"
+    },
+    "breaths": {
+      "type": "array"
+    },
+    "latestBreath": {
+      "type": "string"
+    },
+    "parked": {
+      "type": "array"
+    },
+    "parkedSession": {
+      "type": "string"
+    },
+    "usage": {
+      "type": "object"
+    },
+    "walkStep": {
+      "type": "integer"
+    },
+    "walkCompletedVersion": {
+      "type": "string"
+    },
+    "walkDoor": {
+      "type": "string"
+    },
+    "editorConsentAt": {
+      "type": "number"
+    },
+    "meetingSpent": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "coachStandingSince": {
+      "type": "object"
+    },
+    "curriculum": {
+      "type": "object"
+    },
+    "editingStyleSettled": {
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,183 @@
+{
+  "entries" : [
+
+  ],
+  "suppressions" : [
+    {
+      "file" : "Sources/LodestarCore/AX.swift",
+      "hash" : "e64f836ed13b475f",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/Boxed.swift",
+      "hash" : "94fdbf01bbbe1b60",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/ConfigStore.swift",
+      "hash" : "f68f71e51cf4ee7e",
+      "rule" : "stoic.error-text-shown"
+    },
+    {
+      "file" : "Sources/LodestarCore/ConfigWatcher.swift",
+      "hash" : "e3a643476a93806d",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/DictationJournal.swift",
+      "hash" : "932ec7610031b661",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/DraftStash.swift",
+      "hash" : "4a882ccad853a40d",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/EventLog.swift",
+      "hash" : "0f1beff178b26a1b",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/KeyStore.swift",
+      "hash" : "792d9d2b0b114809",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/Log.swift",
+      "hash" : "02e9b3b7af8f513c",
+      "rule" : "stoic.discarded-try"
+    },
+    {
+      "file" : "Sources/LodestarCore/Log.swift",
+      "hash" : "152098c87d1d5e23",
+      "rule" : "stoic.discarded-try"
+    },
+    {
+      "file" : "Sources/LodestarCore/Log.swift",
+      "hash" : "45dd6096a1ada849",
+      "rule" : "stoic.discarded-try"
+    },
+    {
+      "file" : "Sources/LodestarCore/Log.swift",
+      "hash" : "a4adb451aa68e64d",
+      "rule" : "stoic.discarded-try"
+    },
+    {
+      "file" : "Sources/LodestarCore/Log.swift",
+      "hash" : "ad4f0cf01168b710",
+      "rule" : "stoic.discarded-try"
+    },
+    {
+      "file" : "Sources/LodestarCore/Log.swift",
+      "hash" : "e1cefb408e4617a2",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/Observation.swift",
+      "hash" : "a819403584a4a4c0",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/PointerStore.swift",
+      "hash" : "f01387d1590c073b",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/SealedClipboard.swift",
+      "hash" : "32fc82641393099f",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarCore/TestRun.swift",
+      "hash" : "f2f0342cf72e1609",
+      "rule" : "stoic.discarded-try"
+    },
+    {
+      "file" : "Sources/LodestarEars/ParakeetEar.swift",
+      "hash" : "42dc9c4d0c2ccf47",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarMLX/MLXLanguageModel.swift",
+      "hash" : "fae59e9631b246af",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/LodestarMLX/QwenEar.swift",
+      "hash" : "1d8b9a562507a73a",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/lodestar/ConfigDoctor.swift",
+      "hash" : "ec668023ec02bda3",
+      "rule" : "stoic.error-text-shown"
+    },
+    {
+      "file" : "Sources/lodestar/EditorAX.swift",
+      "hash" : "7c0d66418d61db21",
+      "rule" : "stoic.nonisolated-unsafe"
+    },
+    {
+      "file" : "Sources/lodestar/EditorDownload.swift",
+      "hash" : "e92dd73838f54a82",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/lodestar/FileSense.swift",
+      "hash" : "b20854f221794997",
+      "rule" : "stoic.error-text-shown"
+    },
+    {
+      "file" : "Sources/lodestar/FileSense.swift",
+      "hash" : "2e34cf1f5f03cbd7",
+      "rule" : "stoic.nonisolated-unsafe"
+    },
+    {
+      "file" : "Sources/lodestar/FileSense.swift",
+      "hash" : "7e3b38ddc2e61f20",
+      "rule" : "stoic.nonisolated-unsafe"
+    },
+    {
+      "file" : "Sources/lodestar/FileSense.swift",
+      "hash" : "fc23196cce10829c",
+      "rule" : "stoic.nonisolated-unsafe"
+    },
+    {
+      "file" : "Sources/lodestar/SpeechSession.swift",
+      "hash" : "83bd4bb24ba36946",
+      "rule" : "stoic.discarded-try"
+    },
+    {
+      "file" : "Sources/lodestar/SpeechSession.swift",
+      "hash" : "21dc7a29d4f0ba7a",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/lodestar/SpeechSession.swift",
+      "hash" : "2dc5695c32af0016",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/lodestar/SpeechSession.swift",
+      "hash" : "dabc1b17a7387a57",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/lodestar/SpeechSession.swift",
+      "hash" : "df68b7e8cfe1cb83",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/lodestar/UpdateController.swift",
+      "hash" : "1a68bd3a60fbaada",
+      "rule" : "stoic.unchecked-sendable"
+    },
+    {
+      "file" : "Sources/lodestar/UpdateController.swift",
+      "hash" : "513f4b4a6175bb91",
+      "rule" : "stoic.unchecked-sendable"
+    }
+  ],
+  "version" : 1
+}

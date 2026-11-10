@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import StoicTesting
 import XCTest
 @testable import lodestar
 
@@ -86,8 +87,8 @@ final class ModelResidencyTests: XCTestCase {
     }
 
     private func model(_ loads: Loads, engine: EditorEngine = .standard, clears: Clears? = nil,
-                       clock: TestTime? = nil) -> EditorModel {
-        return EditorModel(engine: engine, idleRelease: 3600, answerDeadline: 8, gateWait: 3, loadDeadline: 60,
+                       clock: TestTime? = nil, idleRelease: TimeInterval = 3600) -> EditorModel {
+        return EditorModel(engine: engine, idleRelease: idleRelease, answerDeadline: 8, gateWait: 3, loadDeadline: 60,
                            stuckAfter: 20, gate: MLXGate(),
                            loader: { engine in await loads.load(engine) },
                            clearCache: { clears?.note() },
@@ -111,6 +112,55 @@ final class ModelResidencyTests: XCTestCase {
     /// happening, so the only way to see it is to wait out a window.
     private func window() async {
         try? await Task.sleep(for: .milliseconds(300))
+    }
+
+    // MARK: - Idle time is Stoic's time
+
+    /// The idle release waits on the ambient clock, so a test lives through
+    /// an hour without one: nothing happens until the clock is moved to it,
+    /// and the weights go at the moment it is.
+    func testAnIdleModelIsLetGoWhenTheClockReachesItsTimeAndNotBefore() async {
+        let clock = TestClock()
+        await withTestAmbient(clock: clock) {
+            let clears = Clears()
+            let model = model(Loads(), clears: clears)
+            await model.prepare()
+            await eventually("the idle wait is a sleeper on the clock") { clock.sleeperCount == 1 }
+            await clock.advance(by: .seconds(3599))
+            await window()
+            var state = await model.state
+            XCTAssertEqual(state, .ready, "a second short of the hour")
+            XCTAssertEqual(clears.count, 0)
+            await clock.advance(by: .seconds(1))
+            await eventually("the weights go at the hour") { clears.count == 1 }
+            state = await model.state
+            XCTAssertEqual(state, .unloaded)
+        }
+    }
+
+    /// Use starts the hour again: the wait that was running is cancelled, not
+    /// left to release a model somebody has just asked a question of.
+    func testUseStartsTheIdleHourAgainAndLeavesNoWaitBehind() async {
+        let clock = TestClock()
+        await withTestAmbient(clock: clock) {
+            let clears = Clears()
+            let model = model(Loads(), clears: clears)
+            await model.prepare()
+            await eventually("the idle wait is a sleeper on the clock") { clock.sleeperCount == 1 }
+            await clock.advance(by: .seconds(3000))
+            let answer = await model.correct("Their going.")
+            XCTAssertEqual(answer, "standard: Their going.")
+            await eventually("one wait again, the first one cancelled") { clock.sleeperCount == 1 }
+            await clock.advance(by: .seconds(3599))
+            await window()
+            var state = await model.state
+            XCTAssertEqual(state, .ready, "an hour after the first wait began, three thousand seconds after the question's")
+            XCTAssertEqual(clears.count, 0)
+            await clock.advance(by: .seconds(1))
+            await eventually("the weights go an hour after the use") { clears.count == 1 }
+            state = await model.state
+            XCTAssertEqual(state, .unloaded)
+        }
     }
 
     // MARK: - A release during a load

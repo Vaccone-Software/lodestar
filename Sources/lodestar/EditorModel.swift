@@ -541,9 +541,10 @@ actor EditorModel: EditorProofreader {
     private func scheduleRelease() {
         releaseTask?.cancel()
         let idle = idleRelease
+        // The ambient clock, so a test lives through the idle time on virtual
+        // time; a release asked for again cancels this wait (the sleep throws).
         releaseTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(idle))
-            guard !Task.isCancelled else { return }
+            do { try await Ambient.sleep(for: .seconds(idle)) } catch { return }
             await self?.release(reason: "idle")
         }
     }

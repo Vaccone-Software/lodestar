@@ -3029,8 +3029,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return RunMarker.diedUncleanly(contents: text, isAlive: { kill($0, 0) == 0 })
     }
 
+    /// The only-one-copy rule: this copy takes the instance lock (asking the one
+    /// that holds it to quit) and holds it until the process ends, which
+    /// `SingleInstance` itself sees to; the pid file it writes is what the update
+    /// watchdog and the CLI read.
     private func takeOverPidFile() {
-        PidTakeover.run(pidFile: Self.pidFile, selfPid: ProcessInfo.processInfo.processIdentifier)
+        SingleInstance(files: .init(lock: Paths.lockFile, pid: Self.pidFile)).takeOver()
     }
 
     private func installSignalHandler() {

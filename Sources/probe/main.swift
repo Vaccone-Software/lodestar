@@ -44,9 +44,11 @@ func usage() -> Never {
                                        the same for the monthly roll (thirteen months, both logs)
       probe memory-coach [--events N]  the same for the coach's refresh (ninety days of whole events)
 
-      copy --pid-file P [--quit-seconds N]
-                                       a stand-in for a running Lodestar: takes over as the app does, says
-                                       BOOT/READY/TERMED/EXITING, and ends on SIGTERM (for the tests)
+      copy --pid-file P [--lock L] [--quit-seconds N] [--wait N] [--ignore-term] [--spawn-child]
+                                       a stand-in for a running Lodestar: takes over as the app does (with
+                                       --lock, holding the instance lock; without, by the pid file, as an
+                                       older build did), says BOOT/TOOK/READY/TERMED/EXITING, and ends on
+                                       SIGTERM (for the tests)
       stranger --signal-log F          an unrelated process that writes down every signal it is sent
 
     the slice-0 questions, and the command that answers each:

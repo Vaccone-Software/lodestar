@@ -5,9 +5,12 @@ import LodestarCore
 // Lodestar: it takes over the way the app does on launch, says so on its
 // standard output a line at a time, and on SIGTERM shuts down the way the app
 // does (a pause for the windows it restores, the pid file removed if it is
-// still its own, exit 0). `stranger` is an unrelated process that writes down
-// every signal it is sent. Both take their files from the command line, never
-// from the person's folders, and neither writes the person's log.
+// still its own, exit 0). With `--lock` it is a build that holds the instance
+// lock (`SingleInstance`); without, it is an older build, which takes over by
+// the pid file alone, as every build before the lock did. `stranger` is an
+// unrelated process that writes down every signal it is sent. Both take their
+// files from the command line, never from the person's folders, and neither
+// writes the person's log.
 
 private func option(_ name: String, in arguments: [String]) -> String? {
     guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
@@ -28,6 +31,9 @@ func runCopy(_ arguments: inout [String]) {
         exit(2)
     }
     let pidFile = URL(fileURLWithPath: pidPath)
+    let lockFile = option("--lock", in: arguments).map { URL(fileURLWithPath: $0) }
+    let waitSeconds = option("--wait", in: arguments).flatMap(Double.init) ?? 5
+    let ignoreTerm = arguments.contains("--ignore-term")
     let quitSeconds = option("--quit-seconds", in: arguments).flatMap(Double.init) ?? 0
     let maxSeconds = option("--max-seconds", in: arguments).flatMap(Double.init) ?? 60
     let me = ProcessInfo.processInfo.processIdentifier
@@ -35,7 +41,22 @@ func runCopy(_ arguments: inout [String]) {
     DispatchQueue.global().asyncAfter(deadline: .now() + maxSeconds) { exit(3) }
 
     say("BOOT \(me)")
-    PidTakeover.run(pidFile: pidFile, selfPid: me)
+    if let lockFile {
+        let outcome = SingleInstance(files: .init(lock: lockFile, pid: pidFile)).takeOver(wait: waitSeconds)
+        say("TOOK holds=\(outcome.holdsLock) replaced=\(outcome.replaced.map(String.init) ?? "-") "
+            + "standing=\(outcome.standing.map(String.init) ?? "-")")
+    } else {
+        olderBuildTakeOver(pidFile: pidFile, selfPid: me, wait: waitSeconds)
+    }
+    if arguments.contains("--spawn-child") {
+        // A child that outlives this process, started the way the app starts
+        // its helpers: it must not keep the lock this process dies holding.
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        child.arguments = ["300"]
+        try? child.run()
+        say("CHILD \(child.processIdentifier)")
+    }
 
     // The app installs its handler well after the takeover; a signal before
     // it takes the default action, which is to end.
@@ -43,6 +64,7 @@ func runCopy(_ arguments: inout [String]) {
     let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
     source.setEventHandler {
         say("TERMED \(me)")
+        if ignoreTerm { return }
         DispatchQueue.global().asyncAfter(deadline: .now() + quitSeconds) {
             if let text = try? String(contentsOf: pidFile, encoding: .utf8),
                Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) == me {
@@ -85,4 +107,18 @@ func runStranger(_ arguments: inout [String]) {
     }
     say("READY \(ProcessInfo.processInfo.processIdentifier)")
     dispatchMain()
+}
+
+/// What every build before the lock did on launch, as it was: read the pid
+/// file, ask whatever process it names to quit, wait for it to go, write this
+/// pid. Kept here as the older build that the tests launch beside a newer one.
+private func olderBuildTakeOver(pidFile: URL, selfPid: Int32, wait: Double) {
+    if let text = try? String(contentsOf: pidFile, encoding: .utf8),
+       let oldPid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+       oldPid != selfPid, kill(oldPid, 0) == 0 {
+        kill(oldPid, SIGTERM)
+        let deadline = Date().addingTimeInterval(wait)
+        while kill(oldPid, 0) == 0, Date() < deadline { usleep(25_000) }
+    }
+    try? "\(selfPid)".write(to: pidFile, atomically: true, encoding: .utf8)
 }

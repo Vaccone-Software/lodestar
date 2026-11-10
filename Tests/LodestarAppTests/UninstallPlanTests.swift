@@ -23,6 +23,7 @@ final class UninstallPlanTests: XCTestCase {
                         home.appendingPathComponent(".local/share/lodestar")],
             keychainItems: keychainItems ?? self.keychainItems,
             pidFile: home.appendingPathComponent(".config/lodestar/lodestar.pid"),
+            lockFile: home.appendingPathComponent(".local/share/lodestar/lodestar.lock"),
             bundleID: "com.vaccone.lodestar",
             browserToRestore: browser,
             exists: { present.contains($0.lastPathComponent) })
@@ -155,13 +156,16 @@ final class UninstallPlanTests: XCTestCase {
         XCTAssertTrue(ran.contains("keys"), "and the keys are still deleted")
     }
 
-    /// The pid file is read for a process that is not this one.
+    /// The running copy is looked for, and never found in this process.
     func testWaitingForNoInstanceReturnsAtOnce() throws {
-        let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("lodestar-\(UUID().uuidString).pid")
-        defer { try? FileManager.default.removeItem(at: pidFile) }
-        XCTAssertTrue(UninstallPlan.awaitInstanceExit(pidFile), "no pid file: nothing to wait for")
-        try "\(ProcessInfo.processInfo.processIdentifier)".write(to: pidFile, atomically: true, encoding: .utf8)
-        XCTAssertTrue(UninstallPlan.awaitInstanceExit(pidFile), "this process is not waited for: it is the one running the plan")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("lodestar-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = SingleInstance.Files(lock: folder.appendingPathComponent("lodestar.lock"),
+                                         pid: folder.appendingPathComponent("lodestar.pid"))
+        XCTAssertTrue(UninstallPlan.awaitInstanceExit(files), "no files: nothing to wait for")
+        try "\(ProcessInfo.processInfo.processIdentifier)".write(to: files.pid, atomically: true, encoding: .utf8)
+        XCTAssertTrue(UninstallPlan.awaitInstanceExit(files), "this process is not waited for: it is the one running the plan")
     }
 
     /// The items are in the keychain, which the plan does not look into: a

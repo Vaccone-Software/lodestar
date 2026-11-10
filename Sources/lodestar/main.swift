@@ -2796,11 +2796,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for bin in ["/opt/homebrew/bin", "/usr/local/bin"] {
             guard FileManager.default.isWritableFile(atPath: bin) else { continue }
             let link = bin + "/lodestar"
-            let target = bundlePath + "/Contents/MacOS/lodestar"
-            let existing = try? FileManager.default.destinationOfSymbolicLink(atPath: link)
-            if existing != target {
-                try? FileManager.default.removeItem(atPath: link)
-                try? FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
+            switch CLILink.maintain(link: link, target: bundlePath + "/Contents/MacOS/lodestar") {
+            case .current: break
+            case .created: Log.info("login-item", ["cli-link": "created", "path": link])
+            case .replaced(let was): Log.info("login-item", ["cli-link": "replaced", "path": link, "was": was])
+            case .leftAlone(let why):
+                Log.warning("login-item", ["cli-link": "left alone, it is not Lodestar's", "path": link, "why": why])
+            case .failed(let why): Log.error("login-item", ["cli-link": "failed", "path": link, "why": why])
             }
             break
         }
@@ -2834,28 +2836,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if !config.startAtLogin && exists {
             // Delete the plist without unloading: the running session
             // continues; nothing loads at the next login.
-            try? FileManager.default.removeItem(at: agent)
-            Log.info("login-item", ["action": "removed"])
+            do {
+                try FileManager.default.removeItem(at: agent)
+                Log.info("login-item", ["action": "removed"])
+            } catch {
+                Log.error("login-item", ["remove-failed": "\(error)"])
+            }
         }
     }
 
-    /// launchd's view of the agent job: nil when the label is not loaded
-    /// in this session, 0 when loaded and idle, else the pid it runs.
-    private func agentJobPid() -> pid_t? {
+    /// launchd's view of the agent job: loaded (with the pid it runs, 0 when
+    /// idle), not loaded, or unknown when launchctl could not be asked.
+    private func agentJobState() -> LoginAgent.State {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         task.arguments = ["list", "com.vaccone.lodestar"]
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = Pipe()
-        guard (try? task.run()) != nil else { return nil }
-        task.waitUntilExit()
-        guard task.terminationStatus == 0 else { return nil }
-        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        for line in out.split(separator: "\n") where line.contains("\"PID\"") {
-            if let pid = Int32(line.filter(\.isNumber)) { return pid }
+        do {
+            try task.run()
+        } catch {
+            return .unknown("launchctl could not be run: \(error)")
         }
-        return 0
+        task.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        return LoginAgent.state(exitStatus: task.terminationStatus, output: output)
     }
 
     /// A lodestar launched by the updater, Finder, or a rollback runs as
@@ -2876,19 +2882,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// stub takes for an uninstall.
     private func readoptIfUnsupervised(agent: URL, definitionChanged: Bool) {
         let me = ProcessInfo.processInfo.processIdentifier
-        let job = agentJobPid()
-        if definitionChanged, job != nil {
-            Log.info("login-item", ["action": "loading the new definition", "agent-pid": job ?? 0])
+        switch LoginAgent.readoption(state: agentJobState(), definitionChanged: definitionChanged, me: me) {
+        case .nothing:
+            return
+        case .unreadable(let why):
+            // Not knowing is not "not loaded": a bootstrap here would load a
+            // job that may be running. This instance stays the resident, and
+            // the next launch asks again.
+            Log.error("login-item", ["launchd": "could not be read, so nothing was changed", "why": why])
+            return
+        case .reload(let pid):
+            Log.info("login-item", ["action": "loading the new definition", "agent-pid": pid])
             reloadAgent(agent)
             return
-        }
-        switch job {
-        case .some(let pid) where pid == me:
-            return
-        case .some(let pid):
+        case .kickstart(let pid):
             Log.info("login-item", ["action": "readopting", "agent-pid": pid])
             handingOverToLaunchd = runLaunchctl(["kickstart", "gui/\(getuid())/com.vaccone.lodestar"])
-        case .none:
+        case .bootstrap:
             Log.info("login-item", ["action": "bootstrapping the agent"])
             handingOverToLaunchd = runLaunchctl(["bootstrap", "gui/\(getuid())", agent.path])
         }

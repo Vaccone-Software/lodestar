@@ -37,6 +37,7 @@ func usage() -> Never {
       probe speech [--seconds N] [--words a,b] [--dictation] [--cycle] [--auth]
                                        the draft's questions: latency to first word, revisions,
                                        restart cost, contextual vocabulary, which TCC grant
+      probe update-feed          one real update check on each channel, nothing applied
       probe memory-seed [--events N] [--legacy]
                                        what the prewarmer's boot seed holds, from a synthetic
                                        sealed logbook of its own: baseline and peak footprint
@@ -89,6 +90,7 @@ case "editor": runEditor(&arguments)
 case "smoke": runSmoke(&arguments)
 case "pointer": runPointer(&arguments)
 case "memory-seed": runMemory(&arguments, rollup: false)
+case "update-feed": runUpdateFeed()
 case "memory-rollup": runMemory(&arguments, rollup: true)
 case "memory-coach": runMemory(&arguments, rollup: false, coach: true)
 case "memory-prepare": runMemoryPrepare(&arguments)

@@ -24,9 +24,7 @@ final class UpdateController {
     private static let directory = Paths.update
     /// Survives the rolled-back announcement: the tag we refuse to re-apply.
     private static let refusedFile = directory.appendingPathComponent("refused")
-    private static let feedURL = URL(string: Lodestar.repository
-        .replacingOccurrences(of: "https://github.com/", with: "https://api.github.com/repos/")
-        + "/releases?per_page=10")!
+    private static let feedURL = Updater.previewURL
     private static let requirement = """
         anchor apple generic and identifier "com.vaccone.lodestar" \
         and certificate leaf[subject.OU] = "\(Lodestar.teamID)"

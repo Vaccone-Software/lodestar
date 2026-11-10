@@ -340,6 +340,11 @@ final class EditorDownloadTests: XCTestCase {
                 XCTAssertEqual(download.state, .failed("could not be downloaded (\(status))"))
                 await clock.advance(by: .seconds(3600))
                 for _ in 0..<20 { await Task.yield() }
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+                // The grace before "waiting for a connection" was started by
+                // the request that failed; it must not say so over the failure.
+                XCTAssertEqual(download.state, .failed("could not be downloaded (\(status))"),
+                               "the failure stays said: \(status)")
                 XCTAssertEqual(requests(transport, weightsRoute).count, 1, "asked once: \(status)")
                 XCTAssertEqual(clock.sleeperCount, 0, "nothing waits to ask again: \(status)")
             }

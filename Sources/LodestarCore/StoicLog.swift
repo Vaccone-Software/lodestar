@@ -12,18 +12,35 @@ import Stoic
 /// sinks redact them: `lodestar diagnose` pastes the tail of this log into
 /// public bug reports. The event's name, label and public fields (counts,
 /// durations, flags) are written as they are.
+///
+/// `alsoInfoFor` names events written at info too, by prefix: the XPC
+/// services' lifecycle (`xpc.`: a run started, ended or exited idle) is how
+/// the log says when the models service came and went, which the hand-written
+/// client used to say line by line.
 public struct StoicLog: Instrumentation {
-    public init() {}
+    private let infoPrefixes: [String]
 
-    public func isEnabled(_ level: Event.Level) -> Bool { level >= .warning }
+    public init(alsoInfoFor infoPrefixes: [String] = []) {
+        self.infoPrefixes = infoPrefixes
+    }
+
+    public func isEnabled(_ level: Event.Level) -> Bool {
+        level >= .warning || (level >= .info && !infoPrefixes.isEmpty)
+    }
 
     public func record(_ event: Event) {
         guard isEnabled(event.level) else { return }
+        if event.level < .warning {
+            let name = "\(event.name)"
+            guard event.level == .info, infoPrefixes.contains(where: { name.hasPrefix($0) }) else { return }
+        }
         let line = Self.format(event)
         if event.level >= .error {
             Log.error(line.event, fields: line.fields)
-        } else {
+        } else if event.level >= .warning {
             Log.warning(line.event, fields: line.fields)
+        } else {
+            Log.info(line.event, fields: line.fields)
         }
     }
 

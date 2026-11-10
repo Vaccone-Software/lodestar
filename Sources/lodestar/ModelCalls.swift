@@ -142,7 +142,11 @@ final class ModelCalls: Sendable {
     /// has done it yet.
     private let clearPending = Mutex(false)
 
-    init(name: String, gate: MLXGate = .shared, stuckAfter: TimeInterval = 20) {
+    /// Twenty seconds: the same the models service's requests are given
+    /// before the peer ends it (`ModelsAPI.stuckAfter`), written once.
+    static let defaultStuckAfter = TimeInterval(ModelsAPI.stuckAfter.components.seconds)
+
+    init(name: String, gate: MLXGate = .shared, stuckAfter: TimeInterval = ModelCalls.defaultStuckAfter) {
         self.name = name
         self.gate = gate
         self.stuckAfter = .seconds(stuckAfter)

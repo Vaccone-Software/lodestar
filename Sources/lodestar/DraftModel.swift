@@ -70,8 +70,8 @@ extension EarTier {
 /// Its loads, readings and rewrites take the process's MLX lane as the
 /// editor's do (`ModelCalls`), so neither reads at the same moment as the
 /// other or as the ear, and a generation that never comes back is let go of
-/// with its backend rather than wedging the intent pass, and ends the models
-/// service it ran in (`onWedged`). A service that ended for any reason
+/// with its backend rather than wedging the intent pass (and, in the models
+/// service, ends it: `ModelsAPI`'s `ifStuck`). A service that ended for any reason
 /// leaves the backend lost: the pass asks nothing until the next dictation
 /// loads it again.
 actor DraftModel {
@@ -83,21 +83,18 @@ actor DraftModel {
     private let loader: Loader
     private let clearCache: @Sendable () -> Void
     private let calls: ModelCalls
-    private let onWedged: @Sendable () -> Void
     /// A load's own deadline and wait for the GPU, as the editor's.
     let loadDeadline: TimeInterval
 
-    init(model: CleanupModel, loadDeadline: TimeInterval = 60, stuckAfter: TimeInterval = 20,
+    init(model: CleanupModel, loadDeadline: TimeInterval = 60, stuckAfter: TimeInterval = ModelCalls.defaultStuckAfter,
          gate: MLXGate = .shared, loader: @escaping Loader = DraftModel.load,
          // The service clears MLX's cache itself when it lets a model go.
-         clearCache: @escaping @Sendable () -> Void = {},
-         onWedged: @escaping @Sendable () -> Void = { ModelsClient.shared.end(reason: "intent.model wedged") }) {
+         clearCache: @escaping @Sendable () -> Void = {}) {
         self.model = model
         self.loadDeadline = loadDeadline
         self.calls = ModelCalls(name: "intent.model", gate: gate, stuckAfter: stuckAfter)
         self.loader = loader
         self.clearCache = clearCache
-        self.onWedged = onWedged
     }
 
     static let load: Loader = { model in
@@ -154,7 +151,6 @@ actor DraftModel {
         backend = nil
         warmed = []
         calls.clearCacheSoon(clearCache)
-        onWedged()
         Log.info("intent", ["model": model.rawValue, "recovered": "the model stopped answering", "generations": lost])
     }
 

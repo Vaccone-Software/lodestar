@@ -1,23 +1,32 @@
 import Foundation
 import LodestarCore
 import LodestarEars
+import Stoic
+import StoicXPC
+import Synchronization
 
 /// Why a request to the models service has no answer, besides the
-/// service's own reasons (`ModelsFailure`).
+/// service's own reasons (`ModelsFailure`): `ModelsClient.mapped` says which
+/// of the transport's failures (`XPCCallError`) is which.
 enum ModelsError: Error, CustomStringConvertible {
     /// The service ended (it crashed, was ended, or launchd let it go)
-    /// before it answered, or could not be reached.
+    /// before it answered.
     case interrupted
-    /// It answered something this build cannot read.
+    /// It answered something this build cannot read, or refused a request
+    /// this build sent: a bug, not a state.
     case unreadable
-    /// It did not answer in time, and was ended for it.
+    /// It did not answer in time.
     case timedOut(String)
+    /// No service could be had: it is not in the bundle, did not start, or
+    /// would not exit; or it is another build than this app.
+    case unavailable(String)
 
     var description: String {
         switch self {
         case .interrupted: return "the models service ended before it answered"
         case .unreadable: return "the models service answered something unreadable"
         case .timedOut(let what): return what
+        case .unavailable(let why): return "the models service is unavailable: \(why)"
         }
     }
 }
@@ -26,119 +35,116 @@ enum ModelsError: Error, CustomStringConvertible {
 /// Contents/XPCServices): every model that evaluates on MLX is asked here,
 /// and runs there.
 ///
-/// launchd starts the service at the first message and may end it at any
-/// moment, so nothing here assumes it is the same process as last time. A
-/// connection only interrupted stays usable: the next message starts a
-/// fresh service. Each interruption, invalidation or ending moves `epoch`,
-/// and a model or ear loaded in an earlier epoch is lost (`isLost`): its
-/// owner lets it go and loads again at the next request. A load is sent
-/// again once when the service ended under it, since a load holds nothing
-/// yet.
+/// The transport is an `XPCPeer` (StoicXPC, design/25): it starts the
+/// service when a call needs it, never sends to a process that is exiting,
+/// waits out one that is, repeats a call by its method's declared repeat
+/// safety, ends the service when a request its caller gave up on stays
+/// unanswered (`ModelsAPI`'s `ifStuck`), and fails every call waiting on a
+/// run the moment the run is lost. What is left here is what is Lodestar's:
 ///
-/// The app ends a service whose generation stopped answering (`end`): it
-/// asks the service to exit, which it does on a queue no generation holds,
-/// and lets the connection go. The service ends itself, too, a few seconds
-/// after it holds nothing.
-final class ModelsClient: @unchecked Sendable {
+/// - What the app has loaded in the service. A service may end at any
+///   moment and holds nothing of what it had, so each model and the ear is
+///   remembered with the run of the service that holds it (the peer's run
+///   number), and is lost once that is no longer the live run: its owner
+///   lets it go and loads again at the next request. A request for a handle
+///   the service no longer holds answers `notLoaded`, which says the same
+///   when the app could not tell. (The peer will keep state a service holds
+///   and load it again when its run is lost, once `PeerResident` exists;
+///   this is shaped to move there: a table of what is held, by run.)
+/// - What a failure means to the editor and dictation (`mapped`).
+/// - That a reading of the service's memory never starts it.
+final class ModelsClient: Sendable {
     static let shared = ModelsClient()
-    /// How long an ended service's connection is kept, so its exit is
-    /// delivered before the connection is let go.
-    static let endGrace: TimeInterval = 2
 
-    private let connect: () -> NSXPCConnection
-    private let lock = NSLock()
-    private var connection: NSXPCConnection?
-    /// A service asked to end, until its process has gone. There is one
-    /// service process for the app: a connection made before it has gone
-    /// reaches the process that is ending, and what it loads goes with it
-    /// (a model loaded, then lost, then loaded again). Requests wait for
-    /// it, at most `endGrace`, when the connection is invalidated anyway.
-    private var ending: NSXPCConnection?
-    private var endingWaiters: [CheckedContinuation<Void, Never>] = []
-    private var currentEpoch = 0
-    private var nextID: Int64 = 0
-    /// Handles loaded in this epoch and not yet released, and the ear.
-    private var handles: Set<String> = []
-    private var earHeld = false
+    /// The one peer of the models service in this process (design/25,
+    /// rule 2). Tests make their own, over a simulated service.
+    let peer: XPCPeer
 
-    init(connect: @escaping () -> NSXPCConnection = { NSXPCConnection(serviceName: Models.serviceName) }) {
-        self.connect = connect
+    /// What this app has loaded in the service, and on which run.
+    private struct Resident {
+        var handles: [String: Int] = [:]
+        var ear: Int?
     }
 
-    var epoch: Int { lock.withLock { currentEpoch } }
+    private let resident = Mutex(Resident())
+
+    init(peer: XPCPeer = XPCPeer(service: Models.serviceName, build: Build.id)) {
+        self.peer = peer
+    }
+
+    /// The live run's number: what a model or the ear was loaded on, or no
+    /// longer is. Nil while there is no run (never started, or lost and not
+    /// yet started again).
+    var run: Int? { peer.run?.number }
 
     /// Does the service hold anything this app loaded? Nothing asks a
     /// service that holds nothing, so a reading never starts one.
-    var holds: Bool { lock.withLock { !handles.isEmpty || earHeld } }
+    var holds: Bool {
+        guard let live = run else { return false }
+        return resident.withLock { $0.handles.values.contains(live) || $0.ear == live }
+    }
 
     // MARK: Language models
 
     func loadLanguageModel(_ spec: LanguageModelSpec) async throws -> ServiceLanguageModel {
-        let (handle, epoch): (String, Int) = try await call(retryingOnce: true) { proxy, id, reply in
-            proxy.loadLanguageModel(Models.encode(LanguageModelLoad(id: id, spec: spec)) ?? Data(), reply: reply)
+        let handle = try await call(ModelsAPI.loadLanguageModel, spec)
+        // The run that answered. Were it lost between its reply and here,
+        // this is nil or a later run's, and the model's first request is
+        // answered `notLoaded`, which makes the same decision.
+        let run = self.run
+        resident.withLock { resident in
+            guard let run else { return }
+            resident.handles = resident.handles.filter { $0.value == run }
+            resident.handles[handle] = run
         }
-        lock.withLock { if currentEpoch == epoch { handles.insert(handle) } }
-        return ServiceLanguageModel(client: self, handle: handle, epoch: epoch, label: spec.label)
+        return ServiceLanguageModel(client: self, handle: handle, run: run, label: spec.label)
     }
 
     func respond(_ handle: String, to sentence: String, instructions: String) async throws -> String {
-        try await generate(handle, sentence, IntentPass.Prompt(instructions: instructions, examples: [])) {
-            $0.respond($1, reply: $2)
-        }
+        try await call(ModelsAPI.respond, ModelsGenerate(
+            handle: handle, text: sentence, prompt: IntentPass.Prompt(instructions: instructions, examples: [])))
     }
 
     func rewrite(_ handle: String, _ text: String, prompt: IntentPass.Prompt) async throws -> String {
-        try await generate(handle, text, prompt) { $0.rewrite($1, reply: $2) }
+        try await call(ModelsAPI.rewrite, ModelsGenerate(handle: handle, text: text, prompt: prompt))
     }
 
     func warm(_ handle: String, prompt: IntentPass.Prompt) async throws {
-        let _: Bool = try await generate(handle, "", prompt) { $0.warm($1, reply: $2) }
+        _ = try await call(ModelsAPI.warm, ModelsGenerate(handle: handle, text: "", prompt: prompt))
     }
 
-    private func generate<T: Codable & Sendable>(
-        _ handle: String, _ text: String, _ prompt: IntentPass.Prompt,
-        _ send: @escaping (ModelsXPC, Data, @escaping @Sendable (Data?) -> Void) -> Void
-    ) async throws -> T {
-        try await call { proxy, id, reply in
-            send(proxy, Models.encode(ModelsGenerate(id: id, handle: handle, text: text, prompt: prompt)) ?? Data(), reply)
-        }.0
-    }
-
-    /// The service lets the model go, unless it is not the service that
-    /// loaded it: a release never starts a service.
-    func release(_ handle: String, epoch: Int) {
-        let connection = lock.withLock { () -> NSXPCConnection? in
-            guard currentEpoch == epoch, handles.remove(handle) != nil else { return nil }
-            return self.connection
-        }
-        (connection?.remoteObjectProxy as? ModelsXPC)?.releaseLanguageModel(handle)
+    /// The service lets the model go, if it is the service that holds it: a
+    /// release never starts a service.
+    func release(_ handle: String, run: Int?) {
+        let held = resident.withLock { $0.handles.removeValue(forKey: handle) != nil }
+        guard held, let run, run == self.run else { return }
+        let peer = self.peer
+        Task { _ = try? await peer.call(ModelsAPI.releaseLanguageModel, handle, ifRunning: true) }
     }
 
     // MARK: The ear
 
-    /// Loads the ear; the epoch it was loaded in.
-    func loadEar(_ spec: EarSpec) async throws -> Int {
-        let (_, epoch): (Bool, Int) = try await call(retryingOnce: true) { proxy, id, reply in
-            proxy.loadEar(Models.encode(EarLoad(id: id, spec: spec)) ?? Data(), reply: reply)
-        }
-        lock.withLock { if currentEpoch == epoch { earHeld = true } }
-        return epoch
+    /// Loads the ear; the run it was loaded on, nil if that run was lost
+    /// before the answer was read.
+    func loadEar(_ spec: EarSpec) async throws -> Int? {
+        _ = try await call(ModelsAPI.loadEar, spec)
+        let run = self.run
+        resident.withLock { resident in resident.ear = run }
+        return run
     }
 
     func transcribe(_ samples: [Float], context: [String]) async throws -> Heard {
-        let bytes = Models.bytes(samples)
-        return try await call { proxy, id, reply in
-            proxy.transcribe(Models.encode(EarTranscribe(id: id, samples: bytes, context: context)) ?? Data(), reply: reply)
-        }.0
+        try await call(ModelsAPI.transcribe, EarTranscribe(samples: Models.bytes(samples), context: context))
     }
 
     func unloadEar() {
-        let connection = lock.withLock { () -> NSXPCConnection? in
-            guard earHeld else { return nil }
-            earHeld = false
-            return self.connection
+        let run = resident.withLock { resident -> Int? in
+            defer { resident.ear = nil }
+            return resident.ear
         }
-        (connection?.remoteObjectProxy as? ModelsXPC)?.unloadEar()
+        guard let run, run == self.run else { return }
+        let peer = self.peer
+        Task { _ = try? await peer.call(ModelsAPI.unloadEar, XPCEmpty(), ifRunning: true) }
     }
 
     // MARK: Asking about it
@@ -147,201 +153,87 @@ final class ModelsClient: @unchecked Sendable {
     /// holds nothing of ours, and nil after `timeout` when it does not say.
     /// Blocks the calling thread, so never call it on main.
     func memoryReading(timeout: TimeInterval = 1) -> ModelsStats? {
-        let connection = lock.withLock { !handles.isEmpty || earHeld ? self.connection : nil }
-        guard let connection else { return nil }
-        let answer = Answer<ModelsStats>()
-        let proxy = connection.remoteObjectProxyWithErrorHandler { _ in answer.give(nil) } as? ModelsXPC
-        proxy?.stats { answer.give(Models.decode(ModelsStats.self, from: $0)) }
-        return answer.wait(timeout)
+        guard holds else { return nil }
+        let answer = Mailbox<ModelsStats?>()
+        Task {
+            answer.put(try? await withTimeout(.seconds(timeout)) { try await self.stats(ifRunning: true) })
+        }
+        return answer.take(within: timeout + 1) ?? nil
     }
 
-    /// The same, starting the service if it must: for `editor check`.
-    func stats() async throws -> ModelsStats {
-        let connection = lock.withLock { live() }
-        return try await withCheckedThrowingContinuation { continuation in
-            let once = Once(continuation)
-            let proxy = connection.remoteObjectProxyWithErrorHandler { _ in once.resume(throwing: ModelsError.interrupted) }
-                as? ModelsXPC
-            proxy?.stats { data in
-                guard let stats = Models.decode(ModelsStats.self, from: data) else {
-                    return once.resume(throwing: ModelsError.unreadable)
-                }
-                once.resume(returning: stats)
-            }
-        }
+    /// The same, starting the service if it must (`ifRunning` false): for
+    /// `editor check`.
+    func stats(ifRunning: Bool = false) async throws -> ModelsStats {
+        try await call(ModelsAPI.stats, XPCEmpty(), ifRunning: ifRunning)
     }
 
     /// The service started, and evaluated on the GPU with the kernels its
-    /// bundle carries: the self-test's question.
+    /// bundle carries: the self-test's question. It is also the first call
+    /// of the signed bundle, so the build handshake has passed if it answers.
     func check() async throws -> ModelsCheck {
-        try await call(retryingOnce: true) { proxy, _, reply in proxy.check(reply: reply) }.0
+        try await call(ModelsAPI.check, XPCEmpty())
     }
 
-    /// Ends the service: a generation that stopped answering is not stopped
-    /// any other way. Everything it held is lost, and the next request
-    /// starts a fresh one. Does nothing when no service is connected.
-    func end(reason: String) {
-        let ended = lock.withLock { () -> NSXPCConnection? in
-            guard let connection else { return nil }
-            self.connection = nil
-            ending = connection
-            lostLocked()
-            return connection
-        }
-        guard let ended else { return }
-        Log.info("models", ["ending": reason])
-        (ended.remoteObjectProxy as? ModelsXPC)?.exit(reason)
-        DispatchQueue.global().asyncAfter(deadline: .now() + Self.endGrace) { ended.invalidate() }
-    }
+    // MARK: The call
 
-    // MARK: The connection
-
-    /// Returns once no ended service is still going away.
-    private func endingSettled() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let waits = lock.withLock { () -> Bool in
-                guard ending != nil else { return false }
-                endingWaiters.append(continuation)
-                return true
-            }
-            if !waits { continuation.resume() }
+    private func call<Request, Reply, Failure>(
+        _ method: XPCMethod<Request, Reply, Failure>, _ request: Request, ifRunning: Bool = false
+    ) async throws -> Reply {
+        do throws(OperationError<XPCCallError<Failure>>) {
+            return try await peer.call(method, request, ifRunning: ifRunning)
+        } catch {
+            throw Self.mapped(error)
         }
     }
 
-    /// The connection, made when first needed and again after it was let
-    /// go. Call holding the lock.
-    private func live() -> NSXPCConnection {
-        if let connection { return connection }
-        let made = connect()
-        made.remoteObjectInterface = NSXPCInterface(with: ModelsXPC.self)
-        made.interruptionHandler = { [weak self, weak made] in self?.lost(made, "interrupted", drop: false) }
-        made.invalidationHandler = { [weak self, weak made] in self?.lost(made, "invalidated", drop: true) }
-        made.resume()
-        connection = made
-        return made
-    }
-
-    private func lost(_ made: NSXPCConnection?, _ how: String, drop: Bool) {
-        // The ended service's process has gone: whoever waited may connect.
-        let released = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
-            guard let made, ending === made else { return [] }
-            ending = nil
-            defer { endingWaiters = [] }
-            return endingWaiters
-        }
-        released.forEach { $0.resume() }
-        let current = lock.withLock { () -> Bool in
-            guard let made, connection === made else { return false }
-            if drop { connection = nil }
-            lostLocked()
-            return true
-        }
-        if current { Log.info("models", ["service": how]) }
-    }
-
-    private func lostLocked() {
-        currentEpoch += 1
-        handles = []
-        earHeld = false
-    }
-
-    /// One request and its answer, with the epoch it was sent in. A task
-    /// cancelled while it waits asks the service to stop the request.
-    private func call<T: Codable & Sendable>(
-        retryingOnce: Bool = false,
-        _ send: @escaping (ModelsXPC, Int64, @escaping @Sendable (Data?) -> Void) -> Void
-    ) async throws -> (T, Int) {
-        do {
-            return try await callOnce(send)
-        } catch ModelsError.interrupted where retryingOnce && !Task.isCancelled {
-            return try await callOnce(send)
-        }
-    }
-
-    private func callOnce<T: Codable & Sendable>(
-        _ send: @escaping (ModelsXPC, Int64, @escaping @Sendable (Data?) -> Void) -> Void
-    ) async throws -> (T, Int) {
-        await endingSettled()
-        let (id, epoch, connection) = lock.withLock { () -> (Int64, Int, NSXPCConnection) in
-            nextID += 1
-            return (nextID, currentEpoch, live())
-        }
-        let request = Request()
-        let data: Data? = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                let once = Once(continuation)
-                guard request.send() else { return once.resume(throwing: CancellationError()) }
-                let proxy = connection.remoteObjectProxyWithErrorHandler { [weak self, weak connection] error in
-                    // An invalid connection is dead: let go of it here, before
-                    // the request is sent again, so the resend makes a new one
-                    // whenever the invalidation handler's own call arrives.
-                    // An interrupted one stays: its next message starts a
-                    // fresh service.
-                    if (error as NSError).code == NSXPCConnectionInvalid, let connection {
-                        self?.lost(connection, "invalidated", drop: true)
-                    }
-                    once.resume(throwing: ModelsError.interrupted)
-                } as? ModelsXPC
-                guard let proxy else { return once.resume(throwing: ModelsError.interrupted) }
-                send(proxy, id) { once.resume(returning: $0) }
-            }
-        } onCancel: {
-            if request.cancel() { (connection.remoteObjectProxy as? ModelsXPC)?.cancel(id) }
-        }
-        guard let reply = Models.decode(ModelsReply<T>.self, from: data) else { throw ModelsError.unreadable }
-        if let failure = reply.failure {
-            throw failure == .cancelled ? CancellationError() : failure
-        }
-        guard let value = reply.value else { throw ModelsError.unreadable }
-        return (value, epoch)
-    }
-
-    /// A request is sent once, and cancelled only once sent: a cancel that
-    /// comes first keeps it from being sent at all.
-    private final class Request: @unchecked Sendable {
-        private let lock = NSLock()
-        private var sent = false
-        private var cancelled = false
-        func send() -> Bool {
-            lock.withLock {
-                guard !cancelled else { return false }
-                sent = true
-                return true
+    /// What a failed call is to the editor and dictation, which already
+    /// know four things: the service said it holds no such model
+    /// (`ModelsFailure.notLoaded`, which means load again); the caller gave
+    /// up (`CancellationError`); the service ended before it answered
+    /// (`ModelsError.interrupted`: whatever was loaded in it is lost, which
+    /// `run` says); and it did not answer in time.
+    static func mapped<Failure: Error & Sendable>(_ error: OperationError<XPCCallError<Failure>>) -> any Error {
+        switch error.stop {
+        case .cancelled:
+            return CancellationError()
+        case .rejected(let rejection):
+            return rejection.reason == .deadlineExceeded
+                ? ModelsError.timedOut("the models service did not answer in time")
+                : ModelsError.unavailable("\(rejection)")
+        case .failed(let call):
+            switch call {
+            case .failed(let failure):
+                if let failure = failure as? ModelsFailure {
+                    return failure == .cancelled ? CancellationError() : failure
+                }
+                return failure
+            case .lost, .ended:
+                return ModelsError.interrupted
+            case .cancelled:
+                return CancellationError()
+            case .notRunning:
+                return ModelsError.unavailable("it is not running")
+            case .buildMismatch(let expected, let found):
+                return ModelsError.unavailable("it is build \(found) and this app is build \(expected): restart Lodestar")
+            case .unavailable(let why):
+                return ModelsError.unavailable("\(why)")
+            case .refused, .protocolViolation:
+                return ModelsError.unreadable
             }
         }
-        func cancel() -> Bool { lock.withLock { cancelled = true; return sent } }
     }
 
-    /// Resumes a continuation once: XPC calls exactly one of the reply and
-    /// the error handler, and this makes sure of it.
-    private final class Once<Value>: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<Value, Error>?
-        init(_ continuation: CheckedContinuation<Value, Error>) { self.continuation = continuation }
-        func resume(returning value: Value) { take()?.resume(returning: value) }
-        func resume(throwing error: Error) { take()?.resume(throwing: error) }
-        private func take() -> CheckedContinuation<Value, Error>? {
-            lock.withLock { defer { continuation = nil }; return continuation }
+    /// A value handed from a task to a thread that waits for it.
+    private final class Mailbox<Value: Sendable>: Sendable {
+        private let value = Mutex<Value?>(nil)
+        private let ready = DispatchSemaphore(value: 0)
+        func put(_ value: Value) {
+            self.value.withLock { $0 = value }
+            ready.signal()
         }
-    }
-
-    private final class Answer<Value>: @unchecked Sendable {
-        private let lock = NSLock()
-        private let done = DispatchSemaphore(value: 0)
-        private var value: Value?
-        private var given = false
-        func give(_ value: Value?) {
-            let first = lock.withLock { () -> Bool in
-                guard !given else { return false }
-                given = true
-                self.value = value
-                return true
-            }
-            if first { done.signal() }
-        }
-        func wait(_ timeout: TimeInterval) -> Value? {
-            guard done.wait(timeout: .now() + timeout) == .success else { return nil }
-            return lock.withLock { value }
+        func take(within timeout: TimeInterval) -> Value? {
+            guard ready.wait(timeout: .now() + timeout) == .success else { return nil }
+            return value.withLock { $0 }
         }
     }
 }
@@ -352,20 +244,22 @@ final class ModelsClient: @unchecked Sendable {
 final class ServiceLanguageModel: EditorBackend, @unchecked Sendable {
     let client: ModelsClient
     let handle: String
-    let epoch: Int
+    /// The run of the service that holds it, nil if that run was lost
+    /// before its load's answer was read.
+    let run: Int?
     let label: String
     private let lock = NSLock()
     private var refused = false
 
-    init(client: ModelsClient, handle: String, epoch: Int, label: String) {
+    init(client: ModelsClient, handle: String, run: Int?, label: String) {
         self.client = client
         self.handle = handle
-        self.epoch = epoch
+        self.run = run
         self.label = label
     }
 
     /// The service it was loaded in has ended, or said it no longer holds it.
-    var isLost: Bool { lock.withLock { refused } || client.epoch != epoch }
+    var isLost: Bool { lock.withLock { refused } || run == nil || client.run != run }
 
     func respond(to sentence: String, instructions: String) async throws -> String {
         try await asked { try await self.client.respond(self.handle, to: sentence, instructions: instructions) }
@@ -388,16 +282,18 @@ final class ServiceLanguageModel: EditorBackend, @unchecked Sendable {
         }
     }
 
-    deinit { client.release(handle, epoch: epoch) }
+    deinit { client.release(handle, run: run) }
 }
 
 /// The Qwen3-ASR ear, heard in the models service. Each load and phrase
 /// takes the app's MLX lane first, as the ear took it in the app, so the
 /// editor's sentence never counts an ear's phrase against its own
 /// deadline; in the service the ear takes the service's lane too. A phrase
-/// or load that does not come back in time ends the service, which is the
-/// only way a stuck evaluation stops. After the service ended, the ear is
-/// no longer loaded, and the next phrase loads it again first.
+/// or load that does not come back in time is cancelled in the service, and
+/// the service is ended if it does not stop (`ModelsAPI.transcribe`'s
+/// `ifStuck`): the only way a stuck evaluation stops. After the service
+/// ended, the ear is no longer loaded, and the next phrase loads it again
+/// first.
 final class ServiceEar: SettlingEar, @unchecked Sendable {
     let name: String
     let folder: URL
@@ -409,7 +305,7 @@ final class ServiceEar: SettlingEar, @unchecked Sendable {
     private let lock = NSLock()
     /// Loaded and not unloaded since: a phrase may load it again.
     private var wanted = false
-    private var loadedEpoch: Int?
+    private var loadedRun: Int?
 
     init(name: String, folder: URL, client: ModelsClient = .shared, gate: MLXGate = .shared,
          loadDeadline: TimeInterval = 120, phraseDeadline: TimeInterval = 30) {
@@ -422,15 +318,15 @@ final class ServiceEar: SettlingEar, @unchecked Sendable {
     }
 
     var isLoaded: Bool {
-        let loaded = lock.withLock { loadedEpoch }
-        return loaded != nil && loaded == client.epoch
+        let loaded = lock.withLock { loadedRun }
+        return loaded != nil && loaded == client.run
     }
 
     func load() async throws {
         lock.withLock { wanted = true }
         let spec = EarSpec(name: name, directory: folder.path)
-        let epoch = try await laned(loadDeadline, "the ear did not load") { try await self.client.loadEar(spec) }
-        lock.withLock { if wanted { loadedEpoch = epoch } }
+        let run = try await laned(loadDeadline, "the ear did not load") { try await self.client.loadEar(spec) }
+        lock.withLock { if wanted { loadedRun = run } }
     }
 
     func transcribe(_ samples: [Float], context: [String]) async throws -> Heard {
@@ -444,7 +340,7 @@ final class ServiceEar: SettlingEar, @unchecked Sendable {
                 try await self.client.transcribe(samples, context: context)
             }
         } catch ModelsFailure.notLoaded {
-            lock.withLock { loadedEpoch = nil }
+            lock.withLock { loadedRun = nil }
             throw ModelsFailure.notLoaded
         }
     }
@@ -452,32 +348,22 @@ final class ServiceEar: SettlingEar, @unchecked Sendable {
     func unload() {
         lock.withLock {
             wanted = false
-            loadedEpoch = nil
+            loadedRun = nil
         }
         client.unloadEar()
     }
 
-    /// `work` holding the app's lane, and the service ended if it has not
-    /// answered by `deadline`.
+    /// `work` holding the app's lane, under `deadline`.
     private func laned<T: Sendable>(_ deadline: TimeInterval, _ what: String,
                                     _ work: @escaping @Sendable () async throws -> T) async throws -> T {
         guard let permit = await gate.acquire() else { throw CancellationError() }
         defer { gate.release(permit) }
-        let client = self.client
-        return try await withThrowingTaskGroup(of: T?.self) { group in
-            group.addTask { try await work() }
-            group.addTask {
-                try await Task.sleep(for: .seconds(deadline))
-                return nil
-            }
-            defer { group.cancelAll() }
-            guard let first = try await group.next(), let answer = first else {
-                let why = "\(what) in \(Int(deadline)) s"
-                Log.error("draft: \(why)")
-                client.end(reason: why)
-                throw ModelsError.timedOut(why)
-            }
-            return answer
+        do {
+            return try await withTimeout(.seconds(deadline)) { try await work() }
+        } catch ModelsError.timedOut {
+            let why = "\(what) in \(Int(deadline)) s"
+            Log.error("draft: \(why)")
+            throw ModelsError.timedOut(why)
         }
     }
 }

@@ -79,6 +79,10 @@ public enum Log {
 
     /// `warning` and `error` for a line whose fields are not known until it
     /// is built, which a dictionary literal cannot say.
+    public static func info(_ event: String, fields: [(key: String, value: Any)]) {
+        write("INFO", event, fields)
+    }
+
     public static func warning(_ event: String, fields: [(key: String, value: Any)]) {
         write("WARN", event, fields)
     }

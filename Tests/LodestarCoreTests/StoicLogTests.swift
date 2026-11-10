@@ -69,6 +69,20 @@ final class StoicLogTests: XCTestCase {
         XCTAssertTrue(lines.isEmpty)
     }
 
+    /// The XPC services' lifecycle is how the log says when the models
+    /// service came and went: info events named for a prefix are written,
+    /// and nothing else below a warning is.
+    func testTheLifecycleOfAServiceIsWrittenAtInfoWhenAskedFor() {
+        let sink = StoicLog(alsoInfoFor: ["xpc."])
+        XCTAssertTrue(sink.isEnabled(.info))
+        sink.record(Event("xpc.run_started", level: .info, label: "com.vaccone.lodestar.models", fields: [.init("pid", .int(4242))]))
+        sink.record(Event("xpc.relaunch_throttled", level: .notice))
+        sink.record(Event("span.started", level: .info))
+        sink.record(Event("xpc.late_reply", level: .debug))
+        XCTAssertEqual(lines.count, 1, "\(lines)")
+        XCTAssertTrue(lines[0].contains(" INFO stoic.xpc.run_started label=com.vaccone.lodestar.models pid=4242\n"), lines[0])
+    }
+
     /// The whole way: a Stoic primitive records an event in an ambient that
     /// has the sink, and the line is in the log. A launch guard that cannot
     /// write its file is the one the app was blind to.

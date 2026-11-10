@@ -102,7 +102,11 @@ let package = Package(
         // kernels in its own Resources), the one process that runs MLX.
         .executableTarget(name: "LodestarModels", dependencies: ["LodestarCore", "LodestarMLX"]),
         // Slice 0: the window-identity probe. Throwaway by design.
-        .executableTarget(name: "probe", dependencies: ["LodestarCore", "LodestarEars", "LodestarMLX"]),
+        .executableTarget(name: "probe", dependencies: [
+            "LodestarCore", "LodestarEars", "LodestarMLX",
+            // The memory probe seals a synthetic logbook under a key of its own.
+            .product(name: "StoicSealed", package: "stoic"),
+        ]),
         // A stand-in app with plain windows, for the tests that move real
         // windows with Lodestar's own actions. Built beside the tests,
         // never shipped.

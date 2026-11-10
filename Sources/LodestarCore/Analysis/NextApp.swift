@@ -166,15 +166,14 @@ public struct NextApp: Equatable {
     /// are observed before scoring starts, so nothing is judged on an
     /// empty table. Returns hit counts per strategy and the switches
     /// scored.
-    static func replay(events: [ObservationEvent], tuning: Tuning, warmup: Int,
+    static func replay(focuses: [FocusStamp], tuning: Tuning, warmup: Int,
                        strategies: [Strategy]) -> (hits: [Strategy: [Int]], switches: Int) {
         var model = NextApp(tuning: tuning)
         var seen = 0
         var counted = 0
         var hits: [Strategy: [Int]] = [:]
         for strategy in strategies { hits[strategy] = [0, 0, 0] }
-        let focuses = events.filter { $0.kind == .focus }.sorted { $0.t < $1.t }
-        for event in focuses {
+        for event in chronological(focuses) {
             guard let app = event.app?.lowercased(), !app.isEmpty,
                   app != model.history.last else { continue }
             if seen >= warmup, model.history.last != nil {
@@ -200,10 +199,58 @@ public struct NextApp: Equatable {
     /// year-deep ring from turning a six-hourly re-tune into a chore.
     public static let scoringWindow = 20_000
 
+    /// The focus events among `events`, as the model reads them: a time and
+    /// an app. A caller that holds events (a report over a whole ring) comes
+    /// in here; the warmer never holds them (`EventLog.focusStream`).
+    static func focuses(of events: [ObservationEvent]) -> [FocusStamp] {
+        events.compactMap { $0.kind == .focus ? FocusStamp(t: $0.t, app: $0.app) : nil }
+    }
+
+    /// Oldest first, and events at one instant in the order they were given:
+    /// the order the model learns them in, so it is the order that counts.
+    static func chronological(_ focuses: [FocusStamp]) -> [FocusStamp] {
+        focuses.indices.sorted {
+            focuses[$0].t < focuses[$1].t || (focuses[$0].t == focuses[$1].t && $0 < $1)
+        }.map { focuses[$0] }
+    }
+
     /// The most recent `scoringWindow` focus events, chronological.
-    static func recentFocuses(_ events: [ObservationEvent]) -> [ObservationEvent] {
-        let focuses = events.filter { $0.kind == .focus }.sorted { $0.t < $1.t }
-        return Array(focuses.suffix(scoringWindow))
+    static func recentFocuses(_ focuses: [FocusStamp]) -> [FocusStamp] {
+        Array(chronological(focuses).suffix(scoringWindow))
+    }
+
+    /// The model the ring teaches: every focus in `focuses`, in order, under
+    /// `tuning`. A focus with no app is a switch to nowhere and teaches nothing.
+    public static func seeded(tuning: Tuning, focuses: [FocusStamp]) -> NextApp {
+        var model = NextApp(tuning: tuning)
+        for focus in chronological(focuses) {
+            if let app = focus.app { model.observe(app) }
+        }
+        return model
+    }
+
+    /// What one refresh of the warmer learns.
+    public struct Seed {
+        public var tuning: Tuning
+        /// Empty unless the refresh re-tuned.
+        public var scores: [Score]
+        public var model: NextApp
+    }
+
+    /// One refresh of the warmer from the ring: the focus stream of the last
+    /// `days`, the tuning (re-fitted when `retune`, else `current`), the
+    /// strategies scored when it was re-fitted, and the model seeded. Nothing
+    /// but the stream is held, so a launch that does this once does not cost
+    /// the ring's size in memory.
+    public static func seed(from log: EventLog, days: Int = EventLog.advisorWindowDays, retune: Bool,
+                            current: Tuning, now: Date = Date()) -> Seed {
+        seed(focuses: log.focusStream(days: days, now: now), retune: retune, current: current)
+    }
+
+    public static func seed(focuses: [FocusStamp], retune: Bool, current: Tuning) -> Seed {
+        let tuning = retune ? tune(focuses: focuses) : current
+        let scores = retune ? evaluate(focuses: focuses, tuning: tuning) : []
+        return Seed(tuning: tuning, scores: scores, model: seeded(tuning: tuning, focuses: focuses))
     }
 
     /// The tuning that predicts this stream best: the mean of the three
@@ -216,6 +263,10 @@ public struct NextApp: Equatable {
     /// The grid-times-replay version of this took twenty seconds on a
     /// fortnight of real switches; this takes well under one.
     public static func tune(events: [ObservationEvent], warmup: Int = 50) -> Tuning {
+        tune(focuses: focuses(of: events), warmup: warmup)
+    }
+
+    public static func tune(focuses: [FocusStamp], warmup: Int = 50) -> Tuning {
         var cells: [Tuning] = []
         for secondOrder in [false, true] {
             for weight in weightGrid {
@@ -228,7 +279,7 @@ public struct NextApp: Equatable {
         var model = NextApp()
         var seen = 0
         var switches = 0
-        for event in recentFocuses(events) {
+        for event in recentFocuses(focuses) {
             guard let app = event.app?.lowercased(), !app.isEmpty,
                   app != model.history.last else { continue }
             if seen >= warmup, let current = model.history.last {
@@ -264,8 +315,14 @@ public struct NextApp: Equatable {
     /// Every strategy scored at once, the tuned blend included.
     public static func evaluate(events: [ObservationEvent], tuning: Tuning? = nil,
                                 warmup: Int = 50) -> [Score] {
-        let chosen = tuning ?? tune(events: events, warmup: warmup)
-        let (hits, switches) = replay(events: recentFocuses(events), tuning: chosen,
+        evaluate(focuses: focuses(of: events), tuning: tuning, warmup: warmup)
+    }
+
+    public static func evaluate(focuses: [FocusStamp], tuning: Tuning? = nil,
+                                warmup: Int = 50) -> [Score] {
+        let recent = recentFocuses(focuses)
+        let chosen = tuning ?? tune(focuses: recent, warmup: warmup)
+        let (hits, switches) = replay(focuses: recent, tuning: chosen,
                                       warmup: warmup, strategies: Strategy.allCases)
         guard switches > 0 else { return [] }
         return Strategy.allCases.map { strategy in

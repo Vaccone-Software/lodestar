@@ -37,6 +37,12 @@ func usage() -> Never {
       probe speech [--seconds N] [--words a,b] [--dictation] [--cycle] [--auth]
                                        the draft's questions: latency to first word, revisions,
                                        restart cost, contextual vocabulary, which TCC grant
+      probe memory-seed [--events N] [--legacy]
+                                       what the prewarmer's boot seed holds, from a synthetic
+                                       sealed logbook of its own: baseline and peak footprint
+      probe memory-rollup [--events N] [--legacy]
+                                       the same for the monthly roll (thirteen months, both logs)
+      probe memory-coach [--events N]  the same for the coach's refresh (ninety days of whole events)
 
     the slice-0 questions, and the command that answers each:
       1. does _AXUIElementGetWindow bridge AX windows to real window-server ids?  -> list
@@ -75,6 +81,10 @@ case "dictation": runDictation(&arguments)
 case "editor": runEditor(&arguments)
 case "smoke": runSmoke(&arguments)
 case "pointer": runPointer(&arguments)
+case "memory-seed": runMemory(&arguments, rollup: false)
+case "memory-rollup": runMemory(&arguments, rollup: true)
+case "memory-coach": runMemory(&arguments, rollup: false, coach: true)
+case "memory-prepare": runMemoryPrepare(&arguments)
 case "help", "--help", "-h": usage()
 default:
     fputs("probe: unknown command '\(command)'\n\n", stderr)

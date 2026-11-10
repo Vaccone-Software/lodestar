@@ -169,6 +169,15 @@ final class ModelsServiceTests: XCTestCase {
             await clock.advance(by: duration)
         }
 
+        /// Waits until the peer is watching a request its caller left, which
+        /// it starts on a task of its own once the caller has gone: a clock
+        /// moved before it does counts the verdict from a later moment.
+        func watching(for grace: Duration, file: StaticString = #filePath, line: UInt = #line) async {
+            await ModelsServiceTests.eventually("the stuck watch of \(grace) never began", file: file, line: line) {
+                clock.pendingDeadlines.contains { clock.now.duration(to: $0) == grace }
+            }
+        }
+
         func editor(answerDeadline: TimeInterval = 8, stuckAfter: TimeInterval = ModelCalls.defaultStuckAfter) -> EditorModel {
             let client = self.client
             return EditorModel(engine: .standard, idleRelease: 3600, answerDeadline: answerDeadline, gateWait: 3,
@@ -500,12 +509,14 @@ final class ModelsServiceTests: XCTestCase {
             let first = await asking.value
             XCTAssertNil(first)
             XCTAssertEqual(rig.service.exits, [], "not ended for being late: it may yet stop")
+            await rig.watching(for: ModelsAPI.stuckAfter)
             await rig.advance(by: ModelsAPI.stuckAfter - .milliseconds(1))
             XCTAssertEqual(rig.service.exits, [])
             await rig.advance(by: .milliseconds(1))
             await eventually("the service was ended") { rig.service.exits == [0] }
             XCTAssertEqual(rig.gauge.parkedCount, 1, "ended while the generation was still stuck")
             XCTAssertEqual(rig.events.count("xpc.call_stuck"), 1)
+            await eventually("the peer reported the end it decided") { rig.events.count("xpc.run_ended") == 1 }
             XCTAssertEqual(rig.events.events(named: "xpc.run_ended").first?.text("reason"), "models.respond was stuck")
             let answer = await model.correct("Their going.")  // finds it stuck, loads again, in a fresh service
             XCTAssertEqual(answer?.hasPrefix("They're going."), true)
@@ -548,6 +559,7 @@ final class ModelsServiceTests: XCTestCase {
                 XCTFail("a stuck phrase answered")
             } catch ModelsError.timedOut {}
             XCTAssertEqual(rig.service.exits, [], "the phrase had the grace to notice its cancellation")
+            await rig.watching(for: ModelsAPI.earStuckAfter)
             await rig.advance(by: ModelsAPI.earStuckAfter)
             await eventually("the service was ended") { rig.service.exits == [0] }
             XCTAssertEqual(rig.gauge.parkedCount, 1, "while the phrase was stuck")

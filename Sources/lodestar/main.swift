@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var menuBarHideTimer: Timer?
     private var signalSource: DispatchSourceSignal?
     private var trustPoll: Timer?
-    private var displayReconcile: DispatchWorkItem?
+    private var displayReconcile: Task<Void, Never>?
     private var clickHandler: ClickHandler?
     /// Links that arrived before the handler existed. A URL open can be the
     /// reason we were launched, so the event can beat our own setup; the queue
@@ -551,7 +551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if AVCaptureDevicePermission.granted {
             // After the tap is up: building the audio engine costs the main
             // thread a second, and the first gesture must not wait on it.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak draft] in draft?.warmSpeech() }
+            onMain(after: .seconds(3)) { [weak draft] in draft?.warmSpeech() }
         }
         draftController = draft
         let commandsBar = CommandsBarController()
@@ -799,9 +799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ) { [weak self] _ in
             // Reconfigurations arrive in bursts; act once they settle.
             self?.displayReconcile?.cancel()
-            let work = DispatchWorkItem { [weak self] in self?.layout.reconcileDisplays() }
-            self?.displayReconcile = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+            self?.displayReconcile = onMain(after: .seconds(1)) { [weak self] in self?.layout.reconcileDisplays() }
         }
         if config.showMenuBar { createStatusItem() }
         watchAppIcon()
@@ -910,7 +908,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launchStages.finish()
         stateWarningFlashed = store.bootWarning
         for warning in [store.bootWarning, clipboardController?.bootWarning].compactMap({ $0 }) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [hud] in
+            onMain(after: .seconds(3)) { [hud] in
                 hud?.flash("⚠ \(warning)")
             }
         }
@@ -1103,7 +1101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         iconObservers.append(DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
         ) { [weak self] _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            onMain(after: .milliseconds(300)) { [weak self] in
                 Ceramic.followSystemAppearance()
                 self?.refreshAppIcon()
             }
@@ -1184,7 +1182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.removeStatusItem()
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+        onMain(after: .milliseconds(150)) { [weak self] in
             self?.statusItem?.button?.performClick(nil)
         }
         Log.info("menu-bar", ["action": "revealed", "temporary": !config.showMenuBar])
@@ -1277,7 +1275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.lessonAwaitingBill = lesson
             self.walk.showLesson(lesson)
-            DispatchQueue.main.asyncAfter(deadline: .now() + Coach.seenSeconds) { [weak self] in
+            onMain(after: .seconds(Coach.seenSeconds)) { [weak self] in
                 guard let self, self.walk.showingLesson == lesson else { return }
                 self.billLesson(lesson)
             }
@@ -1293,7 +1291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // changed rather than because anybody asked, is the wrong surprise.
         // Not while the state is unknown: an empty one has never seen the walk.
         guard store.isKnown, store.walkCompletedVersion == nil, !updater.justUpdated else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+        onMain(after: .milliseconds(1200)) { [weak self] in
             self?.showWalk()
         }
     }
@@ -2503,7 +2501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// took the glass from is asked again once the glass is clear, so a
     /// switch left on never means an editor silently off.
     private func askEditorConsentWhenClear(after seconds: TimeInterval) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+        onMain(after: .seconds(seconds)) { [weak self] in
             guard let self, self.store.isKnown, self.config.editorEnabled, !self.store.editorConsented,
                   !self.editorConsent.isShowing() else { return }
             guard self.hud.owner == .none else {
@@ -3151,7 +3149,11 @@ if Array(cliArguments.prefix(2)) == ["editor", "check"] {
     Log.stdoutEnabled = false
     let done = DispatchSemaphore(value: 0)
     nonisolated(unsafe) var code: Int32 = 1
-    Task.detached {
+    // Off the main actor, which this thread holds while it waits below, and at
+    // the priority a detached task had from here (measured 2026-11-10: a plain
+    // task started from the main thread runs at user-initiated, in that
+    // thread's pool bucket).
+    Task(priority: .medium) { @concurrent in
         code = await EditorCheck.run()
         done.signal()
     }

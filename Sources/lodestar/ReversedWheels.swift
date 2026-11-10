@@ -304,7 +304,7 @@ final class ReversedWheels {
             return true
         }
         guard needed else { return }
-        queue.asyncAfter(deadline: .now() + Self.settleEvery) { [weak self] in
+        after(.seconds(Self.settleEvery), on: queue) { [weak self] in
             self?.settle(now: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
         }
     }

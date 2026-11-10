@@ -216,7 +216,7 @@ final class UpdateController {
             if version == Lodestar.version {
                 justUpdated = true
                 Log.info("update", ["phase": "completed", "version": version])
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [voice] in
+                onMain(after: .seconds(4)) { [voice] in
                     let (sentence, detail) = Voice.updated(version)
                     voice(sentence, detail, 1, false)
                 }
@@ -245,7 +245,7 @@ final class UpdateController {
             // The marker is retired when the message is said, not when it is
             // read: an instance that exits before the four seconds (a relay)
             // never says it, and leaves the marker for the one that stays.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            onMain(after: .seconds(4)) { [weak self] in
                 guard let self else { return }
                 self.flash("⚠ \(version) did not start, so Lodestar went back to \(Lodestar.version)")
                 try? FileManager.default.removeItem(at: rolledBack)
@@ -555,11 +555,13 @@ final class UpdateController {
         let outcome = OutcomeBox()
         let finished = DispatchSemaphore(value: 0)
         let name = URL(fileURLWithPath: launchPath).lastPathComponent
-        // Detached keeps the wait off the calling thread, and a detached task
-        // starts with Stoic's default context, not the caller's: what it says
+        // A task keeps the wait off the calling thread, which is a dispatch
+        // queue's and so hands the task no context of its own: what it says
         // (`abandoned.started` for a tool given up on) would reach the unified
-        // log alone. The context handed in is bound again inside it.
-        Task.detached {
+        // log alone. The context handed in is bound inside it. The priority
+        // is the one a detached task had, named because a task started from
+        // a queue otherwise takes the queue's.
+        Task(priority: .medium) {
             await withAmbient({ $0 = ambient }) {
                 do throws(PolicyError<any Error>) {
                     let status = try await abandoningAfter(deadline, label: "update.\(name)", limit: 2) { () throws -> Int32 in
@@ -598,7 +600,7 @@ final class UpdateController {
             guard process.isRunning else { return }
             process.terminate()
             let pid = process.processIdentifier
-            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [process] in
+            after(.seconds(5), on: .global()) { [self] in
                 if process.isRunning { kill(pid, SIGKILL) }
             }
         }

@@ -234,4 +234,12 @@ final class RateSettleTests: XCTestCase {
         let error = AudioInput.StaleRate(from: 48_000, to: 24_000)
         XCTAssertEqual(error.localizedDescription, "the input moved from 48000 Hz to 24000 Hz")
     }
+
+    /// The start loop logs an attempt's failure by its localized words, so
+    /// an attempt that was not begun must say why there, not as a bare code.
+    func testAnAttemptNotBegunSaysWhatDidNotFit() {
+        let error: Error = AudioInput.NotBegun(owed: 3.5, remaining: 0.9)
+        XCTAssertEqual(error.localizedDescription,
+                       "the wait the radio is owed, up to 3.5 s, does not fit in the 0.9 s left")
+    }
 }

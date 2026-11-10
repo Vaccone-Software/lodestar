@@ -883,9 +883,10 @@ final class AudioInput: @unchecked Sendable {
 
     /// An attempt that was not begun because the wait it owes the radio
     /// cannot fit in the time left.
-    struct NotBegun: Error, CustomStringConvertible {
+    struct NotBegun: LocalizedError, CustomStringConvertible {
         let owed: TimeInterval
         let remaining: TimeInterval
+        var errorDescription: String? { description }
         var description: String {
             "the wait the radio is owed, up to \(String(format: "%.1f", owed)) s, does not fit in the \(String(format: "%.1f", max(0, remaining))) s left"
         }

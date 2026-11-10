@@ -58,7 +58,7 @@ final class MeetingController: NSObject {
     /// One fetch in flight at a time; a storm of change notifications
     /// coalesces into the trailing edge of a one-second debounce.
     private var refreshing = false
-    private var pendingRefresh: DispatchWorkItem?
+    private var pendingRefresh: Task<Void, Never>?
     /// While enabled and unauthorized, watches for the grant to land in
     /// System Settings — the same no-relaunch-dance promise Accessibility
     /// keeps, kept here too.
@@ -230,9 +230,7 @@ final class MeetingController: NSObject {
             forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.pendingRefresh?.cancel()
-            let work = DispatchWorkItem { [weak self] in self?.refresh() }
-            self.pendingRefresh = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+            self.pendingRefresh = onMain(after: .seconds(1)) { [weak self] in self?.refresh() }
         }
         tick = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.refresh()

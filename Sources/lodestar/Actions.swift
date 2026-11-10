@@ -232,20 +232,16 @@ final class Actions {
     var onOpening: ((_ name: String, _ icon: NSImage?) -> Void)?
     var onOpened: (() -> Void)?
     static let openingPatience: TimeInterval = 0.33
-    private var openingWork: DispatchWorkItem?
-    private var openingExpiry: DispatchWorkItem?
+    private var openingWork: Task<Void, Never>?
+    private var openingExpiry: Task<Void, Never>?
 
     private func beginOpening(_ name: String, icon: NSImage?, seconds: TimeInterval) {
         endOpening()
-        let show = DispatchWorkItem { [weak self] in
+        openingWork = onMain(after: .seconds(Self.openingPatience)) { [weak self] in
             self?.openingWork = nil
             self?.onOpening?(name, icon)
         }
-        openingWork = show
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.openingPatience, execute: show)
-        let expire = DispatchWorkItem { [weak self] in self?.endOpening() }
-        openingExpiry = expire
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: expire)
+        openingExpiry = onMain(after: .seconds(seconds)) { [weak self] in self?.endOpening() }
     }
 
     private func endOpening() {
@@ -736,7 +732,7 @@ final class Actions {
             // The save waits for the frames to land — the moves run off
             // the main thread — so the breath remembers where the windows
             // are, not where they were.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            onMain(after: .milliseconds(800)) { [weak self] in
                 guard let self, self.store.breath(at: path) == nil else { return }
                 let members = self.currentBreathMembers()
                 guard !members.isEmpty else { return }

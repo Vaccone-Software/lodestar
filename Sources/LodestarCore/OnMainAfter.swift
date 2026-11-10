@@ -22,3 +22,24 @@ public func onMain(
         work()
     }
 }
+
+/// Runs `step` on the main actor `count` times, the first at once and each
+/// next one `interval` after the one before it by the schedule, not by how
+/// late the last ran, so a slow turn is made up and the run never drifts
+/// longer. Returns the task that owns the run: cancelling it stops the steps
+/// that have not run.
+@discardableResult
+public func onMain(
+    every interval: Duration,
+    times count: Int,
+    _ step: @escaping @MainActor () -> Void
+) -> Task<Void, Never> {
+    Task { @MainActor in
+        let clock = Ambient.current.clock
+        let began = clock.now
+        for index in 0..<count {
+            do { try await Ambient.sleep(until: began.advanced(by: interval * index)) } catch { return }
+            step()
+        }
+    }
+}

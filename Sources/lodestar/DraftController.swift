@@ -2765,7 +2765,7 @@ final class DraftController {
         down?.flags = flags
         up?.flags = flags
         // A beat for the pasteboard to settle: some apps read it lazily.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+        onMain(after: .milliseconds(20)) {
             SystemEvents.post(down, tap: .cgSessionEventTap)
             SystemEvents.post(up, tap: .cgSessionEventTap)
         }

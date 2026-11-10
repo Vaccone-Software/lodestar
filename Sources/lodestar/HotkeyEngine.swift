@@ -2434,7 +2434,7 @@ extension HotkeyEngine: EngineWorld {
                 // Windows land in bursts: one redraw for each burst.
                 guard let self, !self.bringRedrawPending else { return }
                 self.bringRedrawPending = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+                onMain(after: .milliseconds(60)) { [weak self] in
                     guard let self else { return }
                     self.bringRedrawPending = false
                     guard case .bring = self.core.state else { return }
@@ -2535,7 +2535,7 @@ extension HotkeyEngine: EngineWorld {
         }
         Log.info("bring", ["outcome": "brought", "chars": (text as NSString).length,
                            "form": line ? "line" : "token", "rank": rank])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        onMain(after: .milliseconds(50)) { [weak self] in
             self?.bringTypes(text, target)
         }
     }

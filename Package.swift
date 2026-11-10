@@ -32,7 +32,7 @@ let package = Package(
         // Ours (Vaccone Software).
         // The sealed records, clipboard and downloads need its Crypto trait
         // (swift-crypto, which is CryptoKit on Apple platforms).
-        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.5.0"), traits: ["Crypto"]),
+        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.8.1"), traits: ["Crypto"]),
     ],
     targets: [
         // The AX layer every slice builds on. Its one dependency is Stoic,
@@ -59,6 +59,9 @@ let package = Package(
             // The models' and the reader's methods are declared here, once,
             // for the app and both services (design/25).
             .product(name: "StoicXPC", package: "stoic"),
+            // Moment's bridge to Date (`Moment.now.date`): what time it is
+            // comes from the ambient wall clock, which a test pins.
+            .product(name: "StoicTime", package: "stoic"),
         ], swiftSettings: [
             // Swift 6 language mode for Core alone: its data races are
             // compile errors. Every other target is still Swift 5 (see
@@ -103,6 +106,10 @@ let package = Package(
             .product(name: "StoicSealed", package: "stoic"),
             .product(name: "StoicApple", package: "stoic"),
             .product(name: "StoicXPC", package: "stoic"),
+            .product(name: "StoicTime", package: "stoic"),
+            // Presenter.foundation, installed at launch: how a failure of
+            // Foundation's is worded for a person.
+            .product(name: "StoicFoundation", package: "stoic"),
         ]),
         // The clipboard's reader: an XPC service the app carries in
         // Contents/XPCServices (scripts/make-app.sh assembles it), so a copy
@@ -124,6 +131,7 @@ let package = Package(
             "LodestarCore", "LodestarEars", "LodestarMLX",
             // The memory probe seals a synthetic logbook under a key of its own.
             .product(name: "StoicSealed", package: "stoic"),
+            .product(name: "StoicTime", package: "stoic"),
         ]),
         // A stand-in app with plain windows, for the tests that move real
         // windows with Lodestar's own actions. Built beside the tests,
@@ -140,9 +148,13 @@ let package = Package(
                         .product(name: "StoicSealedKeychain", package: "stoic"),
                         .product(name: "StoicStore", package: "stoic"),
                         .product(name: "StoicApple", package: "stoic"),
+                        .product(name: "StoicTime", package: "stoic"),
+                        .product(name: "StoicSchemaTesting", package: "stoic"),
                     ],
-                    // The editor's accuracy fixture, read by path.
-                    exclude: ["Fixtures"],
+                    // The editor's accuracy fixture, read by path, and the
+                    // released formats' payloads (CompatibilityTests), read
+                    // from beside the test file.
+                    exclude: ["Fixtures", "Compatibility"],
                     // For the leak guard's constructor (Overrides.swift).
                     swiftSettings: [.enableExperimentalFeature("SymbolLinkageMarkers")]),
         // The scenario harness: the real engine, glass, and coach wired the
@@ -161,6 +173,7 @@ let package = Package(
             .product(name: "StoicStore", package: "stoic"),
             // XPCSimulatedService: the real host in this process, on a TestClock.
             .product(name: "StoicXPC", package: "stoic"),
+            .product(name: "StoicTime", package: "stoic"),
         ], swiftSettings: [.enableExperimentalFeature("SymbolLinkageMarkers")]),
     ],
     // Tools 6.1 for the Crypto trait; the code stays in Swift 5 mode, as it

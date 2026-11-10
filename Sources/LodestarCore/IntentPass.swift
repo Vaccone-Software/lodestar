@@ -56,7 +56,7 @@ public enum IntentPass {
     /// here is kept: each either led to an accepted change, is needed by a
     /// fixture case, or was too rare in the journal (two asks or fewer)
     /// to say.
-    private static let gate = try! NSRegularExpression(pattern:
+    private static let gate = NSRegularExpression.constant(
         #"\b(um+|uh+|hmm+|er|wait|no|actually|sorry|mean|meant|scratch|rather|never mind|instead|"#
         + #"dot|slash|underscore|dash|hyphen|capital|first|third|firstly|secondly)\b|"#
         + #"\b(\w+)\W+\2\b|(?:(?<![\w'’])[A-Za-z]\b[ ,.]+){2,}"#, options: [.caseInsensitive])

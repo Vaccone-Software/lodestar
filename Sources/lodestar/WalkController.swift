@@ -49,7 +49,7 @@ final class WalkController: NSObject {
     /// the same one; the sequence is the curriculum's.
     private var lesson: Curriculum.Lesson?
     private var lessonDone = false
-    private var lessonHide: DispatchWorkItem?
+    private var lessonHide: Task<Void, Never>?
 
     // MARK: - Windows
 
@@ -206,9 +206,7 @@ final class WalkController: NSObject {
         // The finished card is seen, then goes: unlike the walk's close it
         // has no decision on it, and a card that outstays its gesture is
         // clutter.
-        let work = DispatchWorkItem { [weak self] in self?.hideLesson() }
-        lessonHide = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
+        lessonHide = onMain(after: .milliseconds(3500)) { [weak self] in self?.hideLesson() }
     }
 
     private func hideLesson() {

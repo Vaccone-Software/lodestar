@@ -57,11 +57,16 @@ final class UpdateFeedTests: XCTestCase {
             let rig = Rig(nsErrorFirst: nsErrorFirst)
             rig.scripted.on(.get(url), respond: steps)
             for (other, otherSteps) in others { rig.scripted.on(.get(other), respond: otherSteps) }
-            let client = UpdateFeed.client(transport: rig, wallClock: { UpdateFeedTests.now })
+            let client = UpdateFeed.client(transport: rig)
             var outcome = Outcome(data: nil, problem: nil, requests: 0, elapsed: .zero, sent: [])
+            // An HTTP-date `Retry-After` is counted from the ambient wall
+            // clock; pinned here, inside the simulation, which sets its own.
+            let pinned = WallClock.fixed(Moment(sinceEpoch: .seconds(Int64(UpdateFeedTests.now.timeIntervalSince1970))))
             do {
-                outcome.data = try await withUrgency(urgency) {
-                    try await UpdateFeed.data(from: url, client: client)
+                outcome.data = try await withAmbient({ $0.wallClock = pinned }) {
+                    try await withUrgency(urgency) {
+                        try await UpdateFeed.data(from: url, client: client)
+                    }
                 }
             } catch {
                 outcome.problem = UpdateFeed.problem(error)

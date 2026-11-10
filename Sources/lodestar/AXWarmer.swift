@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import Synchronization
 
 /// Chromium and Electron build no accessibility tree until an assistive
 /// client announces itself — and then they build it *lazily*, over
@@ -23,21 +24,21 @@ enum AXWarmer {
     /// The most a single warm may wait on the app. A responsive app
     /// answers in microseconds; a hung one is not worth a quarter second.
     private static let timeout: Float = 0.25
-    private static var warmedAt: [pid_t: Date] = [:]
+    private static var warmedAt: [pid_t: ContinuousClock.Instant] = [:]
     private static let lock = NSLock()
 
     /// Returns whether an AX call was actually made — false when the
     /// throttle answered instead.
     @discardableResult
     static func warm(_ pid: pid_t) -> Bool {
-        let now = Date()
+        let now = ContinuousClock.now
         lock.lock()
         // Pruned on the way in rather than grown for the life of the process.
         // An entry older than the interval can only ever answer "warm it
         // again", so keeping it bought nothing and cost a slot for every pid
         // this machine has ever focused — unbounded, in an app that runs for
         // weeks. What survives the filter is exactly what the throttle needs.
-        warmedAt = warmedAt.filter { now.timeIntervalSince($0.value) < interval }
+        warmedAt = warmedAt.filter { $0.value.duration(to: now).inSeconds < interval }
         guard warmedAt[pid] == nil else {
             lock.unlock()
             return false
@@ -66,12 +67,12 @@ enum AXWarmer {
         }
     }
 
-    nonisolated(unsafe) private static var browserBundles: [String: Bool] = [:]
+    private static let browserBundles = Mutex<[String: Bool]>([:])
 
     /// A Chromium browser: renderer helpers inside its frameworks, and no
     /// Electron framework (Electron apps answer the manual flag).
     static func isChromiumBrowser(_ bundle: URL) -> Bool {
-        if let known = lock.withLock({ browserBundles[bundle.path] }) { return known }
+        if let known = browserBundles.withLock({ $0[bundle.path] }) { return known }
         let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
         let names = (try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? []
         var chromium = false
@@ -85,7 +86,7 @@ enum AXWarmer {
                 }
             }
         }
-        lock.withLock { browserBundles[bundle.path] = chromium }
+        browserBundles.withLock { $0[bundle.path] = chromium }
         return chromium
     }
 }

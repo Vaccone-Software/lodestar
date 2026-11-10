@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The mouse, priced: clicks folded per quarter hour and per app, with a
 /// histogram of what was clicked, by accessibility role. This is the
@@ -108,7 +110,7 @@ public struct ClickPulse: Equatable {
     }
 
     /// Close the open window unconditionally — shutdown's path.
-    public mutating func flush(now: Date = Date()) -> [ObservationEvent] {
+    public mutating func flush(now: Date = Moment.now.date) -> [ObservationEvent] {
         let events = build()
         windowStart = nil
         cells = [:]
@@ -212,7 +214,7 @@ extension Health {
     }
 
     public static func clicks(events: [ObservationEvent], days: Int,
-                              now: Date = Date(), calendar: Calendar = .current) -> Clicks? {
+                              now: Date = Moment.now.date, calendar: Calendar = .current) -> Clicks? {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let pulses = events.filter { $0.kind == .clicks && $0.t >= cutoff }
         guard !pulses.isEmpty else { return nil }

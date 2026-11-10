@@ -2,6 +2,9 @@ import Darwin
 import Foundation
 import LodestarCore
 import StoicSealed
+import Stoic
+import StoicTime
+import Synchronization
 
 /// `probe memory-seed`, `memory-rollup` and `memory-coach`: what the three
 /// launch-time readers of the logbook cost in memory, measured in a process of this
@@ -36,23 +39,34 @@ func runMemory(_ args: inout [String], rollup: Bool, coach: Bool = false) {
         }
         index += 1
     }
-    let started = Date()
+    let started = ContinuousClock.now
     func say(_ text: String) {
         let (current, peak) = MemoryProbe.footprint()
         FileHandle.standardError.write(Data(String(
-            format: "%6.1fs footprint %d MB interval-peak %d MB  %@\n", Date().timeIntervalSince(started),
+            format: "%6.1fs footprint %d MB interval-peak %d MB  %@\n", started.secondsElapsed,
             current >> 20, peak >> 20, text).utf8))
     }
 
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("lodestar-memprobe-\(getpid())", isDirectory: true)
-    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
+    func removeScratch() {
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            fputs("probe: could not remove \(directory.path): \(error)\n", stderr)
+        }
+    }
+    defer { removeScratch() }
     // `exit` runs no `defer`, so a failure takes the folder with it first.
     func fail(_ why: String) -> Never {
         fputs("probe: \(why)\n", stderr)
-        try? FileManager.default.removeItem(at: directory)
+        removeScratch()
         exit(1)
+    }
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    } catch {
+        fail("could not make \(directory.path): \(error)")
     }
 
     // A year and a month for the roll, which has months to roll; eighty days
@@ -69,7 +83,7 @@ func runMemory(_ args: inout [String], rollup: Bool, coach: Bool = false) {
     }
     let vault = Vault(custody: InMemoryKeyCustody(key), directory: directory)
     let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: vault)
-    let now = Date()
+    let now = Moment.now.date
     say("written \(events) events, by the child")
 
     MemoryProbe.letGo()
@@ -139,7 +153,7 @@ func runMemoryPrepare(_ args: inout [String]) {
     let custody = InMemoryKeyCustody()
     let vault = Vault(custody: custody, directory: directory)
     let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: vault)
-    let now = Date()
+    let now = Moment.now.date
     MemoryProbe.write(events: events, spanDays: spanDays, now: now, store: store, health: health)
     if rotate {
         store.log.compact(now: now)
@@ -158,7 +172,11 @@ enum MemoryProbe {
         for name in custody.names {
             items[name] = (custody.contents(of: name) ?? []).map { String(format: "%02x", $0) }.joined()
         }
-        try? JSONEncoder().encode(items).write(to: directory.appendingPathComponent("memprobe-key.json"))
+        do {
+            try JSONEncoder().encode(items).write(to: directory.appendingPathComponent("memprobe-key.json"))
+        } catch {
+            fputs("probe: could not write the key: \(error)\n", stderr)
+        }
     }
 
     static func readKey(in directory: URL) -> [String: [UInt8]]? {
@@ -183,17 +201,18 @@ enum MemoryProbe {
             }
         }
         guard status == 0 else { return (0, 0) }
-        return (info.ri_phys_footprint, restarted ? info.ri_interval_max_phys_footprint : info.ri_lifetime_max_phys_footprint)
+        return (info.ri_phys_footprint, peakRestarted.withLock { $0 } ? info.ri_interval_max_phys_footprint : info.ri_lifetime_max_phys_footprint)
     }
 
-    private nonisolated(unsafe) static var restarted = false
+    private static let peakRestarted = Mutex(false)
 
     /// Start the peak over from the footprint as it is: `proc_reset_footprint_interval`,
     /// which libproc exports and its header does not.
     static func restartPeak() {
         typealias Reset = @convention(c) (Int32) -> Int32
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "proc_reset_footprint_interval") else { return }
-        restarted = unsafeBitCast(symbol, to: Reset.self)(getpid()) == 0
+        let reset = unsafeBitCast(symbol, to: Reset.self)(getpid()) == 0
+        peakRestarted.withLock { $0 = reset }
     }
 
     /// Hand back what the writing freed: a freed block stays in the footprint

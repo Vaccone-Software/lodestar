@@ -337,7 +337,7 @@ public struct Config {
     /// What `config get/set/unset` start from; they refuse to write on nil.
     public static func userTree(from source: URL = Config.file) -> [String: ConfigValue]? {
         guard let store = try? ConfigStore.store(at: source) else { return nil }
-        try? store.reload()
+        Log.attempt("config: could not read the file for a command") { try store.reload() }
         guard store.fileProblem == nil else { return nil }
         return ConfigStore.tree(of: store.value)
     }
@@ -385,7 +385,7 @@ public struct Config {
                 Log.error("config: could not write the default file", ["error": "\(error)"])
             }
         }
-        if reload { try? store.reload() }
+        if reload { Log.attempt("config: could not read the file") { try store.reload() } }
         // The problem first, then the value: whatever lands between the two
         // reads makes the pair older than the store, never newer, so the app
         // can only apply once too often, never miss an arrival.

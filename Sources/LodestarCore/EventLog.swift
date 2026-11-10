@@ -1,5 +1,8 @@
 import Foundation
+import Stoic
 import StoicStore
+import Stoic
+import StoicTime
 
 /// One observed event, flat on purpose: every field the analysis layer will
 /// ever ask about is a column here, and a JSONL line is the whole record.
@@ -688,6 +691,7 @@ public struct FocusStamp: Equatable, Sendable {
 /// Threads: `io` owns the buffer, the open journal and the counter (each is
 /// touched there only); `state` owns what callers on any thread read and
 /// write, the two settings and the pending flush.
+// stoic:allow(unchecked-sendable): `pending`, `droppedWhilePaused` and `live` are touched only inside `io`, a serial queue (every method reaches them through `io.sync` or `io.async`, and `init` sets `live` before the log is shared); `_behavioralBound`, `_excludedFromBackup` and `flushWork` only inside `state.withLock`; every other stored property is a `let`
 public final class EventLog: @unchecked Sendable {
     public static let defaultFile = Paths.data.appendingPathComponent("events.jsonl")
     /// The window handed to the recommendation pass: every generator's
@@ -735,12 +739,12 @@ public final class EventLog: @unchecked Sendable {
     private let state = NSLock()
     private var _behavioralBound = Retention.behavioralBytes
     private var _excludedFromBackup = true
-    private var flushWork: DispatchWorkItem?
+    private var flushWork: Task<Void, Never>?
 
     /// Takes the scheduled flush, if there is one, off the books and
     /// cancels it.
     private func cancelScheduledFlush() {
-        state.withLock { () -> DispatchWorkItem? in
+        state.withLock { () -> Task<Void, Never>? in
             defer { flushWork = nil }
             return flushWork
         }?.cancel()
@@ -852,7 +856,7 @@ public final class EventLog: @unchecked Sendable {
     /// of archive costs a ninety-day reader nothing, and what falls before
     /// the window is let go as each line is read, not filtered out of an
     /// array of the whole of the shards after it.
-    public func recent(days: Int, now: Date = Date()) -> [ObservationEvent] {
+    public func recent(days: Int, now: Date = Moment.now.date) -> [ObservationEvent] {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         return io.sync {
             var events: [ObservationEvent] = []
@@ -869,7 +873,7 @@ public final class EventLog: @unchecked Sendable {
     /// decodes already holds everything buffered — safe from any thread,
     /// which is where the coach's recommendation pass runs it. `days`
     /// bounds the window; nil reads the whole ring.
-    public func snapshot(days: Int? = nil, now: Date = Date()) -> [ObservationEvent] {
+    public func snapshot(days: Int? = nil, now: Date = Moment.now.date) -> [ObservationEvent] {
         io.sync { flushLocked() }
         guard let days else { return readAll() }
         return recent(days: days, now: now)
@@ -915,14 +919,14 @@ public final class EventLog: @unchecked Sendable {
     }
 
     /// Rotate closed months into shards and drop what has aged out.
-    public func compact(now: Date = Date()) {
+    public func compact(now: Date = Moment.now.date) {
         io.sync { self.compactLocked(now: now) }
     }
 
     /// The boot path: same rotation, but launch never waits on it — the
     /// live file is a full decode and rewrite, and the tap should be
     /// standing before the disk has finished settling history.
-    public func compactSoon(now: Date = Date()) {
+    public func compactSoon(now: Date = Moment.now.date) {
         io.async { self.compactLocked(now: now) }
     }
 
@@ -1317,11 +1321,11 @@ public final class EventLog: @unchecked Sendable {
             pending = []
             live.close()
             RecordFiles.removeJournal(live.path, fileSystem: fileSystem)
-            try? fileSystem.remove(file.path)
+            Log.attemptUnlessAbsent("event log: could not remove the cleared log file") { try fileSystem.remove(file.path) }
             for month in shardMonthsLocked() {
                 let shard = shardFile(for: month)
                 RecordFiles.removeJournal(LineStore.journalPath(forPlaintext: shard), fileSystem: fileSystem)
-                try? fileSystem.remove(shard.path)
+                Log.attemptUnlessAbsent("event log: could not remove a cleared month") { try fileSystem.remove(shard.path) }
             }
         }
     }
@@ -1408,13 +1412,18 @@ public final class EventLog: @unchecked Sendable {
     }
 
     private func scheduleFlush() {
-        let work = state.withLock { () -> DispatchWorkItem? in
-            guard flushWork == nil else { return nil }
-            let item = DispatchWorkItem { [weak self] in self?.flushSoon() }
-            flushWork = item
-            return item
+        // The delay is a task this log owns: `flushSoon` takes it off the
+        // books and cancels it, and a cancelled sleep flushes nothing. The
+        // flush only hands the write to `io`, so it needs no particular
+        // thread.
+        state.withLock {
+            guard flushWork == nil else { return }
+            flushWork = Task { [weak self] in
+                do { try await Ambient.sleep(for: .seconds(5)) } catch { return }
+                guard !Task.isCancelled else { return }
+                self?.flushSoon()
+            }
         }
-        if let work { DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work) }
     }
 }
 
@@ -1434,7 +1443,7 @@ extension EventLog {
     /// focus, but a shard at a time and a line at a time, so what is held at
     /// any moment is one month's bytes and the focuses found, never a
     /// decoded event.
-    public func focusStream(days: Int, now: Date = Date()) -> [FocusStamp] {
+    public func focusStream(days: Int, now: Date = Moment.now.date) -> [FocusStamp] {
         io.sync { flushLocked() }
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let found: [FocusStamp] = io.sync {

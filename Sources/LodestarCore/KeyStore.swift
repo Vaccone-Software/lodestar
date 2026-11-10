@@ -1,5 +1,7 @@
 import Foundation
 import StoicStore
+import Stoic
+import StoicTime
 
 /// The raw record: one fixed-width row per press, one file per local day,
 /// kept for as long as the disk allows.
@@ -40,6 +42,7 @@ import StoicStore
 ///
 /// Threads: `lock` guards the buffer, the drop count and the install's
 /// name (any thread appends); `queue` owns `writer` and every file.
+// stoic:allow(unchecked-sendable): `lock` (an NSLock) guards `buffer`, `droppedPresses` and `resolvedInstall` in every method that touches them; `writer` is used only inside `queue`, a serial queue (`write` is private and reached only by `queue.async`, and `migrate` and the closes run in `queue.sync`); every other stored property is a `let`
 public final class KeyStore: @unchecked Sendable {
     public static let version: UInt16 = 2
     public static let recordSize = 24
@@ -179,7 +182,7 @@ public final class KeyStore: @unchecked Sendable {
     }
 
     func header(for day: String, roster: [String]) -> DayFile.Header {
-        let start = Self.dayStart(of: day, calendar: calendar) ?? Date()
+        let start = Self.dayStart(of: day, calendar: calendar) ?? Moment.now.date
         return DayFile.Header(
             magic: Self.magic, version: Self.version, recordSize: UInt16(Self.recordSize),
             tzOffset: Int32(calendar.timeZone.secondsFromGMT(for: start)),
@@ -264,7 +267,7 @@ public final class KeyStore: @unchecked Sendable {
     public func migrateLegacy() -> RecordMigration {
         queue.sync {
             let outcome = writer.migrate(decodedCount: { Self.decode(segment: $0)?.presses.count ?? -1 })
-            writer.closeDays(before: Self.day(of: Date(), calendar: calendar))
+            writer.closeDays(before: Self.day(of: Moment.now.date, calendar: calendar))
             return outcome
         }
     }

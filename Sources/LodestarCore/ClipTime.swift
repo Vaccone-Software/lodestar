@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 import Synchronization
 
 /// A clip that is only a timestamp — a Unix time out of a log, an ISO date
@@ -166,7 +168,7 @@ public struct ClipTime: Equatable {
     /// room it leaves goes to a zone.
     /// `compact` leaves the weekday out of your clock's line, for a card too
     /// narrow to hold it whole: the date and time are what is read.
-    public func note(local: TimeZone = .current, zones: [TimeZone] = [], now: Date = Date(),
+    public func note(local: TimeZone = .current, zones: [TimeZone] = [], now: Date = Moment.now.date,
                      locale: Locale = .current, compact: Bool = false) -> Note {
         let calendar = Calendar(identifier: .gregorian)
         let sameYear = calendar.dateComponents(in: local, from: date).year == calendar.dateComponents(in: local, from: now).year
@@ -291,7 +293,7 @@ public struct ClipTime: Equatable {
     }
 
     /// "Tokyo · UTC+9", for the list of zones you keep.
-    public static func label(_ zone: TimeZone, at date: Date = Date()) -> String {
+    public static func label(_ zone: TimeZone, at date: Date = Moment.now.date) -> String {
         let offset = zone.secondsFromGMT(for: date)
         let hours = offset / 3600, minutes = abs(offset % 3600) / 60
         let sign = offset < 0 ? "−" : "+"

@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The chain guide's training wheels, lowering themselves.
 ///
@@ -39,7 +41,7 @@ public struct GuideFade: Equatable {
 
     /// A wrong key or an abandon under this prefix: the map owes the hand
     /// immediacy for a while, here and below.
-    public mutating func stumbled(prefix: [String], at now: Date = Date()) {
+    public mutating func stumbled(prefix: [String], at now: Date = Moment.now.date) {
         stumbles[Observations.key(prefix)] = now
         // Bounded: a session cannot grow this past the graph it navigates.
         if stumbles.count > 64 {
@@ -58,7 +60,7 @@ public struct GuideFade: Equatable {
     /// samples against `Coach.bentCompletions` — so "learned" keeps
     /// meaning one thing in the codebase.
     public func delay(prefix: [String], leaves: [[String]],
-                      observations: Observations, now: Date = Date()) -> TimeInterval {
+                      observations: Observations, now: Date = Moment.now.date) -> TimeInterval {
         guard !prefix.isEmpty, !leaves.isEmpty else { return 0 }
         // A stumble on this prefix or any ancestor holds the map open.
         for depth in 0...prefix.count {

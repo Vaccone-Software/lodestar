@@ -115,7 +115,7 @@ public final class SingleInstance: Sendable {
     /// that the next launch takes it only when this one is gone. For tests, and
     /// for nothing else.
     public func release() {
-        try? lock.release()
+        Log.attempt("instance lock: could not release it") { try lock.release() }
         Self.holders.withLock { $0.removeAll { $0 === self } }
     }
 
@@ -133,9 +133,11 @@ public final class SingleInstance: Sendable {
             outcome.holdsLock = true
             return outcome
         }
-        try? FileManager.default.createDirectory(
-            at: files.lock.deletingLastPathComponent(), withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700])
+        Log.attempt("instance lock: could not make its folder") {
+            try FileManager.default.createDirectory(
+                at: files.lock.deletingLastPathComponent(), withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+        }
 
         let taken = acquire(wait: wait, poll: poll)
         outcome.holdsLock = taken.held
@@ -164,7 +166,9 @@ public final class SingleInstance: Sendable {
             Log.error("another lodestar holds the lock and could not be identified — continuing anyway")
             outcome.unlockedBecause = "the holder could not be identified"
         }
-        try? "\(selfPid)".write(to: files.pid, atomically: true, encoding: .utf8)
+        Log.attempt("instance lock: could not write the pid file") {
+            try "\(selfPid)".write(to: files.pid, atomically: true, encoding: .utf8)
+        }
         return outcome
     }
 
@@ -226,7 +230,7 @@ public final class SingleInstance: Sendable {
         text += String(repeating: " ", count: max(0, Self.recordWidth - text.utf8.count))
         do {
             let file = try fileSystem.open(files.lock.path, mode: .readWrite)
-            defer { try? fileSystem.close(file) }
+            defer { Log.attempt("instance lock: could not close the lock file after writing the holder") { try fileSystem.close(file) } }
             try fileSystem.write(file, Array(text.utf8), at: 0)
         } catch {
             Log.error("instance lock: the holder's record was not written (\(error))")
@@ -277,7 +281,7 @@ public final class SingleInstance: Sendable {
         if FileManager.default.fileExists(atPath: files.lock.path) {
             let looking = FileLock(path: files.lock.path, fileSystem: fileSystem)
             if let free = try? looking.tryAcquire() {
-                if free { try? looking.release() }
+                if free { Log.attempt("instance lock: could not release the lock taken to look") { try looking.release() } }
                 else if let holder = holder(of: files, excluding: selfPid, processes: processes) { return holder }
             }
         }

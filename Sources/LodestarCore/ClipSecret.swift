@@ -154,7 +154,7 @@ public enum ClipSecret {
     private static let formats: [Format] = {
         func format(_ prefixes: [String], body: String, accepts: @escaping @Sendable (String) -> Bool = { _ in true }) -> Format {
             let alternation = prefixes.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
-            let pattern = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_\-])(?:"# + alternation + ")" + body)
+            let pattern = NSRegularExpression.constant(#"(?<![A-Za-z0-9_\-])(?:"# + alternation + ")" + body)
             return Format(pattern: pattern, prefix: { match in
                 prefixes.first(where: { match.hasPrefix($0) }).map { ($0 as NSString).length } ?? 0
             }, accepts: accepts)
@@ -298,7 +298,7 @@ public enum ClipSecret {
     private static func hasDigit(_ s: String) -> Bool { s.contains(where: \.isNumber) }
 
     private static func regex(_ pattern: String) -> NSRegularExpression {
-        try! NSRegularExpression(pattern: pattern)
+        NSRegularExpression.constant(pattern)
     }
 }
 

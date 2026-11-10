@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The day's shape, read off the pulses.
 ///
@@ -75,7 +77,7 @@ public enum Circadian {
     }
 
     public static func profile(events: [ObservationEvent], days: Int,
-                               now: Date = Date(),
+                               now: Date = Moment.now.date,
                                calendar: Calendar = .current) -> Profile? {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let pulses = events.filter { $0.kind == .pulse && $0.t >= cutoff }

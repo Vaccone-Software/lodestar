@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import LodestarCore
+import Synchronization
 
 /// Watching the pasteboard, and putting things back on it.
 ///
@@ -67,7 +68,7 @@ final class ClipboardController {
         // Said once, a few seconds after the launch's own flash: a history that
         // had to be moved aside is not a thing to learn from a log.
         store.onNotice = { [weak self] text in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self?.flash("⚠ \(text)") }
+            onMain(after: .seconds(3)) { [weak self] in self?.flash("⚠ \(text)") }
         }
     }
 
@@ -111,7 +112,7 @@ final class ClipboardController {
         poll?.tolerance = 0.1
         // The screenshots already in the history learn their captions
         // once, well after boot has settled and off the main thread.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+        onMain(after: .seconds(30)) { [weak self] in
             self?.store.captionImagesLackingText()
             self?.store.backfillCounts()
         }
@@ -188,11 +189,11 @@ final class ClipboardController {
         // from another device — makes it wait on that app or the network,
         // and on main that wait held the key tap. A slow one says so, by
         // its shape, wherever it happened.
-        let captureStarted = Date()
+        let captureStarted = ContinuousClock.now
         let source = NSWorkspace.shared.frontmostApplication
         reader.read(sourceBundleID: source?.bundleIdentifier, excludedApps: excludedApps) { [weak self] snapshot in
             guard let self, let snapshot else { return }
-            let ms = Int(Date().timeIntervalSince(captureStarted) * 1000)
+            let ms = Int(captureStarted.secondsElapsed * 1000)
             if ms >= 250 {
                 Log.info("clipboard", ["slow-capture-ms": ms, "items": snapshot.items.count,
                                        "types": snapshot.items.reduce(0) { $0 + $1.types.count }])
@@ -383,7 +384,11 @@ final class ClipboardController {
 
     /// How long a paste waits to learn whether a copy's files are still
     /// there. A seam for the tests.
-    nonisolated(unsafe) static var presenceDeadline: TimeInterval = 0.3
+    static var presenceDeadline: TimeInterval {
+        get { presenceDeadlineSeconds.withLock { $0 } }
+        set { presenceDeadlineSeconds.withLock { $0 = newValue } }
+    }
+    private static let presenceDeadlineSeconds = Mutex<TimeInterval>(0.3)
 
     /// `moving`: the card's files go on the board as for a paste, and the
     /// keystroke is the Finder's Move Item Here (⌥⌘V) instead of ⌘V, so the
@@ -646,7 +651,10 @@ final class ClipboardController {
         // to accumulate until the next launch or quit sweeps them.
         handedOverFiles.append(url)
         while handedOverFiles.count > Self.handedOverLimit {
-            try? FileManager.default.removeItem(at: handedOverFiles.removeFirst())
+            let oldest = handedOverFiles.removeFirst()
+            Log.attemptUnlessAbsent("clipboard: could not remove an old handed over file") {
+                try FileManager.default.removeItem(at: oldest)
+            }
         }
         return url
     }
@@ -663,7 +671,7 @@ final class ClipboardController {
         up?.flags = flags
         // A beat for the pasteboard to settle: some apps read it lazily, and
         // a paste that lands first inserts the previous clip.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+        onMain(after: .milliseconds(20)) {
             SystemEvents.post(down, tap: .cgSessionEventTap)
             SystemEvents.post(up, tap: .cgSessionEventTap)
         }

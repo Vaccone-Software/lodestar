@@ -1,6 +1,8 @@
 import CoreGraphics
 import Foundation
 import StoicStore
+import Stoic
+import StoicTime
 import Synchronization
 
 public struct BreathMember: Codable, Sendable {
@@ -117,13 +119,17 @@ public struct PersistedState: Codable, Sendable {
 public enum Quarantine {
     @discardableResult
     public static func setAside(_ file: URL, keepOriginal: Bool = false) -> URL {
-        let stamp = ISO8601DateFormatter().string(from: Date())
+        let stamp = ISO8601DateFormatter().string(from: Moment.now.date)
             .replacingOccurrences(of: ":", with: "-")
         let quarantine = file.appendingPathExtension("corrupt-\(stamp)")
         if keepOriginal {
-            try? FileManager.default.copyItem(at: file, to: quarantine)
+            Log.attempt("stores: could not copy an unreadable file aside", ["file": file.lastPathComponent]) {
+                try FileManager.default.copyItem(at: file, to: quarantine)
+            }
         } else {
-            try? FileManager.default.moveItem(at: file, to: quarantine)
+            Log.attempt("stores: could not move an unreadable file aside", ["file": file.lastPathComponent]) {
+                try FileManager.default.moveItem(at: file, to: quarantine)
+            }
         }
         return quarantine
     }
@@ -169,7 +175,7 @@ public final class StateStore {
     }
 
     public private(set) var state = PersistedState()
-    private var pendingSave: DispatchWorkItem?
+    private var pendingSave: Task<Void, Never>?
     private var reportedSaveFailure = false
 
     /// Where the store is with the disk.
@@ -353,13 +359,12 @@ public final class StateStore {
     /// hard kill loses half a second of frecency, which is noise.
     private func saveSoon() {
         guard pendingSave == nil else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+        let store = MainQueueOnly(value: WeakRef(self))
+        pendingSave = onMain(after: .milliseconds(500)) {
+            guard let self = store.value.object else { return }
             self.pendingSave = nil
             self.save()
         }
-        pendingSave = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     // MARK: - Breaths
@@ -476,7 +481,7 @@ public final class StateStore {
     /// When this suggestion first took the slot. Stamps on first sight and
     /// returns the same answer forever after, so the cue wait counts
     /// wall-clock days rather than the life of one process.
-    public func coachStandingSince(_ id: String, now: Date = Date()) -> Date {
+    public func coachStandingSince(_ id: String, now: Date = Moment.now.date) -> Date {
         var map = state.coachStandingSince ?? [:]
         if let stamped = map[id] { return stamped }
         map[id] = now
@@ -503,7 +508,7 @@ public final class StateStore {
         var usage = state.usage ?? [:]
         var record = usage[bundleID] ?? UsageRecord(count: 0, last: .distantPast)
         record.count += 1
-        record.last = Date()
+        record.last = Moment.now.date
         usage[bundleID] = record
         state.usage = usage
         saveSoon()
@@ -512,7 +517,7 @@ public final class StateStore {
     /// Frecency boost on the fuzzy score: how often, decayed by how recently.
     public func usageBoost(_ bundleID: String?) -> Double {
         guard let bundleID, let record = (state.usage ?? [:])[bundleID] else { return 0 }
-        let age = Date().timeIntervalSince(record.last)
+        let age = Moment.now.date.timeIntervalSince(record.last)
         let recency: Double = age < 3600 ? 4 : age < 86400 ? 2.5 : age < 604_800 ? 1.5 : 0.8
         return min(min(Double(record.count), 12) * recency * 0.25, 6)
     }

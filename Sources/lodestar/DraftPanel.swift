@@ -1472,7 +1472,7 @@ extension DraftPanel {
             // A second and a half of standing still first, for the
             // recording to begin.
             for (at, view) in steps.dropFirst() {
-                DispatchQueue.main.asyncAfter(deadline: .now() + at + 1.5) { panel.show(view) }
+                onMain(after: .seconds(at + 1.5)) { panel.show(view) }
             }
         }
         return panel

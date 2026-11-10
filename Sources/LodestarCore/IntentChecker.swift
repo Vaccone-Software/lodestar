@@ -228,8 +228,7 @@ public enum IntentChecker {
     static func isDigit(_ c: Character) -> Bool { c.isASCII && c.isNumber }
 
     private static func regex(_ pattern: String, _ options: NSRegularExpression.Options = []) -> NSRegularExpression {
-        // swiftlint:disable:next force_try
-        try! NSRegularExpression(pattern: pattern, options: options)
+        NSRegularExpression.constant(pattern, options: options)
     }
 
     private static let meridiem = regex(#"\b([ap])\.m\.?$"#, .caseInsensitive)

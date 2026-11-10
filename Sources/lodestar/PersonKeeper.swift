@@ -1,5 +1,6 @@
 import Foundation
 import LodestarCore
+import Synchronization
 
 /// The facts about you (`Person`), as Settings shows and changes them, sealed
 /// in `person.json` with the health record. Main thread, except where a
@@ -132,7 +133,11 @@ final class PersonKeeper {
         queue.async { [weak self] in
             guard counter.value == mine else { return }
             let written = file.write(next)
-            if counter.value != mine { try? FileManager.default.removeItem(at: file.stored.url) }
+            if counter.value != mine {
+                Log.attemptUnlessAbsent("health: could not remove a person.json that was superseded while it was written") {
+                    try FileManager.default.removeItem(at: file.stored.url)
+                }
+            }
             DispatchQueue.main.async {
                 guard let self, counter.value == mine else { return }
                 guard written != .written else { return done(true) }
@@ -147,9 +152,8 @@ final class PersonKeeper {
 }
 
 /// A counter any thread may read: the facts' generation (`PersonKeeper.forget`).
-final class PersonGeneration: @unchecked Sendable {
-    private let lock = NSLock()
-    private var current = 0
-    var value: Int { lock.lock(); defer { lock.unlock() }; return current }
-    func bump() { lock.lock(); current += 1; lock.unlock() }
+final class PersonGeneration: Sendable {
+    private let current = Mutex(0)
+    var value: Int { current.withLock { $0 } }
+    func bump() { current.withLock { $0 += 1 } }
 }

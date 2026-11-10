@@ -2,6 +2,7 @@ import Foundation
 import Stoic
 import StoicSealed
 import StoicStore
+import StoicTime
 
 /// The clipboard history on disk, sealed: the index journal, the blobs and
 /// thumbnails beside it, the state of the key, the migration of an older
@@ -23,6 +24,7 @@ import StoicStore
 ///   folder; never deleted), a new ring is made and the history starts fresh,
 ///   and `Opened.movedAside` says so once;
 /// - ring missing and nothing sealed: the ring is made.
+// stoic:allow(unchecked-sendable): the journal and its counters (`journal`, `snapshotBytes`, `recordsSinceSnapshot`, `removalsSinceSnapshot`, `degraded`) are touched only on ClipboardStore's `io` serial queue, the one thread this type is documented to be called on, while `files` (a `let` of pure functions of a path and a key) is the only member another thread uses
 public final class SealedClipboard: @unchecked Sendable {
     public let root: URL
     public let files: ClipboardFiles
@@ -81,7 +83,7 @@ public final class SealedClipboard: @unchecked Sendable {
     }
 
     public func open() -> OpenResult {
-        let started = Date()
+        let started = ContinuousClock.now
         SealedDirectory.ensure(root.path, fileSystem: fileSystem)
         var movedAside: String?
 
@@ -143,7 +145,7 @@ public final class SealedClipboard: @unchecked Sendable {
 
         return .ready(Opened(entries: current.entries, movedAside: movedAside, migration: migration, quarantined: quarantined,
                              unreadable: unreadable, orphansRemoved: orphans,
-                             seconds: Date().timeIntervalSince(started)))
+                             seconds: started.secondsElapsed))
     }
 
     /// Whether `v2/` holds anything sealed: a journal with records or a
@@ -180,7 +182,7 @@ public final class SealedClipboard: @unchecked Sendable {
 
     /// `v2/` into `clipboard-unreadable-YYYY-MM-DD/`. Never deletes.
     private func moveAside(reason: String) -> String? {
-        let stamp = RecordFiles.dateStamp(Date())
+        let stamp = RecordFiles.dateStamp(Moment.now.date)
         var name = "clipboard-unreadable-\(stamp)"
         var attempt = 1
         while (try? fileSystem.exists(root.appendingPathComponent(name).path)) == true {
@@ -211,7 +213,7 @@ public final class SealedClipboard: @unchecked Sendable {
                 let folded = ClipboardIndexState.fold(replay)
                 let nothingOpens = !replay.failures.isEmpty && replay.snapshot == nil && replay.records.isEmpty
                 if attempt == 0, nothingOpens, replay.failures.allSatisfy({ if case .unknownKey = $0.error { true } else { false } }) {
-                    try? opened.close()
+                    Log.attempt("clipboard: could not close the history that did not open") { try opened.close() }
                     guard let folder = moveAside(reason: "none of the sealed history opens with the clipboard key") else {
                         return .failure(Unavailable(words: "the unreadable history could not be moved aside", retryable: false))
                     }
@@ -336,7 +338,7 @@ public final class SealedClipboard: @unchecked Sendable {
 
     /// Close the journal (the file and, if any, its lock).
     public func close() {
-        try? journal?.close()
+        Log.attempt("clipboard: could not close the journal") { try journal?.close() }
         journal = nil
     }
 
@@ -364,9 +366,13 @@ public final class SealedClipboard: @unchecked Sendable {
         for name in RecordFiles.names(in: root.path, fileSystem: fileSystem)
         where name == "v2" || name == "v2.migrating" || name == "items" || name == "thumbs" || name == "index.json"
             || name.hasPrefix("index.json.") || name.hasPrefix("clipboard-unreadable-") {
-            try? fileSystem.removeTree(root.appendingPathComponent(name).path)
+            Log.attemptUnlessAbsent("clipboard: could not remove a clipboard file", ["name": name]) {
+                try fileSystem.removeTree(root.appendingPathComponent(name).path)
+            }
         }
-        try? fileSystem.syncDirectory(root.path)
+        Log.attempt("clipboard: could not sync the folder after removing its files") {
+            try fileSystem.syncDirectory(root.path)
+        }
     }
 
     // MARK: - What is there, for the report

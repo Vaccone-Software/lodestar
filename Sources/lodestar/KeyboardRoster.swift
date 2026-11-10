@@ -2,6 +2,8 @@ import CryptoKit
 import Foundation
 import IOKit.hid
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// The input devices attached right now, by identity and transport.
 ///
@@ -70,7 +72,7 @@ class DeviceRoster {
     /// The devices present, refreshed at most every half minute. One
     /// entry per physical device: a built-in keyboard and trackpad
     /// expose several HID interfaces under one identity.
-    func current(now: Date = Date()) -> [Device] {
+    func current(now: Date = Moment.now.date) -> [Device] {
         lock.lock()
         defer { lock.unlock() }
         if now.timeIntervalSince(cachedAt) < Self.cacheSeconds { return cached }
@@ -85,7 +87,7 @@ class DeviceRoster {
     /// more or less does not change which. A surface showing that list to
     /// a person is the other case: a keyboard just plugged in has to be
     /// on it, and half a minute is not "just".
-    func refresh(now: Date = Date()) -> [Device] {
+    func refresh(now: Date = Moment.now.date) -> [Device] {
         lock.lock()
         defer { lock.unlock() }
         return reload(now: now)

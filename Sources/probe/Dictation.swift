@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import LodestarCore
 import Speech
+import Synchronization
 import LodestarEars
 import LodestarMLX
 
@@ -160,9 +161,20 @@ private func dictationSettle(_ options: [String: String], raw: Bool) {
         }
         hyps[id] = buffer
     }
-    let data = try! JSONSerialization.data(withJSONObject: hyps, options: [.prettyPrinted, .sortedKeys])
-    try! data.write(to: URL(fileURLWithPath: out))
+    writeResults(hyps, to: out, doing: "settle")
     print("settle: \(hyps.count) items -> \(out)  \(totals.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")
+}
+
+/// The results file the probe is run to make: written, or the probe says why
+/// not and stops, since a run whose results were lost has produced nothing.
+private func writeResults(_ hyps: [String: String], to out: String, doing: String) {
+    do {
+        let data = try JSONSerialization.data(withJSONObject: hyps, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: out))
+    } catch {
+        print("\(doing): could not write \(out): \(error)")
+        exit(74)
+    }
 }
 
 private func heard(_ event: [String: Any]) -> Heard {
@@ -180,9 +192,9 @@ private func heard(_ event: [String: Any]) -> Heard {
 
 // MARK: - Transcribe
 
-private final class Box<T>: @unchecked Sendable {
-    var value: T
-    init(_ value: T) { self.value = value }
+private final class Box<T>: Sendable {
+    let value: Mutex<T>
+    init(_ value: T) { self.value = Mutex(value) }
 }
 
 private func dictationTranscribe(_ options: [String: String]) {
@@ -213,7 +225,11 @@ private func dictationTranscribe(_ options: [String: String]) {
                 FileHandle.standardError.write("transcribe \(id): \(error)\n".data(using: .utf8)!)
             }
         }
-        try? handle.close()
+        do {
+            try handle.close()
+        } catch {
+            FileHandle.standardError.write("transcribe: could not close \(out): \(error)\n".data(using: .utf8)!)
+        }
         done.signal()
     }
     done.wait()
@@ -248,13 +264,13 @@ private func transcribe(_ url: URL) async throws -> [[String: Any]] {
                 if let c = run.transcriptionConfidence { d["c"] = c }
                 runs.append(d)
             }
-            events.value.append(["text": String(result.text.characters), "fin": result.isFinal, "runs": runs])
+            events.value.withLock { $0.append(["text": String(result.text.characters), "fin": result.isFinal, "runs": runs]) }
         }
     }
     let file = try AVAudioFile(forReading: url)
     try await analyzer.start(inputAudioFile: file, finishAfterFile: true)
     _ = try await reader.value
-    return events.value
+    return events.value.withLock { $0 }
 }
 
 // MARK: - Ear
@@ -308,9 +324,9 @@ private func dictationEar(_ options: [String: String]) {
     let done = DispatchSemaphore(value: 0)
     Task {
         do {
-            let began = Date()
+            let began = ContinuousClock.now
             try await ear.load()
-            FileHandle.standardError.write("ear: \(ear.name) loaded in \(String(format: "%.1f", Date().timeIntervalSince(began))) s, footprint \(footprintMB().now) MB\n".data(using: .utf8)!)
+            FileHandle.standardError.write("ear: \(ear.name) loaded in \(String(format: "%.1f", began.secondsElapsed)) s, footprint \(footprintMB().now) MB\n".data(using: .utf8)!)
             defer {
                 let memory = footprintMB()
                 FileHandle.standardError.write("ear: footprint \(memory.now) MB, peak \(memory.peak) MB\n".data(using: .utf8)!)
@@ -320,9 +336,9 @@ private func dictationEar(_ options: [String: String]) {
             for (n, item) in items.enumerated() {
                 guard let id = item["id"] as? String, let file = item["file"] as? String else { continue }
                 let audio = try samples16k(root.appendingPathComponent(file))
-                let start = Date()
+                let start = ContinuousClock.now
                 let heard = try await ear.transcribe(audio, context: context)
-                let seconds = Date().timeIntervalSince(start)
+                let seconds = start.secondsElapsed
                 let runs: [[String: Any]] = heard.words.map { word in
                     var d: [String: Any] = ["t": word.text]
                     if let s = word.start { d["s"] = s }
@@ -336,9 +352,10 @@ private func dictationEar(_ options: [String: String]) {
                 handle.write("\n".data(using: .utf8)!)
                 FileHandle.standardError.write("[\(n + 1)/\(items.count)] \(id) \(String(format: "%.3f", seconds)) s, \(footprintMB().now) MB\n".data(using: .utf8)!)
             }
-            try? handle.close()
+            try handle.close()
         } catch {
             print("ear: \(error)")
+            exit(70)
         }
         done.signal()
     }
@@ -426,9 +443,9 @@ private func dictationDraft(_ options: [String: String]) {
                     let runLanded = String(before.dropFirst(runOffset!)) + landed
                     let samples = held.slice(from: max(0, runTime! - 0.2), to: end + 0.3)
                     phrases += 1
-                    let began = Date()
+                    let began = ContinuousClock.now
                     let again = try? await ear.transcribe(samples, context: context)
-                    times.append(Date().timeIntervalSince(began))
+                    times.append(began.secondsElapsed)
                     if let again, let text = settler.resettled(again, landed: runLanded, after: runBefore, context: context) {
                         if text != runLanded { changed += 1 }
                         buffer = runBefore + text
@@ -442,9 +459,9 @@ private func dictationDraft(_ options: [String: String]) {
                     let samples = held.slice(from: max(0, start - 0.2), to: end + 0.3)
                     if samples.count >= 8_000 {
                         phrases += 1
-                        let began = Date()
+                        let began = ContinuousClock.now
                         let again = try? await ear.transcribe(samples, context: context)
-                        times.append(Date().timeIntervalSince(began))
+                        times.append(began.secondsElapsed)
                         if let again {
                             if let text = settler.resettled(again, landed: landed, after: before, context: context) {
                                 if text != landed { landed = text; changed += 1 }
@@ -461,8 +478,7 @@ private func dictationDraft(_ options: [String: String]) {
         done.signal()
     }
     done.wait()
-    let data = try! JSONSerialization.data(withJSONObject: hyps, options: [.prettyPrinted, .sortedKeys])
-    try! data.write(to: URL(fileURLWithPath: out))
+    writeResults(hyps, to: out, doing: "draft")
     let sorted = times.sorted()
     let p50 = sorted.isEmpty ? 0 : sorted[sorted.count / 2]
     let p90 = sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, sorted.count * 9 / 10)]
@@ -481,7 +497,11 @@ private func dictationRecord(_ options: [String: String]) {
         print("record: cannot read \(corpusPath)"); exit(66)
     }
     let out = URL(fileURLWithPath: (outDir as NSString).expandingTildeInPath, isDirectory: true)
-    try? FileManager.default.createDirectory(at: out.appendingPathComponent("audio"), withIntermediateDirectories: true)
+    do {
+        try FileManager.default.createDirectory(at: out.appendingPathComponent("audio"), withIntermediateDirectories: true)
+    } catch {
+        print("record: cannot make \(out.path): \(error)"); exit(73)
+    }
     let manifestURL = out.appendingPathComponent("manifest.json")
     var items: [[String: Any]] = []
     if let old = try? Data(contentsOf: manifestURL),
@@ -548,7 +568,11 @@ private func dictationRecord(_ options: [String: String]) {
         items.removeAll { $0["id"] as? String == id }
         items.append(item)
         let manifest: [String: Any] = ["sample_rate": 16_000, "format": "WAV PCM 16-bit mono", "items": items]
-        try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted]).write(to: manifestURL)
+        do {
+            try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted]).write(to: manifestURL)
+        } catch {
+            print("record: cannot write \(manifestURL.path): \(error)"); exit(74)
+        }
     }
     print("\n\(items.count) recordings in \(out.path). Thank you.")
 }

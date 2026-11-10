@@ -116,10 +116,10 @@ final class SelectOverlay {
         shownFrame = windowFrame
         shownTyped = typed
         // Dozens of chips at once: the instrument times itself.
-        let began = Date()
+        let began = ContinuousClock.now
         defer {
             Log.info("chips", ["count": chips.count,
-                               "ms": Int(Date().timeIntervalSince(began) * 1000)])
+                               "ms": Int(began.secondsElapsed * 1000)])
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)

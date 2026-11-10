@@ -1,8 +1,11 @@
 import AppKit
 import LodestarCore
 import Stoic
+import StoicFoundation
 import StoicStore
 import LodestarEars
+import StoicTime
+import Synchronization
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The menu's first line: the name and the version, which is what
@@ -44,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var draftEditor: DraftEditor?
     private let editorConsent = EditorConsent()
     private let editorDownload = EditorDownload()
-    private var lastSettingsProgress = Date.distantPast
+    private var lastSettingsProgress: ContinuousClock.Instant?
     private var coach: CoachController!
     private var updater: UpdateController!
     private var clipboardController: ClipboardController!
@@ -55,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var menuBarHideTimer: Timer?
     private var signalSource: DispatchSourceSignal?
     private var trustPoll: Timer?
-    private var displayReconcile: DispatchWorkItem?
+    private var displayReconcile: Task<Void, Never>?
     private var clickHandler: ClickHandler?
     /// Links that arrived before the handler existed. A URL open can be the
     /// reason we were launched, so the event can beat our own setup; the queue
@@ -131,8 +134,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func beginLaunchGuard() {
         // The data directory is made properly at migration, further down;
         // on the very first launch it may not exist yet.
-        try? FileManager.default.createDirectory(
-            at: Paths.data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        Log.attempt("launch: could not make the data folder") {
+            try FileManager.default.createDirectory(
+                at: Paths.data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
         let guardian = RunMarker.launchGuard(in: Paths.data, build: Lodestar.version)
         launchGuard = guardian
         launchMode = LaunchEntry.begin(guardian, watchdog: watchdog)
@@ -165,8 +170,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // surfaces exist to say that too.
         crashedLastRun = Self.uncleanExitMarkerStands()
         if crashedLastRun { Log.error("the previous run ended uncleanly — recovering") }
-        try? RunMarker.alive(pid: ProcessInfo.processInfo.processIdentifier).write(
-            to: Self.runMarker, atomically: true, encoding: .utf8)
+        Log.attempt("launch: could not write the run marker") {
+            try RunMarker.alive(pid: ProcessInfo.processInfo.processIdentifier).write(
+                to: Self.runMarker, atomically: true, encoding: .utf8)
+        }
         // AppKit exceptions abort the process; the log at least says why.
         NSSetUncaughtExceptionHandler { exception in
             Log.error("uncaught-exception", [
@@ -407,7 +414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editorConsent.clear = { [weak self] in self?.hud.hide() }
         editorConsent.accepted = { [weak self] in
             guard let self else { return }
-            self.store.setEditorConsent(Date())
+            self.store.setEditorConsent(Moment.now.date)
             Log.info("editor", ["consent": "accepted"])
             self.applyEditor(self.config)
         }
@@ -423,8 +430,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Progress redraws Settings at most every two seconds; a change
             // of state (waiting, checking, failed) at once.
             if case .downloading = self.editorDownload.state,
-               Date().timeIntervalSince(self.lastSettingsProgress) < 2 { return }
-            self.lastSettingsProgress = Date()
+               self.lastSettingsProgress.map({ $0.secondsElapsed < 2 }) ?? false { return }
+            self.lastSettingsProgress = ContinuousClock.now
             self.settings.machineStateChanged()
         }
         editorDownload.finished = { [weak self] engine in
@@ -551,7 +558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if AVCaptureDevicePermission.granted {
             // After the tap is up: building the audio engine costs the main
             // thread a second, and the first gesture must not wait on it.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak draft] in draft?.warmSpeech() }
+            onMain(after: .seconds(3)) { [weak draft] in draft?.warmSpeech() }
         }
         draftController = draft
         let commandsBar = CommandsBarController()
@@ -705,7 +712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                   dismiss: { [weak self] in self?.linkChip.dismiss() ?? false }),
         ])
         coach.standingSinceFor = { [weak self] id in
-            self?.store.coachStandingSince(id) ?? Date()
+            self?.store.coachStandingSince(id) ?? Moment.now.date
         }
         // A link you just clicked outranks a suggestion about links in
         // general: the chip is answering a thing the hand did seconds ago,
@@ -799,9 +806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ) { [weak self] _ in
             // Reconfigurations arrive in bursts; act once they settle.
             self?.displayReconcile?.cancel()
-            let work = DispatchWorkItem { [weak self] in self?.layout.reconcileDisplays() }
-            self?.displayReconcile = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+            self?.displayReconcile = onMain(after: .seconds(1)) { [weak self] in self?.layout.reconcileDisplays() }
         }
         if config.showMenuBar { createStatusItem() }
         watchAppIcon()
@@ -827,12 +832,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return self.engine.isQuiet && !self.presenting.isOn
         }
         updater.lastActivity = { [weak self] in
-            guard let self else { return Date() }
+            guard let self else { return Moment.now.date }
             let idle = CGEventSource.secondsSinceLastEventType(
                 .hidSystemState, eventType: CGEventType(rawValue: ~0)!)
             return Updater.lastSignOfLife(engineActivity: self.engine.lastActivityAt,
                                           humanInput: self.engine.lastHumanInputAt,
-                                          systemIdleSeconds: idle, now: Date())
+                                          systemIdleSeconds: idle, now: Moment.now.date)
         }
         updater.flash = { [weak self] text in self?.hud.flash(text) }
         updater.voice = { [weak self] sentence, detail, mark, stands in
@@ -910,7 +915,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launchStages.finish()
         stateWarningFlashed = store.bootWarning
         for warning in [store.bootWarning, clipboardController?.bootWarning].compactMap({ $0 }) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [hud] in
+            onMain(after: .seconds(3)) { [hud] in
                 hud?.flash("⚠ \(warning)")
             }
         }
@@ -932,8 +937,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // at the next boot and run the recovery for nothing.
         if let text = try? String(contentsOf: Self.runMarker, encoding: .utf8),
            RunMarker.pid(in: text) == ProcessInfo.processInfo.processIdentifier {
-            try? RunMarker.quitting(pid: ProcessInfo.processInfo.processIdentifier).write(
-                to: Self.runMarker, atomically: true, encoding: .utf8)
+            Log.attempt("quit: could not mark the run as quitting") {
+                try RunMarker.quitting(pid: ProcessInfo.processInfo.processIdentifier).write(
+                    to: Self.runMarker, atomically: true, encoding: .utf8)
+            }
         }
         // A draft still open keeps its text on the pasteboard, as every
         // other exit does.
@@ -955,7 +962,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // starts reading while we are still in the middle of it must find
         // a state file that is already complete. The second save records
         // the emptied parking map when the restore does finish.
-        if !Self.purged {
+        if !Self.purged.withLock({ $0 }) {
             store?.save()
             health.quitting()
             health.flush()
@@ -968,10 +975,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // the app the person just quit.
         watchdog.stop()
         Log.info("terminating: restoring parked windows")
-        let restoreStarted = Date()
+        let restoreStarted = ContinuousClock.now
         actions?.restoreAllParked()
-        Log.info("terminating: restored", ["ms": Int(Date().timeIntervalSince(restoreStarted) * 1000)])
-        if !Self.purged { store?.save() } // flush any coalesced write before the process dies
+        Log.info("terminating: restored", ["ms": Int(restoreStarted.secondsElapsed * 1000)])
+        if !Self.purged.withLock({ $0 }) { store?.save() } // flush any coalesced write before the process dies
         // Only clear the pid file while it is still ours — in a takeover
         // (manual reinstall or self-update) the successor has already
         // written its own pid, and deleting it would blind the update
@@ -979,11 +986,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let text = try? String(contentsOf: Self.pidFile, encoding: .utf8),
            Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
                == ProcessInfo.processInfo.processIdentifier {
-            try? FileManager.default.removeItem(at: Self.pidFile)
+            Log.attemptUnlessAbsent("quit: could not remove the pid file") {
+                try FileManager.default.removeItem(at: Self.pidFile)
+            }
         }
         if let text = try? String(contentsOf: Self.runMarker, encoding: .utf8),
            RunMarker.pid(in: text) == ProcessInfo.processInfo.processIdentifier {
-            try? FileManager.default.removeItem(at: Self.runMarker)
+            Log.attemptUnlessAbsent("quit: could not remove the run marker") {
+                try FileManager.default.removeItem(at: Self.runMarker)
+            }
         }
     }
 
@@ -1006,7 +1017,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func armCoachDemoIfRequested() {
         let flag = Paths.data.appendingPathComponent("coach.demo-request")
         guard FileManager.default.fileExists(atPath: flag.path) else { return }
-        try? FileManager.default.removeItem(at: flag)
+        Log.attemptUnlessAbsent("coach: could not remove the demo request") { try FileManager.default.removeItem(at: flag) }
         let taken = Set(config.graph.leaves().compactMap { $0.chain.first })
         let free = "abcdefghijklmnopqrstuvwxyz".map(String.init).filter { !taken.contains($0) }
         for name in ["Calculator", "Preview", "Notes", "Music", "FaceTime"] {
@@ -1103,7 +1114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         iconObservers.append(DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
         ) { [weak self] _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            onMain(after: .milliseconds(300)) { [weak self] in
                 Ceramic.followSystemAppearance()
                 self?.refreshAppIcon()
             }
@@ -1124,7 +1135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // A purge removes the data and the keys that open it: a quit
             // that then saved would put sealed files back, under a key that
             // is gone.
-            if purge { Self.purged = true }
+            if purge { Self.purged.withLock { $0 = true } }
             var problems: [String] = []
             for step in plan.steps {
                 Log.info("uninstall", ["step": step.name])
@@ -1184,7 +1195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.removeStatusItem()
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+        onMain(after: .milliseconds(150)) { [weak self] in
             self?.statusItem?.button?.performClick(nil)
         }
         Log.info("menu-bar", ["action": "revealed", "temporary": !config.showMenuBar])
@@ -1250,7 +1261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         walk.lessonCompleted = { [weak self] lesson in
             guard let self else { return }
             self.store.setCurriculumRecord(
-                Curriculum.completed(self.store.curriculumRecords[lesson], at: Date()), for: lesson)
+                Curriculum.completed(self.store.curriculumRecords[lesson], at: Moment.now.date), for: lesson)
         }
         walk.lessonPassed = { [weak self] lesson in self?.billLesson(lesson) }
         coach.lessonDue = { [weak self] in
@@ -1267,7 +1278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // other lessons: two days of quiet means two days of quiet.
             let lastCoachOffer = record.ledger.map(\.lastOfferedAt)
                 .filter { $0 != .distantPast }.max()
-            return Curriculum.next(now: Date(), since: record.since,
+            return Curriculum.next(now: Moment.now.date, since: record.since,
                                    verbsLastUsed: record.verbsLastUsed ?? [:],
                                    records: self.store.curriculumRecords,
                                    walkDone: self.store.walkCompletedVersion != nil,
@@ -1277,7 +1288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.lessonAwaitingBill = lesson
             self.walk.showLesson(lesson)
-            DispatchQueue.main.asyncAfter(deadline: .now() + Coach.seenSeconds) { [weak self] in
+            onMain(after: .seconds(Coach.seenSeconds)) { [weak self] in
                 guard let self, self.walk.showingLesson == lesson else { return }
                 self.billLesson(lesson)
             }
@@ -1293,7 +1304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // changed rather than because anybody asked, is the wrong surprise.
         // Not while the state is unknown: an empty one has never seen the walk.
         guard store.isKnown, store.walkCompletedVersion == nil, !updater.justUpdated else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+        onMain(after: .milliseconds(1200)) { [weak self] in
             self?.showWalk()
         }
     }
@@ -1303,7 +1314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func billLesson(_ lesson: Curriculum.Lesson) {
         guard lessonAwaitingBill == lesson else { return }
         lessonAwaitingBill = nil
-        store.setCurriculumRecord(Curriculum.offered(store.curriculumRecords[lesson], at: Date()), for: lesson)
+        store.setCurriculumRecord(Curriculum.offered(store.curriculumRecords[lesson], at: Moment.now.date), for: lesson)
     }
 
     private func installMeetings() {
@@ -1788,7 +1799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// A closer model is offered once a fix has been taken.
     private func openWalkDoor(_ door: Walk.Door) {
         guard door == .write else { return }
-        if !store.editorConsented { store.setEditorConsent(Date()) }
+        if !store.editorConsented { store.setEditorConsent(Moment.now.date) }
         guard !config.editorEnabled else { return }
         let noModel = config.editorModel.isEmpty
         if let problem = rewriteConfig(flash: "", logged: "editor.enabled", edit: { tree in
@@ -2103,7 +2114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         "domain": wrapped.domain,
                         "code": wrapped.code,
                         "underlying": underlying.map { "\($0.domain) \($0.code)" } ?? "-",
-                        "message": (underlying?.userInfo["_LSErrorMessage"] as? String) ?? error.localizedDescription,
+                        "message": (underlying?.userInfo["_LSErrorMessage"] as? String) ?? "\(error)",
                     ])
                     self.openDefaultBrowserSettings()
                     return
@@ -2385,7 +2396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch let error as Config.EditError {
             return error.description
         } catch {
-            return "could not write the config: \(error.localizedDescription)"
+            return FailureWords.sentence(for: ConfigWriteFailure(underlying: error), doing: "config-edit: could not write the config")
         }
         Log.info("config-edit", ["edit": logged ?? flash])
         applyConfigReload(successFlash: flash)
@@ -2503,7 +2514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// took the glass from is asked again once the glass is clear, so a
     /// switch left on never means an editor silently off.
     private func askEditorConsentWhenClear(after seconds: TimeInterval) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+        onMain(after: .seconds(seconds)) { [weak self] in
             guard let self, self.store.isKnown, self.config.editorEnabled, !self.store.editorConsented,
                   !self.editorConsent.isShowing() else { return }
             guard self.hud.owner == .none else {
@@ -2796,11 +2807,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for bin in ["/opt/homebrew/bin", "/usr/local/bin"] {
             guard FileManager.default.isWritableFile(atPath: bin) else { continue }
             let link = bin + "/lodestar"
-            let target = bundlePath + "/Contents/MacOS/lodestar"
-            let existing = try? FileManager.default.destinationOfSymbolicLink(atPath: link)
-            if existing != target {
-                try? FileManager.default.removeItem(atPath: link)
-                try? FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
+            switch CLILink.maintain(link: link, target: bundlePath + "/Contents/MacOS/lodestar") {
+            case .current: break
+            case .created: Log.info("login-item", ["cli-link": "created", "path": link])
+            case .replaced(let was): Log.info("login-item", ["cli-link": "replaced", "path": link, "was": was])
+            case .leftAlone(let why):
+                Log.warning("login-item", ["cli-link": "left alone, it is not Lodestar's", "path": link, "why": why])
+            case .failed(let why): Log.error("login-item", ["cli-link": "failed", "path": link, "why": why])
             }
             break
         }
@@ -2827,35 +2840,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     Log.info("login-item", ["action": exists ? "updated" : "installed"])
                     rewritten = exists
                 } catch {
-                    Log.error("login-item", ["write-failed": "\(error)"])
+                    // The plist on disk is not this install's (or is not
+                    // there): readopting now would bootstrap the stale
+                    // definition, which may start another build at login.
+                    Log.error("login-item", ["write-failed": "\(error)", "readopt": "skipped"])
+                    return
                 }
             }
             readoptIfUnsupervised(agent: agent, definitionChanged: rewritten)
         } else if !config.startAtLogin && exists {
             // Delete the plist without unloading: the running session
             // continues; nothing loads at the next login.
-            try? FileManager.default.removeItem(at: agent)
-            Log.info("login-item", ["action": "removed"])
+            do {
+                try FileManager.default.removeItem(at: agent)
+                Log.info("login-item", ["action": "removed"])
+            } catch {
+                Log.error("login-item", ["remove-failed": "\(error)"])
+            }
         }
     }
 
-    /// launchd's view of the agent job: nil when the label is not loaded
-    /// in this session, 0 when loaded and idle, else the pid it runs.
-    private func agentJobPid() -> pid_t? {
+    /// launchd's view of the agent job: loaded (with the pid it runs, 0 when
+    /// idle), not loaded, or unknown when launchctl could not be asked.
+    private func agentJobState() -> LoginAgent.State {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         task.arguments = ["list", "com.vaccone.lodestar"]
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = Pipe()
-        guard (try? task.run()) != nil else { return nil }
-        task.waitUntilExit()
-        guard task.terminationStatus == 0 else { return nil }
-        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        for line in out.split(separator: "\n") where line.contains("\"PID\"") {
-            if let pid = Int32(line.filter(\.isNumber)) { return pid }
+        do {
+            try task.run()
+        } catch {
+            return .unknown("launchctl could not be run: \(error)")
         }
-        return 0
+        task.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        return LoginAgent.state(exitStatus: task.terminationStatus, output: output)
     }
 
     /// A lodestar launched by the updater, Finder, or a rollback runs as
@@ -2876,19 +2897,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// stub takes for an uninstall.
     private func readoptIfUnsupervised(agent: URL, definitionChanged: Bool) {
         let me = ProcessInfo.processInfo.processIdentifier
-        let job = agentJobPid()
-        if definitionChanged, job != nil {
-            Log.info("login-item", ["action": "loading the new definition", "agent-pid": job ?? 0])
+        switch LoginAgent.readoption(state: agentJobState(), definitionChanged: definitionChanged, me: me) {
+        case .nothing:
+            return
+        case .unreadable(let why):
+            // Not knowing is not "not loaded": a bootstrap here would load a
+            // job that may be running. This instance stays the resident, and
+            // the next launch asks again.
+            Log.error("login-item", ["launchd": "could not be read, so nothing was changed", "why": why])
+            return
+        case .reload(let pid):
+            Log.info("login-item", ["action": "loading the new definition", "agent-pid": pid])
             reloadAgent(agent)
             return
-        }
-        switch job {
-        case .some(let pid) where pid == me:
-            return
-        case .some(let pid):
+        case .kickstart(let pid):
             Log.info("login-item", ["action": "readopting", "agent-pid": pid])
             handingOverToLaunchd = runLaunchctl(["kickstart", "gui/\(getuid())/com.vaccone.lodestar"])
-        case .none:
+        case .bootstrap:
             Log.info("login-item", ["action": "bootstrapping the agent"])
             handingOverToLaunchd = runLaunchctl(["bootstrap", "gui/\(getuid())", agent.path])
         }
@@ -3009,8 +3034,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let pidFile = Paths.pidFile
     /// Set by an uninstall that removes the data and its keys: from then on
     /// nothing is persisted, so a quit does not recreate what was removed.
-    /// Main thread only.
-    nonisolated(unsafe) private static var purged = false
+    private static let purged = Mutex(false)
     /// Present while a run is alive, removed by a graceful shutdown: the
     /// difference between "quit" and "died", readable at the next boot.
     private static let runMarker = Paths.data.appendingPathComponent("last-run")
@@ -3150,13 +3174,18 @@ if let first = cliArguments.first, ControlClient.verbs.contains(first) {
 if Array(cliArguments.prefix(2)) == ["editor", "check"] {
     Log.stdoutEnabled = false
     let done = DispatchSemaphore(value: 0)
-    nonisolated(unsafe) var code: Int32 = 1
-    Task.detached {
-        code = await EditorCheck.run()
+    let code = Mutex<Int32>(1)
+    // Off the main actor, which this thread holds while it waits below, and at
+    // the priority a detached task had from here (measured 2026-11-10: a plain
+    // task started from the main thread runs at user-initiated, in that
+    // thread's pool bucket).
+    Task(priority: .medium) { @concurrent in
+        let result = await EditorCheck.run()
+        code.withLock { $0 = result }
         done.signal()
     }
     done.wait()
-    exit(code)
+    exit(code.withLock { $0 })
 }
 if cliArguments.first == "health" {
     runHealthVerb(Array(cliArguments))
@@ -3256,18 +3285,18 @@ if let i = cliArguments.firstIndex(of: "__strip-preview") {
 // line of text — with the time each took.
 if cliArguments.contains("__bring-read") {
     let reader = BringReader()
-    let started = Date()
+    let started = ContinuousClock.now
     var printed = 0
     reader.onUpdate = {
         let windows = reader.windows
         for window in windows.dropFirst(printed) {
-            print(String(format: "%5d ms  rank %2d  %@  lines=%d", Int(Date().timeIntervalSince(started) * 1000),
+            print(String(format: "%5d ms  rank %2d  %@  lines=%d", Int(started.secondsElapsed * 1000),
                          window.source.rank, window.source.app, window.lines.count))
         }
         printed = windows.count
         if !reader.reading {
             print("done: \(windows.count) windows, \(windows.reduce(0) { $0 + $1.lines.count }) lines, "
-                  + "\(Int(Date().timeIntervalSince(started) * 1000)) ms")
+                  + "\(Int(started.secondsElapsed * 1000)) ms")
             exit(0)
         }
     }
@@ -3299,6 +3328,11 @@ app.setActivationPolicy(.accessory)
 // Work on other threads (a global queue, a URLSession completion, a
 // dedicated thread) and Task.detached do not inherit it, and their Stoic
 // events reach the unified log only.
-withAmbient({ $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog(alsoInfoFor: ["xpc."])]) }) {
+// Foundation's errors are worded for a person by Stoic's Foundation rules (a
+// full disk, no network), and never by their own text.
+withAmbient({
+    $0.instrumentation = CompositeInstrumentation([$0.instrumentation, StoicLog(alsoInfoFor: ["xpc."])])
+    $0.presenter = .foundation
+}) {
     app.run()
 }

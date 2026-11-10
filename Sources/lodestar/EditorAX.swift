@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import Synchronization
 
 /// The field the hand is typing in, read through accessibility.
 struct EditorField {
@@ -152,6 +153,7 @@ enum EditorAX {
         return placeMemory.answer(for: element) { walkUpToWebArea(element) }
     }
 
+    // stoic:allow(nonisolated-unsafe): read and written only by `isInsideWebArea`, whose first line is `dispatchPrecondition(condition: .onQueue(queue))`, so every access is on the editor's one serial AX queue
     nonisolated(unsafe) static var placeMemory = PlaceMemory()
 
     /// The walk itself, bounded: nil when it did not finish (a timeout, a
@@ -354,8 +356,7 @@ enum EditorAX {
         chromium || electron || bundleID?.lowercased() == "com.microsoft.outlook"
     }
 
-    nonisolated(unsafe) private static var typed: [String: Bool] = [:]
-    private static let typedLock = NSLock()
+    private static let typed = Mutex<[String: Bool]>([:])
 
     /// The same question of a running app, read once per bundle: Chromium
     /// browsers carry renderer helpers and Electron apps carry their
@@ -364,11 +365,11 @@ enum EditorAX {
         guard let bundle = NSRunningApplication(processIdentifier: pid)?.bundleURL else {
             return fixesByTyping(bundleID: bundleID, chromium: false, electron: false)
         }
-        if let known = typedLock.withLock({ typed[bundle.path] }) { return known }
+        if let known = typed.withLock({ $0[bundle.path] }) { return known }
         let electron = FileManager.default.fileExists(
             atPath: bundle.appendingPathComponent("Contents/Frameworks/Electron Framework.framework").path)
         let answer = fixesByTyping(bundleID: bundleID, chromium: AXWarmer.isChromiumBrowser(bundle), electron: electron)
-        typedLock.withLock { typed[bundle.path] = answer }
+        typed.withLock { $0[bundle.path] = answer }
         return answer
     }
 
@@ -379,9 +380,9 @@ enum EditorAX {
     /// it moved, for a quarter second.
     private static func settleCaret(_ element: AXUIElement, at wanted: NSRange) {
         select(element, wanted)
-        let deadline = Date().addingTimeInterval(0.25)
+        let deadline = ContinuousClock.now + .seconds(0.25)
         var steady = 0
-        while Date() < deadline, steady < 3 {
+        while ContinuousClock.now < deadline, steady < 3 {
             usleep(30_000)
             if selectedRange(element) == wanted {
                 steady += 1
@@ -395,11 +396,11 @@ enum EditorAX {
     /// Wait, briefly, for the field to read `target` — some apps apply an
     /// accessibility write a quarter second late.
     private static func settles(_ element: AXUIElement, to target: String, within seconds: Double) -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
+        let deadline = ContinuousClock.now + .seconds(seconds)
         repeat {
             if AX.string(element, kAXValueAttribute as String) == target { return true }
             usleep(30_000)
-        } while Date() < deadline
+        } while ContinuousClock.now < deadline
         return AX.string(element, kAXValueAttribute as String) == target
     }
 }

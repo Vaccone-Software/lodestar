@@ -203,7 +203,9 @@ final class EarHost {
             let model = root.appendingPathComponent(manifest.folder, isDirectory: true)
             let partial = root.appendingPathComponent(".\(manifest.folder).partial", isDirectory: true)
             for url in [model, partial] where FileManager.default.fileExists(atPath: url.path) {
-                try? FileManager.default.removeItem(at: url)
+                Log.attemptUnlessAbsent("draft: could not remove an ear's files", ["name": url.lastPathComponent]) {
+                    try FileManager.default.removeItem(at: url)
+                }
                 if url == model { removed.append(tier) }
                 Log.info("draft", ["ear removed": url.lastPathComponent])
             }
@@ -241,12 +243,12 @@ final class EarHost {
         // takes its creator's, which is the main thread's, and a model load
         // should not.
         Task(priority: .medium) { [weak self] in
-            let began = Date()
+            let began = ContinuousClock.now
             let whole: Bool
             do {
                 try await ear.load()
                 whole = true
-                Log.info("draft", ["ear": ear.name, "loaded ms": Int(Date().timeIntervalSince(began) * 1000)])
+                Log.info("draft", ["ear": ear.name, "loaded ms": Int(began.secondsElapsed * 1000)])
             } catch {
                 whole = false
                 Log.info("draft", ["ear": ear.name, "load failed": "\(error)"])

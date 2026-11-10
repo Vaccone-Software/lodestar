@@ -2,6 +2,8 @@ import AppKit
 import LodestarCore
 import Stoic
 import StoicStore
+import StoicTime
+import Synchronization
 
 /// Silent self-update for the installed app. The cycle: check the releases
 /// feed daily, download and unpack the zip in the background, verify it,
@@ -165,7 +167,9 @@ final class UpdateController {
     func start() {
         announceMarkers()
         guard installURL != nil else { return }
-        try? FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
+        Log.attempt("update: could not make the update folder") {
+            try FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
+        }
         worker.async { self.clearStaging() }
         // First check well clear of the login rush; the leftover .previous
         // bundle from the last swap is long past its watchdog by then.
@@ -177,10 +181,14 @@ final class UpdateController {
             if case .idle = self.phase, let install = self.installURL {
                 let previous = install.deletingLastPathComponent()
                     .appendingPathComponent("lodestar.app.previous")
-                try? FileManager.default.removeItem(at: previous)
+                Log.attemptUnlessAbsent("update: could not remove the previous bundle") {
+                    try FileManager.default.removeItem(at: previous)
+                }
                 // And the failed build a rollback set aside, if the
                 // watchdog stopped before deleting it.
-                try? FileManager.default.removeItem(at: previous.appendingPathExtension("failed"))
+                Log.attemptUnlessAbsent("update: could not remove the failed bundle a rollback set aside") {
+                    try FileManager.default.removeItem(at: previous.appendingPathExtension("failed"))
+                }
             }
             self.check(force: false)
         }
@@ -205,8 +213,12 @@ final class UpdateController {
     /// else). The instance that says ready retires them, and the rollback
     /// marker is also retired by the instance that says the rollback.
     func acknowledgeBoot() {
-        try? FileManager.default.removeItem(at: Self.updatedMarker)
-        try? FileManager.default.removeItem(at: Self.rolledBackMarker)
+        Log.attemptUnlessAbsent("update: could not retire the updated marker") {
+            try FileManager.default.removeItem(at: Self.updatedMarker)
+        }
+        Log.attemptUnlessAbsent("update: could not retire the rolled back marker") {
+            try FileManager.default.removeItem(at: Self.rolledBackMarker)
+        }
     }
 
     private func announceMarkers() {
@@ -216,7 +228,7 @@ final class UpdateController {
             if version == Lodestar.version {
                 justUpdated = true
                 Log.info("update", ["phase": "completed", "version": version])
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [voice] in
+                onMain(after: .seconds(4)) { [voice] in
                     let (sentence, detail) = Voice.updated(version)
                     voice(sentence, detail, 1, false)
                 }
@@ -227,7 +239,9 @@ final class UpdateController {
                 // re-applied it — 194 relaunches in a night, each one
                 // restoring parked windows on the way out. Refused the way
                 // a rollback is refused, until a newer release ships.
-                try? FileManager.default.removeItem(at: updated)
+                Log.attemptUnlessAbsent("update: could not remove the updated marker of a build that did not change the binary") {
+                    try FileManager.default.removeItem(at: updated)
+                }
                 Self.writeMarker(version, to: Self.refusedFile, what: "the refusal tombstone",
                                  consequence: "this release will be offered, applied and relaunched again at the next check — a relaunch loop")
                 Log.error("update to \(version) did not change the binary — still \(Lodestar.version); refusing it until a newer release ships")
@@ -245,10 +259,12 @@ final class UpdateController {
             // The marker is retired when the message is said, not when it is
             // read: an instance that exits before the four seconds (a relay)
             // never says it, and leaves the marker for the one that stays.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            onMain(after: .seconds(4)) { [weak self] in
                 guard let self else { return }
                 self.flash("⚠ \(version) did not start, so Lodestar went back to \(Lodestar.version)")
-                try? FileManager.default.removeItem(at: rolledBack)
+                Log.attemptUnlessAbsent("update: could not remove the rolled back marker after announcing it") {
+                    try FileManager.default.removeItem(at: rolledBack)
+                }
             }
         }
     }
@@ -418,6 +434,7 @@ final class UpdateController {
 
     /// Lights the mark as far as the download has come, from the downloading
     /// task to the main thread, once for each face that changes.
+    // stoic:allow(unchecked-sendable): `controller` is weak, set once in `init`, and used only inside `DispatchQueue.main.async`; `shown` is read and written only under `lock`
     private final class MarkLight: @unchecked Sendable {
         private weak var controller: UpdateController?
         private let lock = NSLock()
@@ -436,9 +453,11 @@ final class UpdateController {
 
     private func stage(zip: URL, release: Updater.Release, force: Bool) {
         let staging = Self.directory.appendingPathComponent("staged", isDirectory: true)
-        try? FileManager.default.removeItem(at: staging)
+        Log.attemptUnlessAbsent("update: could not clear the staging folder") {
+            try FileManager.default.removeItem(at: staging)
+        }
         guard step("unpack", force: force, "/usr/bin/ditto", "-x", "-k", zip.path, staging.path) else { return }
-        try? FileManager.default.removeItem(at: zip)
+        Log.attemptUnlessAbsent("update: could not remove the downloaded zip") { try FileManager.default.removeItem(at: zip) }
         let bundle = staging.appendingPathComponent("lodestar.app")
 
         // The gate, in three locks: integrity, identity, and the version
@@ -509,8 +528,12 @@ final class UpdateController {
     }
 
     private func clearStaging() {
-        try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent("download.zip"))
-        try? FileManager.default.removeItem(at: Self.directory.appendingPathComponent("staged"))
+        Log.attemptUnlessAbsent("update: could not clear the downloaded zip") {
+            try FileManager.default.removeItem(at: Self.directory.appendingPathComponent("download.zip"))
+        }
+        Log.attemptUnlessAbsent("update: could not clear the staging folder") {
+            try FileManager.default.removeItem(at: Self.directory.appendingPathComponent("staged"))
+        }
     }
 
     /// How long one of the staging tools may take. `ditto` unpacking a
@@ -555,11 +578,13 @@ final class UpdateController {
         let outcome = OutcomeBox()
         let finished = DispatchSemaphore(value: 0)
         let name = URL(fileURLWithPath: launchPath).lastPathComponent
-        // Detached keeps the wait off the calling thread, and a detached task
-        // starts with Stoic's default context, not the caller's: what it says
+        // A task keeps the wait off the calling thread, which is a dispatch
+        // queue's and so hands the task no context of its own: what it says
         // (`abandoned.started` for a tool given up on) would reach the unified
-        // log alone. The context handed in is bound again inside it.
-        Task.detached {
+        // log alone. The context handed in is bound inside it. The priority
+        // is the one a detached task had, named because a task started from
+        // a queue otherwise takes the queue's.
+        Task(priority: .medium) {
             await withAmbient({ $0 = ambient }) {
                 do throws(PolicyError<any Error>) {
                     let status = try await abandoningAfter(deadline, label: "update.\(name)", limit: 2) { () throws -> Int32 in
@@ -590,6 +615,7 @@ final class UpdateController {
         Self.run(launchPath, arguments, within: deadline, ambient: ambient)
     }
 
+    // stoic:allow(unchecked-sendable): an immutable box around one Process: `run()` and `waitUntilExit()` happen on the one task that started it, and the only call made from another thread is `stop()` (`isRunning`, `terminate()`, then a kill by pid), made only once the deadline has given up on that wait, which is how a Process is ended from outside a thread blocked in `waitUntilExit`
     private final class HeldProcess: @unchecked Sendable {
         let process: Process
         init(_ process: Process) { self.process = process }
@@ -598,17 +624,16 @@ final class UpdateController {
             guard process.isRunning else { return }
             process.terminate()
             let pid = process.processIdentifier
-            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [process] in
+            after(.seconds(5), on: .global()) { [self] in
                 if process.isRunning { kill(pid, SIGKILL) }
             }
         }
     }
 
-    private final class OutcomeBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stored = RunOutcome.failed
-        var value: RunOutcome { lock.withLock { stored } }
-        func set(_ outcome: RunOutcome) { lock.withLock { stored = outcome } }
+    private final class OutcomeBox: Sendable {
+        private let stored = Mutex(RunOutcome.failed)
+        var value: RunOutcome { stored.withLock { $0 } }
+        func set(_ outcome: RunOutcome) { stored.withLock { $0 = outcome } }
     }
 
     // MARK: - The swap
@@ -618,7 +643,7 @@ final class UpdateController {
         if !force {
             guard enabled, Updater.mayApply(
                 engineQuiet: engineQuiet(),
-                secondsSinceActivity: Date().timeIntervalSince(lastActivity())
+                secondsSinceActivity: Moment.now.date.timeIntervalSince(lastActivity())
             ) else { return }
         }
         guard canSwap(installURL: installURL, force: force) else {
@@ -690,7 +715,9 @@ final class UpdateController {
                 try files.moveItem(at: bundle, to: install)
             } catch {
                 if !files.fileExists(atPath: install.path), files.fileExists(atPath: previous.path) {
-                    try? files.moveItem(at: previous, to: install)
+                    Log.attempt("update: could not put the previous bundle back after a failed swap") {
+                        try files.moveItem(at: previous, to: install)
+                    }
                 }
                 throw error
             }
@@ -700,7 +727,9 @@ final class UpdateController {
         do {
             try files.moveItem(at: bundle, to: previous)
         } catch {
-            try? PosixFileSystem().exchange(bundle.path, install.path)
+            Log.attempt("update: could not exchange the bundles back after a failed move") {
+                try PosixFileSystem().exchange(bundle.path, install.path)
+            }
             throw error
         }
     }

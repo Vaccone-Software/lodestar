@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The policy layer: reads the models, enumerates the config actions the
 /// data can price, and returns the ones that survive the gates. Pure
@@ -175,7 +177,7 @@ public enum Advisor {
                     meetingsEnabled: Bool = false,
                     breathPaths: [String] = [],
                     breaths: [Breath] = [],
-                    disabledGestures: Set<String> = [], now: Date = Date()) {
+                    disabledGestures: Set<String> = [], now: Date = Moment.now.date) {
             self.observations = observations
             self.events = events
             self.leaves = leaves

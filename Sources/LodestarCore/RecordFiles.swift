@@ -1,6 +1,8 @@
 import Foundation
 import StoicSealed
 import StoicStore
+import Stoic
+import StoicTime
 
 /// Which files in the data directory belong to which sealed record, in
 /// which form, by name. One place, so the key policy (what is sealed and
@@ -74,7 +76,7 @@ public enum RecordFiles {
 
     static func isSealedFile(_ path: String, fileSystem: any FileSystem) -> Bool {
         guard let file = try? fileSystem.open(path, mode: .read) else { return false }
-        defer { _ = try? fileSystem.close(file) }
+        defer { Log.attempt("records: could not close a file after reading its head") { try fileSystem.close(file) } }
         guard let head = try? fileSystem.read(file, at: 0, count: 4) else { return false }
         return Sealing.isSealed(head)
     }
@@ -180,7 +182,7 @@ public enum RecordFiles {
     /// Returns the folder's name, or nil if anything could not be moved
     /// (what was moved stays moved; the rest stays where it is).
     static func moveAside(
-        _ relative: [String], in directory: String, folder: String, fileSystem: any FileSystem, now: Date = Date()
+        _ relative: [String], in directory: String, folder: String, fileSystem: any FileSystem, now: Date = Moment.now.date
     ) -> String? {
         let stamp = dateStamp(now)
         var name = "\(folder)-\(stamp)"
@@ -237,12 +239,14 @@ enum SealedDirectory {
     /// by an earlier build. Best effort: a path the real file system does not
     /// know (a simulated one) is left alone.
     static func makePrivate(_ path: String) {
-        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+        Log.attemptUnlessAbsent("records: could not make a folder owner-only") {
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+        }
     }
 
     /// Create `path` (and parents) and make it private.
     static func ensure(_ path: String, fileSystem: any FileSystem) {
-        _ = try? fileSystem.createDirectory(path)
+        Log.attempt("records: could not make a folder") { try fileSystem.createDirectory(path) }
         makePrivate(path)
     }
 }

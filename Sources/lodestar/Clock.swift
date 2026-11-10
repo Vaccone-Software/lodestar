@@ -1,4 +1,7 @@
 import Foundation
+import LodestarCore
+import Stoic
+import StoicTime
 
 /// When the shell waits.
 ///
@@ -8,7 +11,7 @@ import Foundation
 /// hold a clock of its own and advance it by hand. A sixty-second chip is
 /// then a sixty-second chip in no wall time, and a test that says "at ten
 /// seconds the offer is spent" states its own clock instead of inheriting
-/// the machine's. The app uses `.live`: the wall clock and the main queue.
+/// the machine's. The app uses `.live`: the wall clock and the main actor.
 struct Clock {
     /// The current moment.
     let now: () -> Date
@@ -17,8 +20,13 @@ struct Clock {
     let after: (TimeInterval, DispatchWorkItem) -> Void
 
     static let live = Clock(
-        now: { Date() },
+        now: { Moment.now.date },
         after: { delay, work in
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+            // A task sleeping on the ambient clock, which is the wall clock in
+            // the app, and the work item still decides: one cancelled before
+            // the delay is up does nothing when the task wakes.
+            onMain(after: .seconds(delay)) {
+                if !work.isCancelled { work.perform() }
+            }
         })
 }

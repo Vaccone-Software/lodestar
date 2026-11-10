@@ -125,7 +125,7 @@ enum ClipboardMigration {
 
     static func migrate(_ clipboard: SealedClipboard, v1 snapshot: ClipboardV1Reader.Snapshot, keyring: Keyring)
         -> Result<MigrationReport, MigrationFailure> {
-        let started = Date()
+        let started = ContinuousClock.now
         let root = clipboard.root
         let fileSystem = clipboard.fileSystem
         let staging = ClipboardFiles(root: root, folder: "v2.migrating")
@@ -134,10 +134,14 @@ enum ClipboardMigration {
         var phases: [(String, Double)] = []
 
         // A staging folder from a run that died is discarded: v1 is intact, so it is redone.
-        try? fileSystem.removeTree(staging.base.path)
+        Log.attemptUnlessAbsent("clipboard migration: could not remove the staging folder a run that died left") {
+            try fileSystem.removeTree(staging.base.path)
+        }
         staging.prepare(fileSystem: fileSystem)
         func abandon(_ words: String) -> Result<MigrationReport, MigrationFailure> {
-            try? fileSystem.removeTree(staging.base.path)
+            Log.attemptUnlessAbsent("clipboard migration: could not remove the staging folder of an abandoned migration") {
+                try fileSystem.removeTree(staging.base.path)
+            }
             return .failure(MigrationFailure(words: words))
         }
 
@@ -157,7 +161,7 @@ enum ClipboardMigration {
             // Sealed, fsynced and read back on several threads at once (each
             // file's sync waits on the drive, and they overlap).
             let entries = try importAll(snapshot.clips, from: root, into: staging, report: &report, leave: &leave)
-            phases.append(("sealed and verified", Date().timeIntervalSince(started)))
+            phases.append(("sealed and verified", started.secondsElapsed))
             // In the old order; a clip the old index listed twice is one clip (the later place wins).
             var seen = Set<String>()
             state.entries = entries.reversed().filter { seen.insert($0.clip.id).inserted }.reversed()
@@ -172,20 +176,24 @@ enum ClipboardMigration {
             // A `v2` with nothing sealed in it (a fresh start that has had no
             // copy yet) is in the way of the rename, and holds nothing.
             if clipboard.files.base.path != staging.base.path, !clipboard.hasSealedData() {
-                try? fileSystem.removeTree(clipboard.files.base.path)
+                Log.attemptUnlessAbsent("clipboard migration: could not remove the empty v2 folder that is in the way of the rename") {
+                    try fileSystem.removeTree(clipboard.files.base.path)
+                }
             }
-            phases.append(("folded and synced", Date().timeIntervalSince(started)))
+            phases.append(("folded and synced", started.secondsElapsed))
             try fileSystem.rename(from: staging.base.path, to: clipboard.files.base.path)
             try fileSystem.syncDirectory(root.path)
-            phases.append(("published", Date().timeIntervalSince(started)))
+            phases.append(("published", started.secondsElapsed))
         } catch {
-            try? journal.close()
+            Log.attempt("clipboard migration: could not close the staging journal of an abandoned migration") {
+                try journal.close()
+            }
             return abandon("\(error)")
         }
 
         // Only now: what the sealed copy replaces.
         finish(clipboard, leave: leave, report: &report)
-        report.seconds = Date().timeIntervalSince(started)
+        report.seconds = started.secondsElapsed
         phases.append(("old files removed", report.seconds))
         Log.info("clipboard: migrated the history — \(report.words)",
                  ["phases": phases.map { "\($0.0) \(String(format: "%.1f", $0.1)) s" }.joined(separator: ", ")])
@@ -196,7 +204,7 @@ enum ClipboardMigration {
 
     static func merge(_ clipboard: SealedClipboard, v1 snapshot: ClipboardV1Reader.Snapshot, into state: inout ClipboardIndexState)
         -> Result<MigrationReport, MigrationFailure> {
-        let started = Date()
+        let started = ContinuousClock.now
         var report = MigrationReport(kind: .merged)
         var leave: Set<String> = []
 
@@ -204,7 +212,7 @@ enum ClipboardMigration {
         if state.imported.contains(snapshot.digest) {
             report.kind = .finished
             finish(clipboard, leave: leave, report: &report)
-            report.seconds = Date().timeIntervalSince(started)
+            report.seconds = started.secondsElapsed
             Log.info("clipboard: finished taking the older history in — \(report.words)")
             return .success(report)
         }
@@ -261,7 +269,7 @@ enum ClipboardMigration {
         clipboard.files.remove(storages: displaced)
         if !displaced.isEmpty { clipboard.compact(rotatingKey: true) }
         finish(clipboard, leave: leave, report: &report)
-        report.seconds = Date().timeIntervalSince(started)
+        report.seconds = started.secondsElapsed
         Log.info("clipboard: merged the older build's history — \(report.words)")
         return .success(report)
     }
@@ -399,7 +407,9 @@ enum ClipboardMigration {
             if (try? fileSystem.removeTree(root.appendingPathComponent(name).path)) != nil { removed += 1 }
         }
         if (try? fileSystem.remove(ClipboardV1.indexFile(root).path)) != nil { removed += 1 }
-        try? fileSystem.syncDirectory(root.path)
+        Log.attempt("clipboard migration: could not sync the clipboard folder after removing the old files") {
+            try fileSystem.syncDirectory(root.path)
+        }
         report.removedFiles = removed
         report.left = ClipboardV1.plaintextFiles(root)
     }

@@ -1,5 +1,7 @@
 import Foundation
 import StoicStore
+import Stoic
+import StoicTime
 
 /// The durable monthly archive: what survives the ring.
 ///
@@ -516,6 +518,9 @@ public struct Rollup: Codable, Equatable {
         private var months: [String: Month] = [:]
         private var daySets: [String: Set<Int>] = [:]
         private var fold = Fold()
+        /// Read once for the fold: the hour and the weekday of every event
+        /// are the person's own, and the zone is not asked again per event.
+        private let calendar = Calendar.device
 
         init(open: String) { self.open = open }
 
@@ -528,7 +533,7 @@ public struct Rollup: Codable, Equatable {
             month.firstEvent = min(month.firstEvent, event.t)
             month.lastEvent = max(month.lastEvent, event.t)
             daySets[key, default: []].insert(dayOrdinal(event.t))
-            apply(event, to: &month)
+            Rollup.apply(event, to: &month, calendar: calendar)
             months[key] = month
         }
 
@@ -649,7 +654,7 @@ public struct Rollup: Codable, Equatable {
         }
     }
 
-    private static func apply(_ event: ObservationEvent, to month: inout Month) {
+    private static func apply(_ event: ObservationEvent, to month: inout Month, calendar: Calendar) {
         switch event.kind {
         case .chain:
             let key = event.chain.map(Observations.key) ?? ""
@@ -714,7 +719,7 @@ public struct Rollup: Codable, Equatable {
             var record = month.apps[app] ?? AppMonth()
             record.focuses += 1
             month.apps[app] = record
-            let hour = Calendar.current.component(.hour, from: event.t)
+            let hour = calendar.component(.hour, from: event.t)
             month.hours[min(23, max(0, hour))] += 1
 
         case .window:
@@ -740,9 +745,9 @@ public struct Rollup: Codable, Equatable {
             month.health.activeMinutes += active
             month.health.interKey.merge(n: event.ikN ?? 0, sum: event.ikSum ?? 0,
                                         sumSquares: event.ikSumSq ?? 0)
-            let hour = Calendar.current.component(.hour, from: event.t)
+            let hour = calendar.component(.hour, from: event.t)
             month.health.activeHours[min(23, max(0, hour))] += active
-            let weekday = Calendar.current.component(.weekday, from: event.t) - 1
+            let weekday = calendar.component(.weekday, from: event.t) - 1
             month.health.weekdays[min(6, max(0, weekday))] += active
             if let runs = event.bsRuns, runs.count == 3 {
                 for i in 0..<3 { month.health.backspaceRuns[i] += runs[i] }
@@ -972,7 +977,7 @@ public struct Rollup: Codable, Equatable {
     @discardableResult
     public static func roll(events: [ObservationEvent], file: URL, ring: Vault.Ring,
                             fileSystem: any FileSystem = OwnerOnly.fileSystem,
-                            now: Date = Date()) -> Outcome {
+                            now: Date = Moment.now.date) -> Outcome {
         var outcome = Outcome()
         let stored = SealedValueFile(url: file, ring: ring, fileSystem: fileSystem)
         guard var archive = openArchive(stored, file: file, outcome: &outcome) else { return outcome }
@@ -990,7 +995,7 @@ public struct Rollup: Codable, Equatable {
     @discardableResult
     static func roll(stream: MonthStream, file: URL, ring: Vault.Ring,
                      fileSystem: any FileSystem = OwnerOnly.fileSystem,
-                     now: Date = Date()) throws -> Outcome {
+                     now: Date = Moment.now.date) throws -> Outcome {
         var outcome = Outcome()
         let stored = SealedValueFile(url: file, ring: ring, fileSystem: fileSystem)
         guard var archive = openArchive(stored, file: file, outcome: &outcome) else { return outcome }

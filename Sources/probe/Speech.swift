@@ -1,6 +1,8 @@
 import AVFoundation
 import Foundation
 import Speech
+import Stoic
+import Synchronization
 
 /// `probe speech` — the questions the draft's shape depends on, asked of
 /// the macOS 26 Speech framework before a line of the bar is written:
@@ -50,14 +52,19 @@ func runSpeech(_ args: inout [String]) {
                             cycle: cycle, requestSpeechAuth: requestSpeechAuth, file: file)
     probe.onMain = onMain
     Task {
-        do { try await probe.run() } catch { print("✕ \(error)") }
+        do {
+            try await probe.run()
+        } catch {
+            print("✕ \(error)")
+            exit(1)
+        }
         exit(0)
     }
     RunLoop.main.run()
 }
 
 @available(macOS 26, *)
-final class SpeechProbe: @unchecked Sendable {
+final class SpeechProbe: Sendable {
     let seconds: Double
     let words: [String]
     let dictation: Bool
@@ -66,31 +73,97 @@ final class SpeechProbe: @unchecked Sendable {
     /// An audio file streamed at real-time pace instead of the microphone,
     /// so revision behavior and vocabulary can be measured unattended.
     let file: String?
-    /// Create and start the engine on the main thread, the way the app does.
-    var onMain = false
+    /// Everything the probe measures and holds changes from more than one
+    /// thread (the audio tap, the results task, the run), so all of it is
+    /// behind one lock, and each name below reads and writes through it.
+    private struct Measured {
+        var firstAudioAt: ContinuousClock.Instant?
+        var firstResultAt: ContinuousClock.Instant?
+        var restartAt: ContinuousClock.Instant?
+        var firstResultAfterRestartAt: ContinuousClock.Instant?
+        var volatileCount: Int = 0
+        var finalCount: Int = 0
+        var revisions: Int = 0
+        var lastTextByStart: [Double: String] = [:]
+        var settled: [(start: Double, text: String)] = []
+        var settledChangedLater: Int = 0
+        var engine: AVAudioEngine?
+        var continuation: AsyncStream<AnalyzerInput>.Continuation?
+        var converter: AVAudioConverter?
+        var analyzerFormat: AVAudioFormat?
+        var onMain: Bool = false
+    }
+    private let measured = Mutex(Measured())
 
-    private let t0 = Date()
-    private var firstAudioAt: Date?
-    private var firstResultAt: Date?
-    private var restartAt: Date?
-    private var firstResultAfterRestartAt: Date?
-    private var volatileCount = 0
-    private var finalCount = 0
-    private var revisions = 0
-    private var lastTextByStart: [Double: String] = [:]
-    private var settled: [(start: Double, text: String)] = []
-    private var settledChangedLater = 0
-    private var engine: AVAudioEngine?
-    private var continuation: AsyncStream<AnalyzerInput>.Continuation?
-    private var converter: AVAudioConverter?
-    private var analyzerFormat: AVAudioFormat?
+    private let t0 = ContinuousClock.now
+    private var firstAudioAt: ContinuousClock.Instant? {
+        get { measured.withLock { $0.firstAudioAt } }
+        set { measured.withLock { $0.firstAudioAt = newValue } }
+    }
+    private var firstResultAt: ContinuousClock.Instant? {
+        get { measured.withLock { $0.firstResultAt } }
+        set { measured.withLock { $0.firstResultAt = newValue } }
+    }
+    private var restartAt: ContinuousClock.Instant? {
+        get { measured.withLock { $0.restartAt } }
+        set { measured.withLock { $0.restartAt = newValue } }
+    }
+    private var firstResultAfterRestartAt: ContinuousClock.Instant? {
+        get { measured.withLock { $0.firstResultAfterRestartAt } }
+        set { measured.withLock { $0.firstResultAfterRestartAt = newValue } }
+    }
+    private var volatileCount: Int {
+        get { measured.withLock { $0.volatileCount } }
+        set { measured.withLock { $0.volatileCount = newValue } }
+    }
+    private var finalCount: Int {
+        get { measured.withLock { $0.finalCount } }
+        set { measured.withLock { $0.finalCount = newValue } }
+    }
+    private var revisions: Int {
+        get { measured.withLock { $0.revisions } }
+        set { measured.withLock { $0.revisions = newValue } }
+    }
+    private var lastTextByStart: [Double: String] {
+        get { measured.withLock { $0.lastTextByStart } }
+        set { measured.withLock { $0.lastTextByStart = newValue } }
+    }
+    private var settled: [(start: Double, text: String)] {
+        get { measured.withLock { $0.settled } }
+        set { measured.withLock { $0.settled = newValue } }
+    }
+    private var settledChangedLater: Int {
+        get { measured.withLock { $0.settledChangedLater } }
+        set { measured.withLock { $0.settledChangedLater = newValue } }
+    }
+    private var engine: AVAudioEngine? {
+        get { measured.withLock { $0.engine } }
+        set { measured.withLock { $0.engine = newValue } }
+    }
+    private var continuation: AsyncStream<AnalyzerInput>.Continuation? {
+        get { measured.withLock { $0.continuation } }
+        set { measured.withLock { $0.continuation = newValue } }
+    }
+    private var converter: AVAudioConverter? {
+        get { measured.withLock { $0.converter } }
+        set { measured.withLock { $0.converter = newValue } }
+    }
+    private var analyzerFormat: AVAudioFormat? {
+        get { measured.withLock { $0.analyzerFormat } }
+        set { measured.withLock { $0.analyzerFormat = newValue } }
+    }
+    /// Create and start the engine on the main thread, the way the app does.
+    var onMain: Bool {
+        get { measured.withLock { $0.onMain } }
+        set { measured.withLock { $0.onMain = newValue } }
+    }
 
     init(seconds: Double, words: [String], dictation: Bool, cycle: Bool, requestSpeechAuth: Bool, file: String?) {
         self.seconds = seconds; self.words = words; self.dictation = dictation
         self.cycle = cycle; self.requestSpeechAuth = requestSpeechAuth; self.file = file
     }
 
-    private func age() -> String { String(format: "%6.2fs", Date().timeIntervalSince(t0)) }
+    private func age() -> String { String(format: "%6.2fs", t0.secondsElapsed) }
     private func log(_ s: String) { print("\(age())  \(s)"); fflush(stdout) }
 
     func run() async throws {
@@ -131,7 +204,8 @@ final class SpeechProbe: @unchecked Sendable {
                 let progress = request.progress
                 let ticker = Task {
                     while !Task.isCancelled {
-                        try? await Task.sleep(for: .seconds(2))
+                        // The sleep throws only CancellationError: the ticker was cancelled.
+                        do { try await Ambient.sleep(for: .seconds(2)) } catch { break }
                         self.log(String(format: "  %.0f%%", progress.fractionCompleted * 100))
                     }
                 }
@@ -159,9 +233,9 @@ final class SpeechProbe: @unchecked Sendable {
         let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
         log("analyzer format \(format.map { "\($0.sampleRate)Hz ch\($0.channelCount) \($0.commonFormat.rawValue)" } ?? "nil")")
         analyzerFormat = format
-        let prepStart = Date()
+        let prepStart = ContinuousClock.now
         try await analyzer.prepareToAnalyze(in: format)
-        log(String(format: "prepareToAnalyze took %.0fms", Date().timeIntervalSince(prepStart) * 1000))
+        log(String(format: "prepareToAnalyze took %.0fms", prepStart.secondsElapsed * 1000))
 
         // 4. results
         let resultsTask: Task<Void, Never>
@@ -178,7 +252,12 @@ final class SpeechProbe: @unchecked Sendable {
         } else { return }
 
         // 5. audio
-        let (stream, cont) = AsyncStream<AnalyzerInput>.makeStream()
+        // Bounded for a recognizer that stops taking audio: the file is paced
+        // at real time and the microphone is live, so a healthy run keeps the
+        // buffer nearly empty, and a wedged one drops the oldest past 4096
+        // converted buffers (a minute and a half of the shortest the tap
+        // delivers) instead of growing for the length of the run.
+        let (stream, cont) = AsyncStream<AnalyzerInput>.makeStream(bufferingPolicy: .bufferingNewest(4096))
         continuation = cont
         try await analyzer.start(inputSequence: stream)
         if let file {
@@ -190,27 +269,27 @@ final class SpeechProbe: @unchecked Sendable {
 
         if file != nil {
             // The file has been streamed; give the analyzer a beat.
-            try await Task.sleep(for: .milliseconds(500))
+            try await Ambient.sleep(for: .milliseconds(500))
         } else if cycle {
-            try await Task.sleep(for: .seconds(seconds * 0.4))
+            try await Ambient.sleep(for: .seconds(seconds * 0.4))
             log("— stopping the audio engine (normal-mode silence) —")
             stopEngine()
-            try await Task.sleep(for: .seconds(1.5))
-            restartAt = Date()
+            try await Ambient.sleep(for: .seconds(1.5))
+            restartAt = ContinuousClock.now
             log("— restarting the audio engine —")
             try startEngine()
-            try await Task.sleep(for: .seconds(seconds * 0.6))
+            try await Ambient.sleep(for: .seconds(seconds * 0.6))
         } else {
-            try await Task.sleep(for: .seconds(seconds))
+            try await Ambient.sleep(for: .seconds(seconds))
         }
 
         // 6. finish
         stopEngine()
         cont.finish()
-        let finStart = Date()
+        let finStart = ContinuousClock.now
         try await analyzer.finalizeAndFinishThroughEndOfInput()
-        log(String(format: "finalize took %.0fms", Date().timeIntervalSince(finStart) * 1000))
-        try? await Task.sleep(for: .milliseconds(300))
+        log(String(format: "finalize took %.0fms", finStart.secondsElapsed * 1000))
+        try await Ambient.sleep(for: .milliseconds(300))
         resultsTask.cancel()
         summary()
     }
@@ -228,7 +307,7 @@ final class SpeechProbe: @unchecked Sendable {
         log(String(format: "streaming %@ (%.1fs) at real-time pace", url.lastPathComponent, total))
         let sliceFrames = AVAudioFrameCount(audio.processingFormat.sampleRate / 10)
         var streamedFrames: AVAudioFramePosition = 0
-        let wall = Date()
+        let wall = ContinuousClock.now
         while streamedFrames < audio.length {
             guard let slice = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: sliceFrames) else { break }
             try audio.read(into: slice, frameCount: sliceFrames)
@@ -243,12 +322,12 @@ final class SpeechProbe: @unchecked Sendable {
                 if consumed { status.pointee = .noDataNow; return nil }
                 consumed = true; status.pointee = .haveData; return slice
             }
-            if firstAudioAt == nil { firstAudioAt = Date() }
+            if firstAudioAt == nil { firstAudioAt = ContinuousClock.now }
             if error == nil, out.frameLength > 0 { cont.yield(AnalyzerInput(buffer: out)) }
             // Real-time pacing: sleep until the wall clock catches up with the audio clock.
             let audioClock = Double(streamedFrames) / audio.processingFormat.sampleRate
-            let ahead = audioClock - Date().timeIntervalSince(wall)
-            if ahead > 0 { try await Task.sleep(for: .milliseconds(Int(ahead * 1000))) }
+            let ahead = audioClock - wall.secondsElapsed
+            if ahead > 0 { try await Ambient.sleep(for: .milliseconds(Int(ahead * 1000))) }
         }
         log("file streamed")
     }
@@ -266,12 +345,12 @@ final class SpeechProbe: @unchecked Sendable {
         log("formats: output \(inFormat.sampleRate)Hz ch\(inFormat.channelCount)  input \(input.inputFormat(forBus: 0).sampleRate)Hz  main=\(Thread.isMainThread)")
         guard let outFormat = analyzerFormat else { throw NSError(domain: "probe", code: 1) }
         converter = AVAudioConverter(from: inFormat, to: outFormat)
-        let startedAt = Date()
+        let startedAt = ContinuousClock.now
         input.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { [weak self] buffer, _ in
             guard let self, let converter = self.converter, let cont = self.continuation else { return }
             if self.firstAudioAt == nil {
-                self.firstAudioAt = Date()
-                self.log(String(format: "first audio buffer %.0fms after engine start", Date().timeIntervalSince(startedAt) * 1000))
+                self.firstAudioAt = ContinuousClock.now
+                self.log(String(format: "first audio buffer %.0fms after engine start", startedAt.secondsElapsed * 1000))
             }
             let ratio = outFormat.sampleRate / inFormat.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 16
@@ -289,7 +368,7 @@ final class SpeechProbe: @unchecked Sendable {
         engine.prepare()
         try engine.start()
         self.engine = engine
-        log(String(format: "engine.start took %.0fms (input %.0fHz ch%d)", Date().timeIntervalSince(startedAt) * 1000, inFormat.sampleRate, inFormat.channelCount))
+        log(String(format: "engine.start took %.0fms (input %.0fHz ch%d)", startedAt.secondsElapsed * 1000, inFormat.sampleRate, inFormat.channelCount))
     }
 
     private func stopEngine() {
@@ -299,16 +378,16 @@ final class SpeechProbe: @unchecked Sendable {
     }
 
     private func note(text: String, range: CMTimeRange, final: Bool) {
-        let now = Date()
+        let now = ContinuousClock.now
         if firstResultAt == nil {
             firstResultAt = now
             if let a = firstAudioAt {
-                log(String(format: "FIRST RESULT %.0fms after first audio", now.timeIntervalSince(a) * 1000))
+                log(String(format: "FIRST RESULT %.0fms after first audio", a.duration(to: now).inSeconds * 1000))
             }
         }
         if let r = restartAt, firstResultAfterRestartAt == nil, now > r {
             firstResultAfterRestartAt = now
-            log(String(format: "first result after restart: %.0fms", now.timeIntervalSince(r) * 1000))
+            log(String(format: "first result after restart: %.0fms", r.duration(to: now).inSeconds * 1000))
         }
         let start = range.start.seconds
         if final {
@@ -329,11 +408,11 @@ final class SpeechProbe: @unchecked Sendable {
     private func summary() {
         print("\n— summary —")
         if let a = firstAudioAt, let r = firstResultAt {
-            print(String(format: "first result after first audio: %.0fms", r.timeIntervalSince(a) * 1000))
+            print(String(format: "first result after first audio: %.0fms", a.duration(to: r).inSeconds * 1000))
         } else { print("no results received") }
         if let r = restartAt {
             if let f = firstResultAfterRestartAt {
-                print(String(format: "first result after engine restart: %.0fms", f.timeIntervalSince(r) * 1000))
+                print(String(format: "first result after engine restart: %.0fms", r.duration(to: f).inSeconds * 1000))
             } else { print("no result after engine restart") }
         }
         print("volatile results \(volatileCount), final results \(finalCount), volatile revisions \(revisions), volatile results reaching into settled audio \(settledChangedLater)")

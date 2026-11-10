@@ -1,5 +1,7 @@
 import Foundation
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// `FocusRoads` behind a lock: stamped from the main tap (⌘⇥), the
 /// health monitor's mouse tap (clicks), and the summon path, and asked
@@ -9,37 +11,37 @@ final class RoadTracker {
     private var roads = FocusRoads()
     private let lock = NSLock()
 
-    func summoned(via route: Observations.Route, at now: Date = Date()) {
+    func summoned(via route: Observations.Route, at now: Date = Moment.now.date) {
         lock.lock()
         roads.summoned(via: route, at: now)
         lock.unlock()
     }
 
-    func placed(pulled: Bool, at now: Date = Date()) {
+    func placed(pulled: Bool, at now: Date = Moment.now.date) {
         lock.lock()
         roads.placed(pulled: pulled, at: now)
         lock.unlock()
     }
 
-    func pulled(at now: Date = Date()) -> Bool {
+    func pulled(at now: Date = Moment.now.date) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return roads.pulled(at: now)
     }
 
-    func cmdTabbed(at now: Date = Date()) {
+    func cmdTabbed(at now: Date = Moment.now.date) {
         lock.lock()
         roads.cmdTabbed(at: now)
         lock.unlock()
     }
 
-    func clicked(at now: Date = Date()) {
+    func clicked(at now: Date = Moment.now.date) {
         lock.lock()
         roads.clicked(at: now)
         lock.unlock()
     }
 
-    func road(at now: Date = Date()) -> String {
+    func road(at now: Date = Moment.now.date) -> String {
         lock.lock()
         defer { lock.unlock() }
         return roads.road(at: now)

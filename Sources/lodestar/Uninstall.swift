@@ -177,7 +177,10 @@ struct UninstallPlan {
         return World(
             agentPlist: home.appendingPathComponent("Library/LaunchAgents/\(agentLabel).plist"),
             bundles: bundles,
-            links: ["/opt/homebrew/bin/lodestar", "/usr/local/bin/lodestar"].map { URL(fileURLWithPath: $0) },
+            // Only a link to a Lodestar app is Lodestar's to remove: another
+            // tool's `lodestar` in the same folder stays.
+            links: ["/opt/homebrew/bin/lodestar", "/usr/local/bin/lodestar"]
+                .filter(CLILink.isLodestars).map { URL(fileURLWithPath: $0) },
             alertSound: AlertSound.installed,
             alertSelected: AlertSound.isSelected(AlertSound.installed, selection: AlertSound.currentSelection()),
             // The third root is the Core ML cache the dictation model's
@@ -348,6 +351,132 @@ enum LoginAgent {
         /bin/sleep 1
     done
     """
+}
+
+extension LoginAgent {
+    /// What launchd says about the agent job. Three answers, because a read
+    /// that failed is not the answer "not loaded": acting on it as if it
+    /// were bootstraps a job that may be running.
+    enum State: Equatable {
+        /// Loaded in this session: the pid it runs, 0 when it is loaded and idle.
+        case loaded(pid: pid_t)
+        /// launchd says there is no such job.
+        case notLoaded
+        /// launchctl could not be run, or what it answered could not be read.
+        case unknown(String)
+    }
+
+    /// `launchctl list <label>`'s exit status is 113 for a label that is not
+    /// loaded ("Could not find service"), 0 with the job's description when
+    /// it is, and anything else is a failure to ask.
+    static let notLoadedStatus: Int32 = 113
+
+    /// The state from what `launchctl list <label>` did. `output` is nil when
+    /// it printed bytes that are not text.
+    static func state(exitStatus: Int32, output: String?) -> State {
+        if exitStatus == notLoadedStatus { return .notLoaded }
+        guard exitStatus == 0 else { return .unknown("launchctl list exited \(exitStatus)") }
+        guard let output else { return .unknown("launchctl list printed what could not be read") }
+        for line in output.split(separator: "\n") where line.contains("\"PID\"") {
+            if let pid = Int32(line.filter(\.isNumber)) { return .loaded(pid: pid) }
+        }
+        return .loaded(pid: 0)
+    }
+
+    /// What the instance that finds the agent file in place does about
+    /// launchd's side of it.
+    enum Readoption: Equatable {
+        /// The agent is the one running this instance, or launchd cannot be read.
+        case nothing
+        /// The definition was rewritten and the job is loaded: load it again.
+        case reload(agentPid: pid_t)
+        /// The job is loaded and is not this instance: launchd starts its own.
+        case kickstart(agentPid: pid_t)
+        /// The job is not loaded: load it, which starts it.
+        case bootstrap
+        /// launchd could not be read: change nothing and say so.
+        case unreadable(String)
+    }
+
+    static func readoption(state: State, definitionChanged: Bool, me: pid_t) -> Readoption {
+        switch state {
+        case .unknown(let why): return .unreadable(why)
+        case .notLoaded: return .bootstrap
+        case .loaded(let pid):
+            if definitionChanged { return .reload(agentPid: pid) }
+            return pid == me ? .nothing : .kickstart(agentPid: pid)
+        }
+    }
+}
+
+/// The `lodestar` command on the PATH, which the zip install has no
+/// installer to make: the app keeps a link to itself in a writable bin.
+enum CLILink {
+    enum Outcome: Equatable {
+        case current
+        case created
+        /// Was a link to another Lodestar app (or to nothing), now this one.
+        case replaced(was: String)
+        /// Something that is not a link to a Lodestar app is there, and stays.
+        case leftAlone(String)
+        case failed(String)
+    }
+
+    /// What a link of ours points at: the binary of an app bundle named lodestar.app.
+    private static let bundleBinarySuffix = "/lodestar.app/contents/macos/lodestar"
+
+    /// Whether `destination` is the binary of a lodestar.app, in any case:
+    /// the volume a Mac starts from ignores case, so `Lodestar.app` is the
+    /// same app.
+    private static func isBundleBinary(_ destination: String) -> Bool {
+        destination.lowercased().hasSuffix(bundleBinarySuffix)
+    }
+
+    /// Whether `path` is a symbolic link to a Lodestar app's binary.
+    static func isLodestars(_ path: String) -> Bool {
+        guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else { return false }
+        return isBundleBinary(destination)
+    }
+
+    /// Makes `link` point at `target`, replacing only what is Lodestar's to
+    /// replace: nothing at all, a link to a Lodestar app, or a link whose
+    /// destination is gone. A file, a folder or a link to anything else is
+    /// another tool's and is left alone. The replacement is a link made beside
+    /// and renamed over, so there is never a moment with no link.
+    static func maintain(link: String, target: String, fileManager: FileManager = .default) -> Outcome {
+        var info = stat()
+        guard lstat(link, &info) == 0 else {
+            if errno == ENOENT { return place(target, at: link, replacing: nil) }
+            return .failed("could not look at \(link): \(String(cString: strerror(errno)))")
+        }
+        guard (info.st_mode & S_IFMT) == S_IFLNK else { return .leftAlone("it is not a link") }
+        let destination: String
+        do {
+            destination = try fileManager.destinationOfSymbolicLink(atPath: link)
+        } catch {
+            return .failed("could not read the link: \(error)")
+        }
+        if destination == target { return .current }
+        let resolved = URL(fileURLWithPath: destination, relativeTo: URL(fileURLWithPath: link).deletingLastPathComponent()).path
+        if isBundleBinary(destination) || !fileManager.fileExists(atPath: resolved) {
+            return place(target, at: link, replacing: destination)
+        }
+        return .leftAlone("it links to \(destination)")
+    }
+
+    private static func place(_ target: String, at link: String, replacing was: String?) -> Outcome {
+        let beside = link + ".lodestar-new"
+        unlink(beside)
+        guard symlink(target, beside) == 0 else {
+            return .failed("could not make the link: \(String(cString: strerror(errno)))")
+        }
+        guard rename(beside, link) == 0 else {
+            let why = String(cString: strerror(errno))
+            unlink(beside)
+            return .failed("could not put the link in place: \(why)")
+        }
+        return was.map { .replaced(was: $0) } ?? .created
+    }
 }
 
 /// A process that outlives this one: `posix_spawn` with SETSID, so it

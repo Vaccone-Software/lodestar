@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 import Synchronization
 
 /// Structured, rotating file log at ~/.local/share/lodestar/lodestar.log,
@@ -55,7 +57,16 @@ public enum Log {
     /// A test hook: set before the code under test runs and cleared after.
     /// It runs on whichever thread logged, so what it touches is the
     /// test's to guard.
-    nonisolated(unsafe) public static var listener: ((String) -> Void)?
+    public static var listener: ((String) -> Void)? {
+        get { listenerSlot.withLock { $0 }.call }
+        set { listenerSlot.withLock { $0 = Listener(call: newValue) } }
+    }
+
+    // stoic:allow(unchecked-sendable): an immutable box for the closure a test hands to `listener`, which is the test's to guard (the doc on `listener` says so); the slot that holds the box is a Mutex, so the closure itself is swapped and read under a lock, and only a test ever sets it
+    private struct Listener: @unchecked Sendable {
+        var call: ((String) -> Void)?
+    }
+    private static let listenerSlot = Mutex(Listener(call: nil))
 
     /// Off under any test runner. `swift test` says so in the environment;
     /// `xcrun xctest` run directly (scripts/test.sh's shards) does not, so
@@ -92,7 +103,7 @@ public enum Log {
     }
 
     private static func write(_ level: String, _ event: String, _ fields: [(key: String, value: Any)]) {
-        var line = "\(formatter.string(from: Date())) \(level) \(event)"
+        var line = "\(formatter.string(from: Moment.now.date)) \(level) \(event)"
         for (key, value) in fields {
             line += " \(key)=\(format(value))"
         }
@@ -165,6 +176,7 @@ public final class AppendingFile {
             if stat(url.path, &onDisk) == 0, onDisk.st_ino == inode { return }
             closeDescriptor()
         }
+        // stoic:allow(discarded-try): the log cannot log its own failure (this runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); a folder that could not be made makes the open just below fail, and the append then does nothing.
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         descriptor = open(url.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)
@@ -173,7 +185,15 @@ public final class AppendingFile {
         inode = fstat(descriptor, &status) == 0 ? status.st_ino : 0
         // A fresh file after a rotation does not inherit the flag the
         // boot sweep set on the one before it.
-        if Paths.isBehavioral(url.lastPathComponent) { Paths.excludeFromBackup(url) }
+        // Not Paths.excludeFromBackup: that logs its failure, and a line
+        // from inside the appender's lock would take the lock again.
+        if Paths.isBehavioral(url.lastPathComponent) {
+            var file = url
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            // stoic:allow(discarded-try): the log cannot log its own failure (this runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); a file left in backups is swept again by Paths.prepare at the next launch.
+            try? file.setResourceValues(values)
+        }
     }
 
     private func closeDescriptor() {
@@ -187,10 +207,13 @@ public final class AppendingFile {
         closeDescriptor()
         let fm = FileManager.default
         let base = url.path
+        // stoic:allow(discarded-try): the log cannot log its own failure (rotation runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); a rotation that fails leaves the file over its bound and the next append rotates again.
         try? fm.removeItem(atPath: "\(base).\(keptRotations)")
         for index in stride(from: keptRotations - 1, through: 1, by: -1) {
+            // stoic:allow(discarded-try): the log cannot log its own failure (rotation runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); a step that fails leaves the file over its bound and the next append rotates again.
             try? fm.moveItem(atPath: "\(base).\(index)", toPath: "\(base).\(index + 1)")
         }
+        // stoic:allow(discarded-try): the log cannot log its own failure (rotation runs inside the appender's lock, which Log.write takes, so a line from here would deadlock); if the move fails the file stays at its path, over its bound, and the next append rotates again.
         try? fm.moveItem(atPath: base, toPath: "\(base).1")
     }
 }

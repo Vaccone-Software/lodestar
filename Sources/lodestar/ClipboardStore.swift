@@ -4,6 +4,8 @@ import ImageIO
 import UniformTypeIdentifiers
 import LodestarCore
 import StoicSealed
+import Stoic
+import StoicTime
 import Synchronization
 
 /// Clipboard history: the clips held in memory, and their bytes sealed on disk
@@ -45,9 +47,21 @@ final class ClipboardStore {
     }
 
     /// How long after the last delete the log is folded and the key rotated.
-    nonisolated(unsafe) static var deletionDelay: TimeInterval = 2
+    static var deletionDelay: TimeInterval {
+        get { delays.withLock { $0.deletion } }
+        set { delays.withLock { $0.deletion = newValue } }
+    }
     /// How long after the last write the log is folded once it has grown (at idle).
-    nonisolated(unsafe) static var foldDelay: TimeInterval = 5
+    static var foldDelay: TimeInterval {
+        get { delays.withLock { $0.fold } }
+        set { delays.withLock { $0.fold = newValue } }
+    }
+    private struct Delays {
+        var deletion: TimeInterval = 2
+        var fold: TimeInterval = 5
+        var prune: TimeInterval = 300
+    }
+    private static let delays = Mutex(Delays())
     /// The most a queue of copies, waiting for the index to open, may hold.
     static let queuedByteLimit = 512_000_000
 
@@ -67,8 +81,8 @@ final class ClipboardStore {
     }
     private var refs: [String: Ref] = [:]
     private var pendingOps: [ClipboardOp] = []
-    private var pendingSave: DispatchWorkItem?
-    private var compactionWork: DispatchWorkItem?
+    private var pendingSave: Task<Void, Never>?
+    private var compactionWork: Task<Void, Never>?
     /// A delete whose key has not been rotated away yet.
     private var deletionOwed = false
     /// Folds that have finished (rotating the key), for the tests.
@@ -239,13 +253,23 @@ final class ClipboardStore {
         io.async { [weak self] in
             guard let self else { return }
             let result = self.disk.open()
-            DispatchQueue.main.async { self.finishOpening(result, epoch: opening) }
+            // Asked here, on the queue that owns the journal's counters, and
+            // before any copy made while it opened is appended: main reading
+            // them after it had queued those appends would race them.
+            let owed = Owed(removals: self.disk.removalsOwed, fold: self.disk.needsCompaction)
+            DispatchQueue.main.async { self.finishOpening(result, owed: owed, epoch: opening) }
         }
     }
 
     /// Main. The journal has been read (and an older history taken in) off the
     /// main thread: publish it, and apply the copies that came while it opened.
-    private func finishOpening(_ result: SealedClipboard.OpenResult, epoch opening: Int) {
+    /// What the journal owed when it opened: a delete a crash cut short, or a fold.
+    private struct Owed {
+        var removals: Bool
+        var fold: Bool
+    }
+
+    private func finishOpening(_ result: SealedClipboard.OpenResult, owed: Owed, epoch opening: Int) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard opening == epoch, phase == .opening else { return }
         switch result {
@@ -296,11 +320,11 @@ final class ClipboardStore {
             queuedBytes = 0
             for pending in waiting { apply(pending) }
             if !waiting.isEmpty { Log.info("clipboard: applied \(waiting.count) copies made while it opened") }
-            if disk.removalsOwed {
+            if owed.removals {
                 // A delete that a crash cut short: its key is still in a record that opens.
                 deletionOwed = true
                 scheduleCompaction(after: Self.deletionDelay)
-            } else if disk.needsCompaction {
+            } else if owed.fold {
                 scheduleCompaction(after: Self.foldDelay)
             }
             onThumbnail?()
@@ -311,8 +335,8 @@ final class ClipboardStore {
     /// history has opened (or the time is up).
     @discardableResult
     func waitUntilOpen(timeout: TimeInterval = 30) -> Phase {
-        let deadline = Date().addingTimeInterval(timeout)
-        while phase == .opening, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.002)) }
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while phase == .opening, ContinuousClock.now < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.002)) }
         return phase
     }
 
@@ -352,13 +376,11 @@ final class ClipboardStore {
     /// burst of writes.
     private func saveSoon() {
         guard pendingSave == nil else { return }
-        let work = DispatchWorkItem { [weak self] in
+        pendingSave = onMain(after: .milliseconds(500)) { [weak self] in
             guard let self else { return }
             self.pendingSave = nil
             self.saveNow()
         }
-        pendingSave = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     private func commit(_ op: ClipboardOp) {
@@ -395,13 +417,11 @@ final class ClipboardStore {
                 Log.error("clipboard: \(todo.count) changes were not written — the history is not open")
             case .failed(let why):
                 Log.error("clipboard: \(todo.count) changes could not be written (\(why)) — tried again shortly")
-                let store = self
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard let store = self else { return }
                     store.pendingOps.insert(contentsOf: todo, at: 0)
                     store.pendingSave?.cancel()
-                    let work = DispatchWorkItem { [weak store] in store?.saveNow() }
-                    store.pendingSave = work
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+                    store.pendingSave = onMain(after: .seconds(5)) { [weak store] in store?.saveNow() }
                 }
             }
         }
@@ -411,9 +431,7 @@ final class ClipboardStore {
 
     private func scheduleCompaction(after delay: TimeInterval) {
         compactionWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.compactNow() }
-        compactionWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        compactionWork = onMain(after: .seconds(delay)) { [weak self] in self?.compactNow() }
     }
 
     /// Main. The log is folded into a snapshot on the io queue, **rotating the
@@ -426,11 +444,11 @@ final class ClipboardStore {
         saveNow()
         io.async { [weak self] in
             guard let self else { return }
-            let started = Date()
+            let started = ContinuousClock.now
             switch self.disk.compact(rotatingKey: true) {
             case .compacted(let records, let bytes):
                 Log.info("clipboard: folded \(records) records into a snapshot of \(bytes / 1024) KB",
-                         ["ms": Int(Date().timeIntervalSince(started) * 1000)])
+                         ["ms": Int(started.secondsElapsed * 1000)])
                 DispatchQueue.main.async {
                     self.deletionOwed = false
                     self.compactions += 1
@@ -530,7 +548,7 @@ final class ClipboardStore {
         }
         let arrival = Queued(id: id, kind: kind, items: items, imageData: imageData, preview: preview,
                              sourceBundleID: sourceBundleID, sourceAppName: sourceAppName, sourceHost: sourceHost,
-                             lines: lines, characters: characters, created: Date(), bytes: bytes)
+                             lines: lines, characters: characters, created: Moment.now.date, bytes: bytes)
         switch phase {
         case .ready:
             apply(arrival)
@@ -598,7 +616,9 @@ final class ClipboardStore {
             guard let imageData else { return }
             if known, files.hasThumb(storage: ref.storage) { return }
             guard let thumbnail = Self.thumbnail(from: imageData) else { return }
-            try? files.writeThumb(storage: ref.storage, key: key, png: thumbnail)
+            Log.attempt("clipboard: could not write a thumbnail") {
+                try files.writeThumb(storage: ref.storage, key: key, png: thumbnail)
+            }
             // Decoded here, so the first draw has nothing left to decode.
             let image = Self.decodedImage(from: thumbnail)
             DispatchQueue.main.async {
@@ -790,20 +810,23 @@ final class ClipboardStore {
     /// file a test has just deleted must stay to be pasted.
     var prunesGoneFiles = true
     /// How often the cards of files are looked over when nothing else asks.
-    nonisolated(unsafe) static var prunePeriod: TimeInterval = 300
+    static var prunePeriod: TimeInterval {
+        get { delays.withLock { $0.prune } }
+        set { delays.withLock { $0.prune = newValue } }
+    }
     private var pruneScheduled = false
     private var pruning = false
-    private var pruneDue: Date?
+    private var pruneDue: ContinuousClock.Instant?
 
     /// Look the cards of files over soon: after a copy, when the strip
     /// closes, and every `prunePeriod` in between.
     func pruneGoneFilesSoon(after delay: TimeInterval = 1) {
-        let due = Date().addingTimeInterval(delay)
-        guard prunesGoneFiles, !pruneScheduled || due < (pruneDue ?? .distantFuture) else { return }
+        let due = ContinuousClock.now + .seconds(delay)
+        guard prunesGoneFiles, !pruneScheduled || pruneDue.map({ due < $0 }) ?? true else { return }
         pruneScheduled = true
         pruneDue = due
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, let planned = self.pruneDue, planned <= Date().addingTimeInterval(0.05) else { return }
+        onMain(after: .seconds(delay)) { [weak self] in
+            guard let self, let planned = self.pruneDue, planned <= ContinuousClock.now + .seconds(0.05) else { return }
             self.pruneScheduled = false
             self.pruneDue = nil
             self.pruneGoneFiles()
@@ -1055,7 +1078,7 @@ final class ClipboardStore {
         refs[newID] = ref
         let counted = Clipboard.counts(of: text)
         let kept = Clipboard.Clip(
-            id: newID, kind: .text, created: Date(),
+            id: newID, kind: .text, created: Moment.now.date,
             sourceBundleID: source?.sourceBundleID, sourceAppName: source?.sourceAppName,
             preview: Clipboard.preview(of: text), bytes: data.count,
             sourceHost: source?.sourceHost,
@@ -1269,7 +1292,7 @@ final class ClipboardStore {
     private func refreshSoon() {
         guard !refreshPending else { return }
         refreshPending = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+        onMain(after: .milliseconds(30)) { [weak self] in
             self?.refreshPending = false
             self?.onThumbnail?()
         }
@@ -1480,7 +1503,9 @@ final class ClipboardStore {
     /// True once, if a CLI clear happened while this process was running.
     func consumeClearRequest() -> Bool {
         guard FileManager.default.fileExists(atPath: clearRequestFile.path) else { return false }
-        try? FileManager.default.removeItem(at: clearRequestFile)
+        Log.attemptUnlessAbsent("clipboard: could not remove the clear request") {
+            try FileManager.default.removeItem(at: clearRequestFile)
+        }
         return true
     }
 
@@ -1490,9 +1515,13 @@ final class ClipboardStore {
 
     /// The flag a running instance looks for, written by a process that cleared the files.
     static func requestClearOnDisk(root: URL = Paths.clipboard) {
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
-                                                 attributes: [.posixPermissions: 0o700])
-        try? Data().write(to: root.appendingPathComponent("clear-requested"))
+        Log.attempt("clipboard: could not make the folder for the clear request") {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+        }
+        Log.attempt("clipboard: could not write the clear request") {
+            try Data().write(to: root.appendingPathComponent("clear-requested"))
+        }
     }
 
     /// The history cleared for good: **the ring destroyed** (what survives on

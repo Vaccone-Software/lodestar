@@ -1,5 +1,7 @@
 import Accelerate
 import Foundation
+import Stoic
+import StoicTime
 
 /// The voice of one dictation, as numbers: pitch and its steadiness,
 /// loudness, the cycle-to-cycle perturbations the speech literature reads
@@ -277,7 +279,7 @@ extension VoiceStats {
         public var rate: Double?
     }
 
-    public static func summary(events: [ObservationEvent], days: Int, now: Date = Date()) -> Summary? {
+    public static func summary(events: [ObservationEvent], days: Int, now: Date = Moment.now.date) -> Summary? {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let voices = events.filter { $0.kind == .voice && $0.t >= cutoff }.compactMap(\.voice)
         guard !voices.isEmpty else { return nil }

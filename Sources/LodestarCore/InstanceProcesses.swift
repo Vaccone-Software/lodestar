@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// Who a process is, as far as the takeover needs to know: when it began and
 /// what it is called. A pid is a number the system hands out again; a pid with
@@ -58,5 +60,5 @@ public struct InstanceClock: Sendable {
         self.pause = pause
     }
 
-    public static let system = InstanceClock(now: { Date() }, pause: { usleep(UInt32($0 * 1_000_000)) })
+    public static let system = InstanceClock(now: { Moment.now.date }, pause: { usleep(UInt32($0 * 1_000_000)) })
 }

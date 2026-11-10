@@ -64,7 +64,7 @@ final class SpeechStartLoopTests: XCTestCase {
 
     private func speech(_ lines: [String]) -> [String] { lines.filter { $0.contains(" draft speech=") } }
 
-    private func loop(_ run: Run, began: Date = Date()) async -> SpeechStart.Outcome {
+    private func loop(_ run: Run, began: ContinuousClock.Instant = .now) async -> SpeechStart.Outcome {
         await SpeechStart.startLoop(
             began: began,
             start: { try run.start($0) },
@@ -77,7 +77,7 @@ final class SpeechStartLoopTests: XCTestCase {
     /// The loop run to its end on a clock the test owns: the settle between
     /// two attempts is waited out in virtual time, so a test of a second
     /// attempt takes no real 650 ms.
-    private func loopThroughTheSettle(_ run: Run, began: Date = Date()) async -> SpeechStart.Outcome {
+    private func loopThroughTheSettle(_ run: Run, began: ContinuousClock.Instant = .now) async -> SpeechStart.Outcome {
         let clock = TestClock()
         return await withTestAmbient(clock: clock) {
             let waiting = Task { await self.loop(run, began: began) }
@@ -185,10 +185,10 @@ final class SpeechStartLoopTests: XCTestCase {
     func testAnyOtherFailureIsTriedAgainAfterTheBridgeIsArmed() async {
         let run = Run()
         run.script = [Glitch()]
-        let began = Date()
+        let began = ContinuousClock.now
         assertStarted(await loop(run, began: began))
         XCTAssertEqual(run.steps, ["start", "bridgeAgain", "start"])
-        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(began), SpeechStart.settleSeconds - 0.05,
+        XCTAssertGreaterThanOrEqual(began.secondsElapsed, SpeechStart.settleSeconds - 0.05,
                                     "the settle was waited out between them")
         XCTAssertEqual(run.within.count, 2)
         XCTAssertEqual(run.within[1], SpeechStart.startBudget - SpeechStart.settleSeconds, accuracy: 0.5,
@@ -197,7 +197,7 @@ final class SpeechStartLoopTests: XCTestCase {
         XCTAssertEqual(run.said, [])
         let said = speech(lines.all)
         XCTAssertEqual(said.count, 1, "\(said)")
-        XCTAssertTrue(said[0].contains("INFO draft speech=\"audio start failed\" attempt=1 error=\"engine glitch\""), "\(said)")
+        XCTAssertTrue(said[0].contains("INFO draft speech=\"audio start failed\" attempt=1 error=Glitch()"), "\(said)")
     }
 
     /// The settle is waited on Stoic's clock, so a test moves it: no second
@@ -274,7 +274,7 @@ final class SpeechStartLoopTests: XCTestCase {
         let outcome = await withTestAmbient(clock: clock) {
             let waiting = Task {
                 await SpeechStart.startLoop(
-                    began: Date(),
+                    began: ContinuousClock.now,
                     start: { try run.start($0) },
                     bridgeAgain: { run.note("bridgeAgain"); run.stopped = true },
                     stopped: { run.stopped },
@@ -297,7 +297,7 @@ final class SpeechStartLoopTests: XCTestCase {
     func testASecondAttemptTheBudgetCannotPayIsNotBegun() async {
         let run = Run()
         run.script = [Glitch()]
-        let began = Date().addingTimeInterval(-(SpeechStart.startBudget - 0.9))
+        let began = ContinuousClock.now - .seconds(SpeechStart.startBudget - 0.9)
         assertUnstarted(await loop(run, began: began), wedged: false)
         XCTAssertEqual(run.steps, ["start", "bridgeAgain"], "the second attempt is not begun")
         XCTAssertEqual(run.within.count, 1)
@@ -307,7 +307,7 @@ final class SpeechStartLoopTests: XCTestCase {
     /// A budget already spent begins nothing, and says nothing.
     func testASpentBudgetBeginsNothing() async {
         let run = Run()
-        assertUnstarted(await loop(run, began: Date().addingTimeInterval(-SpeechStart.startBudget)), wedged: false)
+        assertUnstarted(await loop(run, began: ContinuousClock.now - .seconds(SpeechStart.startBudget)), wedged: false)
         XCTAssertEqual(run.steps, [])
         XCTAssertEqual(run.said, [])
         XCTAssertEqual(speech(lines.all), [])
@@ -316,7 +316,7 @@ final class SpeechStartLoopTests: XCTestCase {
     /// The least a start can be given and still begin.
     func testTheLeastAStartIsGivenStillBegins() async {
         let run = Run()
-        let began = Date().addingTimeInterval(-(SpeechStart.startBudget - SpeechStart.minimumStart - 0.2))
+        let began = ContinuousClock.now - .seconds(SpeechStart.startBudget - SpeechStart.minimumStart - 0.2)
         assertStarted(await loop(run, began: began))
         XCTAssertEqual(run.steps, ["start"])
         XCTAssertGreaterThan(run.within[0], SpeechStart.minimumStart)

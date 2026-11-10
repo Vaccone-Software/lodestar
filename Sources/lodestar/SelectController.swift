@@ -109,7 +109,7 @@ final class SelectController {
     private var grounding = OCRSense.Grounding([])
     /// The mode's own observation: when it began, what it cost, how it
     /// ended. Counts and timings — the text is never anyone's.
-    private var modeEnteredAt = Date.distantPast
+    private var modeEnteredAt: ContinuousClock.Instant?
     private var typedInMode = 0
     private var committedOutcome: String?
     /// Whether the pointer rested on the display that was read. Pixels
@@ -226,7 +226,7 @@ final class SelectController {
     /// before the first key — the two numbers the entry-chips verdict
     /// rests on, recorded per session.
     private var entryChipsAtEntry = 0
-    private var firstKeyAt: Date?
+    private var firstKeyAt: ContinuousClock.Instant?
     /// Aiming typed inside the sensor's first beats, held for the first
     /// world instead of dropped — the hands may start the moment the mode
     /// key lands. Lowercase only: a capital typed before any chips exist
@@ -335,7 +335,7 @@ final class SelectController {
             // The words decide the chips, and a window may have none to
             // read — an image, a canvas, a tree that never answers. The
             // chips are not held hostage to a world that is not coming.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            onMain(after: .milliseconds(400)) { [weak self] in
                 guard let self, self.generation == expected, self.door == .click,
                       !self.entryChipsSettled else { return }
                 self.labelEntry(force: true)
@@ -427,17 +427,17 @@ final class SelectController {
         // The aim door leaves no select record: its sessions would read
         // as selections in the copy ledger, and the verb count is what
         // its verdict rests on.
-        if modeEnteredAt != .distantPast, door != .aim, door != .editor {
+        if let modeEnteredAt, door != .aim, door != .editor {
             observations?.selected(
                 app: appName, action: committedOutcome == nil ? "abandoned" : "completed",
                 source: ocrAdopted ? "ocr" : "ax", outcome: committedOutcome,
-                typed: typedInMode, seconds: Date().timeIntervalSince(modeEnteredAt),
+                typed: typedInMode, seconds: modeEnteredAt.secondsElapsed,
                 matches: lastMatchCount,
-                firstKey: firstKeyAt.map { $0.timeIntervalSince(modeEnteredAt) },
+                firstKey: firstKeyAt.map { modeEnteredAt.duration(to: $0).inSeconds },
                 entryChips: door == .click ? entryChipsAtEntry : nil,
                 pointerOn: pointerOnWindow)
         }
-        modeEnteredAt = .distantPast
+        modeEnteredAt = nil
     }
 
     private static func verbName(for door: Door) -> String {
@@ -506,7 +506,7 @@ final class SelectController {
     func paste(_ text: String) {
         let query = Clipboard.pastedQuery(text)
         guard !query.isEmpty else { return }
-        if firstKeyAt == nil { firstKeyAt = Date() }
+        if firstKeyAt == nil { firstKeyAt = ContinuousClock.now }
         guard core != nil else {
             for character in query where pendingKeys.count < 32 {
                 let key = character == " " ? "space" : String(character).lowercased()
@@ -570,7 +570,7 @@ final class SelectController {
     }
 
     func key(_ key: String, shift: Bool, option: Bool = false) -> SelectStep {
-        if firstKeyAt == nil { firstKeyAt = Date() }
+        if firstKeyAt == nil { firstKeyAt = ContinuousClock.now }
         // The `;` door's entry chips answer before the sensor does: a
         // capital while nothing is typed picks among the pressables the
         // tree named, even if OCR is still reading. Gated on the chips,
@@ -701,7 +701,7 @@ final class SelectController {
         ocrAdopted = false
         world = "none"
         focusedPid = pid
-        modeEnteredAt = Date()
+        modeEnteredAt = ContinuousClock.now
         capturedAt = nil
         typedInMode = 0
         committedOutcome = nil
@@ -750,7 +750,7 @@ final class SelectController {
     private func relabelEditor(after delay: Double) {
         let expected = generation
         pendingRelabels += 1
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        onMain(after: .seconds(delay)) { [weak self] in
             guard let self else { return }
             self.pendingRelabels -= 1
             guard self.generation == expected, self.door == .editor, let editor = self.editor else { return }
@@ -875,7 +875,7 @@ final class SelectController {
             hold.landed = true
             self.drain(hold)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleLimit, execute: lift)
+        onMain(after: .seconds(Self.settleLimit)) { lift() }
         return lift
     }
 
@@ -1264,7 +1264,7 @@ final class SelectController {
     func rescanClick() {
         if door == .editor { relabelEditor(after: 0.35); return }
         let expected = generation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        onMain(after: .milliseconds(500)) { [weak self] in
             guard let self, self.generation == expected else { return }
             _ = self.enter(door: .click, sticky: true)
         }
@@ -1490,7 +1490,7 @@ final class SelectController {
         serve(pixel)
         copyGeneration += 1
         let token = copyGeneration
-        let began = Date()
+        let began = ContinuousClock.now
         let attempt = VerifiedCopy(pixel: pixel)
 
         // The second reading, off the main thread, structure-preserving:
@@ -1526,7 +1526,7 @@ final class SelectController {
         let before = SystemEvents.pasteboard.changeCount
         // ⌘C once the app has taken the mouse-up, then a short watch for
         // the pasteboard to move.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
+        onMain(after: .milliseconds(90)) { [weak self] in
             guard let self, self.copyGeneration == token else { return }
             Self.postCopy()
             self.awaitAppCopy(attempt, token: token, before: before, polls: 0, began: began)
@@ -1543,7 +1543,7 @@ final class SelectController {
         init(pixel: String) { self.pixel = pixel }
     }
 
-    private func awaitAppCopy(_ attempt: VerifiedCopy, token: Int, before: Int, polls: Int, began: Date) {
+    private func awaitAppCopy(_ attempt: VerifiedCopy, token: Int, before: Int, polls: Int, began: ContinuousClock.Instant) {
         guard copyGeneration == token else { return }
         let board = SystemEvents.pasteboard
         if board.changeCount != before {
@@ -1557,16 +1557,16 @@ final class SelectController {
             settleCopy(attempt, token: token, began: began)
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        onMain(after: .milliseconds(50)) { [weak self] in
             self?.awaitAppCopy(attempt, token: token, before: before, polls: polls + 1, began: began)
         }
     }
 
     /// Both readings in: decide what stands on the pasteboard, and how
     /// the mode ends.
-    private func settleCopy(_ attempt: VerifiedCopy, token: Int, began: Date) {
+    private func settleCopy(_ attempt: VerifiedCopy, token: Int, began: ContinuousClock.Instant) {
         guard copyGeneration == token, !attempt.settled else { return }
-        let elapsed = Int(Date().timeIntervalSince(began) * 1000)
+        let elapsed = Int(began.secondsElapsed * 1000)
         if attempt.appDone, let app = attempt.appText {
             // The app's glyphs, cut to the pixels' extent: a drag's ends
             // land a character off, and the period it grabbed is not
@@ -1665,7 +1665,7 @@ final class SelectController {
         }
         let origin = Pointer.location()
         Pointer.post(SyntheticPointer.drag(from: start, to: end))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+        onMain(after: .milliseconds(60)) {
             Pointer.post(SyntheticPointer.home(origin))
         }
         return true
@@ -1779,12 +1779,12 @@ final class SelectController {
     /// half-placed span out from under the hand.
     private func senseOCR(image: CGImage, frame: CGRect, windows: [CGRect],
                           generation expected: Int) {
-        let began = Date()
+        let began = ContinuousClock.now
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             for level in [OCRSense.Level.fast, .accurate] {
                 let lines = OCRSense.recognize(image: image, windowFrame: frame,
                                                level: level)
-                let elapsed = Int(Date().timeIntervalSince(began) * 1000)
+                let elapsed = Int(began.secondsElapsed * 1000)
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.generation == expected else { return }
                     guard !lines.isEmpty else {
@@ -1831,14 +1831,14 @@ final class SelectController {
     /// first adopted sense, pixels or tree, whichever landed first. The
     /// audit's 0.89s median to first key was mostly this wait, and the
     /// instrument had no line for it.
-    private var capturedAt: Date?
+    private var capturedAt: ContinuousClock.Instant?
 
     private func noteCaptured() {
         guard capturedAt == nil else { return }
-        let now = Date()
+        let now = ContinuousClock.now
         capturedAt = now
         observations?.latency(surface: "select-capture",
-                              seconds: now.timeIntervalSince(modeEnteredAt))
+                              seconds: modeEnteredAt.map { $0.duration(to: now).inSeconds } ?? 0)
     }
 
     private func adoptOCR(_ lines: [OCRSense.Line], windows: [CGRect],
@@ -1921,7 +1921,7 @@ final class SelectController {
         let windowElement = window.element
         let windowFrame = window.frame
         let pid = window.pid
-        let began = Date()
+        let began = ContinuousClock.now
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let app = AXUIElementCreateApplication(pid)
@@ -1938,7 +1938,7 @@ final class SelectController {
             var found: [Harvested] = []
             var visited = 0
             var totalChars = 0
-            let deadline = Date().addingTimeInterval(2.5)
+            let deadline = ContinuousClock.now + .seconds(2.5)
             let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
                          kAXChildrenAttribute] as CFArray
 
@@ -1965,7 +1965,7 @@ final class SelectController {
 
             func walk(_ element: AXUIElement, depth: Int) {
                 guard depth < 50, visited < 40_000, found.count < 600,
-                      totalChars < 200_000, Date() < deadline else { return }
+                      totalChars < 200_000, ContinuousClock.now < deadline else { return }
                 visited += 1
 
                 var values: CFArray?
@@ -2046,7 +2046,7 @@ final class SelectController {
                 if abs(dy) > SelectRuns.lineTolerance { return dy < 0 }
                 return a.frame.minX < b.frame.minX
             }
-            let elapsed = Int(Date().timeIntervalSince(began) * 1000)
+            let elapsed = Int(began.secondsElapsed * 1000)
             let grounding = OCRSense.Grounding(found.map(\.text))
 
             DispatchQueue.main.async { [weak self] in
@@ -2076,7 +2076,7 @@ final class SelectController {
                 let unsettled = attempt < 5 && found.count != self.lastPassLeaves
                 self.lastPassLeaves = found.count
                 if unsettled {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                    onMain(after: .milliseconds(350)) { [weak self] in
                         guard let self, self.generation == expected else { return }
                         guard let window = self.model.focusedWindow, window.isAlive else { return }
                         self.harvest(window: window, generation: expected,

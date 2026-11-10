@@ -5,6 +5,7 @@ import Stoic
 import StoicDownloads
 import StoicHTTP
 import StoicStore
+import Synchronization
 
 /// A model's files, pinned: the revision the accuracy fixture was recorded
 /// against, each file's size and hash. A download is these bytes or it is
@@ -345,7 +346,10 @@ final class EditorDownload {
         line = Task { [weak self] in
             await before?.value
             guard let self, !keepingPartial, let fetching, let manifest = self.manifests(fetching) else { return }
-            try? FileManager.default.removeItem(at: self.staging(manifest))
+            let staged = self.staging(manifest)
+            Log.attemptUnlessAbsent("editor: could not remove the half fetched model") {
+                try FileManager.default.removeItem(at: staged)
+            }
         }
     }
 
@@ -431,15 +435,15 @@ final class EditorDownload {
 
 /// The download's phase as the last report said it, for the failure that
 /// ends it: a swap that failed is not a failed download.
-private final class Phase: @unchecked Sendable {
-    private let lock = NSLock()
-    private var phase = DownloadProgress.Phase.waiting
-    func set(_ new: DownloadProgress.Phase) { lock.withLock { phase = new } }
-    var value: DownloadProgress.Phase { lock.withLock { phase } }
+private final class Phase: Sendable {
+    private let phase = Mutex(DownloadProgress.Phase.waiting)
+    func set(_ new: DownloadProgress.Phase) { phase.withLock { $0 = new } }
+    var value: DownloadProgress.Phase { phase.withLock { $0 } }
 }
 
 /// What the downloader's reports and events become in the editor's state,
 /// on the downloading task, handed to the main thread by `post`.
+// stoic:allow(unchecked-sendable): `model` (weak) and `manifest` are set once in `init` and only read; off the main thread the only things done through `model` are `post`, which hands the state to `onMain`, and a read of `waitingGrace`, a `let`; `retrying` and `sequence` are touched only under `lock`
 private final class Progress: @unchecked Sendable {
     private weak var model: EditorDownload?
     private let manifest: EditorManifest

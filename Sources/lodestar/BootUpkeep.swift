@@ -1,4 +1,5 @@
 import Foundation
+import LodestarCore
 
 /// The records' upkeep (the monthly archive rolled, each log's ring
 /// rotated) waits for an instance that has settled and is staying. Upkeep
@@ -13,7 +14,7 @@ enum BootUpkeep {
     static func schedule(after seconds: TimeInterval = settleSeconds,
                          isResident: @escaping () -> Bool,
                          tend: @escaping () -> Void) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+        onMain(after: .seconds(seconds)) {
             guard isResident() else { return }
             tend()
         }

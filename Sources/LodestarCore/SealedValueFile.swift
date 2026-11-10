@@ -142,7 +142,9 @@ public struct SealedValueFile: Sendable {
             }
             try SealedFile(keyring: keyring, fileSystem: fileSystem).write(plain, to: staged, context: context)
             guard case .value(let back, sealed: true) = beside.read(), back == plain else {
-                try? fileSystem.remove(staged)
+                Log.attemptUnlessAbsent("sealed file: could not remove the staged copy that failed its check") {
+                    try fileSystem.remove(staged)
+                }
                 return .failed("the sealed copy did not read back as the plaintext")
             }
             try fileSystem.rename(from: staged, to: url.path)

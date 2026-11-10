@@ -201,7 +201,7 @@ extension EditorRecord {
             tally.share(count).map { "\(Int(($0 * 100).rounded()))%" } ?? "-"
         }
         func day(_ date: Date) -> String {
-            let calendar = Calendar.current
+            let calendar = Calendar.device
             return "\(calendar.shortMonthSymbols[calendar.component(.month, from: date) - 1]) \(calendar.component(.day, from: date))"
         }
         /// Which kinds of mark an app's left marks were, so a count that

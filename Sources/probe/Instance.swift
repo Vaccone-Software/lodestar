@@ -38,7 +38,7 @@ func runCopy(_ arguments: inout [String]) {
     let maxSeconds = option("--max-seconds", in: arguments).flatMap(Double.init) ?? 60
     let me = ProcessInfo.processInfo.processIdentifier
     // A probe that a failed test leaves behind ends itself.
-    DispatchQueue.global().asyncAfter(deadline: .now() + maxSeconds) { exit(3) }
+    after(.seconds(maxSeconds), on: .global()) { exit(3) }
 
     say("BOOT \(me)")
     if let lockFile {
@@ -54,7 +54,12 @@ func runCopy(_ arguments: inout [String]) {
         let child = Process()
         child.executableURL = URL(fileURLWithPath: "/bin/sleep")
         child.arguments = ["300"]
-        try? child.run()
+        do {
+            try child.run()
+        } catch {
+            fputs("probe copy: could not start the child: \(error)\n", stderr)
+            exit(1)
+        }
         say("CHILD \(child.processIdentifier)")
     }
 
@@ -65,10 +70,14 @@ func runCopy(_ arguments: inout [String]) {
     source.setEventHandler {
         say("TERMED \(me)")
         if ignoreTerm { return }
-        DispatchQueue.global().asyncAfter(deadline: .now() + quitSeconds) {
+        after(.seconds(quitSeconds), on: .global()) {
             if let text = try? String(contentsOf: pidFile, encoding: .utf8),
                Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) == me {
-                try? FileManager.default.removeItem(at: pidFile)
+                do {
+                    try FileManager.default.removeItem(at: pidFile)
+                } catch {
+                    fputs("probe copy: could not remove its pid file: \(error)\n", stderr)
+                }
             }
             say("EXITING \(me)")
             exit(0)
@@ -86,7 +95,7 @@ func runStranger(_ arguments: inout [String]) {
         exit(2)
     }
     let maxSeconds = option("--max-seconds", in: arguments).flatMap(Double.init) ?? 60
-    DispatchQueue.global().asyncAfter(deadline: .now() + maxSeconds) { exit(3) }
+    after(.seconds(maxSeconds), on: .global()) { exit(3) }
     var sources: [DispatchSourceSignal] = []
     for (name, number) in [("TERM", SIGTERM), ("HUP", SIGHUP), ("INT", SIGINT), ("USR1", SIGUSR1), ("USR2", SIGUSR2),
                            ("QUIT", SIGQUIT), ("ALRM", SIGALRM)] {
@@ -99,7 +108,11 @@ func runStranger(_ arguments: inout [String]) {
             }() {
                 handle.seekToEndOfFile()
                 handle.write(Data("\(name)\n".utf8))
-                try? handle.close()
+                do {
+                    try handle.close()
+                } catch {
+                    fputs("probe stranger: could not close the signal log: \(error)\n", stderr)
+                }
             }
         }
         source.resume()
@@ -117,8 +130,13 @@ private func olderBuildTakeOver(pidFile: URL, selfPid: Int32, wait: Double) {
        let oldPid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
        oldPid != selfPid, kill(oldPid, 0) == 0 {
         kill(oldPid, SIGTERM)
-        let deadline = Date().addingTimeInterval(wait)
-        while kill(oldPid, 0) == 0, Date() < deadline { usleep(25_000) }
+        let deadline = ContinuousClock.now + .seconds(wait)
+        while kill(oldPid, 0) == 0, ContinuousClock.now < deadline { usleep(25_000) }
     }
-    try? "\(selfPid)".write(to: pidFile, atomically: true, encoding: .utf8)
+    do {
+        try "\(selfPid)".write(to: pidFile, atomically: true, encoding: .utf8)
+    } catch {
+        fputs("probe copy: could not write its pid file: \(error)\n", stderr)
+        exit(1)
+    }
 }

@@ -33,6 +33,7 @@ import StoicStore
 ///
 /// Every call is made on one queue (the draft's stash queue): a keystroke
 /// never reaches it.
+// stoic:allow(unchecked-sendable): every method is called on one serial queue (`stashQueue` in main.swift: the draft's write and clear, the history's reseal, the key's return and the launch recovery all run inside `stashQueue.async`), so the mutable fields are never touched from two threads
 public final class DraftStash: @unchecked Sendable {
     public static let name = "draft-in-flight"
 
@@ -87,7 +88,9 @@ public final class DraftStash: @unchecked Sendable {
     public func clear() {
         last = nil
         guard !stranded else { return }
-        try? file.fileSystem.remove(file.url.path)
+        Log.attemptUnlessAbsent("draft stash: could not remove the stash after a clean close") {
+            try file.fileSystem.remove(file.url.path)
+        }
     }
 
     /// The key the stash is sealed under may be back (the keychain unlocked,
@@ -113,7 +116,9 @@ public final class DraftStash: @unchecked Sendable {
         }
         stranded = false
         saidStranded = false
-        try? file.fileSystem.remove(file.url.path)
+        Log.attemptUnlessAbsent("draft stash: could not remove the stash after handing its words over") {
+            try file.fileSystem.remove(file.url.path)
+        }
     }
 
     public enum Recovered: Equatable {

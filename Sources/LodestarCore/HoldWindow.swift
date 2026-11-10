@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// Ninety seconds of presses, described exactly.
 ///
@@ -367,7 +369,7 @@ public enum WindowSummary {
         public var apps = 0
     }
 
-    public static func report(events: [ObservationEvent], days: Int, now: Date = Date()) -> Report? {
+    public static func report(events: [ObservationEvent], days: Int, now: Date = Moment.now.date) -> Report? {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let windows = events.filter { $0.kind == .window && $0.t >= cutoff }.compactMap { $0.window }
         guard !windows.isEmpty else { return nil }

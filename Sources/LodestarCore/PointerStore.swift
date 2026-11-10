@@ -1,5 +1,7 @@
 import Foundation
 import StoicStore
+import Stoic
+import StoicTime
 
 /// The raw record of the pointer, beneath the folded reaches: every
 /// report the device made on the way to a target, every press with what
@@ -32,6 +34,7 @@ import StoicStore
 ///
 /// Threads: `lock` guards the buffer, the drop count and the install's
 /// name (any thread appends); `queue` owns `writer` and every file.
+// stoic:allow(unchecked-sendable): `lock` (an NSLock) guards `buffer`, `droppedRecords` and `resolvedInstall` in every method that touches them; `writer` is used only inside `queue`, a serial queue (`write` is private and reached only by `queue.async`, and `migrate` and the closes run in `queue.sync`); every other stored property is a `let`
 public final class PointerStore: @unchecked Sendable {
     public static let version: UInt16 = 2
     public static let recordSize = 16
@@ -217,7 +220,7 @@ public final class PointerStore: @unchecked Sendable {
     }
 
     func header(for day: String, roster: [String]) -> DayFile.Header {
-        let start = DayFile.dayStart(of: day, calendar: calendar) ?? Date()
+        let start = DayFile.dayStart(of: day, calendar: calendar) ?? Moment.now.date
         return DayFile.Header(
             magic: Self.magic, version: Self.version, recordSize: UInt16(Self.recordSize),
             tzOffset: Int32(calendar.timeZone.secondsFromGMT(for: start)),
@@ -271,7 +274,7 @@ public final class PointerStore: @unchecked Sendable {
     public func migrateLegacy() -> RecordMigration {
         queue.sync {
             let outcome = writer.migrate(decodedCount: { Self.decode(segment: $0)?.records.count ?? -1 })
-            writer.closeDays(before: DayFile.day(of: Date(), calendar: calendar))
+            writer.closeDays(before: DayFile.day(of: Moment.now.date, calendar: calendar))
             return outcome
         }
     }

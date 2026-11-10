@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The guide's fade, generalized to every surface that answers a question
 /// the hand could recall — a bar's footer of keys, a band's verb, a
@@ -25,13 +27,13 @@ public struct SurfaceFade: Equatable {
 
     public init() {}
 
-    public mutating func stumbled(surface: String, at now: Date = Date()) {
+    public mutating func stumbled(surface: String, at now: Date = Moment.now.date) {
         stumbles[surface] = now
     }
 
     /// How long the surface's legend should wait before painting.
     public func delay(surface: String, observations: Observations,
-                      now: Date = Date()) -> TimeInterval {
+                      now: Date = Moment.now.date) -> TimeInterval {
         if let at = stumbles[surface], now.timeIntervalSince(at) < Self.stumbleHold {
             return 0
         }

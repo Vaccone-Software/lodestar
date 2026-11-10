@@ -70,7 +70,8 @@ public enum FeedbackOutcome: Equatable, Sendable {
         case .status(let code, _, _, _, _): return .unsent(.status(code))
         case .timedOut: return .unsent(.timeout)
         case .transport: return .unsent(.network)
-        case .responseTooLarge, .decoding, .rejected, .reauthenticationFailed, .redirectRefused:
+        case .responseTooLarge, .decoding, .rejected, .reauthenticationFailed, .redirectRefused,
+             .authenticationFailed:
             return .unsent(.unrecognized)
         }
     }

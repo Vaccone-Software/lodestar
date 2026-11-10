@@ -137,7 +137,7 @@ final class BringReader {
             if AX.bool(window, kAXMinimizedAttribute as String) == true { continue }
             var texts: [String] = []
             var nodes = 0
-            let deadline = Date().addingTimeInterval(windowSeconds)
+            let deadline = ContinuousClock.now + .seconds(windowSeconds)
             walk(window, into: &texts, nodes: &nodes, depth: 0, deadline: deadline)
             var lines = Bring.lines(of: texts.joined(separator: "\n"))
             if lines.count > tailLines { lines = Array(lines.suffix(tailLines)) }
@@ -156,8 +156,8 @@ final class BringReader {
     }
 
     private static func walk(_ element: AXUIElement, into texts: inout [String], nodes: inout Int,
-                             depth: Int, deadline: Date) {
-        guard nodes < nodeBudget, depth < 60, Date() < deadline else { return }
+                             depth: Int, deadline: ContinuousClock.Instant) {
+        guard nodes < nodeBudget, depth < 60, ContinuousClock.now < deadline else { return }
         nodes += 1
         let role = AX.string(element, kAXRoleAttribute as String) ?? ""
         if skipRoles.contains(role) { return }

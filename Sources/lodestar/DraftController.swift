@@ -2151,9 +2151,9 @@ final class DraftController {
         // is the one a detached task has, named: an ordinary task would take
         // the main thread's (measured: 25, user initiated, against 21).
         Task(priority: .medium) { [weak self] in
-            let began = Date()
+            let began = ContinuousClock.now
             let again = try? await job.ear.transcribe(job.samples, context: job.context)
-            let seconds = Date().timeIntervalSince(began)
+            let seconds = began.secondsElapsed
             await MainActor.run {
                 self?.earHeard(again, apple: job.apple, landed: job.landed, session: job.session,
                                generation: job.generation, seconds: seconds)
@@ -2344,10 +2344,10 @@ final class DraftController {
     @concurrent
     private static func ask(_ intend: @escaping (String) async -> String?, core: String, names: [String],
                             took: @escaping @Sendable (Double) async -> Void) async -> IntentAnswer {
-        let began = Date()
+        let began = ContinuousClock.now
         let answer = await intend(core)
         let judged = IntentPass.judge(said: core, answer: answer ?? "", names: names)
-        let seconds = Date().timeIntervalSince(began)
+        let seconds = began.secondsElapsed
         if answer != nil { await took(seconds) }
         return IntentAnswer(answer: answer, text: judged.text, verdict: judged.verdict, seconds: seconds)
     }
@@ -2765,7 +2765,7 @@ final class DraftController {
         down?.flags = flags
         up?.flags = flags
         // A beat for the pasteboard to settle: some apps read it lazily.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+        onMain(after: .milliseconds(20)) {
             SystemEvents.post(down, tap: .cgSessionEventTap)
             SystemEvents.post(up, tap: .cgSessionEventTap)
         }

@@ -70,7 +70,7 @@ private func runHealthQuery(_ grain: HealthQuery.Grain, _ flags: [String]) -> Ne
         """, 64)
     }
     guard let vault = try? Vault.system() else { fail("✕ the keychain is not available to this process", 69) }
-    let calendar = Calendar.current
+    let calendar = Calendar.device
     let ring = vault.ring(.health)
     let record = HealthRecord.read(in: Paths.data, ring: ring)
     if case .paused(let why) = ring.availability {

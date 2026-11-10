@@ -71,9 +71,9 @@ func findWindow(id: CGWindowID) -> (AXApplication, AXWindow)? {
 /// Poll until the window reports (roughly) the expected position — some apps
 /// apply AX position changes asynchronously. Returns the last position seen.
 func settlePosition(_ window: AXWindow, expecting point: CGPoint, timeout: TimeInterval = 1.5) -> CGPoint? {
-    let deadline = Date() + timeout
+    let deadline = ContinuousClock.now + .seconds(timeout)
     var last: CGPoint?
-    while Date() < deadline {
+    while ContinuousClock.now < deadline {
         if let position = window.position {
             last = position
             if near(position, point) { return position }
@@ -283,8 +283,8 @@ func runWatch(_ args: inout [String]) {
         return out
     }
 
-    let start = Date()
-    func stamp() -> String { String(format: "[%6.1fs]", Date().timeIntervalSince(start)) }
+    let start = ContinuousClock.now
+    func stamp() -> String { String(format: "[%6.1fs]", start.secondsElapsed) }
 
     var present = snapshot()
     if findApps(matching: query).isEmpty {
@@ -299,8 +299,8 @@ func runWatch(_ args: inout [String]) {
     var revealed = 0
     var churnedWindows = 0
 
-    let deadline = start + seconds
-    while Date() < deadline {
+    let deadline = start + .seconds(seconds)
+    while ContinuousClock.now < deadline {
         usleep(300_000)
         let now = snapshot()
         for (id, title) in now where present[id] == nil {
@@ -499,19 +499,19 @@ func runHarvest(_ args: inout [String]) {
     var probeElement = window
     if let children = AX.elements(window, kAXChildrenAttribute as String),
        let first = children.first { probeElement = first }
-    var t0 = Date()
+    var t0 = ContinuousClock.now
     for _ in 0..<200 { _ = AX.string(probeElement, kAXRoleAttribute as String) }
-    let singleMs = Date().timeIntervalSince(t0) * 1000 / 200
+    let singleMs = t0.secondsElapsed * 1000 / 200
     let batchAttributes = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
                            kAXChildrenAttribute] as CFArray
-    t0 = Date()
+    t0 = ContinuousClock.now
     for _ in 0..<200 {
         var values: CFArray?
         _ = AXUIElementCopyMultipleAttributeValues(probeElement, batchAttributes,
                                                    AXCopyMultipleAttributeOptions(rawValue: 0),
                                                    &values)
     }
-    let batchMs = Date().timeIntervalSince(t0) * 1000 / 200
+    let batchMs = t0.secondsElapsed * 1000 / 200
     print(String(format: "AX cost: %.3fms per single read · %.3fms per 4-attribute batch",
                  singleMs, batchMs))
 
@@ -523,11 +523,11 @@ func runHarvest(_ args: inout [String]) {
     var maxDepthSeen = 0
     var deadlineHit = false
     var budgetHit = false
-    let deadline = Date().addingTimeInterval(6.0)
-    let began = Date()
+    let deadline = ContinuousClock.now + .seconds(6.0)
+    let began = ContinuousClock.now
 
     func walk(_ element: AXUIElement, depth: Int) {
-        if Date() >= deadline { deadlineHit = true; return }
+        if ContinuousClock.now >= deadline { deadlineHit = true; return }
         if visited >= 60_000 { budgetHit = true; return }
         visited += 1
         maxDepthSeen = max(maxDepthSeen, depth)
@@ -595,7 +595,7 @@ func runHarvest(_ args: inout [String]) {
     }
 
     walk(window, depth: 0)
-    let elapsed = Date().timeIntervalSince(began)
+    let elapsed = began.secondsElapsed
     print(String(format: "visited %d nodes in %.2fs (%.0f nodes/s) · pruned %d subtrees",
                  visited, elapsed, Double(visited) / max(elapsed, 0.001), pruned))
     print("text leaves \(leaves) · \(leafChars) chars · max depth \(maxDepthSeen)"
@@ -696,12 +696,12 @@ func runSelectPipe(_ args: inout [String]) {
     struct Leaf { let element: AXUIElement; let frame: CGRect; let text: String; let settable: Bool }
     var found: [Leaf] = []
     var visited = 0
-    let deadline = Date().addingTimeInterval(4)
+    let deadline = ContinuousClock.now + .seconds(4)
     let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
                  kAXChildrenAttribute] as CFArray
 
     func walk(_ element: AXUIElement, depth: Int) {
-        guard depth < 50, visited < 40_000, Date() < deadline else { return }
+        guard depth < 50, visited < 40_000, ContinuousClock.now < deadline else { return }
         visited += 1
         var values: CFArray?
         guard AXUIElementCopyMultipleAttributeValues(
@@ -731,7 +731,7 @@ func runSelectPipe(_ args: inout [String]) {
               let children = array[3] as? [AXUIElement] else { return }
         for child in children { walk(child, depth: depth + 1) }
     }
-    let began = Date()
+    let began = ContinuousClock.now
     walk(window, depth: 0)
     var leaves = found
     leaves.sort { a, b in
@@ -744,7 +744,7 @@ func runSelectPipe(_ args: inout [String]) {
         SelectRuns.Leaf(id: $0.offset, text: $0.element.text, frame: $0.element.frame)
     })
     let handles = Dictionary(uniqueKeysWithValues: readOnly.map { ($0.offset, $0.element.element) })
-    let harvestMs = Int(Date().timeIntervalSince(began) * 1000)
+    let harvestMs = Int(began.secondsElapsed * 1000)
     print("\(running.localizedName ?? appName): \(leaves.count) leaves → \(runs.count) runs"
           + " + \(leaves.count - readOnly.count) editable · \(visited) nodes · \(harvestMs)ms")
 
@@ -814,16 +814,16 @@ func runOCRLive(_ args: inout [String]) {
     }) else { print("app not running"); return }
     let cg = CGWindows.list(onScreenOnly: true).first { $0.pid == running.processIdentifier && $0.layer == 0 }
     guard let cg else { print("no on-screen window"); return }
-    let began = Date()
+    let began = ContinuousClock.now
     guard let image = WindowCapture.image(.null, .optionIncludingWindow, cg.id,
                                               [.boundsIgnoreFraming, .bestResolution]) else {
         print("capture failed")
         return
     }
-    let captureMs = Int(Date().timeIntervalSince(began) * 1000)
-    let ocrStart = Date()
+    let captureMs = Int(began.secondsElapsed * 1000)
+    let ocrStart = ContinuousClock.now
     let lines = OCRSense.recognize(image: image, windowFrame: cg.bounds)
-    let ocrMs = Int(Date().timeIntervalSince(ocrStart) * 1000)
+    let ocrMs = Int(ocrStart.secondsElapsed * 1000)
     print("\(running.localizedName ?? "?"): \(lines.count) lines · capture \(captureMs)ms · ocr \(ocrMs)ms · image \(image.width)×\(image.height)")
     for line in lines.prefix(12) {
         print("  [\(Int(line.frame.minX)),\(Int(line.frame.minY))] '\(line.text.prefix(60))'")
@@ -900,9 +900,9 @@ func runSelectSense(_ args: inout [String]) {
 
     var worlds: [World] = []
     for level in [OCRSense.Level.fast, .accurate] {
-        let began = Date()
+        let began = ContinuousClock.now
         let lines = OCRSense.recognize(image: image, windowFrame: cg.bounds, level: level)
-        let ms = Int(Date().timeIntervalSince(began) * 1000)
+        let ms = Int(began.secondsElapsed * 1000)
         let world = build(lines, name: level == .fast ? "fast" : "accurate")
         worlds.append(world)
         print("\(world.name): \(lines.count) lines → \(world.units.count) units · \(ms)ms")
@@ -1059,7 +1059,7 @@ func runPressables(_ args: inout [String]) {
     var pruned = 0
     var actionAsks = 0
     var suppressed = 0
-    let deadline = Date().addingTimeInterval(4)
+    let deadline = ContinuousClock.now + .seconds(4)
     let batch = [kAXRoleAttribute, kAXPositionAttribute, kAXSizeAttribute,
                  kAXChildrenAttribute] as CFArray
 
@@ -1073,7 +1073,7 @@ func runPressables(_ args: inout [String]) {
 
     @discardableResult
     func walk(_ element: AXUIElement, depth: Int) -> Bool {
-        guard depth < 28, visited < 2800, Date() < deadline else { return false }
+        guard depth < 28, visited < 2800, ContinuousClock.now < deadline else { return false }
         visited += 1
         var values: CFArray?
         guard AXUIElementCopyMultipleAttributeValues(
@@ -1125,9 +1125,9 @@ func runPressables(_ args: inout [String]) {
         return yielded || found.count > mark
     }
 
-    let began = Date()
+    let began = ContinuousClock.now
     walk(window, depth: 0)
-    let ms = Int(Date().timeIntervalSince(began) * 1000)
+    let ms = Int(began.secondsElapsed * 1000)
     let byAction = found.filter(\.viaAction).count
     let alphabet = "asdfghjklqwertyuiopzxcvbnm"
     // What the door cannot reach by typing: found by action alone, or an
@@ -1167,10 +1167,10 @@ func runPressables(_ args: inout [String]) {
         let display = Displays.display(containing: windowFrame)?.bounds ?? windowFrame
         if let image = WindowCapture.image(display, .optionOnScreenOnly,
                                                kCGNullWindowID, [.bestResolution]) {
-            let began = Date()
+            let began = ContinuousClock.now
             let lines = OCRSense.recognize(image: image, windowFrame: display)
             let words = lines.map(\.frame)
-            let ocrMs = Int(Date().timeIntervalSince(began) * 1000)
+            let ocrMs = Int(began.secondsElapsed * 1000)
             let wordless = found.filter {
                 !$0.viaAction && !textRoles.contains($0.role)
                     && !HintLabels.paintsWord(target: $0.frame, words: words)

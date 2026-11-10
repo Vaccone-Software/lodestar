@@ -160,7 +160,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// See render(): the doctor's findings and the machine probes, memoized
     /// for one second so per-keystroke renders stop re-reading the disk.
     private var doctorCache: (machine: SettingsModel.MachineState,
-                              problems: [String], at: Date)?
+                              problems: [String], at: ContinuousClock.Instant)?
     private weak var paneScroll: NSScrollView?
     /// The wrapping sentences of the page being built, each told the room its
     /// track gives it once the page is laid out: no width is computed for them.
@@ -988,10 +988,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         // memo keeps them fresh at human speed and off the key path — a
         // commit reloads the config, which pushes fresh state through the
         // next render anyway.
-        let now = Date()
+        let now = ContinuousClock.now
         var machine: SettingsModel.MachineState
         let findings: [String]
-        if let cached = doctorCache, now.timeIntervalSince(cached.at) < 1 {
+        if let cached = doctorCache, cached.at.duration(to: now) < .seconds(1) {
             (machine, findings) = (cached.machine, cached.problems)
         } else {
             machine = machineState()

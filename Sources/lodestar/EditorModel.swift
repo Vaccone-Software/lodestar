@@ -5,6 +5,7 @@ import Stoic
 import Synchronization
 #if canImport(FoundationModels)
 import FoundationModels
+import StoicTime
 #endif
 
 /// What the editor asks a language model: the sentence, corrected. The
@@ -308,7 +309,7 @@ actor EditorModel: EditorProofreader {
         let id: Int
         let engine: EditorEngine
         var wanted = true
-        let started = Date()
+        let started = ContinuousClock.now
         let task: Task<(any EditorBackend)?, Never>
     }
     private var loading: Load?
@@ -347,7 +348,7 @@ actor EditorModel: EditorProofreader {
          loader: @escaping Loader = EditorModel.load,
          // The service clears MLX's cache itself when it lets a model go.
          clearCache: @escaping @Sendable () -> Void = {},
-         holdClock: @escaping @Sendable () -> Date = { Date() },
+         holdClock: @escaping @Sendable () -> Date = { Moment.now.date },
          memoryLevel: @escaping @Sendable () -> MemoryLevel = { .current }) {
         self.engine = engine
         self.holdClock = holdClock
@@ -382,8 +383,8 @@ actor EditorModel: EditorProofreader {
 
     func correct(_ sentence: String) async -> String? {
         scheduleRelease()
-        let started = Date()
-        defer { Log.info("editor", ["checked": sentence.count, "ms": Int(Date().timeIntervalSince(started) * 1000),
+        let started = ContinuousClock.now
+        defer { Log.info("editor", ["checked": sentence.count, "ms": Int(started.secondsElapsed * 1000),
                                     "engine": engine.rawValue]) }
         guard let backend = await loaded() else { return nil }
         let instructions = self.instructions
@@ -411,22 +412,22 @@ actor EditorModel: EditorProofreader {
               backendEngine == .standard || backendEngine == .full else { return nil }
         scheduleRelease()
         if !warmed.contains(prompt) {
-            let started = Date()
+            let started = ContinuousClock.now
             let read = await calls.ask(deadline: Self.warmDeadline, wait: Self.warmWait) {
                 (try? await backend.warm(prompt)).map { true }
             }
             guard read.value != nil else { return nil }
             warmed.insert(prompt)
-            Log.info("intent", ["warmed": Int(Date().timeIntervalSince(started) * 1000), "engine": engine.rawValue])
+            Log.info("intent", ["warmed": Int(started.secondsElapsed * 1000), "engine": engine.rawValue])
             // Released or switched while it read: not this model's answer.
             guard self.backend != nil, backendEngine == .standard || backendEngine == .full else { return nil }
         }
-        let started = Date()
+        let started = ContinuousClock.now
         let answer = await calls.ask(deadline: Self.rewriteDeadline, wait: Self.rewriteWait) {
             try? await backend.rewrite(text, prompt: prompt)
         }.value
         Log.info("intent", ["asked": text.count, "answered": answer != nil,
-                            "ms": Int(Date().timeIntervalSince(started) * 1000), "engine": engine.rawValue])
+                            "ms": Int(started.secondsElapsed * 1000), "engine": engine.rawValue])
         return answer
     }
 
@@ -491,7 +492,7 @@ actor EditorModel: EditorProofreader {
         if load != nil { loading = nil }
         let engine = load?.engine ?? self.engine
         let wanted = load.map { $0.wanted && $0.engine == self.engine } ?? false
-        let ms = Int(Date().timeIntervalSince(load?.started ?? Date()) * 1000)
+        let ms = load?.started.millisecondsElapsed ?? 0
         switch result {
         case .success(let loaded):
             guard wanted else {
@@ -695,11 +696,13 @@ enum EditorModels {
 
     /// Gigabytes of weights are not worth a backup: they download again.
     static func excludeFromBackup(_ url: URL) {
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        Log.attempt("editor: could not make the models folder") {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         var target = url
-        try? target.setResourceValues(values)
+        Log.attempt("editor: could not exclude the models folder from backup") { try target.setResourceValues(values) }
     }
 
     /// One model on disk at a time: when a model is whole, or the hand
@@ -717,7 +720,9 @@ enum EditorModels {
             let partial = root.appendingPathComponent(".\(manifest.folder).partial", isDirectory: true)
             for url in [folder, partial] where FileManager.default.fileExists(atPath: url.path) {
                 let gb = Double(size(of: url)) / 1e9
-                try? FileManager.default.removeItem(at: url)
+                Log.attemptUnlessAbsent("editor: could not remove a model's files", ["name": url.lastPathComponent]) {
+                    try FileManager.default.removeItem(at: url)
+                }
                 if url == folder { removed.append((engine, gb)) }
                 Log.info("editor", ["removed": url.lastPathComponent])
             }
@@ -770,18 +775,18 @@ enum EditorCheck {
             return 1
         }
         let model = EditorModel(engine: engine)
-        let started = Date()
+        let started = ContinuousClock.now
         await model.prepare()
-        let loaded = Date()
+        let loaded = ContinuousClock.now
         let answer = await model.correct(sentence)
-        let answered = Date()
+        let answered = ContinuousClock.now
         _ = await model.correct("We need to recieve the files.")
-        let again = Date()
+        let again = ContinuousClock.now
         // Where it ran: the models service, and not this process.
         let service = engine == .minimal ? nil : try? await ModelsClient.shared.stats()
         await model.release(reason: "check done")
-        print(String(format: "load: %.1f s · first answer: %.0f ms · next: %.0f ms", loaded.timeIntervalSince(started),
-                     answered.timeIntervalSince(loaded) * 1000, again.timeIntervalSince(answered) * 1000))
+        print(String(format: "load: %.1f s · first answer: %.0f ms · next: %.0f ms", started.duration(to: loaded).inSeconds,
+                     loaded.duration(to: answered).inSeconds * 1000, answered.duration(to: again).inSeconds * 1000))
         if let service {
             print("answered by: the models service, pid \(service.pid), \(service.footprintMB) MB, "
                   + "MLX \(service.mlxActiveMB.map(String.init) ?? "none") MB active; "

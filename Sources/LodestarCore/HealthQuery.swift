@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The health record as rows for analysis (`lodestar health`): periods
 /// described with the same read-time views the printout uses, and the
@@ -388,7 +390,7 @@ public enum HealthQuery {
     /// The periods of a grain that hold any of the record, each cut where
     /// the measurement changed.
     public static func periods(_ grain: Grain, events: [ObservationEvent], timeline: HealthMeasurement.Timeline,
-                               days: Days, calendar: Calendar, now: Date = Date()) -> [Period] {
+                               days: Days, calendar: Calendar, now: Date = Moment.now.date) -> [Period] {
         let blind = events.filter { $0.kind == .blind }
         // A day is in the record if anything happened in it, or if the
         // instrument said it could not see it: a day asleep from end to end

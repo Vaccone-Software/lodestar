@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import Synchronization
 
 /// The hand's acts, posted where nothing answers them, timed through the
 /// real taps of whatever Lodestar is running.
@@ -24,11 +25,13 @@ func runSmoke(_ args: inout [String]) {
         i += 1
     }
 
-    final class Meter: @unchecked Sendable {
-        let lock = NSLock()
-        var posted: [Int64: (UInt64, String)] = [:]
-        var seen: [String: [Double]] = [:]
-        var sent: [String: Int] = [:]
+    final class Meter: Sendable {
+        struct Counts {
+            var posted: [Int64: (UInt64, String)] = [:]
+            var seen: [String: [Double]] = [:]
+            var sent: [String: Int] = [:]
+        }
+        let counts = Mutex(Counts())
     }
     let meter = Meter()
     let tag: Int64 = 0x5A0_000
@@ -39,11 +42,11 @@ func runSmoke(_ args: inout [String]) {
         let meter = Unmanaged<Meter>.fromOpaque(info!).takeUnretainedValue()
         let mark = event.getIntegerValueField(.eventSourceUserData)
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        meter.lock.lock()
-        if let (at, kind) = meter.posted.removeValue(forKey: mark) {
-            meter.seen[kind, default: []].append(Double(now - at) / 1e6)
+        meter.counts.withLock {
+            if let (at, kind) = $0.posted.removeValue(forKey: mark) {
+                $0.seen[kind, default: []].append(Double(now - at) / 1e6)
+            }
         }
-        meter.lock.unlock()
         return Unmanaged.passUnretained(event)
     }, userInfo: Unmanaged.passUnretained(meter).toOpaque()) else {
         print("smoke: ✕ could not install a listening tap (is this terminal trusted for accessibility?)")
@@ -57,16 +60,16 @@ func runSmoke(_ args: inout [String]) {
         serial += 1
         event.setIntegerValueField(.eventSourceUserData, value: tag + serial)
         event.flags = []
-        meter.lock.withLock {
-            meter.posted[tag + serial] = (clock_gettime_nsec_np(CLOCK_UPTIME_RAW), kind)
-            meter.sent[kind, default: 0] += 1
+        meter.counts.withLock {
+            $0.posted[tag + serial] = (clock_gettime_nsec_np(CLOCK_UPTIME_RAW), kind)
+            $0.sent[kind, default: 0] += 1
         }
         event.post(tap: .cghidEventTap)
     }
     let f20: CGKeyCode = 0x5A
-    let end = Date().addingTimeInterval(seconds)
+    let end = ContinuousClock.now + .seconds(seconds)
     var round = 0
-    while Date() < end {
+    while ContinuousClock.now < end {
         let here = CGEvent(source: nil)?.location ?? .zero
         switch round % 4 {
         case 0:
@@ -86,16 +89,16 @@ func runSmoke(_ args: inout [String]) {
             }
         }
         round += 1
-        RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
     }
-    RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
 
-    let (seen, sent, lost) = meter.lock.withLock { (meter.seen, meter.sent, meter.posted.count) }
+    let (seen, sent, lost) = meter.counts.withLock { ($0.seen, $0.sent, $0.posted.count) }
     if lost > 0 {
         // When the lost ones were posted, from the start: a stretch says a
         // tap was down for it, a scatter says events are being dropped.
-        let first = meter.lock.withLock { meter.posted.values.map(\.0).min() ?? 0 }
-        let offsets = meter.lock.withLock { meter.posted.values.map { Double($0.0 - first) / 1e9 } }.sorted()
+        let first = meter.counts.withLock { $0.posted.values.map(\.0).min() ?? 0 }
+        let offsets = meter.counts.withLock { $0.posted.values.map { Double($0.0 - first) / 1e9 } }.sorted()
         print(String(format: "smoke: lost events posted between +%.2fs and +%.2fs of the first lost",
                      offsets.first ?? 0, offsets.last ?? 0))
     }

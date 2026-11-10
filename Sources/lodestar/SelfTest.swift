@@ -3,6 +3,9 @@ import CoreGraphics
 import Foundation
 import LodestarCore
 import StoicSealed
+import Stoic
+import StoicTime
+import Synchronization
 
 /// `lodestar --self-test`: the built binary proves, on real threads, that
 /// the part which once froze cannot. A release script runs it on the
@@ -17,15 +20,21 @@ enum SelfTest {
     static func run(seconds: TimeInterval = 2) -> Bool {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-self-test-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        Log.attempt("self-test: could not make the scratch folder") {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer {
+            Log.attemptUnlessAbsent("self-test: could not remove the scratch folder") {
+                try FileManager.default.removeItem(at: directory)
+            }
+        }
         // A scratch directory gets a scratch key: never the person's keychain.
         let monitor = HealthMonitor(directory: directory,
                                     vault: Vault(custody: InMemoryKeyCustody(), directory: directory))
         monitor.listensToTheMouse = false
         monitor.setEnabled(true)
 
-        let deadline = Date().addingTimeInterval(seconds)
+        let deadline = ContinuousClock.now + .seconds(seconds)
         let group = DispatchGroup()
         var mouseCalls = 0
         var keyCalls = 0
@@ -36,8 +45,8 @@ enum SelfTest {
             let probe: CGFloat = 100
             let point = CGPoint(x: probe, y: probe)
             var i = 0
-            while Date() < deadline {
-                let now = Date()
+            while ContinuousClock.now < deadline {
+                let now = Moment.now.date
                 let kind: CGEventType = [.mouseMoved, .leftMouseDown, .leftMouseUp, .scrollWheel][i % 4]
                 if let event = Self.event(kind, at: point) {
                     monitor.sawMouse(type: kind, event: event)
@@ -53,8 +62,8 @@ enum SelfTest {
         group.enter()
         Thread {
             var i = 0
-            while Date() < deadline {
-                let now = Date()
+            while ContinuousClock.now < deadline {
+                let now = Moment.now.date
                 monitor.noteKey(backspace: i % 7 == 0, at: now)
                 monitor.notePress(KeyPress(down: now, hold: 0.09, hand: i % 2 == 0 ? .left : .right,
                                            kind: .letter, finger: .index))
@@ -71,7 +80,7 @@ enum SelfTest {
         let watchdog = MainThreadWatchdog(interval: 0.1, ceiling: 1, launchCeiling: 1)
         watchdog.onStall = { _ in stalled = true }
         watchdog.start()
-        while Date() < deadline {
+        while ContinuousClock.now < deadline {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
             pings += 1
         }
@@ -107,7 +116,7 @@ enum SelfTest {
         }
         // The process's one peer of the service (design/25, rule 2).
         let client = ModelsClient.shared
-        let started = Date()
+        let started = ContinuousClock.now
         let answer = Box<Result<ModelsCheck, Error>>()
         // An ordinary Task, so the service's events go where the process's
         // ambient context sends them; the loop below spins the main run loop,
@@ -116,11 +125,11 @@ enum SelfTest {
         let task = Task(priority: .medium) {
             do { answer.set(.success(try await client.check())) } catch { answer.set(.failure(error)) }
         }
-        while answer.value == nil, Date().timeIntervalSince(started) < timeout {
+        while answer.value == nil, started.secondsElapsed < timeout {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
         task.cancel()
-        let ms = Int(Date().timeIntervalSince(started) * 1000)
+        let ms = Int(started.secondsElapsed * 1000)
         switch answer.value {
         case .success(let check) where check.pid != getpid():
             print("self-test ok: the models service (pid \(check.pid)) answered in \(ms) ms: \(check.answer)")
@@ -135,11 +144,10 @@ enum SelfTest {
         return false
     }
 
-    private final class Box<Value>: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stored: Value?
-        func set(_ value: Value) { lock.withLock { stored = value } }
-        var value: Value? { lock.withLock { stored } }
+    private final class Box<Value: Sendable>: Sendable {
+        private let stored = Mutex<Value?>(nil)
+        func set(_ value: Value) { stored.withLock { $0 = value } }
+        var value: Value? { stored.withLock { $0 } }
     }
 
     /// The clipboard reader the bundle carries, launched by launchd by its
@@ -165,15 +173,15 @@ enum SelfTest {
         board.setString(text, forType: .string)
         let reader = XPCPasteboardReader(boardName: board.name.rawValue)
         var answer: PasteboardSnapshot??
-        let started = Date()
+        let started = ContinuousClock.now
         reader.read(sourceBundleID: nil, excludedApps: []) { answer = .some($0) }
-        while answer == nil, Date().timeIntervalSince(started) < timeout + 1 {
+        while answer == nil, started.secondsElapsed < timeout + 1 {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
         reader.stop()
         let read = answer.flatMap { $0 }?.items.first?.plain
         let ok = read == text
-        let ms = Int(Date().timeIntervalSince(started) * 1000)
+        let ms = Int(started.secondsElapsed * 1000)
         print(ok ? "self-test ok: the clipboard reader service answered in \(ms) ms"
                  : "self-test FAILED: the clipboard reader service read \(read.map { "\"\($0)\"" } ?? "nothing") in \(ms) ms")
         return ok

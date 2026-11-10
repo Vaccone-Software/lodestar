@@ -54,7 +54,9 @@ struct HandoverFolder {
         let fm = FileManager.default
         if owned() == true {
             for name in (try? fm.contentsOfDirectory(atPath: url.path)) ?? [] {
-                try? fm.removeItem(at: url.appendingPathComponent(name))
+                Log.attemptUnlessAbsent("clipboard: could not remove a handed over file") {
+                    try fm.removeItem(at: url.appendingPathComponent(name))
+                }
             }
             rmdir(url.path)
         }
@@ -63,7 +65,7 @@ struct HandoverFolder {
             let file = parent.appendingPathComponent(name)
             var info = stat()
             if lstat(file.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == getuid() {
-                try? fm.removeItem(at: file)
+                Log.attemptUnlessAbsent("clipboard: could not remove a stray handed over image") { try fm.removeItem(at: file) }
             }
         }
     }

@@ -48,11 +48,11 @@ final class Prewarmer {
     private var model = NextApp()
     private var strategy: NextApp.Strategy = .blend
     private var tuning = NextApp.Tuning()
-    private var pending: DispatchWorkItem?
+    private var pending: Task<Void, Never>?
     /// Stamped at init so the first refresh is the boot's, after its
     /// delay — not the first focus change during launch.
-    private var seededAt = Date()
-    private var tunedAt = Date.distantPast
+    private var seededAt = ContinuousClock.now
+    private var tunedAt: ContinuousClock.Instant?
     private var refreshing = false
     private let queue = DispatchQueue(label: "lodestar.prewarm", qos: .utility)
 
@@ -64,15 +64,13 @@ final class Prewarmer {
     func focused(app: String) {
         model.observe(app)
         pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.warmPredicted() }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settle, execute: work)
-        if Date().timeIntervalSince(seededAt) >= Self.seedInterval { refresh() }
+        pending = onMain(after: .seconds(Self.settle)) { [weak self] in self?.warmPredicted() }
+        if seededAt.secondsElapsed >= Self.seedInterval { refresh() }
     }
 
     /// Seed the model from the ring after boot, then keep it tuned.
     func boot() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.bootDelay) { [weak self] in
+        onMain(after: .seconds(Self.bootDelay)) { [weak self] in
             self?.refresh()
         }
     }
@@ -86,10 +84,10 @@ final class Prewarmer {
         let pids = predicted.compactMap { running[$0] }
         guard !pids.isEmpty else { return }
         queue.async { [weak self] in
-            let began = Date()
+            let began = ContinuousClock.now
             var warmed = 0
             for pid in pids where AXWarmer.warm(pid) { warmed += 1 }
-            let elapsed = Date().timeIntervalSince(began)
+            let elapsed = began.secondsElapsed
             guard warmed > 0, elapsed >= Self.slowBatch else { return }
             DispatchQueue.main.async {
                 self?.observations?.latency(surface: "prewarm", seconds: elapsed)
@@ -103,8 +101,8 @@ final class Prewarmer {
     func refresh() {
         guard !refreshing, let log = observations?.log else { return }
         refreshing = true
-        seededAt = Date()
-        let retune = Date().timeIntervalSince(tunedAt) >= Self.tuneInterval
+        seededAt = ContinuousClock.now
+        let retune = tunedAt.map { $0.secondsElapsed >= Self.tuneInterval } ?? true
         let current = tuning
         queue.async { [weak self] in
             // The focus stream, not the ring: a refresh needs a time and an
@@ -121,7 +119,7 @@ final class Prewarmer {
                 self.tuning = tuning
                 self.refreshing = false
                 guard retune else { return }
-                self.tunedAt = Date()
+                self.tunedAt = ContinuousClock.now
                 self.strategy = NextApp.best(scores)
                 if let chosen = scores.first(where: { $0.strategy == self.strategy }) {
                     Log.info("prewarm", [

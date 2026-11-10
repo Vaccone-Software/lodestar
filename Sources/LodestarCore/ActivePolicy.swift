@@ -1,4 +1,6 @@
 import AppKit
+import Stoic
+import StoicTime
 import Synchronization
 
 /// Where is "here"? The single answer every surface consults — layouts
@@ -15,6 +17,7 @@ public enum ActivePolicy {
     private struct State {
         var mode: Mode = .pointer
         var cachedPresentation: (frame: NSRect, at: Date)?
+        var frameOverride: NSRect?
     }
     private static let state = Mutex(State())
 
@@ -49,7 +52,7 @@ public enum ActivePolicy {
     /// what a hand can notice, far below what the queries were costing.
     public static var presentationFrame: NSRect {
         if let frameOverride { return frameOverride }
-        let now = Date()
+        let now = Moment.now.date
         if let cached = state.withLock({ $0.cachedPresentation }), now.timeIntervalSince(cached.at) < 0.25 {
             return cached.frame
         }
@@ -64,8 +67,8 @@ public enum ActivePolicy {
     /// all read off the display, and a test that ran on the developer's
     /// 1920-wide screen failed on a CI runner's narrower virtual one for
     /// three days, on the oldest clip's card being off the strip.
-    ///
-    /// Unlocked on purpose: only tests set it, on main, before the panel that
-    /// reads it exists.
-    nonisolated(unsafe) public static var frameOverride: NSRect?
+    public static var frameOverride: NSRect? {
+        get { state.withLock { $0.frameOverride } }
+        set { state.withLock { $0.frameOverride = newValue } }
+    }
 }

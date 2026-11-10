@@ -1,5 +1,7 @@
 import AppKit
 import LodestarCore
+import Stoic
+import StoicTime
 
 extension Notification.Name {
     /// The hand pressed a key Lodestar's tap saw. Posted only while a surface
@@ -13,7 +15,7 @@ extension Notification.Name {
 enum Attention {
     private(set) static var lastKey = Date.distantPast
 
-    static func key(at now: Date = Date()) {
+    static func key(at now: Date = Moment.now.date) {
         lastKey = now
         if Recess.recededCount > 0 { NotificationCenter.default.post(name: .handKey, object: nil) }
     }

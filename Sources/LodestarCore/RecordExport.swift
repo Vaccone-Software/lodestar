@@ -63,7 +63,9 @@ public enum RecordExport {
         func put(_ bytes: [UInt8], _ relative: String) {
             let target = destination.appendingPathComponent(relative)
             let folder = target.deletingLastPathComponent()
-            try? fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            Log.attempt("export: could not make a folder in the destination") {
+                try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            }
             if fm.createFile(atPath: target.path, contents: Data(bytes), attributes: [.posixPermissions: 0o600]) {
                 report.written.append((relative, bytes.count))
             } else {

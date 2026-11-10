@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// What a bout of work does to the hands as it runs on.
 ///
@@ -128,7 +130,7 @@ public enum Vigilance {
     }
 
     public static func report(events: [ObservationEvent], days: Int,
-                              now: Date = Date()) -> Report? {
+                              now: Date = Moment.now.date) -> Report? {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let pulses = events.filter { $0.kind == .pulse && $0.t >= cutoff && $0.boutIndex != nil }
             .sorted { $0.t < $1.t }

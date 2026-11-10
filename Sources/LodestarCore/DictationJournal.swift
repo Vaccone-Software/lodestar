@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// What dictation heard and what it did with it, kept for a few days to
 /// make it better: the one record in Lodestar that holds words, so only a
@@ -12,6 +14,7 @@ import Foundation
 /// difference between the last of the machine's text and that. Owner-only,
 /// out of backups, and every file older than the days kept is deleted, at
 /// launch and with each write.
+// stoic:allow(unchecked-sendable): `current` and `events` (dictionaries of Any, which Mutex cannot hand across threads as Sendable) are read and written only between `lock.lock()` and `lock.unlock()` in `begin`, `finish` and `add`, and `folder` and `days` are `let`
 public final class DictationJournal: @unchecked Sendable {
     public let folder: URL
     public let days: Int
@@ -34,7 +37,7 @@ public final class DictationJournal: @unchecked Sendable {
     public init(folder: URL = Paths.data.appendingPathComponent("dictation-journal", isDirectory: true), days: Int) {
         self.folder = folder
         self.days = days
-        prune(now: Date())
+        prune(now: Moment.now.date)
     }
 
     /// A dictation begins, going to `app`.
@@ -95,7 +98,9 @@ public final class DictationJournal: @unchecked Sendable {
     private func write(_ entry: [String: Any], now: Date) {
         guard let data = try? JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]) else { return }
         let fm = FileManager.default
-        try? fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        Log.attempt("dictation journal: could not make its folder") {
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
         Paths.excludeFromBackup(folder)
         let file = folder.appendingPathComponent(Self.day(now) + ".jsonl")
         let line = data + Data("\n".utf8)
@@ -117,7 +122,9 @@ public final class DictationJournal: @unchecked Sendable {
         guard let names = try? fm.contentsOfDirectory(atPath: folder.path) else { return }
         let oldest = Self.day(now.addingTimeInterval(-Double(max(0, days)) * 86_400))
         for name in names where name.hasSuffix(".jsonl") && String(name.dropLast(6)) < oldest {
-            try? fm.removeItem(at: folder.appendingPathComponent(name))
+            Log.attemptUnlessAbsent("dictation journal: could not remove an old day") {
+                try fm.removeItem(at: folder.appendingPathComponent(name))
+            }
         }
     }
 

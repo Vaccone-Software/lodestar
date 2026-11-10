@@ -1,5 +1,7 @@
 import AppKit
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// Links clicked in other apps, once Lodestar stands as the http handler.
 ///
@@ -117,7 +119,7 @@ final class ClickHandler {
         // Asked after the target is known, so a browser that is merely slow
         // to come forward is never the one blamed.
         guard loopGuard.admit(url.absoluteString,
-                              at: Date().timeIntervalSinceReferenceDate) else {
+                              at: Moment.now.date.timeIntervalSinceReferenceDate) else {
             flash("✕ That link keeps coming back to Lodestar\nChoose another browser in Settings, under Web")
             Log.error("click", ["handoff": "refused, the same link kept returning",
                                 "target": application.lastPathComponent])

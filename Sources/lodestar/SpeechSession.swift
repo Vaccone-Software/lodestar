@@ -3,6 +3,8 @@ import Foundation
 import LodestarCore
 import Speech
 import Stoic
+import StoicTime
+import Synchronization
 
 /// What the recognizer is doing, for the register line to say.
 /// How long one attempt at opening the microphone is given, and what a
@@ -191,7 +193,7 @@ enum SpeechStart {
     /// Runs on the caller's actor (the session's), so the closures it is
     /// handed may read that actor's state.
     static func startLoop(
-        began: Date,
+        began: ContinuousClock.Instant,
         isolation: isolated (any Actor)? = #isolation,
         start: (_ within: TimeInterval) async throws -> Started,
         bridgeAgain: () -> Void,
@@ -208,10 +210,11 @@ enum SpeechStart {
                 // The headset's engine goes down and comes back: the bridge,
                 // if one is open, covers the gap.
                 bridgeAgain()
+                // stoic:allow(discarded-try): Ambient.sleep throws only CancellationError, which is no failure to record; a cancelled settle ends the wait early, and the guard on the next line asks stopped() before anything is started.
                 try? await Ambient.sleep(for: .seconds(SpeechStart.settleSeconds))
                 guard !stopped() else { stopOwnBridge(); return .ended }
             }
-            let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
+            let remaining = SpeechStart.startBudget - began.secondsElapsed
             guard SpeechStart.canBegin(remaining: remaining, owing: 0) else { break }
             do {
                 started = try await start(remaining)
@@ -241,11 +244,11 @@ enum SpeechStart {
                 // would queue behind it and then stop whatever it started;
                 // the whole budget is spent, so this is the end of it.
                 Log.info("draft", ["speech": "audio start timed out", "attempt": attempt,
-                                   "seconds": (Date().timeIntervalSince(began) * 10).rounded() / 10])
+                                   "seconds": (began.secondsElapsed * 10).rounded() / 10])
                 break
             } catch {
                 Log.info("draft", ["speech": "audio start failed", "attempt": attempt,
-                                   "error": "\(error.localizedDescription)"])
+                                   "error": "\(error)"])
             }
         }
         if let started { return .started(started) }
@@ -416,6 +419,7 @@ extension AnalyzerSpeechSession {
 /// thread stops answering — every keystroke on the machine went dead
 /// until the watchdog brought it back. The actor that consumes the
 /// buffers never touches the engine directly.
+// stoic:allow(unchecked-sendable): `engine`, `engineDevice`, `engineFormat`, `tapInstalled`, `observer`, `inFlight`, `rebuildPending`, `refusal`, `runningTicket`, `sessionNumber`, `engineGeneration` and `keeper` are touched only on `queue`, a serial queue (each method that uses them asserts `dispatchPrecondition(condition: .onQueue(queue))` or runs inside `queue.async` or `queue.sync`); `tick`, `nextTicket` and `newestTicket` only under `tickLock`; `delivered` and `signalled` only under `deliveryLock`; `stand` exists in debug builds only, and a test sets it before a session starts
 final class AudioInput: @unchecked Sendable {
     /// The engine's queue. Calls made from the main thread keep their
     /// order here, so a stop queued before a start still lands first.
@@ -728,7 +732,7 @@ final class AudioInput: @unchecked Sendable {
         if let moved = Self.rateMoved(built: engineFormat, now: Self.reading(of: engine)) {
             Log.info("draft", ["speech": "audio configuration changed", "stale": true,
                                "fromHz": Int(moved.from), "toHz": Int(moved.to)])
-            if let device = engineDevice, Self.isBluetooth(device) { refusal = (device, moved.from, Date()) }
+            if let device = engineDevice, Self.isBluetooth(device) { refusal = (device, moved.from, Moment.now.date) }
             rebuildPending = false
             rebuild(attempt: 1, session: session)
             return
@@ -737,17 +741,17 @@ final class AudioInput: @unchecked Sendable {
         do {
             try engine.start()
             rebuildPending = false
-            keeper.ran(running: engine.isRunning, at: Date())
+            keeper.ran(running: engine.isRunning, at: Moment.now.date)
             Log.info("draft", ["speech": "audio configuration changed", "restarted": true, "attempt": attempt])
         } catch {
             Log.info("draft", ["speech": "audio configuration changed",
-                               "restart failed": error.localizedDescription, "attempt": attempt])
+                               "restart failed": "\(error)", "attempt": attempt])
             guard attempt < 4 else {
                 rebuildPending = false
                 rebuild(attempt: 1, session: session)
                 return
             }
-            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in
+            after(.milliseconds(650), on: queue) { [weak self] in
                 self?.restart(attempt: attempt + 1, session: session)
             }
         }
@@ -772,12 +776,12 @@ final class AudioInput: @unchecked Sendable {
                                "attempt": attempt, "inHz": Int(started.format.sampleRate)])
         } catch {
             Log.info("draft", ["speech": "audio configuration changed",
-                               "rebuild failed": error.localizedDescription, "attempt": attempt])
+                               "rebuild failed": "\(error)", "attempt": attempt])
             // The failed start stopped the session's engine, so a give-up
             // here is a session with no microphone: it is told, and the
             // draft asks again from the top.
             guard attempt < 4 else { lose(inFlight.lost); return }
-            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in
+            after(.milliseconds(650), on: queue) { [weak self] in
                 self?.rebuild(attempt: attempt + 1, session: session)
             }
         }
@@ -822,7 +826,7 @@ final class AudioInput: @unchecked Sendable {
     /// most right after the launch warm-up; five minutes outlasts any
     /// notice in flight by far, and at most a few engines wait at once.
     private func retire(_ engine: AVAudioEngine) {
-        queue.asyncAfter(deadline: .now() + Self.retirement) { withExtendedLifetime(engine) {} }
+        after(.seconds(Self.retirement), on: queue) { withExtendedLifetime(engine) {} }
     }
     static let retirement: TimeInterval = 300
 
@@ -1001,11 +1005,11 @@ final class AudioInput: @unchecked Sendable {
     /// goes on regardless: -10868 has causes that are not a flip.
     private func settle(_ device: AudioDeviceID, from stale: Double?, tick: Int) throws {
         dispatchPrecondition(condition: .onQueue(queue))
-        let began = Date()
+        let began = ContinuousClock.now
         let outcome = RateSettle.wait(
             from: stale, rate: { Self.nominalRate(of: device) },
             superseded: { self.currentTick() != tick },
-            clock: { Date().timeIntervalSince(began) },
+            clock: { began.secondsElapsed },
             pause: { Thread.sleep(forTimeInterval: $0) })
         switch outcome {
         case .settled(let rate, let seconds):
@@ -1175,11 +1179,11 @@ final class AudioInput: @unchecked Sendable {
             // nowhere else: an attempt that cannot pay it is not begun, and
             // the refusal stays remembered for the ask that can.
             let owed = Self.settleOwed(refusal: refusal, device: device,
-                                       rate: Self.nominalRate(of: device), now: Date())
-            guard Self.mayBegin(owing: owed, until: until, now: Date()) else {
+                                       rate: Self.nominalRate(of: device), now: Moment.now.date)
+            guard Self.mayBegin(owing: owed, until: until, now: Moment.now.date) else {
                 throw NotBegun(owed: owed, remaining: until?.timeIntervalSinceNow ?? 0)
             }
-            if Self.owesSettle(refusal: refusal.map { ($0.device, $0.at) }, device: device, now: Date()) {
+            if Self.owesSettle(refusal: refusal.map { ($0.device, $0.at) }, device: device, now: Moment.now.date) {
                 let stale = refusal?.rate
                 refusal = nil
                 try settle(device, from: stale, tick: tick)
@@ -1235,13 +1239,13 @@ final class AudioInput: @unchecked Sendable {
                 failure = StaleRate(from: moved.from, to: moved.to)
             } catch {
                 Log.info("draft", ["speech": "engine start failed", "attempt": attempt + 1,
-                                   "error": error.localizedDescription])
+                                   "error": "\(error)"])
                 failure = error
             }
             discard()
             attempt += 1
             if attempt > 1 {
-                if radio, let device { refusal = (device, builtRate, Date()) }
+                if radio, let device { refusal = (device, builtRate, Moment.now.date) }
                 throw failure
             }
             if radio, let device {
@@ -1249,8 +1253,8 @@ final class AudioInput: @unchecked Sendable {
                 // same way: not begun a second attempt it cannot pay for.
                 let owed = RateSettle.flipComing(from: builtRate, rate: Self.nominalRate(of: device))
                     ? RateSettle.deadline : 0
-                guard Self.mayBegin(owing: owed, until: until, now: Date()) else {
-                    refusal = (device, builtRate, Date())
+                guard Self.mayBegin(owing: owed, until: until, now: Moment.now.date) else {
+                    refusal = (device, builtRate, Moment.now.date)
                     throw NotBegun(owed: owed, remaining: until?.timeIntervalSinceNow ?? 0)
                 }
                 try settle(device, from: builtRate, tick: tick)
@@ -1264,7 +1268,7 @@ final class AudioInput: @unchecked Sendable {
                            "inHz": Int(input.inputFormat(forBus: 0).sampleRate),
                            "inCh": Int(input.inputFormat(forBus: 0).channelCount),
                            "voiceProcessing": input.isVoiceProcessingEnabled])
-        keeper.started(running: engine.isRunning, at: Date())
+        keeper.started(running: engine.isRunning, at: Moment.now.date)
         watchForSilence(generation: engineGeneration)
         return (format, name)
     }
@@ -1287,7 +1291,10 @@ final class AudioInput: @unchecked Sendable {
     /// not rebuild forever.
     private func watchForSilence(generation: Int) {
         let window = deafnessWindow
-        queue.asyncAfter(deadline: .now() + window) { [weak self] in
+        // A watchdog: counted while the Mac is awake, so a lid closed
+        // mid-draft does not fire it at wake, before the engine has had a
+        // chance to deliver.
+        after(.seconds(window), on: queue, clock: Ambient.current.livenessClock) { [weak self] in
             guard let self else { return }
             let watching = self.engineGeneration == generation && self.inFlight != nil
                 && self.engine?.isRunning == true
@@ -1321,8 +1328,8 @@ final class AudioInput: @unchecked Sendable {
     func resume() {
         queue.async {
             guard self.tapInstalled, let engine = self.engine else { return }
-            try? engine.start()
-            self.keeper.ran(running: engine.isRunning, at: Date())
+            Log.attempt("draft", ["speech": "engine did not restart after a pause"]) { try engine.start() }
+            self.keeper.ran(running: engine.isRunning, at: Moment.now.date)
             // Coming back from a pause is a start like any other, and an
             // engine can be deaf on either side of one.
             self.watchForSilence(generation: self.engineGeneration)
@@ -1373,7 +1380,7 @@ final class AudioInput: @unchecked Sendable {
         // indicts the device too, which is what stops the next draft
         // opening the same silence. A session stopped sooner, which is
         // what a timed-out start's retry is, says nothing about either.
-        logCharge(keeper.stopped(at: Date(), inFlight: inFlight != nil, hasEngine: engine != nil,
+        logCharge(keeper.stopped(at: Moment.now.date, inFlight: inFlight != nil, hasEngine: engine != nil,
                                  signalled: heardSignal, window: { self.deafnessWindow },
                                  device: engineDevice, roster: { Set(Self.inputDevices().map(\.id)) }))
         inFlight = nil
@@ -1450,7 +1457,9 @@ private actor AnalyzerBox {
         guard await AssetInventory.status(forModules: [transcriber]) == .installed else { return }
         let analyzer = SpeechAnalyzer(modules: [transcriber], options: options)
         let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
-        try? await analyzer.prepareToAnalyze(in: format)
+        await Log.attempt("draft", ["speech": "warm-up could not prepare the analyzer"]) {
+            try await analyzer.prepareToAnalyze(in: format)
+        }
         await analyzer.cancelAndFinishNow()
         Log.info("draft", ["speech": "warm"])
     }
@@ -1492,7 +1501,8 @@ private actor AnalyzerBox {
                     let progress = request.progress
                     let ticker = Task {
                         while !Task.isCancelled {
-                            try? await Ambient.sleep(for: .milliseconds(500))
+                            // The sleep throws only CancellationError: the ticker's owner stopped it.
+                            do { try await Ambient.sleep(for: .milliseconds(500)) } catch { break }
                             say(.preparing(progress: progress.fractionCompleted))
                         }
                     }
@@ -1548,7 +1558,18 @@ private actor AnalyzerBox {
             }
         }
 
-        let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
+        // The analyzer takes audio about as fast as the microphone gives it,
+        // so the buffer is nearly always empty. It is bounded for the one
+        // case where it is not: a recognizer that has wedged, whose backlog
+        // would otherwise grow with the session for as long as it stays
+        // open. 4096 converted buffers is a minute and a half of the shortest
+        // the tap delivers (1024 frames at 48 kHz), a few megabytes in all.
+        // Past that the oldest are dropped, since what the person is saying
+        // now matters more than what they said a minute and a half ago into
+        // a recognizer that never heard it, and the drop is counted and
+        // logged by `AudioFeed`.
+        let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream(
+            bufferingPolicy: .bufferingNewest(AudioFeed.backlogLimit))
         self.continuation = continuation
         guard let outFormat = format else { say(.failed("the recognizer has no audio format")); return }
         do {
@@ -1573,7 +1594,7 @@ private actor AnalyzerBox {
         // streams). The engine's own immediate rebuild cannot outwait
         // that, so the settling happens here, off the main thread,
         // across a few attempts.
-        let began = Date()
+        let began = ContinuousClock.now
         starting = true
         defer { starting = false }
         var started: SpeechStart.Started?
@@ -1717,7 +1738,7 @@ private actor AnalyzerBox {
         // the microphone" until it was closed and opened again. A
         // deadline turns that into an attempt that failed, which the
         // loop above can retry and the register line can report.
-        let until = Date().addingTimeInterval(seconds)
+        let until = Moment.now.date.addingTimeInterval(seconds)
         return try await SpeechStart.startAudio(within: seconds) {
             try await withCheckedThrowingContinuation { continuation in
                 Task { @MainActor in
@@ -1754,7 +1775,10 @@ private actor AnalyzerBox {
             let audioClock = Double(streamed) / audio.processingFormat.sampleRate
             let elapsed = wall.duration(to: clock.now)
             let ahead = audioClock - (Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
-            if ahead > 0 { try? await Ambient.sleep(for: .milliseconds(Int(ahead * 1000))) }
+            if ahead > 0 {
+                // The sleep throws only CancellationError: a cancelled feed stops where it is.
+                do { try await Ambient.sleep(for: .milliseconds(Int(ahead * 1000))) } catch { break }
+            }
         }
         Log.info("draft", ["speech": "file fed"])
     }
@@ -1768,6 +1792,7 @@ private actor AnalyzerBox {
         stopOwnBridge()
         if let feed {
             Log.info("draft", ["speech": "audio summary", "buffers": feed.buffers,
+                               "dropped": feed.dropped,
                                "peakDb": Int(20 * log10(max(feed.peak, 1e-7)))])
         }
         continuation?.finish()
@@ -1804,8 +1829,10 @@ private actor AnalyzerBox {
         // for the loop to end, and `completion` runs behind every final.
         // Bounded, and abandoned past the bound like the finish above.
         if let results {
-            _ = try? await abandoningAsyncAfter(.milliseconds(500), label: "speech.drain", limit: 4) {
-                await results.value
+            await Log.attempt("draft", ["speech": "the results loop did not end within the bound, and is left to end"]) {
+                try await abandoningAsyncAfter(.milliseconds(500), label: "speech.drain", limit: 4) {
+                    await results.value
+                }
             }
         }
         results?.cancel()
@@ -1826,6 +1853,7 @@ private actor AnalyzerBox {
 /// four ways on 2026-09-28. The queue started in 70 ms with its first
 /// buffer at 80. Let go the way `AudioInput` lets go of an engine, kept
 /// a while before it is disposed.
+// stoic:allow(unchecked-sendable): `opened` and `openTicket` are touched only on `queue`, a serial queue (`start`, `pause`, `resume`, `stop` and `stop(ticket:)` all do their work inside `queue.async`, and `stopNow` is called only from there); `nextTicket` only under `ticketLock`; `opener` is a `let`
 final class BridgeMic: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.vaccone.lodestar.audio.bridge", qos: .userInitiated)
     /// One bridge, open: how to pause, resume and let it go.
@@ -1920,7 +1948,12 @@ final class BridgeMic: @unchecked Sendable {
         }
         return Opened(pause: { AudioQueuePause(aq) }, resume: { AudioQueueStart(aq, nil) }, stop: {
             AudioQueueStop(aq, true)
-            queue.asyncAfter(deadline: .now() + AudioInput.retirement) { AudioQueueDispose(aq, true) }
+            // The queue travels as its address: a pointer is not Sendable,
+            // and the dispose is the only thing that touches it, on `queue`.
+            let address = UInt(bitPattern: aq)
+            after(.seconds(AudioInput.retirement), on: queue) {
+                if let aq = AudioQueueRef(bitPattern: address) { AudioQueueDispose(aq, true) }
+            }
         })
     }
 
@@ -1969,6 +2002,7 @@ final class BridgeMic: @unchecked Sendable {
 /// would trade a voice for silence — and from then on only the headset.
 /// Both taps call in on their own audio threads, so the feed, which is
 /// not thread-safe, is only ever pushed under the lock.
+// stoic:allow(unchecked-sendable): every mutable field (`bridging`, `bridgeOpen`, `headsetLive`, `handedOver`, `openedAt` and the handover callback) is read and written only under `lock`, and `push` is a `let` called only with `lock` held
 final class Handover: @unchecked Sendable {
     private let lock = NSLock()
     private let push: (AVAudioPCMBuffer) -> Void
@@ -1977,9 +2011,13 @@ final class Handover: @unchecked Sendable {
     private var headsetLive = false
     /// The headset took over, and the bridge was let go for good.
     private var handedOver = false
-    private var openedAt = Date()
+    private var openedAt = ContinuousClock.now
     /// Runs on the audio thread, once, with how long the bridge stood in.
-    var onHandover: ((Int) -> Void)?
+    var onHandover: ((Int) -> Void)? {
+        get { lock.withLock { handoverCallback } }
+        set { lock.withLock { handoverCallback = newValue } }
+    }
+    private var handoverCallback: ((Int) -> Void)?
 
     init(push: @escaping (AVAudioPCMBuffer) -> Void) { self.push = push }
 
@@ -1987,7 +2025,7 @@ final class Handover: @unchecked Sendable {
         lock.withLock {
             bridgeOpen = true
             bridging = !headsetLive
-            openedAt = Date()
+            openedAt = ContinuousClock.now
         }
     }
 
@@ -2033,7 +2071,7 @@ final class Handover: @unchecked Sendable {
         if !headsetLive, !bridging || AudioInput.hasSignal(buffer) {
             headsetLive = true
             if bridging {
-                handedAfter = Int(Date().timeIntervalSince(openedAt) * 1000)
+                handedAfter = Int(openedAt.secondsElapsed * 1000)
                 handedOver = true
             }
             bridging = false
@@ -2047,6 +2085,7 @@ final class Handover: @unchecked Sendable {
 /// The audio tap's side: converts each buffer to the analyzer's format
 /// and hands it over. Owned by the tap's thread; the actor only makes it.
 @available(macOS 26, *)
+// stoic:allow(unchecked-sendable): `alive`, `converter`, `inFormat` and `lastLevelAt` are written only by `push` (and the `meter` it calls), which is reached only through `Handover`, whose lock is held around every push of both microphones' taps, or by `feed(file:)`, which stands in for the taps; `buffers` and `peak` are behind `flow`; every other stored property is a `let`
 private final class AudioFeed: @unchecked Sendable {
     private let outFormat: AVAudioFormat
     private let continuation: AsyncStream<AnalyzerInput>.Continuation
@@ -2059,11 +2098,24 @@ private final class AudioFeed: @unchecked Sendable {
     private var alive = false
     private var converter: AVAudioConverter?
     private var inFormat: AVAudioFormat?
-    private var lastLevelAt = Date.distantPast
+    private var lastLevelAt: ContinuousClock.Instant?
     /// What flowed, for the log at the end: proof the tap delivered, and
-    /// how loud the loudest moment was.
-    private(set) var buffers = 0
-    private(set) var peak: Float = 0
+    /// how loud the loudest moment was. Read by the session's stop while a
+    /// last buffer may still be arriving, so behind a lock of their own.
+    private struct Flow {
+        var buffers = 0
+        var peak: Float = 0
+        /// Buffers the stream let go of because the recognizer was that far
+        /// behind.
+        var dropped = 0
+    }
+    private let flow = Mutex(Flow())
+    var buffers: Int { flow.withLock { $0.buffers } }
+    var peak: Float { flow.withLock { $0.peak } }
+    var dropped: Int { flow.withLock { $0.dropped } }
+
+    /// How many converted buffers the recognizer's stream holds.
+    static let backlogLimit = 4096
 
     private let held: HeldAudio
 
@@ -2077,7 +2129,7 @@ private final class AudioFeed: @unchecked Sendable {
     }
 
     func push(_ buffer: AVAudioPCMBuffer) {
-        buffers += 1
+        flow.withLock { $0.buffers += 1 }
         meter(buffer)
         if converter == nil || inFormat != buffer.format {
             inFormat = buffer.format
@@ -2096,7 +2148,15 @@ private final class AudioFeed: @unchecked Sendable {
             return buffer
         }
         if error == nil, out.frameLength > 0 {
-            continuation.yield(AnalyzerInput(buffer: out))
+            if case .dropped = continuation.yield(AnalyzerInput(buffer: out)) {
+                let first = flow.withLock { flow in
+                    flow.dropped += 1
+                    return flow.dropped == 1
+                }
+                if first {
+                    Log.info("draft", ["speech": "the recognizer is behind", "backlog": Self.backlogLimit])
+                }
+            }
             hold(out)
         }
     }
@@ -2115,10 +2175,10 @@ private final class AudioFeed: @unchecked Sendable {
     /// RMS of the first channel, as a 0…1 level, at most ten times a
     /// second: enough for a meter, nothing for a recognizer.
     private func meter(_ buffer: AVAudioPCMBuffer) {
-        let now = Date()
+        let now = ContinuousClock.now
         // Every buffer is read until one carries signal; after that, ten
         // a second.
-        guard !alive || now.timeIntervalSince(lastLevelAt) > 0.1, let data = buffer.floatChannelData,
+        guard !alive || lastLevelAt.map({ $0.duration(to: now) > .milliseconds(100) }) ?? true, let data = buffer.floatChannelData,
               buffer.frameLength > 0 else { return }
         let samples = UnsafeBufferPointer(start: data[0], count: Int(buffer.frameLength))
         var sum: Float = 0
@@ -2130,13 +2190,13 @@ private final class AudioFeed: @unchecked Sendable {
             alive = true
             DispatchQueue.main.async { self.onAlive() }
         }
-        guard now.timeIntervalSince(lastLevelAt) > 0.1 else { return }
+        guard lastLevelAt.map({ $0.duration(to: now) > .milliseconds(100) }) ?? true else { return }
         lastLevelAt = now
         // Speech at a normal distance sits around -30 dBFS; the meter's
         // top is a raised voice, its floor silence.
         let db = 20 * log10(max(rms, 1e-7))
         let level = max(0, min(1, (db + 55) / 45))
-        peak = max(peak, rms)
+        flow.withLock { $0.peak = max($0.peak, rms) }
         DispatchQueue.main.async { self.onLevel(level, Double(db)) }
     }
 }

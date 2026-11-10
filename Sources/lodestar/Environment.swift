@@ -2,6 +2,8 @@ import AppKit
 import Carbon
 import Foundation
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// What the instrument runs inside: the screens, the keyboard layout,
 /// and the system's input settings. Each is a fact that changes the
@@ -117,7 +119,7 @@ final class EraTracker {
     /// A fingerprint that is there and cannot be read (the key is unavailable,
     /// or it will not open) is not "none yet": no era is recorded and nothing
     /// is written over it.
-    func check(_ info: EraInfo, now: Date = Date()) -> ObservationEvent? {
+    func check(_ info: EraInfo, now: Date = Moment.now.date) -> ObservationEvent? {
         let previous: Stored?
         switch stored.read() {
         case .absent:

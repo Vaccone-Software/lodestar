@@ -1,4 +1,6 @@
 import Foundation
+import Stoic
+import StoicTime
 
 /// The coach: policy over the advisor's findings. Which one to offer,
 /// whether now is the time, what the chip says, and how "no" is
@@ -385,7 +387,7 @@ public enum Coach {
     /// so one bad accept cannot silence a kind and one good one cannot
     /// crown it.
     public static func kindWeight(observations: Observations,
-                                  kind: Recommendation.Kind, now: Date = Date()) -> Double {
+                                  kind: Recommendation.Kind, now: Date = Stoic.Moment.now.date) -> Double {
         var trials = 0
         var wins = 0
         for entry in observations.ledger where entry.kind == kind.rawValue {
@@ -423,7 +425,7 @@ public enum Coach {
     /// untouched, and so is the per-suggestion retry leash, which prices
     /// the user's attention rather than the kind's credibility.
     public static func pacingScale(observations: Observations,
-                                   kind: Recommendation.Kind, now: Date = Date()) -> Double {
+                                   kind: Recommendation.Kind, now: Date = Stoic.Moment.now.date) -> Double {
         let record = 2.0 - kindWeight(observations: observations, kind: kind, now: now)
         return min(1.5, max(0.125, record * streakScale(observations: observations)))
     }
@@ -525,7 +527,7 @@ public enum Coach {
     /// forgotten agreeing to any of it, "moved" is archaeology, and the
     /// plain miss is the clearer answer.
     public static func supersededBy(observations: Observations, letters: [String],
-                                    now: Date = Date()) -> String? {
+                                    now: Date = Stoic.Moment.now.date) -> String? {
         let key = Observations.key(letters)
         func standing(chain: String, since accepted: Int?) -> String? {
             // The hand arrived: the same bent curve the slot waits on.
@@ -624,7 +626,7 @@ public enum Coach {
     /// the app as it always did. A view over the ledger, like the
     /// redirect: nothing is stored beside it.
     public static func roadClosed(observations: Observations, app: String,
-                                  now: Date = Date()) -> [String]? {
+                                  now: Date = Stoic.Moment.now.date) -> [String]? {
         let name = app.lowercased()
         guard let entry = observations.ledger.first(where: {
             $0.kind == Recommendation.Kind.nudge.rawValue && $0.target == name

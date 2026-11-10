@@ -1,6 +1,8 @@
 import AppKit
 import CoreGraphics
 import LodestarCore
+import Stoic
+import StoicTime
 
 /// Every verb in the system. One instance, main-thread only.
 final class Actions {
@@ -48,7 +50,7 @@ final class Actions {
     private var sessionClaimed: Set<CGWindowID> = []
     /// Destinations already waiting on a window, and until when. Keyed by
     /// target label; entries expire by their own clock rather than a timer.
-    private var pendingLinks: [String: Date] = [:]
+    private var pendingLinks: [String: ContinuousClock.Instant] = [:]
 
     init(model: WindowModel, parking: ParkingLot, layout: LayoutController,
          appIndex: AppIndex, store: StateStore, hud: HUD) {
@@ -85,7 +87,7 @@ final class Actions {
             // summon that placed a hidden one, or this unpark — because a
             // pair already side by side has nothing a breath can save.
             if let window = self.model.windows[id] {
-                let now = Date()
+                let now = Moment.now.date
                 self.observations?.focused(app: window.appName,
                                            road: self.roads?.road(at: now),
                                            pulled: unparked || (self.roads?.pulled(at: now) ?? false))
@@ -123,14 +125,14 @@ final class Actions {
     /// restores the whole stage, and the split it makes is counted until
     /// a replace collapses it — the number that says whether composing
     /// became a habit or a churn.
-    private var joiningUntil: Date?
-    private var chordAt: Date?
+    private var joiningUntil: ContinuousClock.Instant?
+    private var chordAt: ContinuousClock.Instant?
     private var chordSummons: Int?
 
     /// Good for a few seconds: a summon that launches places when the
     /// window appears, and one that fails must not fold the next
     /// unrelated gesture's undo into a phrase that never happened.
-    func joinNextPlacement() { joiningUntil = Date().addingTimeInterval(3) }
+    func joinNextPlacement() { joiningUntil = ContinuousClock.now + .seconds(3) }
 
     func summon(_ target: GraphTarget, beside: Bool, via route: Observations.Route = .graph) {
         roads?.summoned(via: route)
@@ -204,10 +206,10 @@ final class Actions {
         // twelve seconds, each waiting to place the next Brave window the
         // person opened themselves.
         let key = target.label
-        let now = Date()
+        let now = ContinuousClock.now
         pendingLinks = pendingLinks.filter { $0.value > now }
         if pendingLinks[key] != nil { return }
-        pendingLinks[key] = now.addingTimeInterval(Self.linkIntentSeconds)
+        pendingLinks[key] = now + .seconds(Self.linkIntentSeconds)
         expect(seconds: Self.linkIntentSeconds,
                matches: { window in Self.window(window, matches: target) },
                action: { [weak self] window in
@@ -232,20 +234,16 @@ final class Actions {
     var onOpening: ((_ name: String, _ icon: NSImage?) -> Void)?
     var onOpened: (() -> Void)?
     static let openingPatience: TimeInterval = 0.33
-    private var openingWork: DispatchWorkItem?
-    private var openingExpiry: DispatchWorkItem?
+    private var openingWork: Task<Void, Never>?
+    private var openingExpiry: Task<Void, Never>?
 
     private func beginOpening(_ name: String, icon: NSImage?, seconds: TimeInterval) {
         endOpening()
-        let show = DispatchWorkItem { [weak self] in
+        openingWork = onMain(after: .seconds(Self.openingPatience)) { [weak self] in
             self?.openingWork = nil
             self?.onOpening?(name, icon)
         }
-        openingWork = show
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.openingPatience, execute: show)
-        let expire = DispatchWorkItem { [weak self] in self?.endOpening() }
-        openingExpiry = expire
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: expire)
+        openingExpiry = onMain(after: .seconds(seconds)) { [weak self] in self?.endOpening() }
     }
 
     private func endOpening() {
@@ -345,12 +343,12 @@ final class Actions {
         // the same thing again. Sharing the snapshot also means the ids in
         // the log are the ids the choice was actually made from, which they
         // were not when the second lookup saw a different world.
-        let began = Date()
+        let began = ContinuousClock.now
         let candidates = aliveCandidates(bundleID: entry?.bundleID, appName: entry?.name ?? name)
         Log.info("summon", [
             "target": name, "resolved": entry?.name ?? "none",
             "candidates": candidates.map(\.id),
-            "ms": Int(Date().timeIntervalSince(began) * 1000),
+            "ms": Int(began.secondsElapsed * 1000),
         ])
         // Lodestar has no window to summon — going there reveals the menu bar.
         if name.lowercased() == "lodestar" || entry?.bundleID == Lodestar.bundleID {
@@ -426,7 +424,7 @@ final class Actions {
         configuration.activates = true
         SystemEvents.openApplication(at: entry.url, configuration: configuration) { _, error in
             if let error {
-                DispatchQueue.main.async { Log.error("launch \(name): \(error.localizedDescription)") }
+                DispatchQueue.main.async { Log.error("launch \(name): \(error)") }
             }
         }
     }
@@ -491,7 +489,7 @@ final class Actions {
     func undoLayout() {
         // A chord undone at once is a correction under one hold — the
         // habit that argues against the chord, if it turns out common.
-        if let at = chordAt, Date().timeIntervalSince(at) < 2 {
+        if let at = chordAt, at.secondsElapsed < 2 {
             Log.info("chord", ["undoneWithin": 2])
         }
         // Whatever the timing, an undo takes the split down; the next
@@ -736,7 +734,7 @@ final class Actions {
             // The save waits for the frames to land — the moves run off
             // the main thread — so the breath remembers where the windows
             // are, not where they were.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            onMain(after: .milliseconds(800)) { [weak self] in
                 guard let self, self.store.breath(at: path) == nil else { return }
                 let members = self.currentBreathMembers()
                 guard !members.isEmpty else { return }
@@ -941,7 +939,7 @@ final class Actions {
             guard matches(window) else { return false }
             let subrole = AXWindow(element: window.element)?.subrole
             return Placement.isPlace(subrole: subrole)
-        }, action: action, expires: Date().addingTimeInterval(seconds)))
+        }, action: action, expires: Moment.now.date.addingTimeInterval(seconds)))
     }
 
     private func place(_ window: WindowModel.Window, beside: Bool) {
@@ -960,10 +958,10 @@ final class Actions {
         endOpening()
         placing = true
         defer { placing = false }
-        let began = Date()
+        let began = ContinuousClock.now
         defer {
             Log.info("placed", ["window": window.id,
-                                "ms": Int(Date().timeIntervalSince(began) * 1000)])
+                                "ms": Int(began.secondsElapsed * 1000)])
         }
         store.touchUsage(window.bundleID)
         // Was the window on screen before this placement? A focus alone
@@ -986,12 +984,12 @@ final class Actions {
                                       activeDisplay: active.id)
         Log.info("place", ["window": window.id, "app": window.appName,
                            "action": "\(action)", "display": active.id])
-        let joining = joiningUntil.map { Date() < $0 } ?? false
+        let joining = joiningUntil.map { ContinuousClock.now < $0 } ?? false
         joiningUntil = nil
         layout.beginPlacement(joining: joining)
         defer { layout.endPlacement() }
         if joining {
-            chordAt = Date()
+            chordAt = ContinuousClock.now
             chordSummons = 0
         } else if let since = chordSummons {
             if action == .replace {

@@ -4,6 +4,7 @@ import AVFoundation
 import Carbon
 import LodestarCore
 import LodestarEars
+import Stoic
 
 /// The draft: `lode .` opens it speaking, `lode ⇧.` opens it editing. It
 /// is a bar the way the clipboard strip is a bar — never key, its keys
@@ -123,7 +124,24 @@ final class DraftController {
     var intentNames: [String] = []
     private var intentWanted = false
     private var intentInFlight = false
+    /// Which draft an answer is for: a draft that has closed moves it on, so
+    /// an answer that comes for the one before is not applied to the next.
     private var intentGeneration = 0
+    /// The question under way, where its words stood when it was sent: a
+    /// newer question replaces it only if it takes those words in.
+    private var intentAsking: (range: Range<Int>, text: String)?
+    /// The one question that is ever running. A newer one cancels the older
+    /// and only the newest is delivered, so a model busy with an outdated
+    /// question is not the one the newer waits behind.
+    private let intentSlot = TaskSlot<IntentAnswer, Never>(label: "draft.intent")
+    /// What the model said and how it was judged, carried from off the main
+    /// thread to where it is applied.
+    fileprivate struct IntentAnswer: Sendable {
+        let answer: String?
+        let text: String?
+        let verdict: IntentChecker.Verdict?
+        let seconds: Double
+    }
     private var intentWaiters: [() -> Void] = []
     /// The pass never reaches before where the hand last wrote: what was
     /// typed is the hand's.
@@ -2126,7 +2144,13 @@ final class DraftController {
 
     private func launch(_ job: EarJob) {
         earRunning = true
-        Task.detached { [weak self] in
+        // Not detached: a detached task starts without Stoic's ambient context
+        // (its events, clock and task ledger), so nothing this work records
+        // would reach the log. It runs off the main thread all the same: the
+        // controller is not an actor, so the task inherits none. The priority
+        // is the one a detached task has, named: an ordinary task would take
+        // the main thread's (measured: 25, user initiated, against 21).
+        Task(priority: .medium) { [weak self] in
             let began = Date()
             let again = try? await job.ear.transcribe(job.samples, context: job.context)
             let seconds = Date().timeIntervalSince(began)
@@ -2200,6 +2224,7 @@ final class DraftController {
     private func resetIntent() {
         intentGeneration += 1
         intentInFlight = false
+        intentAsking = nil
         intentWanted = false
         intentFrom = nil
         intentFloor = 0
@@ -2239,17 +2264,15 @@ final class DraftController {
     /// moving: the ear has finished, no reservation or anchor stands, the
     /// draft is writing, and the speech is English (the rules are).
     private func startIntentIfReady() {
-        guard intentWanted, !intentInFlight, earPending == 0, let intend, isOpen, settler.removesFillers,
+        guard intentWanted, earPending == 0, let intend, isOpen, settler.removesFillers,
               mode == .insert, provisional == nil, speechAnchor == nil,
               let last = lastSpoken, last.range.upperBound <= buffer.count, buffer.slice(last.range) == last.text
         else { return }
-        intentWanted = false
         let end = last.range.upperBound
         let floor = min(intentFloor, end)
         // The new results' sentences, and the sentence before them: a
         // take-back reaches into it ("…Monday." "No wait, Tuesday").
         var from = sentenceStart(before: min(max(intentFrom ?? last.range.lowerBound, floor), end), floor: floor)
-        intentFrom = nil
         var back = from
         while back > floor, buffer.characters[back - 1].isWhitespace { back -= 1 }
         if back > floor { from = sentenceStart(before: back - 1, floor: floor) }
@@ -2267,38 +2290,79 @@ final class DraftController {
         let sent = buffer.slice(range)
         let lead = String(sent.prefix { $0.isWhitespace })
         let core = String(sent.dropFirst(lead.count))
+        if intentInFlight {
+            // A question is under way. Only one that is worth asking, and
+            // that takes in the older one's words (or whose words have been
+            // changed, so its answer would be refused), replaces it. Any
+            // other waits for the older to answer, as it always did, and
+            // nothing it holds is spent.
+            guard IntentPass.wants(core), !intentSent.contains(core), replaces(intentAsking, with: range) else { return }
+        }
+        intentWanted = false
+        intentFrom = nil
         guard IntentPass.wants(core), !intentSent.contains(core) else { return }
         intentSent.insert(core)
         intentInFlight = true
+        intentAsking = (range, sent)
         intentSentAt = clock.now()
         intentGeneration += 1
         let generation = intentGeneration
         let mine = session
         let ears = earGeneration
         let names = intentNames
-        Task.detached { [weak self] in
-            let began = Date()
-            let answer = await intend(core)
-            let judged = IntentPass.judge(said: core, answer: answer ?? "", names: names)
-            let seconds = Date().timeIntervalSince(began)
-            await MainActor.run {
-                self?.intentHeard(answer, judged: judged, sent: (range, sent), lead: lead, session: mine,
-                                  generation: generation, ears: ears, seconds: seconds)
+        // The slot runs on the main actor, where the draft is only ever
+        // touched, so its check that nothing newer was asked and its
+        // delivery are one step. The model's wait and the checking of its
+        // answer are not: they run off the main thread.
+        MainActor.assumeIsolated {
+            intentSlot.run(for: self) { [weak self] in
+                await Self.ask(intend, core: core, names: names) { seconds in
+                    await MainActor.run { self?.noteAsk(seconds) }
+                }
+            } deliver: { @MainActor draft, result in
+                let heard = result.get()
+                draft.intentHeard(heard.answer, judged: (heard.text, heard.verdict), sent: (range, sent), lead: lead,
+                                  session: mine, generation: generation, ears: ears, seconds: heard.seconds)
             }
         }
+    }
+
+    /// Whether a question over `range` may take the place of the one under
+    /// way: it holds the older's words, or the older's words are no longer
+    /// where they were sent from.
+    private func replaces(_ asking: (range: Range<Int>, text: String)?, with range: Range<Int>) -> Bool {
+        guard let asking else { return true }
+        guard asking.range.upperBound <= buffer.count, buffer.slice(asking.range) == asking.text else { return true }
+        return range.lowerBound <= asking.range.lowerBound && range.upperBound >= asking.range.upperBound
+    }
+
+    /// The model asked, and its answer judged, off the main thread. Every
+    /// answer says how long an ask takes, here and not where it is applied:
+    /// a question that was replaced, or whose draft has gone, never reaches
+    /// the delivery, and the ask that outran ⏎'s wait is the one the record
+    /// most needs.
+    @concurrent
+    private static func ask(_ intend: @escaping (String) async -> String?, core: String, names: [String],
+                            took: @escaping @Sendable (Double) async -> Void) async -> IntentAnswer {
+        let began = Date()
+        let answer = await intend(core)
+        let judged = IntentPass.judge(said: core, answer: answer ?? "", names: names)
+        let seconds = Date().timeIntervalSince(began)
+        if answer != nil { await took(seconds) }
+        return IntentAnswer(answer: answer, text: judged.text, verdict: judged.verdict, seconds: seconds)
+    }
+
+    private func noteAsk(_ seconds: Double) {
+        intentTimes.append(seconds)
+        if intentTimes.count > Self.intentTimesKept { intentTimes.removeFirst(intentTimes.count - Self.intentTimesKept) }
     }
 
     private func intentHeard(_ answer: String?, judged: (text: String?, verdict: IntentChecker.Verdict?),
                              sent: (range: Range<Int>, text: String), lead: String, session mine: Int,
                              generation: Int, ears: Int, seconds: Double) {
-        // Every answer says how long an ask takes, a late one most of all:
-        // it is the answer ⏎ did not wait for.
-        if answer != nil {
-            intentTimes.append(seconds)
-            if intentTimes.count > Self.intentTimesKept { intentTimes.removeFirst(intentTimes.count - Self.intentTimesKept) }
-        }
         guard generation == intentGeneration else { return }
         intentInFlight = false
+        intentAsking = nil
         defer {
             startIntentIfReady()
             if !intentInFlight {

@@ -155,6 +155,102 @@ enum SpeechStart {
             }
         }
     }
+
+    /// What the microphone's start came to.
+    typealias Started = (format: AVAudioFormat, name: String?)
+    enum Outcome {
+        case started(Started)
+        /// Nothing started and the session has more to say; `wedged` is a
+        /// start refused because every slot of the audio start holds one that
+        /// never came back.
+        case unstarted(wedged: Bool)
+        /// The session is over, and the loop said what there was to say
+        /// (a closed draft and a superseded session say nothing; an input
+        /// that is off says why).
+        case ended
+    }
+
+    /// The headset's start, tried up to `attempts` times inside the one
+    /// budget. Each catch has its own meaning: a cancelled or superseded
+    /// start ends the session without a word, an input that is off ends it
+    /// saying why, a wedge and a start still out on the engine's queue end
+    /// the loop (another would be refused, or queue behind the first and
+    /// then stop whatever it started), and any other failure is tried again
+    /// once the bridge is armed and the radio has had its settle. Each
+    /// attempt is given what is left of the budget, and is not begun when
+    /// that cannot cover a start.
+    ///
+    /// Hand written rather than Stoic's `retry`, which has no step between
+    /// one attempt and the next, and this loop has three: the bridge is
+    /// armed again (only when another attempt will follow), the settle is
+    /// waited out, and the session is asked whether it was stopped meanwhile
+    /// and the budget whether it can still pay. Its schedule would also
+    /// stretch the settle on a hot or low-power device, which this budget
+    /// cannot afford, and its own budget could refuse the second attempt.
+    ///
+    /// Runs on the caller's actor (the session's), so the closures it is
+    /// handed may read that actor's state.
+    static func startLoop(
+        began: Date,
+        isolation: isolated (any Actor)? = #isolation,
+        start: (_ within: TimeInterval) async throws -> Started,
+        bridgeAgain: () -> Void,
+        stopped: () -> Bool,
+        stopOwnBridge: () -> Void,
+        say: (SpeechState) -> Void
+    ) async -> Outcome {
+        var started: Started?
+        var attempt = 0
+        var wedged = false
+        while started == nil, attempt < SpeechStart.attempts {
+            attempt += 1
+            if attempt > 1 {
+                // The headset's engine goes down and comes back: the bridge,
+                // if one is open, covers the gap.
+                bridgeAgain()
+                try? await Ambient.sleep(for: .seconds(SpeechStart.settleSeconds))
+                guard !stopped() else { stopOwnBridge(); return .ended }
+            }
+            let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
+            guard SpeechStart.canBegin(remaining: remaining, owing: 0) else { break }
+            do {
+                started = try await start(remaining)
+            } catch is CancellationError {
+                stopOwnBridge()
+                return .ended
+            } catch is AudioInput.Superseded {
+                // A newer session has the microphone, and this draft is gone.
+                stopOwnBridge()
+                return .ended
+            } catch let off as AudioInput.InputOff {
+                // Not a start that failed: a start there is no device for.
+                // Another attempt would refuse the same way.
+                stopOwnBridge()
+                say(.failed(off.why))
+                return .ended
+            } catch let stuck as SpeechStart.Wedged {
+                // Every slot of the audio start holds a start that never
+                // came back: another would be refused the same way, and the
+                // draft must not ask again on a timer either.
+                Log.error("draft", ["speech": "audio start is wedged", "label": stuck.label,
+                                    "attempt": attempt])
+                wedged = true
+                break
+            } catch is SpeechStart.TimedOut {
+                // The start is still out on the engine's queue. Another one
+                // would queue behind it and then stop whatever it started;
+                // the whole budget is spent, so this is the end of it.
+                Log.info("draft", ["speech": "audio start timed out", "attempt": attempt,
+                                   "seconds": (Date().timeIntervalSince(began) * 10).rounded() / 10])
+                break
+            } catch {
+                Log.info("draft", ["speech": "audio start failed", "attempt": attempt,
+                                   "error": "\(error.localizedDescription)"])
+            }
+        }
+        if let started { return .started(started) }
+        return .unstarted(wedged: wedged)
+    }
 }
 
 enum SpeechState: Equatable {
@@ -1396,7 +1492,7 @@ private actor AnalyzerBox {
                     let progress = request.progress
                     let ticker = Task {
                         while !Task.isCancelled {
-                            try? await Task.sleep(for: .milliseconds(500))
+                            try? await Ambient.sleep(for: .milliseconds(500))
                             say(.preparing(progress: progress.fractionCompleted))
                         }
                     }
@@ -1477,59 +1573,26 @@ private actor AnalyzerBox {
         // streams). The engine's own immediate rebuild cannot outwait
         // that, so the settling happens here, off the main thread,
         // across a few attempts.
-        var started: (format: AVAudioFormat, name: String?)?
         let began = Date()
-        var attempt = 0
         starting = true
         defer { starting = false }
+        var started: SpeechStart.Started?
         var wedged = false
-        while started == nil, attempt < SpeechStart.attempts {
-            attempt += 1
-            if attempt > 1 {
-                // The headset's engine goes down and comes back: the bridge,
-                // if one is open, covers the gap.
-                gate.bridgeAgain()
-                try? await Task.sleep(for: .seconds(SpeechStart.settleSeconds))
-                guard !stopped else { stopOwnBridge(); return }
-            }
-            let remaining = SpeechStart.startBudget - Date().timeIntervalSince(began)
-            guard SpeechStart.canBegin(remaining: remaining, owing: 0) else { break }
-            do {
-                started = try await Self.startMicrophone(microphone, ticket: micTicket, device: wanted, within: remaining,
-                                                         stillWanted: stillWanted,
-                                                         lost: { [weak self] in Task { await self?.lost(gate: gate, say: say) } })
-                                                         { buffer in gate.fromHeadset(buffer) }
-            } catch is CancellationError {
-                stopOwnBridge()
-                return
-            } catch is AudioInput.Superseded {
-                // A newer session has the microphone, and this draft is gone.
-                stopOwnBridge()
-                return
-            } catch let off as AudioInput.InputOff {
-                // Not a start that failed: a start there is no device for.
-                // Another attempt would refuse the same way.
-                stopOwnBridge()
-                say(.failed(off.why)); return
-            } catch let stuck as SpeechStart.Wedged {
-                // Every slot of the audio start holds a start that never
-                // came back: another would be refused the same way, and the
-                // draft must not ask again on a timer either.
-                Log.error("draft", ["speech": "audio start is wedged", "label": stuck.label,
-                                    "attempt": attempt])
-                wedged = true
-                break
-            } catch is SpeechStart.TimedOut {
-                // The start is still out on the engine's queue. Another one
-                // would queue behind it and then stop whatever it started;
-                // the whole budget is spent, so this is the end of it.
-                Log.info("draft", ["speech": "audio start timed out", "attempt": attempt,
-                                   "seconds": (Date().timeIntervalSince(began) * 10).rounded() / 10])
-                break
-            } catch {
-                Log.info("draft", ["speech": "audio start failed", "attempt": attempt,
-                                   "error": "\(error.localizedDescription)"])
-            }
+        switch await SpeechStart.startLoop(
+            began: began,
+            start: { remaining in
+                try await Self.startMicrophone(microphone, ticket: micTicket, device: wanted, within: remaining,
+                                               stillWanted: stillWanted,
+                                               lost: { [weak self] in Task { await self?.lost(gate: gate, say: say) } })
+                                               { buffer in gate.fromHeadset(buffer) }
+            },
+            bridgeAgain: { gate.bridgeAgain() },
+            stopped: { self.stopped },
+            stopOwnBridge: { self.stopOwnBridge() },
+            say: say) {
+        case .ended: return
+        case .started(let landed): started = landed
+        case .unstarted(let refusedForWedge): wedged = refusedForWedge
         }
         guard let started else {
             switch gate.standing {
@@ -1677,7 +1740,9 @@ private actor AnalyzerBox {
             return
         }
         let sliceFrames = AVAudioFrameCount(audio.processingFormat.sampleRate / 10)
-        let wall = Date()
+        // Paced on Stoic's clock, like every wait here, so a test can move it.
+        let clock = Ambient.current.clock
+        let wall = clock.now
         var streamed: AVAudioFramePosition = 0
         Log.info("draft", ["speech": "feeding file", "file": url.lastPathComponent,
                            "seconds": Int(Double(audio.length) / audio.processingFormat.sampleRate)])
@@ -1687,8 +1752,9 @@ private actor AnalyzerBox {
             streamed += AVAudioFramePosition(slice.frameLength)
             feed.push(slice)
             let audioClock = Double(streamed) / audio.processingFormat.sampleRate
-            let ahead = audioClock - Date().timeIntervalSince(wall)
-            if ahead > 0 { try? await Task.sleep(for: .milliseconds(Int(ahead * 1000))) }
+            let elapsed = wall.duration(to: clock.now)
+            let ahead = audioClock - (Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
+            if ahead > 0 { try? await Ambient.sleep(for: .milliseconds(Int(ahead * 1000))) }
         }
         Log.info("draft", ["speech": "file fed"])
     }

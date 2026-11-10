@@ -109,7 +109,11 @@ enum SelfTest {
         let client = ModelsClient.shared
         let started = Date()
         let answer = Box<Result<ModelsCheck, Error>>()
-        let task = Task.detached {
+        // An ordinary Task, so the service's events go where the process's
+        // ambient context sends them; the loop below spins the main run loop,
+        // and this is not isolated to the main actor, so it is not waiting
+        // behind it.
+        let task = Task(priority: .medium) {
             do { answer.set(.success(try await client.check())) } catch { answer.set(.failure(error)) }
         }
         while answer.value == nil, Date().timeIntervalSince(started) < timeout {

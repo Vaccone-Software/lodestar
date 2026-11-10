@@ -144,7 +144,7 @@ extension Clipboard {
     /// Where a copied file is now, which is what a paste has to know: a
     /// card can stand for weeks, and its file is moved, renamed, deleted or
     /// left on a disk that is not plugged in.
-    public enum FilePlace: Equatable {
+    public enum FilePlace: Equatable, Sendable {
         /// Where it is, under the name it has now.
         case here(URL)
         /// In a Trash: deleted, and still there until the Trash is emptied.

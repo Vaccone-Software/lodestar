@@ -1,59 +1,35 @@
 import AppKit
+import Stoic
+import StoicTesting
 import XCTest
 @testable import lodestar
 @testable import LodestarCore
 
-/// The deadlines a read of a file is given, on time the test owns. A read
-/// overruns when the test runs the clock past its deadline, never because a
-/// machine was slow: until then it waits for its answer for as long as the
-/// answer takes.
-private final class VirtualDeadlines: @unchecked Sendable {
-    private let condition = NSCondition()
-    private var now: TimeInterval = 0
-    private var waiting = 0
+/// A read that is let through only when the test says so, and waits without
+/// holding a thread. It ignores cancellation, as a read that is stuck does.
+final class FileGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
 
-    /// `FileSense.wait`, on this clock.
-    func wait(_ group: DispatchGroup, _ seconds: TimeInterval) -> Bool {
-        let done = Answer()
-        condition.lock()
-        let deadline = now + seconds
-        waiting += 1
-        condition.broadcast()
-        condition.unlock()
-        group.notify(queue: .global(qos: .utility)) { [condition] in
-            condition.lock()
-            done.value = true
-            condition.broadcast()
-            condition.unlock()
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let through = lock.withLock { () -> Bool in
+                if !isOpen { waiting.append(continuation) }
+                return isOpen
+            }
+            if through { continuation.resume() }
         }
-        condition.lock()
-        while !done.value, now < deadline { condition.wait() }
-        waiting -= 1
-        condition.unlock()
-        return done.value
     }
 
-    /// Time passes: every read whose deadline it reaches has overrun.
-    func advance(by seconds: TimeInterval) {
-        condition.lock()
-        now += seconds
-        condition.broadcast()
-        condition.unlock()
+    func open() {
+        let all = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            isOpen = true
+            defer { waiting = [] }
+            return waiting
+        }
+        all.forEach { $0.resume() }
     }
-
-    /// Wait until `count` reads are waiting on their deadlines, so that the
-    /// time the test then moves is the time they were given. A hang guard
-    /// only: it is long, and a read that never comes fails the test.
-    func waitUntilWaiting(_ count: Int, file: StaticString = #filePath, line: UInt = #line) {
-        let guardUntil = Date(timeIntervalSinceNow: 60)
-        condition.lock()
-        while waiting < count, condition.wait(until: guardUntil) {}
-        let reached = waiting >= count
-        condition.unlock()
-        XCTAssertTrue(reached, "no read came to wait on its deadline", file: file, line: line)
-    }
-
-    private final class Answer: @unchecked Sendable { var value = false }
 }
 
 /// A copy of files: told apart at the pasteboard, read off the main thread
@@ -65,7 +41,10 @@ final class ClipboardFilesTests: XCTestCase {
     private var store: ClipboardStore!
     private var controller: ClipboardController!
     private let board = SystemEvents.pasteboard
-    private let deadlines = VirtualDeadlines()
+    /// The time the deadlines of a read of a file are on. A read overruns
+    /// when the test runs this past its deadline, never because a machine was
+    /// slow: until then it waits for its answer for as long as the answer takes.
+    private let deadlines = TestClock()
 
     override func setUp() {
         directory = FileManager.default.temporaryDirectory
@@ -87,13 +66,13 @@ final class ClipboardFilesTests: XCTestCase {
         setOverride(\FileSense.Type.thumbnailer, to: { _ in Self.swatch() })
         // Every read of a file waits for its answer; the one test about a
         // deadline moves the clock itself.
-        setOverride(\FileSense.Type.wait, to: { [deadlines] group, seconds in deadlines.wait(group, seconds) })
+        setOverride(\FileSense.Type.clock, to: deadlines.erased)
         // A read still waiting on its deadline outlives its test and would
         // take the next test's thumbnailer and clock for its own: every
         // deadline is run out and the store's queues finish before the two
         // above are put back. Teardown blocks run last in, first out.
         addTeardownBlock { [deadlines, store] in
-            deadlines.advance(by: 1_000_000)
+            await deadlines.advance(by: .seconds(1_000_000))
             store?.flushBackground()
         }
     }
@@ -113,6 +92,24 @@ final class ClipboardFilesTests: XCTestCase {
         context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
         return context.makeImage()!
+    }
+
+    /// Time passes for the reads' deadlines: every read whose deadline it
+    /// reaches has overrun.
+    private func advance(by seconds: Double) {
+        let moved = expectation(description: "the clock moved")
+        let clock = deadlines
+        Task { await clock.advance(by: .seconds(seconds)); moved.fulfill() }
+        wait(for: [moved], timeout: 60)
+    }
+
+    /// Wait until `count` reads are waiting on their deadlines, so that the
+    /// time the test then moves is the time they were given. A hang guard
+    /// only: it is long, and a read that never comes fails the test.
+    private func waitUntilWaiting(_ count: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let guardUntil = Date(timeIntervalSinceNow: 60)
+        while deadlines.sleeperCount < count, Date() < guardUntil { Thread.sleep(forTimeInterval: 0.002) }
+        XCTAssertGreaterThanOrEqual(deadlines.sleeperCount, count, "no read came to wait on its deadline", file: file, line: line)
     }
 
     @discardableResult
@@ -339,16 +336,16 @@ final class ClipboardFilesTests: XCTestCase {
     func testAThumbnailerThatOverrunsItsDeadlineIsAnsweredWithTheIcon() throws {
         FileSense.deadline = 1
         let began = DispatchSemaphore(value: 0)
-        let release = DispatchSemaphore(value: 0)
+        let release = FileGate()
         let answered = NSLock()
         var returned = false
         setOverride(\FileSense.Type.thumbnailer, to: { _ in
             began.signal()
-            release.wait()
+            await release.wait()
             answered.withLock { returned = true }
             return Self.swatch()
         })
-        addTeardownBlock { for _ in 0..<8 { release.signal() } }
+        addTeardownBlock { release.open() }
         let url = try make("slow.txt")
         copy([url])
         let id = try XCTUnwrap(store.clips.first).id
@@ -356,8 +353,8 @@ final class ClipboardFilesTests: XCTestCase {
         XCTAssertEqual(began.wait(timeout: .now() + 60), .success, "the picture is asked for")
         // The reads before this one are done, so the one waiting now is the
         // picture's, with the whole second it was given.
-        deadlines.waitUntilWaiting(1)
-        deadlines.advance(by: 1)
+        waitUntilWaiting(1)
+        advance(by: 1)
         wait("the icon stands in") { self.store.thumbnail(for: id) != nil }
         XCTAssertFalse(answered.withLock { returned }, "without waiting for the slow answer")
         wait("and the card is told it is an icon") { self.store.clips.first?.fileFacts?.first?.pictured == false }
@@ -419,19 +416,19 @@ final class ClipboardFilesTests: XCTestCase {
 
     func testAFileCardDeletedWhileItsFilesAreBeingReadLeavesNoPicturesBehind() throws {
         let began = DispatchSemaphore(value: 0)
-        let late = DispatchSemaphore(value: 0)
+        let late = FileGate()
         setOverride(\FileSense.Type.thumbnailer, to: { _ in
             began.signal()
-            late.wait()
+            await late.wait()
             return Self.swatch()
         })
-        addTeardownBlock { late.signal() }
+        addTeardownBlock { late.open() }
         copy([try make("late.txt")])
         let id = try XCTUnwrap(store.clips.first).id
         let storage = try XCTUnwrap(store.storageName(of: id))
         XCTAssertEqual(began.wait(timeout: .now() + 60), .success, "the picture is being made")
         store.delete(id)
-        late.signal()      // the picture lands after the delete
+        late.open()      // the picture lands after the delete
         quiesce()
         XCTAssertFalse(store.files.hasThumb(storage: storage), "the picture that landed after the delete went with it")
         XCTAssertTrue(store.clips.isEmpty)

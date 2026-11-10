@@ -103,9 +103,14 @@ final class EditorModelRecoveryTests: XCTestCase {
         XCTFail("never: \(what)")
     }
 
-    /// The one timer a test is about to move the clock past.
-    private func oneSleeper(_ clock: TestClock) async {
-        await eventually("one timer sleeps", { clock.sleeperCount == 1 })
+    /// The one timer a test is about to move the clock past: the deadline's.
+    /// An `EditorModel` also has its idle release waiting on this clock (the
+    /// models here are given an hour, and no test moves it that far), so with
+    /// one in the test there are two sleepers; `ModelCalls` and `DraftModel`
+    /// alone have none.
+    private func oneSleeper(_ clock: TestClock, besideAnIdleRelease: Bool = true) async {
+        let expected = besideAnIdleRelease ? 2 : 1
+        await eventually("the deadline's timer sleeps", { clock.sleeperCount == expected })
     }
 
     // MARK: - The deadline bounds the answer, not the line
@@ -272,7 +277,7 @@ final class EditorModelRecoveryTests: XCTestCase {
                     return "late"
                 }
             }
-            await oneSleeper(clock)
+            await oneSleeper(clock, besideAnIdleRelease: false)
             await clock.advance(by: .seconds(9))
             guard case .unanswered = await asked.value else { return XCTFail("it was given up on") }
             XCTAssertEqual(calls.recoverIfStuck(), 0, "not yet")
@@ -350,7 +355,7 @@ final class EditorModelRecoveryTests: XCTestCase {
             let prompt = IntentPass.Prompt(instructions: "x", examples: [])
             let asking = Task { await draft.rewrite("hello", prompt: prompt) }
             await eventually("it queues", { gate.waiting == 1 })
-            await oneSleeper(clock)
+            await oneSleeper(clock, besideAnIdleRelease: false)
             await clock.advance(by: .seconds(4))
             let answer = await asking.value
             XCTAssertNil(answer)

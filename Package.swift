@@ -69,7 +69,11 @@ let package = Package(
         // phrase. Parakeet runs here, on the Neural Engine (Core ML, a system
         // framework); Qwen3-ASR's files are named here and it runs on MLX,
         // in the models service (LodestarMLX).
-        .target(name: "LodestarEars", dependencies: ["LodestarCore"]),
+        .target(name: "LodestarEars", dependencies: [
+            "LodestarCore",
+            // Its windows are heard a few at a time (mapConcurrent).
+            .product(name: "Stoic", package: "stoic"),
+        ]),
         // Everything that evaluates on MLX: the editor's and dictation's
         // language models and the Qwen3-ASR ear. Linked by the models
         // service and the probe, never by the app.

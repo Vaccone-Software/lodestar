@@ -234,7 +234,13 @@ final class EarHost {
         // A load already on its way starts the models when it is done.
         guard !loading else { return }
         loading = true
-        Task.detached { [weak self] in
+        // An ordinary Task, not a detached one, so the ear's load runs with the
+        // ambient context that started it (Stoic's events from it reach the
+        // log). It is not isolated to an actor here, so it still runs off the
+        // main thread, and at the default priority a detached task had: a Task
+        // takes its creator's, which is the main thread's, and a model load
+        // should not.
+        Task(priority: .medium) { [weak self] in
             let began = Date()
             let whole: Bool
             do {
@@ -261,7 +267,8 @@ final class EarHost {
     /// copy of the same weights prepared.
     private func loadModels() {
         guard let model = cleanup else { return }
-        if let draftModel { Task.detached { await draftModel.load() } } else if sharesEditor(model) { prepareShared() }
+        // As in `warm`: an ordinary Task, at the priority a detached one had.
+        if let draftModel { Task(priority: .medium) { await draftModel.load() } } else if sharesEditor(model) { prepareShared() }
     }
 
     /// The draft closed: the ear lets its memory go after a while, and the

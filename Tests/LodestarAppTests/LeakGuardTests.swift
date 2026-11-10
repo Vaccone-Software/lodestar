@@ -65,11 +65,11 @@ final class LeakGuardTests: XCTestCase {
         XCTAssertEqual(CommonWords.frequentListURL, installed, "put back")
     }
 
-    /// A closure answers nothing a test could read off it, so these four are
-    /// not watched at run time. The stage sets and restores the pointer's; the
+    /// A closure (or a clock) answers nothing a test could read off it, so
+    /// these are not watched at run time. The stage sets and restores the pointer's; the
     /// rest are set through `setOverride`, which puts them back.
     func testNoTestAssignsAStaticTheGuardCannotWatchExceptThroughAnOverride() throws {
-        let unwatched = ["Pointer.post", "Sounds.play", "FileSense.thumbnailer", "FileSense.dataless", "FileSense.wait"]
+        let unwatched = ["Pointer.post", "Sounds.play", "FileSense.thumbnailer", "FileSense.dataless", "FileSense.clock"]
         let patterns = try unwatched.map { ($0, try NSRegularExpression(pattern: "(?<![A-Za-z0-9_.])\($0)\\s*=[^=]")) }
         let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let exempt: Set<String> = ["Stage.swift", "Overrides.swift", "LeakRegistry.swift", "LeakGuardTests.swift"]

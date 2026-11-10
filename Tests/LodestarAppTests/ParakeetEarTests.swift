@@ -96,6 +96,72 @@ final class ParakeetEarTests: XCTestCase {
         }
     }
 
+    // MARK: - Hearing the windows
+
+    /// Window decodes standing in for Core ML's: each blocks its thread for a
+    /// moment, as a prediction does, and says how many were under way.
+    private final class Hearing: @unchecked Sendable {
+        private let lock = NSLock()
+        private var running = 0
+        private var _peak = 0
+        private var _started: [Int] = []
+        var peak: Int { lock.withLock { _peak } }
+        var started: [Int] { lock.withLock { _started } }
+
+        /// The tokens a window would give: its own start frame, so the order
+        /// of the results says which window each came from.
+        static func tokens(_ window: ParakeetSeams.Window) -> [ParakeetToken] {
+            [ParakeetToken(window.start % 13, frame: window.start / ParakeetTiming.samplesPerFrame),
+             ParakeetToken(window.end % 13, frame: window.end / ParakeetTiming.samplesPerFrame)]
+        }
+
+        func decode(_ window: ParakeetSeams.Window) -> [ParakeetToken] {
+            lock.withLock { running += 1; _peak = max(_peak, running); _started.append(window.start) }
+            Thread.sleep(forTimeInterval: 0.03)
+            lock.withLock { running -= 1 }
+            return Self.tokens(window)
+        }
+    }
+
+    /// Eight windows is two minutes of held phrase. They come back in the
+    /// windows' order and are what a serial decode of them is, whichever
+    /// finished first, and no more than the limit are under way at once.
+    func testALongPhraseIsHeardAFewWindowsAtATimeAndComesBackInOrder() async throws {
+        let windows = ParakeetSeams.windows(total: 8 * ParakeetSeams.windowSamples)
+        XCTAssertGreaterThanOrEqual(windows.count, 8)
+        let hearing = Hearing()
+        let heard = try await ParakeetSeams.hear(windows, decode: hearing.decode)
+        XCTAssertEqual(heard, windows.map(Hearing.tokens), "in the windows' order, as a serial decode gives them")
+        XCTAssertLessThanOrEqual(hearing.peak, ParakeetSeams.hearingLimit, "never more than the limit at once")
+        XCTAssertGreaterThanOrEqual(hearing.peak, min(2, ProcessInfo.processInfo.activeProcessorCount),
+                                    "and they do overlap: the limit is a bound, not a serial queue")
+    }
+
+    func testTheLimitIsTheCallersToLower() async throws {
+        let windows = ParakeetSeams.windows(total: 5 * ParakeetSeams.windowSamples)
+        let hearing = Hearing()
+        _ = try await ParakeetSeams.hear(windows, limit: 1, decode: hearing.decode)
+        XCTAssertEqual(hearing.peak, 1)
+    }
+
+    /// A window that fails ends the hearing with its own error, as the task
+    /// group it replaces threw it, and the windows after it are not begun.
+    func testAWindowThatFailsEndsTheHearingWithItsOwnError() async {
+        struct Boom: Error, Equatable {}
+        let windows = ParakeetSeams.windows(total: 10 * ParakeetSeams.windowSamples)
+        let hearing = Hearing()
+        do {
+            _ = try await ParakeetSeams.hear(windows, limit: 2) { window in
+                if window.start == windows[1].start { throw Boom() }
+                return hearing.decode(window)
+            }
+            XCTFail("a failed window is a failed phrase")
+        } catch {
+            XCTAssertTrue(error is Boom, "the window's own error, not a wrapper: \(error)")
+        }
+        XCTAssertLessThan(hearing.started.count, windows.count - 1, "the rest were not all begun")
+    }
+
     // MARK: - Joining two windows
 
     func testTheOverlapIsHeardOnce() {

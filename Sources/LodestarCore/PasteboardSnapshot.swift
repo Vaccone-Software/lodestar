@@ -1,14 +1,16 @@
 import AppKit
 import Foundation
+import Stoic
+import StoicXPC
 
 /// What a copy put on the board, read in one pass: every item's types,
 /// its plain text, its file address and the bytes of each richer form,
 /// with the board's change count at the read. It is what the clipboard
 /// reader (an XPC service in the app's bundle) answers, so it is plain
-/// data: AppKit's pasteboard is main-thread only, and a lazily provided
-/// type (a promise, a Finder file, a copy from another device) can make a
-/// read wait seconds on the app or network behind it, so the read happens
-/// on the service's main thread, never on the app's.
+/// data: AppKit's pasteboard is read on one queue only, and a lazily
+/// provided type (a promise, a Finder file, a copy from another device) can
+/// make a read wait seconds on the app or network behind it, so the read
+/// happens on the service's main queue, never on the app's.
 public struct PasteboardSnapshot: Codable, Sendable, Equatable {
     public struct Native: Codable, Sendable, Equatable {
         public var type: String
@@ -80,19 +82,14 @@ public struct PasteboardReadRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// The reader's XPC interface. Requests and answers cross as property
-/// lists of the Codable types above.
-@objc public protocol PasteboardReaderXPC {
-    func read(_ request: Data, reply: @escaping @Sendable (Data?) -> Void)
-}
-
 public enum PasteboardRead {
     /// The XPC service's bundle identifier, in `Contents/XPCServices`.
     public static let serviceName = "com.vaccone.lodestar.clipboard-reader"
 
     /// The board read in one pass: types for every item first, so one
     /// concealed item conceals the whole copy before any content is read.
-    /// Main thread only, as AppKit's pasteboard is.
+    /// On one queue only, as AppKit's pasteboard is: the app's main thread in
+    /// process, the service's main queue in the reader.
     public static func snapshot(of board: NSPasteboard, sourceBundleID: String?,
                                 excludedApps: Set<String>) -> PasteboardSnapshot {
         let changeCount = board.changeCount
@@ -129,52 +126,66 @@ public enum PasteboardRead {
     }
 }
 
-/// The object the XPC service exports. Each read runs on the service's
-/// main thread. A read that has not answered by `wedgedAfter` ends the
-/// service (`onWedged`): a client cannot end a service, and one whose main
-/// thread is stuck would hold every later read behind it, so the service
-/// ends itself, the client hears of it through its error handler, and
-/// launchd starts a fresh one for the next message.
-public final class PasteboardReaderService: NSObject, PasteboardReaderXPC, @unchecked Sendable {
-    public static let wedgedAfter: TimeInterval = 10
+// MARK: - The service
 
-    private let wedgedAfter: TimeInterval?
-    private let onWedged: @Sendable () -> Void
+extension Backend {
+    /// The clipboard reader: one read at a time is all the board can give.
+    public static let clipboardReader = Backend.system("clipboard.reader")
+}
 
-    public init(wedgedAfter: TimeInterval? = PasteboardReaderService.wedgedAfter,
-                onWedged: @escaping @Sendable () -> Void = { exit(1) }) {
-        self.wedgedAfter = wedgedAfter
-        self.onWedged = onWedged
+/// The clipboard reader's one method, declared for the app and the service.
+///
+/// A read changes nothing on the board (a lazily provided type is asked of
+/// its owner, and the board's change count does not move), so it is
+/// `readOnly`: a read lost with its service is made again by the next one,
+/// which is the clipboard's own wish, a copy read late rather than lost.
+/// It is `.long`, so the attempt is bounded by the call's deadline and not
+/// by a two-second attempt timeout a copy from another device would miss:
+/// the deadline a `system` backend gives a long call at interactive urgency
+/// is fifteen seconds (design/22), the reader's, so no timer here counts it.
+///
+/// A read its caller gave up on and that has not answered means the
+/// service's main thread is stuck inside the board (a lazily provided type
+/// whose owner never answers): the service holds nothing worth keeping and
+/// no client can unstick it, so the service is ended the moment the caller
+/// leaves (`.zero`). The host's watchdog is the same decision from inside, for
+/// a sandbox that cannot be signalled.
+public enum PasteboardReaderAPI {
+    public static let read = XPCMethod<PasteboardReadRequest, PasteboardSnapshot, Never>(
+        Backend.clipboardReader.readOnly("read", length: .long), ifStuck: .endService(after: .zero))
+}
+
+/// The handler the clipboard reader's host runs: each read happens on the
+/// main dispatch queue, where AppKit's pasteboard is read.
+///
+/// Under `XPCHost.run()` the process's main thread is parked in
+/// `dispatchMain()`, which services the main *queue* and runs no run loop
+/// (measured: the queue's blocks run on a worker thread, `Thread.isMainThread`
+/// is false there, and a read of a type another process provides lazily
+/// still completes). What matters to the board is that every access is
+/// serialized on one queue, as it was on the main thread before.
+///
+/// The read waits for the queue and does not stop for its caller's
+/// cancellation: a read wedged in the board stays unanswered, which is what
+/// the host's watchdog and the app's `ifStuck` look for.
+public final class PasteboardReaderService: Sendable {
+    /// Reads the request's board and says what is on it.
+    public typealias Reader = @Sendable (PasteboardReadRequest) -> PasteboardSnapshot
+
+    public static let systemRead: Reader = { request in
+        let board = NSPasteboard(name: NSPasteboard.Name(request.boardName))
+        return PasteboardRead.snapshot(of: board, sourceBundleID: request.sourceBundleID,
+                                       excludedApps: Set(request.excludedApps))
     }
 
-    public func read(_ request: Data, reply: @escaping @Sendable (Data?) -> Void) {
-        guard let request = try? PropertyListDecoder().decode(PasteboardReadRequest.self, from: request) else {
-            return reply(nil)
-        }
-        let answered = Answered()
-        if let wedgedAfter {
-            let onWedged = self.onWedged
-            DispatchQueue.global().asyncAfter(deadline: .now() + wedgedAfter) {
-                if !answered.value { onWedged() }
+    /// - Parameters:
+    ///   - queue: Where the board is read: the main queue in the service.
+    ///   - read: What a read does on it; a test's own to see where it ran.
+    public init(host: XPCHost, queue: DispatchQueue = .main, read: @escaping Reader = PasteboardReaderService.systemRead) {
+        host.handle(PasteboardReaderAPI.read) { request, _ in
+            await withCheckedContinuation { continuation in
+                queue.async { continuation.resume(returning: read(request)) }
             }
-        }
-        DispatchQueue.main.async {
-            let board = NSPasteboard(name: NSPasteboard.Name(request.boardName))
-            let snapshot = PasteboardRead.snapshot(of: board, sourceBundleID: request.sourceBundleID,
-                                                   excludedApps: Set(request.excludedApps))
-            answered.value = true
-            let encoder = PropertyListEncoder()
-            encoder.outputFormat = .binary
-            reply(try? encoder.encode(snapshot))
-        }
-    }
-
-    private final class Answered: @unchecked Sendable {
-        private let lock = NSLock()
-        private var answered = false
-        var value: Bool {
-            get { lock.withLock { answered } }
-            set { lock.withLock { answered = newValue } }
         }
     }
 }

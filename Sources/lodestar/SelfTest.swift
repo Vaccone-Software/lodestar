@@ -159,7 +159,7 @@ enum SelfTest {
         let text = "self-test \(UUID().uuidString)"
         board.clearContents()
         board.setString(text, forType: .string)
-        let reader = XPCPasteboardReader(boardName: board.name.rawValue, deadline: timeout)
+        let reader = XPCPasteboardReader(boardName: board.name.rawValue)
         var answer: PasteboardSnapshot??
         let started = Date()
         reader.read(sourceBundleID: nil, excludedApps: []) { answer = .some($0) }

@@ -3210,9 +3210,7 @@ if cliArguments.contains("clipboard") {
         }
         // A running instance holds the index in memory; tell it too, and wake it.
         ClipboardStore.requestClearOnDisk()
-        if let raw = try? String(contentsOf: Paths.pidFile, encoding: .utf8),
-           let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-           kill(pid, 0) == 0 {
+        if let pid = runningLodestar() {
             kill(pid, SIGUSR2)
         }
         exit(0)

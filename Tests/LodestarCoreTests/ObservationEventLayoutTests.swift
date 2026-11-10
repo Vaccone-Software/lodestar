@@ -198,4 +198,16 @@ final class ObservationEventLayoutTests: XCTestCase {
         XCTAssertEqual(try encoded(bare), Data(#"{"app":"Slack","kind":"focus","t":1700000000}"#.utf8),
                        "an event with nothing out of line writes only what is set")
     }
+
+    /// The event's coding is written out by hand (its large columns live
+    /// behind pointers, and one group of them behind a single pointer), so a
+    /// column added to the struct is not coded until it is added to
+    /// `CodingKeys`, `init(from:)` and `encode(to:)` as well: it would be
+    /// dropped on its way to disk and nothing would say so. This count is the
+    /// tripwire. When it fails, add the new column to all three and to the
+    /// every-column fixture above, then change the count.
+    func testAColumnAddedToTheEventMustBeAddedToItsCoding() {
+        let stored = Mirror(reflecting: ObservationEvent(t: Date(timeIntervalSince1970: 0), kind: .focus)).children.count
+        XCTAssertEqual(stored, 71, "stored properties of ObservationEvent: 65 columns held in the struct and 6 pointers to the 25 that are not")
+    }
 }

@@ -67,7 +67,7 @@ final class ClipboardController {
         // Said once, a few seconds after the launch's own flash: a history that
         // had to be moved aside is not a thing to learn from a log.
         store.onNotice = { [weak self] text in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self?.flash("⚠ \(text)") }
+            onMain(after: .seconds(3)) { [weak self] in self?.flash("⚠ \(text)") }
         }
     }
 
@@ -111,7 +111,7 @@ final class ClipboardController {
         poll?.tolerance = 0.1
         // The screenshots already in the history learn their captions
         // once, well after boot has settled and off the main thread.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+        onMain(after: .seconds(30)) { [weak self] in
             self?.store.captionImagesLackingText()
             self?.store.backfillCounts()
         }
@@ -666,7 +666,7 @@ final class ClipboardController {
         up?.flags = flags
         // A beat for the pasteboard to settle: some apps read it lazily, and
         // a paste that lands first inserts the previous clip.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+        onMain(after: .milliseconds(20)) {
             SystemEvents.post(down, tap: .cgSessionEventTap)
             SystemEvents.post(up, tap: .cgSessionEventTap)
         }

@@ -48,7 +48,7 @@ final class Prewarmer {
     private var model = NextApp()
     private var strategy: NextApp.Strategy = .blend
     private var tuning = NextApp.Tuning()
-    private var pending: DispatchWorkItem?
+    private var pending: Task<Void, Never>?
     /// Stamped at init so the first refresh is the boot's, after its
     /// delay — not the first focus change during launch.
     private var seededAt = ContinuousClock.now
@@ -64,15 +64,13 @@ final class Prewarmer {
     func focused(app: String) {
         model.observe(app)
         pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.warmPredicted() }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settle, execute: work)
+        pending = onMain(after: .seconds(Self.settle)) { [weak self] in self?.warmPredicted() }
         if seededAt.secondsElapsed >= Self.seedInterval { refresh() }
     }
 
     /// Seed the model from the ring after boot, then keep it tuned.
     func boot() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.bootDelay) { [weak self] in
+        onMain(after: .seconds(Self.bootDelay)) { [weak self] in
             self?.refresh()
         }
     }

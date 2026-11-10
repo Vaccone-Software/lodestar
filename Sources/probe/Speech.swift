@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Speech
+import Stoic
 
 /// `probe speech` — the questions the draft's shape depends on, asked of
 /// the macOS 26 Speech framework before a line of the bar is written:
@@ -137,7 +138,7 @@ final class SpeechProbe: @unchecked Sendable {
                 let ticker = Task {
                     while !Task.isCancelled {
                         // The sleep throws only CancellationError: the ticker was cancelled.
-                        do { try await Task.sleep(for: .seconds(2)) } catch { break }
+                        do { try await Ambient.sleep(for: .seconds(2)) } catch { break }
                         self.log(String(format: "  %.0f%%", progress.fractionCompleted * 100))
                     }
                 }
@@ -184,7 +185,12 @@ final class SpeechProbe: @unchecked Sendable {
         } else { return }
 
         // 5. audio
-        let (stream, cont) = AsyncStream<AnalyzerInput>.makeStream()
+        // Bounded for a recognizer that stops taking audio: the file is paced
+        // at real time and the microphone is live, so a healthy run keeps the
+        // buffer nearly empty, and a wedged one drops the oldest past 4096
+        // converted buffers (a minute and a half of the shortest the tap
+        // delivers) instead of growing for the length of the run.
+        let (stream, cont) = AsyncStream<AnalyzerInput>.makeStream(bufferingPolicy: .bufferingNewest(4096))
         continuation = cont
         try await analyzer.start(inputSequence: stream)
         if let file {
@@ -196,18 +202,18 @@ final class SpeechProbe: @unchecked Sendable {
 
         if file != nil {
             // The file has been streamed; give the analyzer a beat.
-            try await Task.sleep(for: .milliseconds(500))
+            try await Ambient.sleep(for: .milliseconds(500))
         } else if cycle {
-            try await Task.sleep(for: .seconds(seconds * 0.4))
+            try await Ambient.sleep(for: .seconds(seconds * 0.4))
             log("— stopping the audio engine (normal-mode silence) —")
             stopEngine()
-            try await Task.sleep(for: .seconds(1.5))
+            try await Ambient.sleep(for: .seconds(1.5))
             restartAt = ContinuousClock.now
             log("— restarting the audio engine —")
             try startEngine()
-            try await Task.sleep(for: .seconds(seconds * 0.6))
+            try await Ambient.sleep(for: .seconds(seconds * 0.6))
         } else {
-            try await Task.sleep(for: .seconds(seconds))
+            try await Ambient.sleep(for: .seconds(seconds))
         }
 
         // 6. finish
@@ -216,7 +222,7 @@ final class SpeechProbe: @unchecked Sendable {
         let finStart = ContinuousClock.now
         try await analyzer.finalizeAndFinishThroughEndOfInput()
         log(String(format: "finalize took %.0fms", finStart.secondsElapsed * 1000))
-        try await Task.sleep(for: .milliseconds(300))
+        try await Ambient.sleep(for: .milliseconds(300))
         resultsTask.cancel()
         summary()
     }
@@ -254,7 +260,7 @@ final class SpeechProbe: @unchecked Sendable {
             // Real-time pacing: sleep until the wall clock catches up with the audio clock.
             let audioClock = Double(streamedFrames) / audio.processingFormat.sampleRate
             let ahead = audioClock - wall.secondsElapsed
-            if ahead > 0 { try await Task.sleep(for: .milliseconds(Int(ahead * 1000))) }
+            if ahead > 0 { try await Ambient.sleep(for: .milliseconds(Int(ahead * 1000))) }
         }
         log("file streamed")
     }

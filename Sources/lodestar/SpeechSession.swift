@@ -749,7 +749,7 @@ final class AudioInput: @unchecked Sendable {
                 rebuild(attempt: 1, session: session)
                 return
             }
-            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in
+            after(.milliseconds(650), on: queue) { [weak self] in
                 self?.restart(attempt: attempt + 1, session: session)
             }
         }
@@ -779,7 +779,7 @@ final class AudioInput: @unchecked Sendable {
             // here is a session with no microphone: it is told, and the
             // draft asks again from the top.
             guard attempt < 4 else { lose(inFlight.lost); return }
-            queue.asyncAfter(deadline: .now() + 0.65) { [weak self] in
+            after(.milliseconds(650), on: queue) { [weak self] in
                 self?.rebuild(attempt: attempt + 1, session: session)
             }
         }
@@ -824,7 +824,7 @@ final class AudioInput: @unchecked Sendable {
     /// most right after the launch warm-up; five minutes outlasts any
     /// notice in flight by far, and at most a few engines wait at once.
     private func retire(_ engine: AVAudioEngine) {
-        queue.asyncAfter(deadline: .now() + Self.retirement) { withExtendedLifetime(engine) {} }
+        after(.seconds(Self.retirement), on: queue) { withExtendedLifetime(engine) {} }
     }
     static let retirement: TimeInterval = 300
 
@@ -1289,7 +1289,7 @@ final class AudioInput: @unchecked Sendable {
     /// not rebuild forever.
     private func watchForSilence(generation: Int) {
         let window = deafnessWindow
-        queue.asyncAfter(deadline: .now() + window) { [weak self] in
+        after(.seconds(window), on: queue) { [weak self] in
             guard let self else { return }
             let watching = self.engineGeneration == generation && self.inFlight != nil
                 && self.engine?.isRunning == true
@@ -1553,7 +1553,18 @@ private actor AnalyzerBox {
             }
         }
 
-        let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
+        // The analyzer takes audio about as fast as the microphone gives it,
+        // so the buffer is nearly always empty. It is bounded for the one
+        // case where it is not: a recognizer that has wedged, whose backlog
+        // would otherwise grow with the session for as long as it stays
+        // open. 4096 converted buffers is a minute and a half of the shortest
+        // the tap delivers (1024 frames at 48 kHz), a few megabytes in all.
+        // Past that the oldest are dropped, since what the person is saying
+        // now matters more than what they said a minute and a half ago into
+        // a recognizer that never heard it, and the drop is counted and
+        // logged by `AudioFeed`.
+        let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream(
+            bufferingPolicy: .bufferingNewest(AudioFeed.backlogLimit))
         self.continuation = continuation
         guard let outFormat = format else { say(.failed("the recognizer has no audio format")); return }
         do {
@@ -1776,6 +1787,7 @@ private actor AnalyzerBox {
         stopOwnBridge()
         if let feed {
             Log.info("draft", ["speech": "audio summary", "buffers": feed.buffers,
+                               "dropped": feed.dropped,
                                "peakDb": Int(20 * log10(max(feed.peak, 1e-7)))])
         }
         continuation?.finish()
@@ -1930,7 +1942,12 @@ final class BridgeMic: @unchecked Sendable {
         }
         return Opened(pause: { AudioQueuePause(aq) }, resume: { AudioQueueStart(aq, nil) }, stop: {
             AudioQueueStop(aq, true)
-            queue.asyncAfter(deadline: .now() + AudioInput.retirement) { AudioQueueDispose(aq, true) }
+            // The queue travels as its address: a pointer is not Sendable,
+            // and the dispose is the only thing that touches it, on `queue`.
+            let address = UInt(bitPattern: aq)
+            after(.seconds(AudioInput.retirement), on: queue) {
+                if let aq = AudioQueueRef(bitPattern: address) { AudioQueueDispose(aq, true) }
+            }
         })
     }
 
@@ -2074,6 +2091,12 @@ private final class AudioFeed: @unchecked Sendable {
     /// how loud the loudest moment was.
     private(set) var buffers = 0
     private(set) var peak: Float = 0
+    /// Buffers the stream let go of because the recognizer was that far
+    /// behind. Owned by the tap's thread, like the rest.
+    private(set) var dropped = 0
+
+    /// How many converted buffers the recognizer's stream holds.
+    static let backlogLimit = 4096
 
     private let held: HeldAudio
 
@@ -2106,7 +2129,12 @@ private final class AudioFeed: @unchecked Sendable {
             return buffer
         }
         if error == nil, out.frameLength > 0 {
-            continuation.yield(AnalyzerInput(buffer: out))
+            if case .dropped = continuation.yield(AnalyzerInput(buffer: out)) {
+                dropped += 1
+                if dropped == 1 {
+                    Log.info("draft", ["speech": "the recognizer is behind", "backlog": Self.backlogLimit])
+                }
+            }
             hold(out)
         }
     }

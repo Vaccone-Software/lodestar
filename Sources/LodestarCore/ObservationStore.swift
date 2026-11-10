@@ -49,7 +49,7 @@ public final class ObservationStore {
     /// both (`allEvents`); the coach reads only `log`.
     public let healthLog: EventLog
     public private(set) var observations = Observations()
-    private var pendingSave: DispatchWorkItem?
+    private var pendingSave: Task<Void, Never>?
     private var enabled = true
     /// Where the coalesced save encodes and writes. `Observations` is a
     /// value, so the work item carries a snapshot and the main thread is
@@ -814,8 +814,11 @@ public final class ObservationStore {
 
     private func saveSoon() {
         guard pendingSave == nil else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+        let store = MainQueueOnly(value: WeakRef(self))
+        // Longer than the state store's half second: nothing here is worth
+        // losing sleep over if a crash takes the last few events with it.
+        pendingSave = onMain(after: .seconds(5)) {
+            guard let self = store.value.object else { return }
             self.pendingSave = nil
             self.log.flushSoon()
             guard self.enabled else { return }
@@ -828,10 +831,6 @@ public final class ObservationStore {
             let (view, blocked, file) = (self.viewFile, self.viewBlocked, self.file)
             self.saveQueue.async { Self.write(snapshot, to: view, at: file, blocked: blocked) }
         }
-        pendingSave = work
-        // Longer than the state store's half second: nothing here is worth
-        // losing sleep over if a crash takes the last few events with it.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
     }
 
     /// Runs on `saveQueue` only; the enabled check already happened on

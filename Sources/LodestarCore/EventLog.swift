@@ -1,4 +1,5 @@
 import Foundation
+import Stoic
 import StoicStore
 import Stoic
 import StoicTime
@@ -737,12 +738,12 @@ public final class EventLog: @unchecked Sendable {
     private let state = NSLock()
     private var _behavioralBound = Retention.behavioralBytes
     private var _excludedFromBackup = true
-    private var flushWork: DispatchWorkItem?
+    private var flushWork: Task<Void, Never>?
 
     /// Takes the scheduled flush, if there is one, off the books and
     /// cancels it.
     private func cancelScheduledFlush() {
-        state.withLock { () -> DispatchWorkItem? in
+        state.withLock { () -> Task<Void, Never>? in
             defer { flushWork = nil }
             return flushWork
         }?.cancel()
@@ -1410,13 +1411,17 @@ public final class EventLog: @unchecked Sendable {
     }
 
     private func scheduleFlush() {
-        let work = state.withLock { () -> DispatchWorkItem? in
-            guard flushWork == nil else { return nil }
-            let item = DispatchWorkItem { [weak self] in self?.flushSoon() }
-            flushWork = item
-            return item
+        // The delay is a task this log owns: `flushSoon` takes it off the
+        // books and cancels it, and a cancelled sleep flushes nothing. The
+        // flush only hands the write to `io`, so it needs no particular
+        // thread.
+        state.withLock {
+            guard flushWork == nil else { return }
+            flushWork = Task { [weak self] in
+                do { try await Ambient.sleep(for: .seconds(5)) } catch { return }
+                self?.flushSoon()
+            }
         }
-        if let work { DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work) }
     }
 }
 

@@ -85,14 +85,14 @@ enum StripPreview {
             // what a standing surface does when the look changes under it.
             if ProcessInfo.processInfo.environment["LODESTAR_FLIP"] != nil {
                 let to: NSAppearance.Name = StageView.light ? .darkAqua : .aqua
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                onMain(after: .seconds(3)) {
                     app.appearance = NSAppearance(named: to)
                     StageView.light = to == .aqua
                     Ceramic.followSystemAppearance()
                     for window in app.windows { window.contentView?.needsDisplay = true }
                     if ProcessInfo.processInfo.environment["LODESTAR_FLIP"] == "trace" {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                            func walk(_ view: NSView, _ depth: Int) {
+                        onMain(after: .seconds(1)) {
+                            @MainActor func walk(_ view: NSView, _ depth: Int) {
                                 if view is ToneView {
                                     let c = view.layer?.backgroundColor?.components ?? []
                                     FileHandle.standardError.write("tone \(view.effectiveAppearance.name.rawValue) \(c)\n".data(using: .utf8)!)

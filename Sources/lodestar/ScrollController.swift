@@ -153,7 +153,7 @@ final class ScrollController {
     /// gate the mode.
     private func retryDiscovery(generation: Int, began: ContinuousClock.Instant, attempts: Int) {
         guard discoveryGeneration == generation, attempts < 16 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+        onMain(after: .milliseconds(250)) { [weak self] in
             guard let self, self.discoveryGeneration == generation else { return }
             guard let focused = self.model.focusedWindowNow() else {
                 self.retryDiscovery(generation: generation, began: began,
@@ -362,11 +362,9 @@ final class ScrollController {
             // Fallback for panes without a settable scrollbar: a glide of small
             // deltas — safely inside the small-delta regime — spread over time.
             let chunk: Int32 = bottom ? 800 : -800
-            for i in 0..<150 {
-                let work = DispatchWorkItem { [weak self] in self?.postVertical(chunk) }
-                self.glideWork.append(work)
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.012, execute: work)
-            }
+            self.glideWork.append(onMain(every: .milliseconds(12), times: 150) { [weak self] in
+                self?.postVertical(chunk)
+            })
         }
     }
 
@@ -385,15 +383,13 @@ final class ScrollController {
                 return
             }
             let chunk: Int32 = left ? -800 : 800
-            for i in 0..<150 {
-                let work = DispatchWorkItem { [weak self] in self?.postHorizontal(chunk) }
-                self.glideWork.append(work)
-                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.012, execute: work)
-            }
+            self.glideWork.append(onMain(every: .milliseconds(12), times: 150) { [weak self] in
+                self?.postHorizontal(chunk)
+            })
         }
     }
 
-    private var glideWork: [DispatchWorkItem] = []
+    private var glideWork: [Task<Void, Never>] = []
 
     private func cancelGlide() {
         glideWork.forEach { $0.cancel() }

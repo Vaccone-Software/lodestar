@@ -111,7 +111,7 @@ enum NextSheet {
         held.append(bar)
         guard sheet else { return }
         let delay: TimeInterval = env("ANIMATE", "") == "1" ? 1.5 : 0
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+        onMain(after: .seconds(delay)) {
             bar.toggleKeys(HotkeyEngine.askSections)
         }
     }
@@ -131,7 +131,7 @@ enum NextSheet {
             GuideRow(key: "esc", label: "Leave"),
         ]), HotkeyEngine.everywhereSection]
         let delay: TimeInterval = env("ANIMATE", "") == "1" ? 1.5 : 0
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+        onMain(after: .seconds(delay)) {
             pill.toggleKeys(sections)
         }
     }

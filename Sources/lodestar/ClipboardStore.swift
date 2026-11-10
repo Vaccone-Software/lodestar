@@ -69,8 +69,8 @@ final class ClipboardStore {
     }
     private var refs: [String: Ref] = [:]
     private var pendingOps: [ClipboardOp] = []
-    private var pendingSave: DispatchWorkItem?
-    private var compactionWork: DispatchWorkItem?
+    private var pendingSave: Task<Void, Never>?
+    private var compactionWork: Task<Void, Never>?
     /// A delete whose key has not been rotated away yet.
     private var deletionOwed = false
     /// Folds that have finished (rotating the key), for the tests.
@@ -354,13 +354,11 @@ final class ClipboardStore {
     /// burst of writes.
     private func saveSoon() {
         guard pendingSave == nil else { return }
-        let work = DispatchWorkItem { [weak self] in
+        pendingSave = onMain(after: .milliseconds(500)) { [weak self] in
             guard let self else { return }
             self.pendingSave = nil
             self.saveNow()
         }
-        pendingSave = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     private func commit(_ op: ClipboardOp) {
@@ -397,13 +395,11 @@ final class ClipboardStore {
                 Log.error("clipboard: \(todo.count) changes were not written — the history is not open")
             case .failed(let why):
                 Log.error("clipboard: \(todo.count) changes could not be written (\(why)) — tried again shortly")
-                let store = self
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard let store = self else { return }
                     store.pendingOps.insert(contentsOf: todo, at: 0)
                     store.pendingSave?.cancel()
-                    let work = DispatchWorkItem { [weak store] in store?.saveNow() }
-                    store.pendingSave = work
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+                    store.pendingSave = onMain(after: .seconds(5)) { [weak store] in store?.saveNow() }
                 }
             }
         }
@@ -413,9 +409,7 @@ final class ClipboardStore {
 
     private func scheduleCompaction(after delay: TimeInterval) {
         compactionWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.compactNow() }
-        compactionWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        compactionWork = onMain(after: .seconds(delay)) { [weak self] in self?.compactNow() }
     }
 
     /// Main. The log is folded into a snapshot on the io queue, **rotating the
@@ -806,7 +800,7 @@ final class ClipboardStore {
         guard prunesGoneFiles, !pruneScheduled || pruneDue.map({ due < $0 }) ?? true else { return }
         pruneScheduled = true
         pruneDue = due
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        onMain(after: .seconds(delay)) { [weak self] in
             guard let self, let planned = self.pruneDue, planned <= ContinuousClock.now + .seconds(0.05) else { return }
             self.pruneScheduled = false
             self.pruneDue = nil
@@ -1273,7 +1267,7 @@ final class ClipboardStore {
     private func refreshSoon() {
         guard !refreshPending else { return }
         refreshPending = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+        onMain(after: .milliseconds(30)) { [weak self] in
             self?.refreshPending = false
             self?.onThumbnail?()
         }

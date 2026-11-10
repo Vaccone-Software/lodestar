@@ -335,7 +335,7 @@ final class SelectController {
             // The words decide the chips, and a window may have none to
             // read — an image, a canvas, a tree that never answers. The
             // chips are not held hostage to a world that is not coming.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            onMain(after: .milliseconds(400)) { [weak self] in
                 guard let self, self.generation == expected, self.door == .click,
                       !self.entryChipsSettled else { return }
                 self.labelEntry(force: true)
@@ -750,7 +750,7 @@ final class SelectController {
     private func relabelEditor(after delay: Double) {
         let expected = generation
         pendingRelabels += 1
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        onMain(after: .seconds(delay)) { [weak self] in
             guard let self else { return }
             self.pendingRelabels -= 1
             guard self.generation == expected, self.door == .editor, let editor = self.editor else { return }
@@ -875,7 +875,7 @@ final class SelectController {
             hold.landed = true
             self.drain(hold)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleLimit, execute: lift)
+        onMain(after: .seconds(Self.settleLimit)) { lift() }
         return lift
     }
 
@@ -1264,7 +1264,7 @@ final class SelectController {
     func rescanClick() {
         if door == .editor { relabelEditor(after: 0.35); return }
         let expected = generation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        onMain(after: .milliseconds(500)) { [weak self] in
             guard let self, self.generation == expected else { return }
             _ = self.enter(door: .click, sticky: true)
         }
@@ -1526,7 +1526,7 @@ final class SelectController {
         let before = SystemEvents.pasteboard.changeCount
         // ⌘C once the app has taken the mouse-up, then a short watch for
         // the pasteboard to move.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
+        onMain(after: .milliseconds(90)) { [weak self] in
             guard let self, self.copyGeneration == token else { return }
             Self.postCopy()
             self.awaitAppCopy(attempt, token: token, before: before, polls: 0, began: began)
@@ -1557,7 +1557,7 @@ final class SelectController {
             settleCopy(attempt, token: token, began: began)
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        onMain(after: .milliseconds(50)) { [weak self] in
             self?.awaitAppCopy(attempt, token: token, before: before, polls: polls + 1, began: began)
         }
     }
@@ -1665,7 +1665,7 @@ final class SelectController {
         }
         let origin = Pointer.location()
         Pointer.post(SyntheticPointer.drag(from: start, to: end))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+        onMain(after: .milliseconds(60)) {
             Pointer.post(SyntheticPointer.home(origin))
         }
         return true
@@ -2076,7 +2076,7 @@ final class SelectController {
                 let unsettled = attempt < 5 && found.count != self.lastPassLeaves
                 self.lastPassLeaves = found.count
                 if unsettled {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                    onMain(after: .milliseconds(350)) { [weak self] in
                         guard let self, self.generation == expected else { return }
                         guard let window = self.model.focusedWindow, window.isAlive else { return }
                         self.harvest(window: window, generation: expected,

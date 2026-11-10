@@ -226,7 +226,7 @@ public final class WindowModel {
                   app.activationPolicy == .regular else { return }
             // A freshly launched app needs a moment to stand up its AX tree.
             let info = AppInfo(app)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            onMain(after: .milliseconds(600)) {
                 model.value.object?.attach(info, seeding: false)
             }
         })

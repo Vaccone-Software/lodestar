@@ -511,7 +511,7 @@ public final class LayoutController {
             for id in members { self.model.refreshFrame(id) }
             self.settle(placed, on: display, generation: generation)
             let controller = MainQueueOnly(value: WeakRef(self))
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            onMain(after: .milliseconds(150)) {
                 controller.value.object?.correctivePass(on: display, generation: generation)
             }
         }

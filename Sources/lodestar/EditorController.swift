@@ -129,6 +129,11 @@ final class EditorController: EditorLens {
     /// Every mark's life, so each ends in one outcome in the record: shown
     /// only if it stood, and counted once however the text around it moves.
     private var ledger = EditorMarkLedger()
+    /// The ledgers of fields the hand has left with marks standing, for its
+    /// return (`EditorMarkShelf`).
+    private var shelf = EditorMarkShelf()
+    /// How many left fields are waiting on the shelf for the hand's return.
+    var parkedFields: Int { shelf.count }
     /// When the last read of the field answered, and when the reads that
     /// followed stopped: a field that answers nothing for a moment and then
     /// answers again is the same field, and its state is kept through it.
@@ -242,6 +247,7 @@ final class EditorController: EditorLens {
         pressure?.cancel()
         pressure = nil
         clearField()
+        record(shelf.drain(at: clock.now()))
         queue = []
         // In flight too: a sentence left there is never asked again after
         // the editor comes back on, because the drain skips what it holds.
@@ -296,6 +302,7 @@ final class EditorController: EditorLens {
     /// One read: the focused field, off the main thread, taken on it. A
     /// read already on its way answers this call too. Main thread.
     func poll() {
+        record(shelf.expire(at: clock.now()))
         guard !readQueued else {
             readAgain = true
             return
@@ -344,12 +351,16 @@ final class EditorController: EditorLens {
                             "max-ms": Int(s.max.rounded()), "total-ms": Int(s.totalMs.rounded())])
     }
 
-    /// Nothing to read: every mark and card about the last field goes, and
-    /// each mark still standing ends as left.
+    /// Nothing to read: every mark and card about the last field goes. The
+    /// marks still standing are not ended: the hand may come back to the
+    /// field, and its ledger waits on the shelf for it. The marks came
+    /// down when the field went silent, not now: a mark stood only while
+    /// it was drawn.
     private func clearField() {
-        // The marks came down when the field went silent, not now: a mark
-        // stood only while it was drawn.
-        if let field { record(ledger.clear(text: field.text, all: issues, at: clock.now(), until: silentSince), app: field.appName) }
+        if let field {
+            let now = clock.now()
+            record(shelf.park(ledger, of: field, issues: issues, hiddenAt: silentSince ?? now, at: now))
+        }
         ledger = EditorMarkLedger()
         silentSince = nil
         field = nil
@@ -395,6 +406,7 @@ final class EditorController: EditorLens {
     func receive(_ read: EditorField?) {
         guard enabled else { return }
         let now = clock.now()
+        record(shelf.expire(at: now))
         // Nothing has answered for longer than the grace: the field is gone.
         if let silent = silentSince, now.timeIntervalSince(silent) >= Self.grace {
             Log.info("editor", ["field": "none"])
@@ -438,6 +450,14 @@ final class EditorController: EditorLens {
             clearField()
             lastTextChange = now
             resumed = false
+            // A field the hand left with its marks standing, and is back in:
+            // the same marks, not new ones.
+            let back = shelf.resume(for: read, at: now)
+            record(back.ended)
+            if let held = back.parked {
+                ledger = held.ledger
+                if held.field.text != read.text { ledger.edit(from: held.field.text, to: read.text, at: now) }
+            }
         }
         lastRead = now
         if read.text != fieldTextSeen {
@@ -660,6 +680,10 @@ final class EditorController: EditorLens {
         let result = ledger.sync(drawn: drawn, all: all, text: field.text, caret: field.caret, quiet: quiet, at: now)
         record(result.endings, app: field.appName)
         for _ in 0..<result.appeared { onMarked() }
+    }
+
+    private func record(_ ended: [EditorMarkShelf.Ended]) {
+        for one in ended { record(one.endings, app: one.app) }
     }
 
     /// Each mark that ended is one outcome in the record: that it stood,

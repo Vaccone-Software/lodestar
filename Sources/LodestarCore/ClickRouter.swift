@@ -39,6 +39,8 @@ public enum ClickRouter {
         guard lowered.hasPrefix("http://") || lowered.hasPrefix("https://") else {
             return .passThrough
         }
+        // The host, not the whole URL. A pattern in the path or the query
+        // (`?next=https://github.com`) is not a site the rule named.
         guard let pattern = WebRouting.routePattern(url, routes: context.routes),
               let key = context.routes[pattern] else { return .passThrough }
         // A rule naming a profile that no longer exists — a renamed browser

@@ -20,8 +20,10 @@ public struct ConfigWriteFailure: Error, Presentable {
     }
 }
 
-/// A failure as a person reads it: what happened, what to do, and a short
-/// reference that finds the full account in the log.
+/// A failure as a person reads it: what happened and what to do. The
+/// reference Stoic draws for it goes to the log with the whole error, not into
+/// the sentence: these sentences are flashed for a moment, and nobody can copy
+/// one there.
 ///
 /// Stoic's `presented()` chooses the words (a `Presentable` error's own, the
 /// ambient presenter's rule for a Foundation error, else a plain "Something
@@ -36,8 +38,7 @@ public enum FailureWords {
             return "Lodestar stopped before it finished."
         }
         Log.error(doing, ["reference": presented.reference.description, "error": "\(error)"])
-        let parts = [String(localized: presented.message), recovery(presented.recovery),
-                     "Reference \(presented.reference)"]
+        let parts = [String(localized: presented.message), recovery(presented.recovery)]
         return parts.filter { !$0.isEmpty }.joined(separator: " ")
     }
 

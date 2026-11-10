@@ -44,6 +44,19 @@ final class LogAttemptTests: XCTestCase {
         XCTAssertTrue(lines[0].contains("unit: could not wait"), lines[0])
     }
 
+    /// Being cancelled is the caller's decision: answered as nil, like a
+    /// failure, but not logged as one.
+    func testAnAttemptThatIsCancelledAnswersNilAndSaysNothing() async {
+        let waited: Int? = await Log.attempt("unit: could not wait") { () async throws -> Int in
+            try await Task.sleep(nanoseconds: 1)
+            throw CancellationError()
+        }
+        let checked: Int? = Log.attempt("unit: could not check") { () throws -> Int in throw CancellationError() }
+        XCTAssertNil(waited)
+        XCTAssertNil(checked)
+        XCTAssertTrue(lines.isEmpty, "a cancellation is not a failure: \(lines)")
+    }
+
     func testARemovalOfSomethingThatIsNotThereIsDoneAndSaysNothing() {
         let missing = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-attempt-\(UUID().uuidString)")
@@ -82,8 +95,8 @@ final class LogAttemptTests: XCTestCase {
     }
 }
 
-/// What a person reads when a failure reaches them: Lodestar's words and a
-/// reference, never the error's own text, which goes to the log.
+/// What a person reads when a failure reaches them: Lodestar's words, never
+/// the error's own text, which goes to the log with its reference.
 final class FailureWordsTests: XCTestCase {
     private var lines: [String] = []
 
@@ -96,25 +109,24 @@ final class FailureWordsTests: XCTestCase {
         Log.listener = nil
     }
 
-    func testAConfigWriteSaysWhatHappenedWhatToDoAndAReferenceAndNothingElse() {
+    func testAConfigWriteSaysWhatHappenedAndWhatToDoAndNothingElse() {
         let secret = CocoaError(.fileWriteNoPermission, userInfo: [
             NSLocalizedDescriptionKey: "You don't have permission to save /Users/someone/.config/lodestar/lodestar.json"])
         let sentence = withAmbient({ $0.presenter = .foundation }) {
             FailureWords.sentence(for: ConfigWriteFailure(underlying: secret), doing: "unit: config-edit")
         }
-        XCTAssertTrue(sentence.hasPrefix("Lodestar could not save the config. Try again. Reference "), sentence)
+        XCTAssertEqual(sentence, "Lodestar could not save the config. Try again.")
         XCTAssertFalse(sentence.contains("/Users/someone"), "the error's own text is not shown: \(sentence)")
         XCTAssertFalse(sentence.contains("permission"), sentence)
         XCTAssertFalse(sentence.contains("—") || sentence.contains(";"), "the copy has no dashes or semicolons")
     }
 
-    func testTheWholeErrorGoesToTheLogUnderTheReferenceTheSentenceCarries() throws {
+    func testTheWholeErrorGoesToTheLogWithAReference() throws {
         let secret = CocoaError(.fileWriteNoPermission, userInfo: [NSLocalizedDescriptionKey: "no write to /Users/someone"])
-        let sentence = FailureWords.sentence(for: ConfigWriteFailure(underlying: secret), doing: "unit: config-edit")
-        let reference = try XCTUnwrap(sentence.components(separatedBy: "Reference ").last)
+        _ = FailureWords.sentence(for: ConfigWriteFailure(underlying: secret), doing: "unit: config-edit")
         let logged = try XCTUnwrap(lines.first { $0.contains("unit: config-edit") })
         XCTAssertTrue(logged.contains("ERR"), logged)
-        XCTAssertTrue(logged.contains("reference=\(reference)"), "\(logged) vs \(sentence)")
+        XCTAssertTrue(logged.contains("reference="), logged)
         XCTAssertTrue(logged.contains("/Users/someone"), "the raw error is in the log: \(logged)")
     }
 

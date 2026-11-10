@@ -17,6 +17,9 @@ extension Log {
     ) -> T? {
         do {
             return try body()
+        } catch is CancellationError {
+            // Being cancelled is the caller's decision, not a failure.
+            return nil
         } catch {
             failed(doing, fields, error)
             return nil
@@ -31,6 +34,9 @@ extension Log {
     ) async -> T? {
         do {
             return try await body()
+        } catch is CancellationError {
+            // Being cancelled is the caller's decision, not a failure.
+            return nil
         } catch {
             failed(doing, fields, error)
             return nil

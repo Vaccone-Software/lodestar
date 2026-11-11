@@ -155,9 +155,7 @@ final class ExactKeyboardAttributionTests: XCTestCase {
         // the request, when there is one, goes off main again.
         func settle() {
             health.drainPermissionForTesting()
-            let heard = expectation(description: "main")
-            DispatchQueue.main.async { heard.fulfill() }
-            wait(for: [heard], timeout: 10)
+            Stage.pump() // not a wait on an expectation: XCTest ends the process when main stays in one call that long
             health.drainPermissionForTesting()
         }
         XCTAssertEqual(asked, 0, "health off asks nothing")

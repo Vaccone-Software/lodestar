@@ -189,6 +189,18 @@ public final class ReleaseRecords: Sendable {
         return done ?? false
     }
 
+    /// `deliver`, with the announcement put in front of the person on the
+    /// main thread: `present` runs there, and answers once it has handed the
+    /// words to the screen.
+    public func deliver(onMain present: @escaping (Delivery) -> DeliveryResult) async -> Bool {
+        let box = MainQueueOnly(value: present)
+        return await deliver { delivery in
+            await withCheckedContinuation { (continuation: CheckedContinuation<DeliveryResult, Never>) in
+                DispatchQueue.main.async { continuation.resume(returning: box.value(delivery)) }
+            }
+        }
+    }
+
     // MARK: - Reading
 
     /// One release as the records hold it now, for `lodestar diagnose`.
@@ -219,6 +231,44 @@ public final class ReleaseRecords: Sendable {
                 rows.append(Row(id: id, state: reading.state, since: reading.since, by: by, because: last?.because))
             }
             return rows
+        }
+    }
+
+    // MARK: - For `lodestar diagnose`
+
+    /// The records as a paste-able report says them: each release's id, the
+    /// state it is in now (a timeout that has fallen due applied), since when,
+    /// and who made the latest entry and why, so "who moved it and why" is
+    /// readable. The report is synchronous and read-only in spirit, so it
+    /// makes no journal that is not there, and waits only a moment for the
+    /// other process (`lockWait`).
+    public static func diagnosis(path: String = standardPath, lockWait: Duration = .seconds(1)) -> [String] {
+        guard FileManager.default.fileExists(atPath: path) else { return ["releases: none recorded yet"] }
+        let records = ReleaseRecords(path: path, lockWait: lockWait)
+        let done = DispatchSemaphore(value: 0)
+        let found = Mutex<[Row]?>(nil)
+        Task {
+            let rows = await records.rows()
+            found.withLock { $0 = rows }
+            done.signal()
+        }
+        // Bounded, whatever the store does: the report is somebody's evidence.
+        guard done.wait(timeout: .now() + .seconds(Int(lockWait.components.seconds) + 2)) == .success else {
+            return ["releases: ⚠ the records did not answer"]
+        }
+        return lines(for: found.withLock { $0 })
+    }
+
+    /// The report's lines for rows read (nil: the store could not be used).
+    static func lines(for rows: [Row]?) -> [String] {
+        guard let rows else { return ["releases: ⚠ the records could not be opened (the log says why); the markers carry the update"] }
+        guard !rows.isEmpty else { return ["releases: none recorded yet"] }
+        let formatter = ISO8601DateFormatter()
+        return ["releases:"] + rows.map { row in
+            var line = "  \(row.id) \(row.state.rawValue) since \(formatter.string(from: row.since.date))"
+            if let by = row.by { line += " · by \(by)" }
+            if let because = row.because, !because.isEmpty { line += " · \(because)" }
+            return line
         }
     }
 

@@ -1016,8 +1016,14 @@ final class HealthMonitor {
         let fingerprint = declaredFingers.fingerprint
         let readSettings = readSettings
         let exact = exactActive
+        // What the read needs, taken now, so the read does not hold the
+        // monitor: the reads can take a while (preferences, the lid), and a
+        // monitor let go meanwhile (a stage that ended) stays gone, its event
+        // dropped, where the read kept it and its store alive until it was
+        // done.
+        let roster = self.roster, pointers = self.pointers, eras = self.eras
         eraReads.async { [weak self] in
-            guard let self else { return }
+            guard self != nil else { return }
             let info = EraInfo(appVersion: Lodestar.version, keySchema: Int(KeyStore.version),
                                pointerSchema: Int(PointerStore.version), layout: layout,
                                keyboards: roster.ids, pointers: pointers.ids,
@@ -1026,7 +1032,8 @@ final class HealthMonitor {
                                reportIntervals: roster.reportIntervals,
                                exactKeyboards: exact ? true : nil)
             let event = eras.check(info)
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 self.eraInFlight = false
                 guard let event else { return }
                 Log.info("health: era", ["reason": event.era?.reason ?? "?", "version": info.appVersion])

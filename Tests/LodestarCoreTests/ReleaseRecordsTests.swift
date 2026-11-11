@@ -270,6 +270,27 @@ final class ReleaseRecordsTests: XCTestCase {
         }
     }
 
+    /// The other instance of a handover writes the tombstone as soon as it reads the marker, before the
+    /// record has the verdict: a boot that finds both is not to read the tombstone as an earlier build's.
+    func testATombstoneForTheReleaseTheMarkerNamesDoesNotPreemptTheVerdict() async throws {
+        try await ambient { _ in
+            let records = records()
+            let result = await records.boot(.init(version: "0.54.24", pid: 9, tombstone: "0.54.25", rolledBack: "0.54.25"))
+            XCTAssertEqual(result?.rolledBack, .rolledBack, "the verdict, not an import")
+            let said = Said()
+            _ = await records.deliver(using: said.say)
+            XCTAssertEqual(said.all, [.init(id: "0.54.25", announcement: .rolledBack)])
+            let created = try await onlyRecord().created
+            XCTAssertEqual(created.by, .principal(.importer))
+            XCTAssertEqual(created.because, "applied by an earlier build; from its marker", "made from the marker, not the tombstone")
+            let mismatch = records
+            let other = await mismatch.boot(.init(version: "0.54.24", pid: 9, tombstone: "0.54.26", updated: "0.54.26"))
+            XCTAssertEqual(other?.updated, .refused, "and the build that did not change the binary is recorded as that")
+            let history = try await historyOf("0.54.26")
+            XCTAssertEqual(history.map(\.event), [.unchanged])
+        }
+    }
+
     func testARecordForAnApplyThatIsStillWaitingHoldsTheOfferUntilItTimesOut() async throws {
         try await ambient { clock in
             let records = records()
@@ -372,6 +393,13 @@ final class ReleaseRecordsTests: XCTestCase {
         try await store.close()
         XCTAssertEqual(all.count, 1)
         return try XCTUnwrap(all.first?.record)
+    }
+
+    private func historyOf(_ id: String) async throws -> [Release.Entry] {
+        let store = try await heldByAnotherProcess()
+        let history = try await store.history(of: id)
+        try await store.close()
+        return history
     }
 
     private func historyOfOnlyRecord() async throws -> [Release.Entry] {

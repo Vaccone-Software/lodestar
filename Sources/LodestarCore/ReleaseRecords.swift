@@ -389,7 +389,12 @@ public final class ReleaseRecords: Sendable {
 
         static func boot(_ boot: Boot, store: Store) async -> BootResult {
             var result = BootResult()
-            if let tombstone = boot.tombstone, let id = ReleaseOnThisMac.id(for: tombstone) {
+            // A tombstone that names a release this boot also has a marker for is the marker's own: the
+            // other instance of a handover writes it as soon as it reads the marker, before the record
+            // has the verdict, and importing it first would refuse the release before the watchdog's
+            // verdict (or the build that did not change) could be recorded as what it was.
+            let named = Set([boot.updated, boot.rolledBack].compactMap { $0.flatMap(ReleaseOnThisMac.id(for:)) })
+            if let tombstone = boot.tombstone, let id = ReleaseOnThisMac.id(for: tombstone), !named.contains(id) {
                 await Log.attempt("update: could not import the refusal tombstone as a record") {
                     guard try await store.load(id) == nil else { return }
                     _ = try await store.insert(

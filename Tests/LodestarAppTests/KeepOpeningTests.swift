@@ -50,6 +50,10 @@ final class KeepOpeningTests: XCTestCase {
     /// took in what an earlier test had left, because the stage pasted
     /// onto a board of its own while Keep looked at the run's.
     func testOpeningAfterItsOwnPasteTakesNothingIn() {
+        // An earlier test has used the board a good deal: its count is far
+        // from that of any board a stage makes new, as it is on CI, where a
+        // run's boards are not alike.
+        for _ in 0..<7 { SystemEvents.pasteboard.clearContents() }
         copy("left behind by an earlier test")
         let stage = Stage()
         for text in ["one", "two"] { stage.seedClip(text) }

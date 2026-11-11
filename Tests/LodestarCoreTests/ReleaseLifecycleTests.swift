@@ -39,13 +39,19 @@ final class ReleaseLifecycleTests: XCTestCase {
     // MARK: - Timeouts are data
 
     func testEachWaitingStateHasItsTimeout() {
-        XCTAssertEqual(Release.timeout(in: .downloading), .after(.seconds(30 * 60), send: .stall))
+        XCTAssertEqual(Release.timeout(in: .downloading), .after(.seconds(6 * 3_600), send: .stall))
         XCTAssertEqual(Release.timeout(in: .staged), .after(.seconds(7 * 24 * 3_600), send: .stall))
-        XCTAssertEqual(Release.timeout(in: .applying), .after(.seconds(30 * 60), send: .stall))
+        XCTAssertEqual(Release.timeout(in: .applying), .after(.seconds(24 * 3_600), send: .stall))
         for state in [Release.State.offered, .running, .rolledBack, .refused] {
             XCTAssertNil(Release.timeout(in: state), "\(state)")
         }
-        XCTAssertEqual(UpdateDownload.deadline, .seconds(30 * 60), "the download's timeout is the download's own deadline")
+        // A wall-clock limit for a process that is gone, never one that is slow:
+        // well past the transfer's own deadline, the unpack and the checks.
+        if case .after(let limit, _) = Release.timeout(in: .downloading) {
+            XCTAssertGreaterThan(limit, UpdateDownload.deadline + .seconds(4 * 120))
+        } else {
+            XCTFail("a download waits a stated time")
+        }
     }
 
     // MARK: - Transitions, at rest
@@ -99,17 +105,38 @@ final class ReleaseLifecycleTests: XCTestCase {
         XCTAssertEqual(change.effects.count, 0, "the v0.32.4 guard only logs")
     }
 
-    func testAnApplyingThatNobodyConfirmedBecomesRefusedOnItsOwnAfterThirtyMinutes() throws {
+    /// A day, on the wall clock: a Mac that slept through the handover is not a
+    /// successor that never came (one that did would be recorded as refused).
+    func testAnApplyingThatNobodyConfirmedBecomesRefusedOnItsOwnAfterADay() throws {
         let start = Moment(sinceEpoch: .seconds(1_767_225_600))
         let applying = record(in: .applying, at: start)
-        XCTAssertEqual(applying.state(at: start + .seconds(30 * 60 - 1)), .applying)
-        XCTAssertEqual(applying.state(at: start + .seconds(30 * 60)), .refused)
-        XCTAssertEqual(applying.read(at: start + .seconds(31 * 60)).pending.first?.by, .timeout)
+        XCTAssertEqual(applying.state(at: start + .seconds(8 * 3_600)), .applying, "a night asleep")
+        XCTAssertEqual(applying.state(at: start + .seconds(24 * 3_600 - 1)), .applying)
+        XCTAssertEqual(applying.state(at: start + .seconds(24 * 3_600)), .refused)
+        XCTAssertEqual(applying.read(at: start + .seconds(25 * 3_600)).pending.first?.by, .timeout)
+    }
+
+    /// A release this Mac ran, offered again after the person went back to an
+    /// older build by hand: applied again from the start and said again,
+    /// where a running record ignored every step and the update went unsaid.
+    func testAReleaseRunBeforeIsAppliedAgainAfterADowngradeAndSaidAgain() throws {
+        let start = Moment(sinceEpoch: .seconds(1_767_225_600))
+        var current = record(in: .running, at: start)
+        var announced: [Release.Effect] = []
+        for (offset, event) in [Release.Event.download, .verified, .apply, .confirm].enumerated() {
+            let change = try current.applying(event, by: .updater, because: "again", at: start + .seconds(60 * (offset + 1)))
+            announced += change.effects.map(\.effect)
+            current = change.record
+        }
+        XCTAssertEqual(current.written.state, .running)
+        XCTAssertEqual(announced, [.announce(.running)], "said once more, on entering running again")
     }
 
     func testADownloadThatNeverEndedIsOfferedAgainAndAStagedOneAWeekLater() {
         let start = Moment(sinceEpoch: .seconds(1_767_225_600))
-        XCTAssertEqual(record(in: .downloading, at: start).state(at: start + .seconds(30 * 60)), .offered)
+        XCTAssertEqual(record(in: .downloading, at: start).state(at: start + .seconds(2 * 3_600)), .downloading,
+                       "a download and its checks that a sleep stretched")
+        XCTAssertEqual(record(in: .downloading, at: start).state(at: start + .seconds(6 * 3_600)), .offered)
         XCTAssertEqual(record(in: .staged, at: start).state(at: start + .seconds(7 * 24 * 3_600 - 1)), .staged)
         XCTAssertEqual(record(in: .staged, at: start).state(at: start + .seconds(7 * 24 * 3_600)), .offered)
     }

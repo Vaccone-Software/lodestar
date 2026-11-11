@@ -299,8 +299,12 @@ final class ReleaseRecordsTests: XCTestCase {
             records.record(.apply, of: "0.54.25", because: "swapped in")
             await records.settled()
             XCTAssertTrue(records.refuses("0.54.25"), "applying: a successor may still confirm")
-            // Thirty minutes with nobody to confirm it, and a later piece of work sees it refused outright.
-            await clock.advance(by: .seconds(31 * 60))
+            // A day with nobody to confirm it, and a later piece of work sees it refused outright.
+            await clock.advance(by: .seconds(8 * 3_600))
+            _ = await records.boot(.init(version: "0.54.24", pid: 1))
+            let overnight = await records.rows()
+            XCTAssertEqual(overnight?.first?.state, .applying, "a night asleep is not a successor that never came")
+            await clock.advance(by: .seconds(17 * 3_600))
             _ = await records.boot(.init(version: "0.54.24", pid: 1))
             XCTAssertTrue(records.refuses("0.54.25"))
             let rows = await records.rows()

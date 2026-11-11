@@ -62,6 +62,11 @@ public enum ReleaseOnThisMac: Lifecycle {
         switch (state, event) {
         case (.offered, .download):
             .to(.downloading)
+        // A release this Mac ran before, offered again after the person went
+        // back to an older build by hand (a disk image, a restore): applied
+        // again from the start, so its arrival is said again.
+        case (.running, .download):
+            .to(.downloading)
         case (.downloading, .verified):
             .to(.staged)
         case (.downloading, .failed), (.downloading, .stall), (.downloading, .abandon):
@@ -99,9 +104,16 @@ public enum ReleaseOnThisMac: Lifecycle {
 
     public static func timeout(in state: State) -> Self.Timeout? {
         switch state {
-        case .downloading: .after(UpdateDownload.deadline, send: .stall)
+        // On the wall clock, which goes on while the Mac sleeps and the
+        // download, the watchdog's `sleep` and a successor's launch do not:
+        // each limit is for a process that is gone, never one that is slow.
+        // A download covers the transfer (UpdateDownload.deadline), the unpack
+        // and the signature checks (two minutes each) and a sleep between.
+        case .downloading: .after(.seconds(6 * 3_600), send: .stall)
         case .staged: .after(.seconds(7 * 24 * 3_600), send: .stall)
-        case .applying: .after(.seconds(30 * 60), send: .stall)
+        // A successor that confirms or a watchdog that rolls back answers in a
+        // minute or two awake; a day is for a Mac that slept through it.
+        case .applying: .after(.seconds(24 * 3_600), send: .stall)
         case .offered, .running, .rolledBack, .refused: nil
         }
     }

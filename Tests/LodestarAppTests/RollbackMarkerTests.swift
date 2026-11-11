@@ -1,3 +1,4 @@
+import StoicStore
 import XCTest
 @testable import lodestar
 @testable import LodestarCore
@@ -81,6 +82,11 @@ final class RollbackMarkerTests: XCTestCase {
     /// Time for something that must not happen to have had its chance.
     private func linger(_ seconds: TimeInterval = 0.6) async {
         try? await Task.sleep(for: .milliseconds(Int(seconds * 1_000)))
+    }
+
+    private final class Holder: @unchecked Sendable {
+        // Set once by the test's own polling, read by the test after it.
+        var store: ReleaseRecords.Store?
     }
 
     private final class Said: @unchecked Sendable {
@@ -192,6 +198,44 @@ final class RollbackMarkerTests: XCTestCase {
         let all = await rows()
         XCTAssertEqual(all.map(\.state), [.rolledBack])
         withExtendedLifetime((relay, resident)) {}
+    }
+
+    // MARK: - What the record took but could not say
+
+    /// The record took the update at boot, and then could not deliver what
+    /// it owes (the other instance of a handover holding the store past the
+    /// wait, twice): the marker's words are said, so the update is not
+    /// silent for the session. It was silent: the fallback asked only
+    /// whether boot had recorded it.
+    func testAnUpdateTheRecordTookButCouldNotDeliverIsSaidFromTheMarker() async throws {
+        try leaveUpdate()
+        let said = Said()
+        let quick = ReleaseRecords(path: recordsPath, lockWait: .seconds(1))
+        let resident = instance(said, records: quick)
+        resident.announcementDelay = .milliseconds(800)
+        resident.deliveryRetryDelay = .milliseconds(100)
+        resident.boot()
+        // Take the store's lock once boot has committed the update, and keep
+        // it: seen under the lock, so the test can never take it before boot.
+        let path = recordsPath
+        let id = try XCTUnwrap(ReleaseOnThisMac.id(for: Lodestar.version))
+        let holder = Holder()
+        let taken = await eventually {
+            guard let store = try? await ReleaseRecords.Store.open(
+                at: path, journalOptions: Journal.Options(crossProcessLock: true)) else { return false }
+            if (try? await store.read(id))?.state == .running {
+                holder.store = store
+                return true
+            }
+            try? await store.close()
+            return false
+        }
+        XCTAssertTrue(taken, "boot confirmed it, and the test holds the store")
+        let heard = await eventually { !said.voices.isEmpty }
+        XCTAssertTrue(heard, "said from the marker when the record could not say it")
+        XCTAssertEqual(said.voices, [updatedWords])
+        try await holder.store?.close()
+        withExtendedLifetime(resident) {}
     }
 
     // MARK: - An update, said once

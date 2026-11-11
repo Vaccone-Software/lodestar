@@ -188,14 +188,20 @@ public final class ReleaseRecords: Sendable {
     }
 
     /// `deliver`, with the announcement put in front of the person on the
-    /// main thread: `present` runs there, and answers once it has handed the
-    /// words to the screen.
-    public func deliver(onMain present: @escaping (Delivery) -> DeliveryResult) async -> Bool {
+    /// main thread. `decide` answers for it where the store is (keep, discard,
+    /// or delivered), and a delivered one is handed to `present` on the main
+    /// thread without waiting for it: the store holds the cross-process lock
+    /// while it delivers, and a main thread that is busy, or frozen, must
+    /// never hold that lock against the other instance of a handover.
+    public func deliver(deciding decide: @escaping @Sendable (Delivery) -> DeliveryResult,
+                        onMain present: @escaping (Delivery) -> Void) async -> Bool {
         let box = MainQueueOnly(value: present)
         return await deliver { delivery in
-            await withCheckedContinuation { (continuation: CheckedContinuation<DeliveryResult, Never>) in
-                DispatchQueue.main.async { continuation.resume(returning: box.value(delivery)) }
+            let result = decide(delivery)
+            if case .delivered = result {
+                DispatchQueue.main.async { box.value(delivery) }
             }
+            return result
         }
     }
 
@@ -266,7 +272,7 @@ public final class ReleaseRecords: Sendable {
 
     /// The report's lines for rows read (nil: the store could not be used).
     static func lines(for rows: [Row]?) -> [String] {
-        guard let rows else { return ["releases: ⚠ the records could not be opened (the log says why); the markers carry the update"] }
+        guard let rows else { return ["releases: ⚠ the records were busy or could not be opened (the log says which); the markers carry the update"] }
         guard !rows.isEmpty else { return ["releases: none recorded yet"] }
         let formatter = ISO8601DateFormatter()
         return ["releases:"] + rows.map { row in
@@ -345,7 +351,22 @@ public final class ReleaseRecords: Sendable {
             let held = await store.records().filter { $0.record.state(at: now).holdsTheOffer }.map(\.id)
             refusing.withLock { $0 = Set(held) }
             await Log.attempt("update: could not close the release records") { try await store.close() }
+            excludeFromBackup()
             return value
+        }
+
+        /// Every file of the records out of backups as soon as it exists, not
+        /// at the next launch's sweep: a record restored onto another Mac
+        /// would tell it that a release failed there. Once per run is enough,
+        /// and costs a directory listing.
+        private func excludeFromBackup() {
+            let url = URL(fileURLWithPath: path)
+            let folder = url.deletingLastPathComponent()
+            let name = url.lastPathComponent
+            guard let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return }
+            for file in files where file == name || file.hasPrefix(name + ".") {
+                Paths.excludeFromBackup(folder.appendingPathComponent(file))
+            }
         }
 
         enum Sent: Equatable {

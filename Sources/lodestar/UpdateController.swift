@@ -147,6 +147,10 @@ final class UpdateController {
     /// exits within a second, so it never says it.
     var announcementDelay: Duration = .seconds(4)
 
+    /// How long after a delivery that failed it is tried once more, before
+    /// the marker's words are said instead.
+    var deliveryRetryDelay: Duration = .seconds(10)
+
     init() {
         // Only the installed app updates itself. A signed build run from
         // dist/ to be tested, older than the latest release, would have
@@ -317,29 +321,62 @@ final class UpdateController {
             }
             return result
         }
-        let say = presenter()
         let delay = announcementDelay
+        let retryDelay = deliveryRetryDelay
         onMain(after: delay) { [weak self] in
             // A relay's four seconds never come.
             Task { [weak self] in
                 let result = await booting.value
-                _ = await records.deliver(onMain: say)
-                self?.sayFromMarkers(updated: sameVersion ? updated : nil, rolledBack: rolledBack, recorded: result)
+                // Owed by the record, said once. A delivery that fails (the
+                // store busy past its wait, a write that does not take) is
+                // tried once more, and then the marker's words are said, so
+                // what the record took but could not say is not lost for the
+                // session.
+                // A boot the store did not take leaves nothing owed by it: the
+                // marker speaks at once, as it did before there were records.
+                guard result != nil else {
+                    self?.sayFromMarkers(updated: sameVersion ? updated : nil, rolledBack: rolledBack,
+                                         recorded: nil, delivered: false)
+                    return
+                }
+                var delivered = await self?.deliverOwed(by: records) ?? false
+                if !delivered {
+                    do { try await Ambient.sleep(for: retryDelay) } catch { return }
+                    delivered = await self?.deliverOwed(by: records) ?? false
+                }
+                self?.sayFromMarkers(updated: sameVersion ? updated : nil, rolledBack: rolledBack,
+                                     recorded: result, delivered: delivered)
             }
         }
+    }
+
+    /// The announcements the records owe, put on screen.
+    private func deliverOwed(by records: ReleaseRecords) async -> Bool {
+        await records.deliver(deciding: Self.decide) { [weak self] delivery in self?.present(delivery) }
+    }
+
+    /// Whether an owed announcement is said, where the store is: one owed
+    /// by an earlier launch for a release this build is not is let go, since
+    /// "Now 0.54.25" on a Mac that is on 0.54.26 would be wrong.
+    private static func decide(_ delivery: ReleaseRecords.Delivery) -> DeliveryResult {
+        if case .running = delivery.announcement, !isThisBuild(delivery.id) {
+            return .discard(reason: "\(delivery.id) is not the release this is")
+        }
+        return .delivered
     }
 
     /// What the markers say that the records could not: the same words as
     /// before there were records, from the marker, for the one that the
     /// record did not take.
-    private func sayFromMarkers(updated: String?, rolledBack: String?, recorded: ReleaseRecords.BootResult?) {
+    private func sayFromMarkers(updated: String?, rolledBack: String?, recorded: ReleaseRecords.BootResult?,
+                                delivered: Bool) {
         let rolledBackMarker = Self.rolledBackMarker
         DispatchQueue.main.async {
-            if let version = updated, recorded?.updated != .running {
+            if let version = updated, recorded?.updated != .running || !delivered {
                 let (sentence, detail) = Voice.updated(version)
                 self.voice(sentence, detail, 1, false)
             }
-            if let version = rolledBack, recorded?.rolledBack != .rolledBack {
+            if let version = rolledBack, recorded?.rolledBack != .rolledBack || !delivered {
                 self.flash("⚠ \(version) did not start, so Lodestar went back to \(Lodestar.version)")
                 // The marker is retired when the message is said, not when it is
                 // read: an instance that exits before the four seconds (a relay)
@@ -351,28 +388,15 @@ final class UpdateController {
         }
     }
 
-    /// What delivering an announcement does: put the words on screen, from
-    /// the main thread. The records carry it there and back (`deliver(onMain:)`);
-    /// a controller that is gone leaves it owed, to the instance that stays.
-    private func presenter() -> (ReleaseRecords.Delivery) -> DeliveryResult {
-        { [weak self] delivery in self?.present(delivery) ?? .keep }
-    }
-
-    /// Main thread.
-    private func present(_ delivery: ReleaseRecords.Delivery) -> DeliveryResult {
+    /// An owed announcement on screen. Main thread.
+    private func present(_ delivery: ReleaseRecords.Delivery) {
         switch delivery.announcement {
         case .running:
-            // Owed by an earlier launch and never said, and this is a later
-            // release: "Now 0.54.25" on a Mac that is on 0.54.26 would be wrong.
-            guard Self.isThisBuild(delivery.id) else {
-                return .discard(reason: "\(delivery.id) is not the release this is")
-            }
             let (sentence, detail) = Voice.updated(delivery.id)
             voice(sentence, detail, 1, false)
         case .rolledBack:
             flash("⚠ \(delivery.id) did not start, so Lodestar went back to \(Lodestar.version)")
         }
-        return .delivered
     }
 
     /// Whether `text` names the version this build is, as versions are

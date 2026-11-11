@@ -44,7 +44,10 @@ public final class ReleaseRecords: Sendable {
         self.engine = engine
         // The one task that does the work, in the order it was asked for. It
         // ends when the records go (`deinit`).
-        Task { [work] in
+        // Utility, named: a task started from the main thread would run in the
+        // main thread's bucket of the cooperative pool (user-initiated), and
+        // this is bookkeeping that waits on files and a lock.
+        Task(priority: .utility) { [work] in
             for await job in work { await job(engine) }
         }
     }
@@ -237,8 +240,13 @@ public final class ReleaseRecords: Sendable {
     /// readable. The report is synchronous and read-only in spirit, so it
     /// makes no journal that is not there, and waits only a moment for the
     /// other process (`lockWait`).
-    public static func diagnosis(path: String = standardPath, lockWait: Duration = .seconds(1)) -> [String] {
+    public static func diagnosis(path: String = standardPath, lockWait: Duration? = nil) -> [String] {
         guard FileManager.default.fileExists(atPath: path) else { return ["releases: none recorded yet"] }
+        // On the main thread (Send Feedback builds the report there) the
+        // records are asked once and not waited for: the app's own updater may
+        // hold the lock for a moment, and the report says so rather than hold
+        // the main thread.
+        let lockWait = lockWait ?? (Thread.isMainThread ? .zero : .seconds(1))
         let records = ReleaseRecords(path: path, lockWait: lockWait)
         let done = DispatchSemaphore(value: 0)
         let found = Mutex<[Row]?>(nil)
@@ -248,7 +256,9 @@ public final class ReleaseRecords: Sendable {
             done.signal()
         }
         // Bounded, whatever the store does: the report is somebody's evidence.
-        guard done.wait(timeout: .now() + .seconds(Int(lockWait.components.seconds) + 2)) == .success else {
+        let budget = Thread.isMainThread ? DispatchTimeInterval.milliseconds(500)
+            : .seconds(Int(lockWait.components.seconds) + 2)
+        guard done.wait(timeout: .now() + budget) == .success else {
             return ["releases: ⚠ the records did not answer"]
         }
         return lines(for: found.withLock { $0 })

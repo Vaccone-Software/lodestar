@@ -814,10 +814,11 @@ final class UpdateController {
             return
         }
 
-        // The build is in place. The record hears of it before the marker
-        // does, so the successor that reads the marker finds the record.
-        // (The watchdog starts after the marker, so it cannot be named here:
-        // the pid this process has is the one it watches the pid file for.)
+        // The build is in place. The record is told now (the watchdog starts
+        // after the marker, so it cannot be named here: the pid this process
+        // has is the one it watches the pid file for), and the marker and the
+        // watchdog follow at once, since the watchdog is what undoes a swap
+        // that does not take.
         records?.record(.apply, of: version,
                         because: "swapped in over \(Lodestar.version) by pid \(ProcessInfo.processInfo.processIdentifier); its watchdog follows")
         let marker = Self.directory.appendingPathComponent("updated-to")
@@ -825,6 +826,27 @@ final class UpdateController {
                          consequence: "the new build will not announce the update")
         spawnWatchdog(app: installURL, previous: previous, version: version)
         stagedBundle = nil
+        // The successor confirms the record it finds, so it is launched once
+        // the apply is committed, where an apply still queued met a successor
+        // that confirmed a staged record and wrote the release's history wrong.
+        // Bounded: a record never holds up an update, and the store that does
+        // not answer in two seconds leaves the marker to carry it, as before.
+        guard let records else {
+            launchSuccessor(installURL)
+            return
+        }
+        Task { @MainActor in
+            do {
+                try await abandoningAsyncAfter(.seconds(2), label: "update.apply-recorded") { await records.settled() }
+            } catch {
+                Log.warning("update", ["record": "apply not committed before the relaunch", "error": "\(error)",
+                                       "consequence": "the successor's marker carries the update"])
+            }
+            self.launchSuccessor(installURL)
+        }
+    }
+
+    private func launchSuccessor(_ installURL: URL) {
         // The successor's boot takes over the pid file and SIGTERMs this
         // process — the same handoff every manual reinstall already uses.
         // phase stays .applying: this process is done deciding things.

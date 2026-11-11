@@ -25,7 +25,8 @@ import Synchronization
 ///   there were records.
 /// - **The decision to offer is a snapshot.** Whether a release may be offered
 ///   is read from the ids this object last saw refused, kept current by every
-///   piece of work, so the feed's answer never waits on the store.
+///   piece of work (the first is the launch's boot), so the feed's answer never
+///   waits on the store.
 public final class ReleaseRecords: Sendable {
     public typealias Store = JournaledLifecycleStore<ReleaseOnThisMac, String>
     typealias Job = @Sendable (Engine) async -> Void
@@ -58,12 +59,6 @@ public final class ReleaseRecords: Sendable {
     public func refuses(_ tag: String) -> Bool {
         guard let id = ReleaseOnThisMac.id(for: tag) else { return false }
         return engine.refusing.withLock { $0.contains(id) }
-    }
-
-    /// Reads the store once, so the snapshot `refuses` answers from is
-    /// current. Called at launch.
-    public func warm() {
-        enqueue("read the records") { _ in }
     }
 
     /// Resolves when everything asked for before it has been done.

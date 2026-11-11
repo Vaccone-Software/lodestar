@@ -356,14 +356,15 @@ final class ReleaseRecordsTests: XCTestCase {
         }
     }
 
-    func testWarmReadsTheSnapshotAtLaunch() async throws {
+    /// The snapshot `refuses` answers from is what the last piece of work saw, so a fresh object knows
+    /// nothing until its first piece (the launch's boot) has read the store.
+    func testTheSnapshotIsReadByTheFirstPieceOfWork() async throws {
         try await ambient { _ in
             _ = await records().boot(.init(version: "0.54.24", pid: 9, rolledBack: "0.54.25"))
             let later = records()
             XCTAssertFalse(later.refuses("0.54.25"), "before it has read anything it knows nothing")
-            later.warm()
-            await later.settled()
-            XCTAssertTrue(later.refuses("0.54.25"))
+            _ = await later.boot(.init(version: "0.54.24", pid: 10))
+            XCTAssertTrue(later.refuses("0.54.25"), "and after its boot it knows what the store holds")
         }
     }
 

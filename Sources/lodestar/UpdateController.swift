@@ -256,8 +256,8 @@ final class UpdateController {
     /// was. Beside them, each is turned into an event on the release's
     /// record (`ReleaseRecords.boot`), and what is owed to the person is said
     /// from the record, once, by whichever instance stays long enough
-    /// (`announce`). With no record to be had it is said from the marker
-    /// four seconds in, as before.
+    /// (`ReleaseRecords.deliver`). With no record to be had it is said from
+    /// the marker four seconds in, as before (`sayFromMarkers`).
     func boot() {
         let updated = Self.text(of: Self.updatedMarker)
         let rolledBack = Self.text(of: Self.rolledBackMarker)
@@ -297,7 +297,6 @@ final class UpdateController {
         }
 
         guard let records else { return }
-        records.warm()
         let input = ReleaseRecords.Boot(version: here, pid: ProcessInfo.processInfo.processIdentifier,
                                         tombstone: tombstone, updated: updated, rolledBack: rolledBack)
         let rolledBackMarker = Self.rolledBackMarker
@@ -889,7 +888,7 @@ final class UpdateController {
     /// start over from a clean slate. The manual check narrates every
     /// outcome, so a forced run that stands down says why.
     func standDown(releasing version: String, as event: ReleaseOnThisMac.Event, because: String,
-                           force: Bool = false, note: String? = nil) {
+                   force: Bool = false, note: String? = nil) {
         records?.record(event, of: version, because: because)
         stagedBundle = nil
         phase = .idle

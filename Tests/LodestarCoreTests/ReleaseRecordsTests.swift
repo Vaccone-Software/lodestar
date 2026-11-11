@@ -376,6 +376,33 @@ final class ReleaseRecordsTests: XCTestCase {
         }
     }
 
+    // MARK: - lodestar diagnose
+
+    func testTheReportSaysWhoMovedEachReleaseAndWhy() async throws {
+        let records = records()
+        _ = await records.boot(.init(version: "0.54.24", pid: 9, rolledBack: "0.54.25"))
+        records.offered("0.54.26", because: "the stable feed offered it")
+        await records.settled()
+        // The report is synchronous and runs off the test's actor, as `lodestar diagnose` runs in a process of its own.
+        let path = self.path
+        let lines = await Task.detached { ReleaseRecords.diagnosis(path: path, lockWait: .seconds(2)) }.value
+        XCTAssertEqual(lines.first, "releases:")
+        XCTAssertEqual(lines.count, 3, "\(lines)")
+        XCTAssertTrue(lines[1].hasPrefix("  0.54.25 rolledBack since "), lines[1])
+        XCTAssertTrue(lines[1].contains("by watchdog"), "who: \(lines[1])")
+        XCTAssertTrue(lines[1].contains("never took the pid file"), "why: \(lines[1])")
+        XCTAssertTrue(lines[2].hasPrefix("  0.54.26 downloading since "), lines[2])
+        XCTAssertTrue(lines[2].contains("by updater"), lines[2])
+    }
+
+    func testTheReportMakesNoJournalAndSaysSoWhenThereIsNoneOrItCannotBeRead() throws {
+        XCTAssertEqual(ReleaseRecords.diagnosis(path: path), ["releases: none recorded yet"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path), "a report makes no journal that is not there")
+        XCTAssertEqual(ReleaseRecords.lines(for: []), ["releases: none recorded yet"])
+        XCTAssertEqual(ReleaseRecords.lines(for: nil).count, 1)
+        XCTAssertTrue(ReleaseRecords.lines(for: nil)[0].contains("could not be opened"))
+    }
+
     // MARK: - Helpers
 
     private final class Said: Sendable {

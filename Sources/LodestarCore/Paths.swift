@@ -122,7 +122,11 @@ public enum Paths {
     public static func isBehavioral(_ name: String) -> Bool {
         if name == "clipboard" { return true }
         for prefix in ["events", "observations", "lodestar.log", "state.json", "state.sealed", "rollups.json",
-                       "draft-in-flight", "feedback-outbox", "logbook-unreadable", "state-unreadable"]
+                       "draft-in-flight", "feedback-outbox", "logbook-unreadable", "state-unreadable",
+                       // The updater's record of what each release did on this Mac
+                       // (`ReleaseRecords`): a restore onto another Mac would carry
+                       // "this release failed here" to a machine it never ran on.
+                       "releases"]
         where name == prefix || name.hasPrefix(prefix + ".") || name.hasPrefix(prefix + "-") {
             return true
         }

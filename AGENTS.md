@@ -54,8 +54,10 @@ lodestar diagnose           # one paste-able report: version, instance,
                             # accessibility trust, displays, config
                             # validation, state summary, whether the health
                             # record, the logbook, the clipboard history and
-                            # the state file are sealed and open,
-                            # log tail
+                            # the state file are sealed and open, the
+                            # updater's release records (each release's
+                            # state now, since when, who moved it last and
+                            # why), log tail
 lodestar health export <dir>             # the sealed health record as plaintext
 lodestar health export <dir> --logbook   # the logbook, likewise
 ```

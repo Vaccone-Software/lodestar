@@ -398,6 +398,23 @@ final class RollbackMarkerTests: XCTestCase {
         withExtendedLifetime(controller) {}
     }
 
+    // MARK: - A launch tidies what the last run left half done
+
+    func testALaunchAbandonsAReleaseThatWasDownloadingOrStaged() async throws {
+        let records = records()
+        records.offered("v9.9.9", because: "the stable feed offered it")                 // downloading
+        records.offered("v9.9.10", because: "the stable feed offered it")
+        records.record(.verified, of: "v9.9.10", because: "checked")                     // staged
+        await records.settled()
+        let controller = instance(Said(), records: records)
+        controller.start()
+        let abandoned = await eventually { await self.rows(records).map(\.state) == [.offered, .offered] }
+        XCTAssertTrue(abandoned, "the staging folder is cleared at launch, so nothing is behind either")
+        let all = await rows(records)
+        XCTAssertEqual(all.map(\.by), ["launch", "launch"])
+        withExtendedLifetime(controller) {}
+    }
+
     // MARK: - Said at most as long as it is true
 
     /// An announcement an earlier launch never said, found by a later release: "Now 0.54.25" on a Mac that

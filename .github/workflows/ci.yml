@@ -164,8 +164,9 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-      # A shard that hangs is sampled to <shard>.hang.txt, and each shard's
-      # log says which test it was in: both are what a red run is read from.
+      # A shard that hangs is sampled to <shard>.hang.txt, one that dies on a
+      # signal leaves the system's report of it as <shard>.crash.ips, and each
+      # shard's log says which test it was in: all are what a red run is read from.
       - name: The shards' logs
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -173,6 +174,7 @@ jobs:
           name: test-shards-${{ github.run_attempt }}
           path: |
             .build/test-shards/*.hang.txt
+            .build/test-shards/*.crash.ips
             .build/test-shards/*.log
             .build/test-shards/*.list
             .build/test-timings.txt

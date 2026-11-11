@@ -52,20 +52,30 @@ final class GalleryHostTests: XCTestCase {
 
     /// A window that never stops changing does not hold the run for ever: the
     /// guard ends the wait, and says it did.
+    ///
+    /// The limit runs on a clock this test keeps, which a change moves on by a
+    /// quarter of a second against a limit of three quarters, so what is asked
+    /// is exact: the guard ends the wait once the limit has passed, which takes
+    /// three changes, however long a turn takes. It used to be asked of the
+    /// wall clock, how many changes the loop made in 0.3 s, which is how fast a
+    /// turn draws on the machine: three on a runner whose turns took a tenth of
+    /// a second.
     func testSettleGivesUpOnASurfaceThatNeverStops() {
         let (window, label) = labelled("0")
+        var moment = Date(timeIntervalSinceReferenceDate: 0)
         var count = 0
         var running = true
         func change() {
             guard running else { return }
             count += 1
+            moment = moment.addingTimeInterval(0.25)
             label.stringValue = "\(count)"
             DispatchQueue.main.async(execute: change)
         }
         DispatchQueue.main.async(execute: change)
         defer { running = false }
-        XCTAssertFalse(GalleryHost.settle({ [window] in [window] }, limit: 0.3))
-        XCTAssertGreaterThan(count, 1, "and it turned the loop in the meantime")
+        XCTAssertFalse(GalleryHost.settle({ [window] in [window] }, limit: 0.75, now: { moment }))
+        XCTAssertEqual(count, 3, "and it turned the loop until the limit had passed, and no longer")
     }
 
     /// A message from a sweep is "<surface>: <what>", and a surface with

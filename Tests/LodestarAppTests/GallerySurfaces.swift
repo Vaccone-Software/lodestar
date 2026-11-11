@@ -187,10 +187,15 @@ enum GalleryHost {
     /// stages itself over any number of turns (a preview's `async`, a layout
     /// that asks for another) is done in as many passes as it took, not in
     /// the time someone guessed.
-    static func drain(limit: TimeInterval = 30) {
-        let deadline = Date().addingTimeInterval(limit)
+    ///
+    /// `now` is the clock the limit is read on: the moment, as the loop's
+    /// caller keeps it. A test of the limit holds this clock itself, so that
+    /// what it asks (that the loop stops at the limit) does not depend on how
+    /// long a turn takes on the machine that runs it.
+    static func drain(limit: TimeInterval = 30, now: () -> Date = { Date() }) {
+        let deadline = now().addingTimeInterval(limit)
         var idle = 0
-        while idle < 2, Date() < deadline {
+        while idle < 2, now() < deadline {
             idle = CFRunLoopRunInMode(.defaultMode, 0, true) == .handledSource ? 0 : idle + 1
         }
     }
@@ -260,21 +265,22 @@ enum GalleryHost {
     /// `landed` is for what the loop cannot see coming: work a surface has handed
     /// to a task or a queue, which lands on a turn nothing has yet asked for. A
     /// surface that says it is still waiting is waited for, however still it looks.
+    /// `now` is the clock `limit` runs on (see `drain`).
     @discardableResult
     static func settle(_ windows: () -> [NSWindow], landed: () -> Bool = { true }, rounds: Int = 3,
-                       limit: TimeInterval = 10) -> Bool {
-        let deadline = Date().addingTimeInterval(limit)
+                       limit: TimeInterval = 10, now: () -> Date = { Date() }) -> Bool {
+        let deadline = now().addingTimeInterval(limit)
         var last = appearance(of: windows())
         var quiet = 0
         while quiet < rounds {
-            guard Date() < deadline else { return false }
-            drain(limit: max(0.1, deadline.timeIntervalSinceNow))
-            let now = windows()
-            for window in now {
+            guard now() < deadline else { return false }
+            drain(limit: max(0.1, deadline.timeIntervalSince(now())), now: now)
+            let shown = windows()
+            for window in shown {
                 window.contentView?.layoutSubtreeIfNeeded()
                 window.displayIfNeeded()
             }
-            let seen = appearance(of: now)
+            let seen = appearance(of: shown)
             quiet = seen == last && landed() ? quiet + 1 : 0
             last = seen
         }

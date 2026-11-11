@@ -200,6 +200,7 @@ final class ModelsServiceTests: XCTestCase {
     /// a fresh MLX lane, as a fresh process has.
     private func withRig(
         moods: [Mood] = [.prompt], earMood: Mood = .prompt, earLoadParks: Bool = false, loadCrashes: Int = 0,
+        sessionsEndFirst: Bool = false,
         build: String = Build.id, hostBuild: String = Build.id,
         host hostPolicy: XPCHostPolicy = XPCHostPolicy(),
         _ body: (Rig) async throws -> Void
@@ -216,7 +217,7 @@ final class ModelsServiceTests: XCTestCase {
                 _ = ModelsService(host: host, engine: engine, gate: MLXGate())
                 return host
             }
-            gauge.end = { Task { await service.crash() } }
+            gauge.end = { Task { await service.crash(sessionsEndFirst: sessionsEndFirst) } }
             let peer = XPCPeer(service: Models.serviceName, build: build, transport: service)
             defer { peer.shutdown() }
             try await body(Rig(clock: clock, events: events, gauge: gauge, service: service,
@@ -473,6 +474,32 @@ final class ModelsServiceTests: XCTestCase {
             XCTAssertFalse(model.isLost, "it is on the run that answered")
             let answer = try await model.respond(to: "Their going.", instructions: "x")
             XCTAssertEqual(answer, "They're going. [x]")
+        }
+    }
+
+    /// What tells the app that a service is gone is two signals, the replies
+    /// that fail and the session that ends, and the system delivers them in
+    /// either order (the old client was caught by it: XPC reported a dead
+    /// endpoint as an interruption in some runs and as an invalidation in
+    /// others, and a retry that kept the connection of the first met the
+    /// dead one again). A load lost with its run is sent to a new run
+    /// whichever signal comes first, and the model is held by the run that
+    /// answered.
+    func testALoadLostWithItsServiceIsSentAgainWhicheverSignalOfTheLossComesFirst() async throws {
+        for sessionsEndFirst in [false, true] {
+            let order = sessionsEndFirst ? "the session ending first" : "the replies failing first"
+            try await withRig(loadCrashes: 1, sessionsEndFirst: sessionsEndFirst) { rig in
+                let client = rig.client
+                let loading = Task { try await client.loadLanguageModel(LanguageModelSpec(directory: "/m", label: "s")) }
+                await eventually("the first attempt was lost with its run, \(order)") { rig.events.count("retry.attempt_failed") >= 1 }
+                await rig.advance(by: .seconds(3))  // past the backoff before the second attempt
+                let model = try await loading.value
+                XCTAssertEqual(rig.gauge.count("load"), 2, order)
+                XCTAssertEqual(rig.service.runs, 2, "a new run, \(order)")
+                XCTAssertFalse(model.isLost, "it is on the run that answered, \(order)")
+                let answer = try await model.respond(to: "Their going.", instructions: "x")
+                XCTAssertEqual(answer, "They're going. [x]", order)
+            }
         }
     }
 

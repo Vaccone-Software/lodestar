@@ -119,12 +119,20 @@ final class ModelsClient: Sendable {
         let held = resident.withLock { $0.handles.removeValue(forKey: handle) != nil }
         guard held, let run, run == self.run else { return }
         let peer = self.peer
-        Task {
+        releasing.withLock { $0 += 1 }
+        Task { [self] in
             await Log.attempt("models: could not tell the service to release a language model") {
                 try await peer.call(ModelsAPI.releaseLanguageModel, handle, ifRunning: true)
             }
+            releasing.withLock { $0 -= 1 }
         }
     }
+
+    /// Releases sent and not yet answered. A release is sent from a task of
+    /// its own, since a model lets go in its deinit, so this is the one way
+    /// to know it is over: a test waits for it before moving its clock.
+    var releasesInFlight: Int { releasing.withLock { $0 } }
+    private let releasing = Mutex(0)
 
     // MARK: The ear
 

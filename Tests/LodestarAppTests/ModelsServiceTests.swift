@@ -169,6 +169,18 @@ final class ModelsServiceTests: XCTestCase {
             await clock.advance(by: duration)
         }
 
+        /// Waits until every release the client sent is answered. A model
+        /// lets go from its deinit, on a task of its own, and the service
+        /// notes the cache cleared before its answer is back: a clock moved
+        /// past the release's deadline while the answer is on its way reads
+        /// the handler as wedged, and the host's watchdog ends the service
+        /// (seen in the VM: `deadline_exceeded` on the release, then exit 1).
+        func released(file: StaticString = #filePath, line: UInt = #line) async {
+            await ModelsServiceTests.eventually("a release was still on its way", file: file, line: line) {
+                client.releasesInFlight == 0
+            }
+        }
+
         /// Waits until the peer is watching a request its caller left, which
         /// it starts on a task of its own once the caller has gone: a clock
         /// moved before it does counts the verdict from a later moment.
@@ -285,6 +297,7 @@ final class ModelsServiceTests: XCTestCase {
             model = nil
             XCTAssertFalse(rig.client.holds)
             await eventually("the service let it go and cleared MLX's cache") { rig.gauge.count("clear") == 1 }
+            await rig.released()
             let after = try await rig.client.stats()
             XCTAssertEqual(after.languageModels, 0)
         }
@@ -716,6 +729,7 @@ final class ModelsServiceTests: XCTestCase {
             await model.prepare()
             await model.release(reason: "memory pressure")
             await eventually("the model let go in the service") { rig.gauge.count("clear") == 1 }
+            await rig.released()
             await rig.advance(by: Models.idleExit * 3, expecting: false)
             XCTAssertEqual(rig.service.exits, [], "the ear is still held")
             ear.unload()
@@ -739,6 +753,7 @@ final class ModelsServiceTests: XCTestCase {
             XCTAssertEqual(stats.languageModels, 2, "and it still answers")
             second = nil
             await eventually("one went") { rig.gauge.count("clear") == 1 }
+            await rig.released()
             await rig.advance(by: Models.idleExit * 3, expecting: false)
             XCTAssertEqual(rig.service.exits, [], "one model still held")
             withExtendedLifetime(first) {}
@@ -747,6 +762,7 @@ final class ModelsServiceTests: XCTestCase {
             var model: ServiceLanguageModel? = try await rig.client.loadLanguageModel(LanguageModelSpec(directory: "/m", label: "a"))
             model = nil
             await eventually("it went") { rig.gauge.count("clear") == 1 }
+            await rig.released()
             await rig.advance(by: Models.idleExit - .milliseconds(1))
             XCTAssertEqual(rig.service.exits, [], "the period starts at the release, and has not passed")
             await rig.advance(by: .milliseconds(1))
@@ -761,6 +777,7 @@ final class ModelsServiceTests: XCTestCase {
             var model: ServiceLanguageModel? = try await rig.client.loadLanguageModel(LanguageModelSpec(directory: "/m", label: "s"))
             model = nil
             await eventually("it went") { rig.gauge.count("clear") == 1 }
+            await rig.released()
             await rig.advance(by: .seconds(5))
             model = try await rig.client.loadLanguageModel(LanguageModelSpec(directory: "/m", label: "s"))
             await rig.advance(by: .seconds(30), expecting: false)

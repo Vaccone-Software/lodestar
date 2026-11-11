@@ -25,7 +25,9 @@
 # shard). A shard that runs no tests fails the run: a bad -XCTest name runs
 # nothing and exits 0. So does a total that does not match the test list,
 # a shard whose log has not moved in TEST_SHARD_SECONDS (300; its stack is
-# sampled to .build/test-shards/<shard>.hang.txt), a skip that
+# sampled to .build/test-shards/<shard>.hang.txt), a shard that dies on a
+# signal (its crash report is summarised in the output and kept beside the
+# log, <shard>.crash.ips: scripts/crash-report.py), a skip that
 # Tests/allowed-skips.txt does not allow, and a window that took the keys
 # from the person (TestKeys).
 #
@@ -205,11 +207,21 @@ done
 # summary of the last class it finished and no word of what killed it, so
 # its tests are silently missing from the total. Its log names the test it
 # was in: the last one started and never finished.
-for log in "${logs[@]}"; do
+for index in "${!logs[@]}"; do
+    log=${logs[$index]}
     if ! grep -qE "Test Suite '(Selected tests|All tests)' (passed|failed)" "$log"; then
         died=$(grep -E "^Test Case .* (started|passed|failed|skipped)" "$log" | tail -1)
         echo "✕ $(basename "$log" .log) ended before its last test: $died"
         tail -12 "$log" | cut -c1-240
+        # Dead on a signal of its own (not the TERM or KILL this script sends a
+        # hung one): the system wrote a report of it, which says what ended it
+        # where the log cannot, since the log's stdout is lost to an abort.
+        status=${statuses[$index]:-0}
+        if [ "$status" -gt 128 ] && [ "$status" -ne 137 ] && [ "$status" -ne 143 ]; then
+            echo "  signal $((status - 128))"
+            python3 scripts/crash-report.py --pid "${pids[$index]}" --since "$started" --wait "${CRASH_REPORT_WAIT:-30}" \
+                --keep "$OUT/$(basename "$log" .log).crash.ips" || true
+        fi
         failed=1
     fi
 done

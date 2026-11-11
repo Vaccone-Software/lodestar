@@ -104,6 +104,12 @@ enum LeakGuard {
     nonisolated(unsafe) private(set) static var installed = false
 
     fileprivate static func install() {
+        // The app's log lines go to stdout, which a shard's file makes block
+        // buffered: a process that aborts loses everything in the block, and the
+        // lines that survive are from before the XCTest lines they sit among
+        // (twice a shard died in HealthBlindnessTests with the log ending
+        // seconds before it). Whole lines, as they are written.
+        setlinebuf(stdout)
         // The fixtures the stage and the dictation tests used to install
         // lazily, from whichever test came first, are in place before any
         // test can run: a list read once, and latched, cannot be latched empty.

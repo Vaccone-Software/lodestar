@@ -33,7 +33,7 @@ fresh() {
     root="$work/$1"
     mkdir -p "$root/scripts" "$root/Tests" "$root/fake/bin/LodestarAppTests.xctest" "$root/fake/bin/LodestarCoreTests.xctest" \
         "$root/fake/xbin" "$root/fake/plan"
-    cp "$here/test.sh" "$here/test-results.py" "$root/scripts/"
+    cp "$here/test.sh" "$here/test-results.py" "$here/crash-report.py" "$root/scripts/"
     cp "$here/../Tests/quarantine.txt" "$root/Tests/quarantine.txt"
     echo "any MainThreadWatchdogTests.testTheVerdictFollowsTheClockReadings" > "$root/Tests/allowed-skips.txt"
     cat > "$root/fake/xbin/swift" <<'SH'
@@ -52,6 +52,8 @@ SH
 while [ $# -gt 0 ]; do [ "$1" = -XCTest ] && list=$2; shift; done
 for l in .build/test-shards/*.list; do [ "$(cat "$l")" = "$list" ] && name=$(basename "$l" .list); done
 cat "$FAKE/$name.log"
+# A shard that crashes leaves the system's report of it, under its own pid.
+[ -f "$FAKE/$name.crash" ] && { mkdir -p "$CRASH_REPORT_DIRS"; sed "s/@PID@/$$/" "$FAKE/$name.crash" > "$CRASH_REPORT_DIRS/xctest-$$.ips"; }
 [ -f "$FAKE/$name.hang" ] && exec sleep 60
 exit "$(cat "$FAKE/$name.exit" 2>/dev/null || echo 0)"
 SH
@@ -81,6 +83,7 @@ quarantine() { echo "$1 $2 $3" >> "$root/Tests/quarantine.txt"; }
 
 run() {
     (cd "$root" && PATH="$root/fake/xbin:$PATH" FAKE="$root/fake" TEST_SHARD_PLAN="${PLAN:-$root/fake/plan}" \
+        CRASH_REPORT_DIRS="$root/fake/reports" CRASH_REPORT_WAIT=0 \
         TEST_SHARD_SECONDS="${SECONDS_LIMIT:-300}" CI= scripts/test.sh) > "$root/out.txt" 2>&1
     status=$?
 }
@@ -186,6 +189,24 @@ quarantine SlabTests.testKeepsChosenCardFollowsTheSelection "$(day 3)" quarantin
 run
 expect "a quarantined test that kills its process still fails the run" 1 "ended before its last test" \
     "failed: SlabTests.testKeepsChosenCardFollowsTheSelection started and never finished"
+
+fresh aborted
+shard app0 "LodestarAppTests.SlabTests" died.log 134
+cp "$fix/crash.ips" "$root/fake/app0.crash"
+listing "SlabTests|AbandonmentTests"
+run
+expect "a shard that dies on a signal has its crash report read into the output and kept beside its log" 1 "ended before its last test" \
+    "signal 6" "exception: type=EXC_CRASH, signal=SIGABRT" "said by libsystem_c.dylib: abort\(\) called" \
+    "HealthMonitor.resumeLedgerLocked\(now:\) \(HealthMonitor.swift:498\)" "main thread 0"
+[ -s "$root/.build/test-shards/app0.crash.ips" ] && echo "  ok   the report is kept as app0.crash.ips" \
+    || { echo "  FAIL the report was not kept"; broken=$((broken + 1)); }
+
+fresh stopped
+shard app0 "LodestarAppTests.SlabTests" died.log 143
+listing "SlabTests|AbandonmentTests"
+run
+expect "a shard that was stopped (TERM) is not looked up in the crash reports" 1 "ended before its last test"
+grep -q "crash report\|no crash report" "$root/out.txt" && { echo "  FAIL a stopped shard was looked up in the crash reports"; broken=$((broken + 1)); }
 
 echo "what test.sh already guaranteed"
 fresh exits

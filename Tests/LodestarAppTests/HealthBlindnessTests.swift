@@ -33,11 +33,18 @@ final class HealthBlindnessTests: XCTestCase {
     }
 
     /// Every blind span the store has, once the queue and main have run.
+    ///
+    /// Main is drained by turning the run loop (`Stage.pump`), not by waiting on
+    /// an expectation: XCTest ends the whole process, with the shard's other
+    /// tests unrun, when a wait on expectations sees the main thread stay in one
+    /// call for about sixteen seconds past its timeout, and a runner that stalled
+    /// that long did it twice (2026-10-25 and 2026-11-07, each time in the first
+    /// of these tests: "A stall was detected while waiting on expectations ...
+    /// aborting to break the apparent deadlock"). A turn of the run loop that
+    /// takes that long is only a slow test.
     private func spans(_ health: HealthMonitor, _ store: ObservationStore) -> [ObservationEvent] {
         _ = health.ledgerForTesting()
-        let landed = expectation(description: "delivered")
-        DispatchQueue.main.async { landed.fulfill() }
-        wait(for: [landed], timeout: 2)
+        Stage.pump()
         return store.healthLog.readAll().filter { $0.kind == .blind }
     }
 

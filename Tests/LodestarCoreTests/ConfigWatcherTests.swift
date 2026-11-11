@@ -1,6 +1,8 @@
 import Foundation
+import Stoic
 import StoicJSON
 import StoicSettings
+import StoicTesting
 import XCTest
 @testable import LodestarCore
 
@@ -28,7 +30,11 @@ final class ConfigWatcherTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    private func start(debounce: Duration = .milliseconds(40), _ arrived: @escaping () -> Void = {}) throws -> ConfigStore.Store {
+    /// `clock`, when given, is the one the store keeps its debounce on (the
+    /// watch reads the ambient clock as it starts), so the test, not the
+    /// machine, says when a quiet period has passed.
+    private func start(debounce: Duration = .milliseconds(40), clock: TestClock? = nil,
+                       _ arrived: @escaping () -> Void = {}) throws -> ConfigStore.Store {
         let store = try ConfigStore.store(at: file)
         // What the app does with an arrival: applies what the store holds, and
         // tells the watcher what it applied.
@@ -38,9 +44,26 @@ final class ConfigWatcherTests: XCTestCase {
             self.watcher?.didApply(ConfigStore.Snapshot(value: store.value, problem: problem))
             arrived()
         }
-        try watcher.start()
+        if let clock {
+            try withAmbient({ $0.clock = clock.erased }) { try watcher.start() }
+        } else {
+            try watcher.start()
+        }
         self.watcher = watcher
         return store
+    }
+
+    /// Moves the held clock on, a step at a time with the main queue pumped
+    /// between steps, until `condition` holds. Each step is longer than the
+    /// debounces here, so a reload that is owed falls due in the first.
+    private func advance(_ clock: TestClock, by step: Duration = .milliseconds(200), until what: String,
+                         seconds: Double = 5, _ condition: () -> Bool) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition(), Date() < deadline {
+            Task { await clock.advance(by: step) }
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(condition(), "timed out waiting for \(what)")
     }
 
     /// Pumps the main queue (where the watcher tells) until `condition` holds.
@@ -80,13 +103,28 @@ final class ConfigWatcherTests: XCTestCase {
         XCTAssertEqual(arrivals, 1, "one save, one arrival")
     }
 
-    /// Several writes in a burst are one reload.
+    /// Several writes in a burst are one reload. A burst is writes that come
+    /// within the debounce of each other on the clock the store keeps, so the
+    /// clock is the test's and stands still while the writes are made: on a
+    /// loaded runner one write took longer than the debounce, the reload fell
+    /// due between two of them, and the burst arrived twice. The stall is made
+    /// here on purpose, longer than the debounce, between every write.
     func testABurstIsOneArrival() throws {
+        let clock = TestClock()
         try save(json(2200))
-        let store = try start(debounce: .milliseconds(150))
-        for value in [2300, 2400, 2500] { try save(json(value)); settle(0.02) }
-        wait("the reload") { arrivals >= 1 }
-        settle(0.5)
+        let store = try start(debounce: .milliseconds(150), clock: clock)
+        for value in [2300, 2400, 2500] {
+            try save(json(value))
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        XCTAssertEqual(arrivals, 0, "nothing is due while the clock stands still")
+        advance(clock, until: "the reload") { arrivals >= 1 }
+        // Time moves on and the main queue runs: the writes the watch heard late
+        // reload, find the file as it was, and tell nobody.
+        for _ in 0..<10 {
+            Task { await clock.advance(by: .milliseconds(200)) }
+            settle(0.02)
+        }
         XCTAssertEqual(arrivals, 1)
         XCTAssertEqual(speed(store), 2500)
     }

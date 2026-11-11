@@ -37,7 +37,7 @@ if [ "$PHASE" = "build" ] || [ "$PHASE" = "all" ]; then
     # The formats this release writes become a promise every later build
     # is tested against (Stoic design/32); a release whose samples were never
     # recorded would quietly leave its own out.
-    for format in config feedback-entry state; do
+    for format in config feedback-entry release-record state; do
         [ -d "Tests/LodestarCoreTests/Compatibility/$format/$VERSION" ] || {
             echo "✕ no compatibility fixtures for $format $VERSION (run: scripts/record-compat-fixtures.sh $VERSION, then commit them)"
             exit 1

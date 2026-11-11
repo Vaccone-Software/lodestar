@@ -82,4 +82,14 @@ final class OwnerOnlyTests: XCTestCase {
         XCTAssertEqual(Paths.feedbackOutbox.lastPathComponent, "feedback-outbox")
         XCTAssertEqual(Paths.feedbackOutbox.deletingLastPathComponent().path, Paths.data.path)
     }
+
+    /// The updater's record says what each release did on this Mac: restored from a backup onto another,
+    /// it would tell a machine that never ran a release that the release failed there. Its journal, its
+    /// outbox and their locks are all kept out.
+    func testTheReleaseRecordsAreBehavioralAndKeptOutOfBackups() {
+        XCTAssertEqual(ReleaseRecords.standardPath, Paths.data.appendingPathComponent("releases").path)
+        for name in ["releases", "releases.effects", "releases.lock", "releases.effects.lock", "releases.snapshot"] {
+            XCTAssertTrue(Paths.isBehavioral(name), name)
+        }
+    }
 }

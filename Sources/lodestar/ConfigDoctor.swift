@@ -205,6 +205,7 @@ func diagnoseReport() -> String {
     } else {
         lines.append("state: sealed, and the keychain is not available to this process — nothing was read")
     }
+    lines.append(contentsOf: ReleaseRecords.diagnosis())
     let bounds = Config.load().0
     let usage = Retention.healthUsage(in: Paths.data)
     lines.append(String(format: "health record: %.0f MB of %.0f MB", Double(usage.bytes) / 1_048_576,

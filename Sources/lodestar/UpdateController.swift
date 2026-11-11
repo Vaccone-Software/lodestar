@@ -38,7 +38,9 @@ final class UpdateController {
     var enabled = true {
         didSet {
             guard !enabled, oldValue else { return }
-            if case .ready = phase { standDown() }
+            if case .ready(let version) = phase {
+                standDown(releasing: version, as: .abandon, because: "updates were turned off")
+            }
         }
     }
     /// The releases this Mac follows. A switch takes effect at the next
@@ -136,13 +138,34 @@ final class UpdateController {
     /// hand them (`runTool`).
     private let ambient = Ambient.current
 
+    /// The record of each release on this Mac, beside the markers (see
+    /// `ReleaseRecords`); nil for a build that is not installed, which does
+    /// nothing about updates at all.
+    private let records: ReleaseRecords?
+
+    /// How long after launch what is owed to the person is said: a relay
+    /// exits within a second, so it never says it.
+    var announcementDelay: Duration = .seconds(4)
+
+    /// How long after a delivery that failed it is tried once more, before
+    /// the marker's words are said instead.
+    var deliveryRetryDelay: Duration = .seconds(10)
+
     init() {
         // Only the installed app updates itself. A signed build run from
         // dist/ to be tested, older than the latest release, would have
         // downloaded that release and replaced itself there.
-        installURL = Updater.isInstalled(bundlePath: Bundle.main.bundlePath,
-                                         home: Paths.userHome.path)
+        let installed = Updater.isInstalled(bundlePath: Bundle.main.bundlePath,
+                                            home: Paths.userHome.path)
             ? Bundle.main.bundleURL : nil
+        installURL = installed
+        records = installed == nil ? nil : ReleaseRecords()
+    }
+
+    /// For a test: an install of its own choosing, and records kept where it says.
+    init(installURL: URL?, records: ReleaseRecords?) {
+        self.installURL = installURL
+        self.records = installURL == nil ? nil : records
     }
 
     /// Checks that failed in a row, and the retry waiting on them.
@@ -165,11 +188,17 @@ final class UpdateController {
     }
 
     func start() {
-        announceMarkers()
+        // Only the installed app has an update story. A build run from the
+        // source tree used to read, judge and retire the person's own markers
+        // here, which belong to the install.
         guard installURL != nil else { return }
+        boot()
         Log.attempt("update: could not make the update folder") {
             try FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
         }
+        // What this launch clears has nothing behind it: a record still
+        // showing a download or a staged build is told so.
+        records?.abandonInFlight()
         worker.async { self.clearStaging() }
         // First check well clear of the login rush; the leftover .previous
         // bundle from the last swap is long past its watchdog by then.
@@ -210,9 +239,11 @@ final class UpdateController {
     /// and bows out within a second, so a marker it consumed was gone
     /// before the resident booted, and the resident never knew it had
     /// updated (every update since readoption said "ready" and nothing
-    /// else). The instance that says ready retires them, and the rollback
-    /// marker is also retired by the instance that says the rollback.
+    /// else). The instance that says ready retires them. Only the installed
+    /// app has them to read: a build under test left alone judged, and
+    /// retired, the person's own.
     func acknowledgeBoot() {
+        guard installURL != nil else { return }
         Log.attemptUnlessAbsent("update: could not retire the updated marker") {
             try FileManager.default.removeItem(at: Self.updatedMarker)
         }
@@ -221,17 +252,28 @@ final class UpdateController {
         }
     }
 
-    private func announceMarkers() {
-        let updated = Self.updatedMarker
-        let rolledBack = Self.rolledBackMarker
-        if let version = try? String(contentsOf: updated, encoding: .utf8) {
-            if version == Lodestar.version {
+    /// What this launch found of the last handover, and what it makes of it.
+    ///
+    /// The markers are the protocol between processes and between builds
+    /// (the watchdog is a bash script, and a rollback can land on a build
+    /// from before records), so every one is read and written as it always
+    /// was. Beside them, each is turned into an event on the release's
+    /// record (`ReleaseRecords.boot`), and what is owed to the person is said
+    /// from the record, once, by whichever instance stays long enough
+    /// (`ReleaseRecords.deliver`). With no record to be had it is said from
+    /// the marker four seconds in, as before (`sayFromMarkers`).
+    func boot() {
+        let updated = Self.text(of: Self.updatedMarker)
+        let rolledBack = Self.text(of: Self.rolledBackMarker)
+        // Read before this launch writes a tombstone of its own: an earlier
+        // build's refusal becomes a record, this launch's is the marker's.
+        let tombstone = refusedTag
+        let here = Lodestar.version
+        let sameVersion = updated.map { Self.isThisBuild($0) } ?? false
+        if let version = updated {
+            if sameVersion {
                 justUpdated = true
                 Log.info("update", ["phase": "completed", "version": version])
-                onMain(after: .seconds(4)) { [voice] in
-                    let (sentence, detail) = Voice.updated(version)
-                    voice(sentence, detail, 1, false)
-                }
             } else {
                 // Applied, relaunched, and still not that version: the
                 // release did not change the binary. v0.32.4 (2026-09-14)
@@ -240,14 +282,14 @@ final class UpdateController {
                 // restoring parked windows on the way out. Refused the way
                 // a rollback is refused, until a newer release ships.
                 Log.attemptUnlessAbsent("update: could not remove the updated marker of a build that did not change the binary") {
-                    try FileManager.default.removeItem(at: updated)
+                    try FileManager.default.removeItem(at: Self.updatedMarker)
                 }
                 Self.writeMarker(version, to: Self.refusedFile, what: "the refusal tombstone",
                                  consequence: "this release will be offered, applied and relaunched again at the next check — a relaunch loop")
-                Log.error("update to \(version) did not change the binary — still \(Lodestar.version); refusing it until a newer release ships")
+                Log.error("update to \(version) did not change the binary — still \(here); refusing it until a newer release ships")
             }
         }
-        if let version = try? String(contentsOf: rolledBack, encoding: .utf8) {
+        if let version = rolledBack {
             // The tombstone outlives the announcement: a release that could
             // not take the pid file must not be offered again, or every
             // check re-applies it and the watchdog rolls it back forever.
@@ -256,22 +298,129 @@ final class UpdateController {
             Self.writeMarker(version, to: Self.refusedFile, what: "the refusal tombstone",
                              consequence: "this release will be offered and rolled back again at the next check — a relaunch loop")
             Log.error("update rolled back: \(version) never took the pid file — refusing it until a newer release ships")
-            // The marker is retired when the message is said, not when it is
-            // read: an instance that exits before the four seconds (a relay)
-            // never says it, and leaves the marker for the one that stays.
-            onMain(after: .seconds(4)) { [weak self] in
-                guard let self else { return }
+        }
+
+        guard let records else { return }
+        let input = ReleaseRecords.Boot(version: here, pid: ProcessInfo.processInfo.processIdentifier,
+                                        tombstone: tombstone, updated: updated, rolledBack: rolledBack)
+        let rolledBackMarker = Self.rolledBackMarker
+        // Holds nothing of the controller: a relay that exits is a process
+        // that is gone, and the work is the records', which outlive it only
+        // as far as the process does.
+        let booting = Task { () -> ReleaseRecords.BootResult? in
+            let result = await records.boot(input)
+            // Once the record holds the verdict the marker has done its work.
+            // The marker is the only thing a relay can hand the resident, and
+            // now the record is too: it is retired when the record has it,
+            // not when it is said, and not at all if the record could not
+            // take it.
+            if rolledBack != nil, result?.rolledBack == .rolledBack {
+                Log.attemptUnlessAbsent("update: could not retire the rolled back marker once it was recorded") {
+                    try FileManager.default.removeItem(at: rolledBackMarker)
+                }
+            }
+            return result
+        }
+        let delay = announcementDelay
+        let retryDelay = deliveryRetryDelay
+        onMain(after: delay) { [weak self] in
+            // A relay's four seconds never come.
+            Task { [weak self] in
+                let result = await booting.value
+                // Owed by the record, said once. A delivery that fails (the
+                // store busy past its wait, a write that does not take) is
+                // tried once more, and then the marker's words are said, so
+                // what the record took but could not say is not lost for the
+                // session.
+                // A boot the store did not take leaves nothing owed by it: the
+                // marker speaks at once, as it did before there were records.
+                guard result != nil else {
+                    self?.sayFromMarkers(updated: sameVersion ? updated : nil, rolledBack: rolledBack,
+                                         recorded: nil, delivered: false)
+                    return
+                }
+                var delivered = await self?.deliverOwed(by: records) ?? false
+                if !delivered {
+                    do { try await Ambient.sleep(for: retryDelay) } catch { return }
+                    delivered = await self?.deliverOwed(by: records) ?? false
+                }
+                self?.sayFromMarkers(updated: sameVersion ? updated : nil, rolledBack: rolledBack,
+                                     recorded: result, delivered: delivered)
+            }
+        }
+    }
+
+    /// The announcements the records owe, put on screen.
+    private func deliverOwed(by records: ReleaseRecords) async -> Bool {
+        await records.deliver(deciding: Self.decide) { [weak self] delivery in self?.present(delivery) }
+    }
+
+    /// Whether an owed announcement is said, where the store is: one owed
+    /// by an earlier launch for a release this build is not is let go, since
+    /// "Now 0.54.25" on a Mac that is on 0.54.26 would be wrong.
+    private static func decide(_ delivery: ReleaseRecords.Delivery) -> DeliveryResult {
+        if case .running = delivery.announcement, !isThisBuild(delivery.id) {
+            return .discard(reason: "\(delivery.id) is not the release this is")
+        }
+        return .delivered
+    }
+
+    /// What the markers say that the records could not: the same words as
+    /// before there were records, from the marker, for the one that the
+    /// record did not take.
+    private func sayFromMarkers(updated: String?, rolledBack: String?, recorded: ReleaseRecords.BootResult?,
+                                delivered: Bool) {
+        let rolledBackMarker = Self.rolledBackMarker
+        DispatchQueue.main.async {
+            if let version = updated, recorded?.updated != .running || !delivered {
+                let (sentence, detail) = Voice.updated(version)
+                self.voice(sentence, detail, 1, false)
+            }
+            if let version = rolledBack, recorded?.rolledBack != .rolledBack || !delivered {
                 self.flash("⚠ \(version) did not start, so Lodestar went back to \(Lodestar.version)")
+                // The marker is retired when the message is said, not when it is
+                // read: an instance that exits before the four seconds (a relay)
+                // never says it, and leaves the marker for the one that stays.
                 Log.attemptUnlessAbsent("update: could not remove the rolled back marker after announcing it") {
-                    try FileManager.default.removeItem(at: rolledBack)
+                    try FileManager.default.removeItem(at: rolledBackMarker)
                 }
             }
         }
     }
 
+    /// An owed announcement on screen. Main thread.
+    private func present(_ delivery: ReleaseRecords.Delivery) {
+        switch delivery.announcement {
+        case .running:
+            let (sentence, detail) = Voice.updated(delivery.id)
+            voice(sentence, detail, 1, false)
+        case .rolledBack:
+            flash("⚠ \(delivery.id) did not start, so Lodestar went back to \(Lodestar.version)")
+        }
+    }
+
+    /// Whether `text` names the version this build is, as versions are
+    /// compared: `v0.54.25`, `0.54.25` and `0.54.25.0` are one.
+    private static func isThisBuild(_ text: String) -> Bool {
+        guard let version = Updater.parseVersion(text), let here = Updater.parseVersion(Lodestar.version) else { return false }
+        return Updater.sameVersion(version, here)
+    }
+
+    private static func text(of url: URL) -> String? {
+        try? String(contentsOf: url, encoding: .utf8)
+    }
+
     /// The tag of a release that already failed its handover, if any.
     private var refusedTag: String? {
-        try? String(contentsOf: Self.refusedFile, encoding: .utf8)
+        Self.text(of: Self.refusedFile)
+    }
+
+    /// Whether a release may be offered: neither the tombstone, which every
+    /// build writes, nor the record, which this one keeps, refuses it. The
+    /// record's answer is the snapshot its last piece of work left, so the
+    /// feed's answer never waits on a file.
+    func mayOffer(_ release: Updater.Release) -> Bool {
+        Updater.shouldOffer(release, refusedTag: refusedTag) && records?.refuses(release.tag) != true
     }
 
     // MARK: - Check, download, verify
@@ -343,12 +492,13 @@ final class UpdateController {
             finishCheck(force: force, voice: Voice.newest(Lodestar.version), log: nil)
             return
         }
-        guard Updater.shouldOffer(release, refusedTag: refusedTag) else {
+        guard mayOffer(release) else {
             finishCheck(force: force,
                         note: "✓ \(release.tag) already failed to start here\nLodestar waits for a newer release",
                         log: "refusing \(release.tag): it was rolled back once")
             return
         }
+        records?.offered(release.tag, because: "the \(channel.rawValue) feed offered it")
         worker.async { self.download(release, force: force) }
     }
 
@@ -423,9 +573,11 @@ final class UpdateController {
         return { share in light.report(share) }
     }
 
-    private func downloadFailed(_ release: Updater.Release, _ error: any Error, force: Bool) {
+    func downloadFailed(_ release: Updater.Release, _ error: any Error, force: Bool) {
+        let problem = UpdateDownload.problem(error, release: release)
+        records?.record(.failed, of: release.tag, because: "the download failed: \(problem)")
         finishCheck(force: force, note: "✕ The update did not download",
-                    log: "download failed (\(UpdateDownload.problem(error, release: release)))", failed: true)
+                    log: "download failed (\(problem))", failed: true)
     }
 
     private func stage(onWorker release: Updater.Release, force: Bool) {
@@ -456,21 +608,21 @@ final class UpdateController {
         Log.attemptUnlessAbsent("update: could not clear the staging folder") {
             try FileManager.default.removeItem(at: staging)
         }
-        guard step("unpack", force: force, "/usr/bin/ditto", "-x", "-k", zip.path, staging.path) else { return }
+        guard step("unpack", release: release, force: force, "/usr/bin/ditto", "-x", "-k", zip.path, staging.path) else { return }
         Log.attemptUnlessAbsent("update: could not remove the downloaded zip") { try FileManager.default.removeItem(at: zip) }
         let bundle = staging.appendingPathComponent("lodestar.app")
 
         // The gate, in three locks: integrity, identity, and the version
         // actually being the one the release claims.
-        guard step("codesign integrity check", force: force,
+        guard step("codesign integrity check", release: release, force: force,
                    "/usr/bin/codesign", "--verify", "--strict", "--deep", bundle.path) else { return }
-        guard step("signature check (this team's Developer ID)", force: force,
+        guard step("signature check (this team's Developer ID)", release: release, force: force,
                    "/usr/bin/codesign", "--verify", "-R=\(Self.requirement)", bundle.path) else { return }
         let plist = NSDictionary(contentsOf: bundle.appendingPathComponent("Contents/Info.plist"))
         guard let stagedVersion = plist?["CFBundleShortVersionString"] as? String,
               let staged = Updater.parseVersion(stagedVersion),
               Updater.sameVersion(staged, release.version) else {
-            failStage(force: force, log: "staged bundle version does not match the release tag")
+            failStage(release: release, force: force, log: "staged bundle version does not match the release tag")
             return
         }
 
@@ -483,6 +635,7 @@ final class UpdateController {
             Log.info("update", ["phase": "refused", "version": stagedVersion, "reason": why])
             Self.writeMarker(release.tag, to: Self.refusedFile, what: "the refusal tombstone",
                              consequence: "this release will be downloaded and refused again at the next check")
+            records?.record(.incompatible, of: release.tag, because: "this Mac \(why)")
             clearStaging()
             DispatchQueue.main.async {
                 self.phase = .idle
@@ -492,6 +645,8 @@ final class UpdateController {
         }
 
         Log.info("update", ["phase": "staged", "version": stagedVersion])
+        records?.record(.verified, of: release.tag,
+                        because: "its signature, identity and version \(stagedVersion) checked out")
         DispatchQueue.main.async {
             self.stagedBundle = bundle
             self.phase = .ready(version: stagedVersion)
@@ -499,8 +654,9 @@ final class UpdateController {
         }
     }
 
-    private func failStage(force: Bool, log message: String) {
+    private func failStage(release: Updater.Release, force: Bool, log message: String) {
         Log.error("update staging: \(message)")
+        records?.record(.failed, of: release.tag, because: message)
         clearStaging()
         DispatchQueue.main.async {
             self.phase = .idle
@@ -544,14 +700,14 @@ final class UpdateController {
 
     /// One staging command, and the update failing if it does not pass
     /// or does not finish. Worker queue.
-    private func step(_ what: String, force: Bool, _ launchPath: String, _ arguments: String...) -> Bool {
+    private func step(_ what: String, release: Updater.Release, force: Bool, _ launchPath: String, _ arguments: String...) -> Bool {
         switch runTool(launchPath, arguments) {
         case .succeeded:
             return true
         case .failed:
-            failStage(force: force, log: "\(what) failed")
+            failStage(release: release, force: force, log: "\(what) failed")
         case .timedOut:
-            failStage(force: force, log: "\(what) did not finish in \(Int(Self.toolDeadline.components.seconds)) s")
+            failStage(release: release, force: force, log: "\(what) did not finish in \(Int(Self.toolDeadline.components.seconds)) s")
         }
         return false
     }
@@ -647,7 +803,7 @@ final class UpdateController {
             ) else { return }
         }
         guard canSwap(installURL: installURL, force: force) else {
-            standDown()
+            standDown(releasing: version, as: .abandon, because: "the install can no longer be swapped")
             return
         }
         let parent = installURL.deletingLastPathComponent()
@@ -677,15 +833,44 @@ final class UpdateController {
             try Self.swapIn(bundle, at: installURL, keepingOldAt: previous)
         } catch {
             Log.error("update swap failed: \(error)")
-            standDown(force: force, note: "✕ The update did not install")
+            standDown(releasing: version, as: .failed, because: "the swap failed: \(error)",
+                      force: force, note: "✕ The update did not install")
             return
         }
 
+        // The build is in place. The record is told now (the watchdog starts
+        // after the marker, so it cannot be named here: the pid this process
+        // has is the one it watches the pid file for), and the marker and the
+        // watchdog follow at once, since the watchdog is what undoes a swap
+        // that does not take.
+        records?.record(.apply, of: version,
+                        because: "swapped in over \(Lodestar.version) by pid \(ProcessInfo.processInfo.processIdentifier); its watchdog follows")
         let marker = Self.directory.appendingPathComponent("updated-to")
         Self.writeMarker(version, to: marker, what: "the updated-to marker",
                          consequence: "the new build will not announce the update")
         spawnWatchdog(app: installURL, previous: previous, version: version)
         stagedBundle = nil
+        // The successor confirms the record it finds, so it is launched once
+        // the apply is committed, where an apply still queued met a successor
+        // that confirmed a staged record and wrote the release's history wrong.
+        // Bounded: a record never holds up an update, and the store that does
+        // not answer in two seconds leaves the marker to carry it, as before.
+        guard let records else {
+            launchSuccessor(installURL)
+            return
+        }
+        Task { @MainActor in
+            do {
+                try await abandoningAsyncAfter(.seconds(2), label: "update.apply-recorded") { await records.settled() }
+            } catch {
+                Log.warning("update", ["record": "apply not committed before the relaunch", "error": "\(error)",
+                                       "consequence": "the successor's marker carries the update"])
+            }
+            self.launchSuccessor(installURL)
+        }
+    }
+
+    private func launchSuccessor(_ installURL: URL) {
         // The successor's boot takes over the pid file and SIGTERMs this
         // process — the same handoff every manual reinstall already uses.
         // phase stays .applying: this process is done deciding things.
@@ -748,7 +933,9 @@ final class UpdateController {
     /// Abandon the staged build and return to idle — a fresh check can
     /// start over from a clean slate. The manual check narrates every
     /// outcome, so a forced run that stands down says why.
-    private func standDown(force: Bool = false, note: String? = nil) {
+    func standDown(releasing version: String, as event: ReleaseOnThisMac.Event, because: String,
+                   force: Bool = false, note: String? = nil) {
+        records?.record(event, of: version, because: because)
         stagedBundle = nil
         phase = .idle
         if force, let note { flash(note) }

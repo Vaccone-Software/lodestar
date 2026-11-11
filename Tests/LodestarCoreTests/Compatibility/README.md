@@ -75,3 +75,23 @@ since 2001):
 The sample files are written to match each release's struct (`git show
 <tag>:Sources/LodestarCore/Stores.swift`) and are read, as the app reads them,
 through `StateMigrations.lift` and `JSONDecoder`.
+
+## release-record (`ReleaseOnThisMac`, the updater's record of a release)
+
+Three kinds of document, written by the store beside the updater's markers
+(`Paths.data/releases`, and its outbox beside it): a record's head, an entry
+of its history, and an announcement owed to the person (`announce-*`). Their
+bytes are the real codecs' own, in the store's own encoding (sorted keys),
+from a release's whole life made by the definition at moments the test names
+and a record key it fixes, so the same bytes come out every time.
+
+- `0.54.25` is the first release to write it, and is recorded at its version
+  bump (`scripts/record-compat-fixtures.sh 0.54.25`), which `release.sh`
+  insists on. Until then the format has no folder, and its test holds only
+  what can be held without one: each document round-trips through the decoder
+  the store uses, and the names on disk (states, events, the announcement's
+  and the principal's shapes) are pinned.
+- What a later build must keep reading: a rollback runs an older build over
+  this file. A state or an event the older build does not know makes it keep
+  the record untouched and unreadable (never overwritten); one it does know
+  must mean what it meant.

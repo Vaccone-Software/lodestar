@@ -1,15 +1,17 @@
 import Foundation
+import Stoic
 import StoicJSON
 import StoicSchema
 import StoicSchemaTesting
 import StoicSettings
+import StoicStore
 import XCTest
 @testable import LodestarCore
 
 // Schema compatibility (Stoic design/32): a released format is a promise, and
 // this is the test that keeps it.
 //
-// Three formats are written by one build and read by another, and the
+// Four formats are written by one build and read by another, and the
 // outbox's reader deletes what it cannot read (`onUndecodable: .discard`), so
 // a format that drifts costs a person something silently:
 //
@@ -21,6 +23,12 @@ import XCTest
 //                   A person's file outlives every release that touched it.
 //   state           the machine's state (PersistedState, StateFiles.decode;
 //                   StateMigrations lifts an old version before the decode).
+//   release-record  the updater's record of a release (ReleaseOnThisMac): the
+//                   head, an entry of its history, and an announcement owed.
+//                   A rollback runs an older build over the file this one kept,
+//                   and a state or an event the older build does not know makes
+//                   it keep the record untouched and unreadable; one it does
+//                   know must mean the same.
 //
 // What is checked, per format:
 //
@@ -428,6 +436,198 @@ final class CompatibilityTests: XCTestCase {
         let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: lifted) as? [String: Any])
         XCTAssertEqual(object["version"] as? Int, Lodestar.stateVersion)
         XCTAssertNotNil(StateFiles.decode(bytes))
+    }
+
+    // MARK: - The release record
+
+    private typealias Release = ReleaseOnThisMac
+
+    /// One document the release record writes: a head, an entry of its history, or an announcement
+    /// handed to the outbox. Coded as the document itself, which is told by its keys: only a head
+    /// has `lifecycle`, and only an announcement has `effect`.
+    private enum ReleaseDocument: Sendable, Codable, Hashable {
+        case record(Release.Record)
+        case entry(Release.Entry)
+        case delivery(LifecycleDelivery<Release, String>)
+
+        private struct Name: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+            init?(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
+
+        init(from decoder: any Decoder) throws {
+            let keys = try decoder.container(keyedBy: Name.self)
+            if keys.contains(Name(stringValue: "lifecycle")!) {
+                self = .record(try Release.Record(from: decoder))
+            } else if keys.contains(Name(stringValue: "effect")!) {
+                self = .delivery(try LifecycleDelivery<Release, String>(from: decoder))
+            } else {
+                self = .entry(try Release.Entry(from: decoder))
+            }
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            switch self {
+            case .record(let value): try value.encode(to: encoder)
+            case .entry(let value): try value.encode(to: encoder)
+            case .delivery(let value): try value.encode(to: encoder)
+            }
+        }
+
+        // An announcement is not Hashable, so a document is what it writes.
+        static func == (lhs: Self, rhs: Self) -> Bool { CompatibilityTests.releaseBytes(lhs) == CompatibilityTests.releaseBytes(rhs) }
+        func hash(into hasher: inout Hasher) { hasher.combine(CompatibilityTests.releaseBytes(self)) }
+    }
+
+    /// The bytes the store writes for a document: its own encoder's settings (sorted keys, slashes as they are).
+    private static func releaseBytes(_ document: ReleaseDocument) -> [UInt8]? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return try? Array(encoder.encode(document))
+    }
+
+    /// A record with a key of the test's own, so the same release is written byte for byte every
+    /// time: the key a record draws at random is made once, and is the root of its effect keys.
+    private static func fixedKey(_ record: Release.Record) throws -> Release.Record {
+        let encoder = JSONEncoder()
+        var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: encoder.encode(record)) as? [String: Any])
+        object["key"] = "0123456789abcdef0123456789abcdef"
+        return try JSONDecoder().decode(Release.Record.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    /// A release's whole life, and the two ways it can end other than running, with the documents each
+    /// step writes: made by the definition itself, at moments the test names.
+    private static let releaseSamples: [(name: String, value: ReleaseDocument)] = {
+        do {
+            let start = Moment(sinceEpoch: .seconds(1_767_225_600))
+            func at(_ minutes: Int) -> Moment { start + .seconds(minutes * 60) }
+            var samples: [(String, ReleaseDocument)] = []
+            func step(_ record: Release.Record, _ event: Release.Event, by: Release.Principal, because: String,
+                      at moment: Moment, _ name: String) throws -> Release.Record {
+                let change = try record.applying(event, by: by, because: because, at: moment)
+                samples.append(("record-\(name)", .record(change.record)))
+                for entry in change.entries { samples.append(("entry-\(name)", .entry(entry))) }
+                return change.record
+            }
+            // The life of a release that took: offered, downloaded, verified, swapped in, confirmed.
+            let offered = try fixedKey(.new(in: .offered, by: .updater, because: "the stable feed offered it", at: start))
+            samples.append(("record-offered", .record(offered)))
+            var record = try step(offered, .download, by: .updater, because: "the download began", at: at(1), "downloading")
+            record = try step(record, .verified, by: .updater, because: "its signature, identity and version 0.54.25 checked out",
+                              at: at(3), "staged")
+            record = try step(record, .apply, by: .updater, because: "swapped in over 0.54.24 by pid 4242; its watchdog follows",
+                              at: at(40), "applying")
+            let running = try step(record, .confirm, by: .successor(pid: 4_243),
+                                   because: "this build, 0.54.25, is the one the update applied", at: at(41), "running")
+            // The watchdog's verdict reaching a release already confirmed, and what a release owes the person.
+            let rolledBack = try step(running, .rollBack, by: .watchdog,
+                                      because: "0.54.25 never took the pid file, and 0.54.24 was put back", at: at(42), "rolled-back")
+            // A build that did not change the binary.
+            _ = try step(record, .unchanged, by: .successor(pid: 4_243),
+                         because: "relaunched as 0.54.24, which is not the 0.54.25 it applied", at: at(41), "refused")
+            // A refusal the tombstone left, made a record by the importer.
+            let imported = try fixedKey(.new(in: .refused, by: .importer,
+                                             because: "the refusal tombstone an earlier build left names it", at: at(5)))
+            samples.append(("record-imported", .record(imported)))
+            // An apply an earlier build made, known only from its marker, and one that nobody confirmed:
+            // the timeout that falls due is an entry by the timeout.
+            let applied = try fixedKey(.new(in: .applying, by: .importer, because: "applied by an earlier build; from its marker", at: at(0)))
+            samples.append(("record-imported-applying", .record(applied)))
+            if let timed = applied.read(at: at(31)).pending.first { samples.append(("entry-stall", .entry(timed))) }
+            // The announcements, as the outbox holds them.
+            let rolling = try running.applying(.rollBack, by: .watchdog, because: "a test", at: at(42))
+            let confirming = try record.applying(.confirm, by: .successor(pid: 1), because: "a test", at: at(41))
+            for (name, change) in [("running", confirming), ("rolled-back", rolling)] {
+                let effect = try XCTUnwrap(change.effects.first)
+                var delivery: [String: Any] = ["id": "0.54.25", "key": effect.key.rawValue]
+                delivery["effect"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(effect.effect))
+                let decoded = try JSONDecoder().decode(LifecycleDelivery<Release, String>.self,
+                                                       from: JSONSerialization.data(withJSONObject: delivery))
+                samples.append(("announce-\(name)", .delivery(decoded)))
+            }
+            _ = rolledBack
+            return samples
+        } catch {
+            preconditionFailure("the release record's samples could not be made: \(error)")
+        }
+    }()
+
+    /// What the store's decoders ask of each document: the keys they require and the names they know.
+    private static let releaseReader: JSONValue = {
+        let states = Release.State.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+        let events = Release.Event.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+        return parse("""
+            {"$schema": "http://json-schema.org/draft-07/schema#", "anyOf": [
+              {"type": "object", "required": ["lifecycle", "version", "key", "revision", "sequence", "created", "state", "since", "updated"],
+               "properties": {"lifecycle": {"enum": ["lodestar.release"]}, "version": {"type": "integer", "minimum": 1},
+                              "key": {"type": "string"}, "revision": {"type": "integer", "minimum": 1},
+                              "sequence": {"type": "integer", "minimum": 0},
+                              "created": {"type": "object", "required": ["at", "by", "because"]},
+                              "state": {"enum": [\(states)]}, "since": {"type": "string"}, "updated": {"type": "string"},
+                              "dueAt": {"type": "string"}}},
+              {"type": "object", "required": ["record", "sequence", "from", "event", "to", "entered", "at", "by", "because", "effects"],
+               "properties": {"record": {"type": "string"}, "sequence": {"type": "integer", "minimum": 0},
+                              "from": {"enum": [\(states)]}, "to": {"enum": [\(states)]}, "event": {"enum": [\(events)]},
+                              "entered": {"type": "boolean"}, "at": {"type": "string"}, "because": {"type": "string"},
+                              "effects": {"type": "array", "items": {"type": "string"}}}},
+              {"type": "object", "required": ["id", "key", "effect"],
+               "properties": {"id": {"type": "string"}, "key": {"type": "string"}, "effect": {"type": "object"}}}]}
+            """)
+    }()
+
+    /// Until the first release that writes this format records it (at its version bump, by
+    /// `scripts/record-compat-fixtures.sh`, which release.sh insists on), there is no released payload
+    /// to read, so the check against releases cannot run. What can is held: the documents round-trip
+    /// through the decoders the store uses.
+    func testTheReleaseRecordStillReadsWhatEveryReleaseWrote() throws {
+        let recording = !(ProcessInfo.processInfo.environment["STOIC_RECORD_COMPATIBILITY"] ?? "").isEmpty
+        let recorded = FileManager.default.fileExists(atPath: Self.root + "/release-record")
+        guard recording || recorded else {
+            for (name, document) in Self.releaseSamples {
+                let bytes = try XCTUnwrap(Self.releaseBytes(document), name)
+                XCTAssertEqual(try JSONDecoder().decode(ReleaseDocument.self, from: Data(bytes)), document, name)
+            }
+            return
+        }
+        expect(Format(
+            name: "release-record",
+            schema: .codable(ReleaseDocument.self, examples: Self.releaseSamples.map(\.value)),
+            samples: Self.releaseSamples,
+            write: Self.releaseBytes,
+            reader: Self.releaseReader,
+            reading: nil,
+            // The store reads a head, an entry and an announcement with its own decoders.
+            verify: { fixture, document in
+                switch document {
+                case .record(let record):
+                    return Release.State.allCases.contains(record.written.state) ? [] : ["a state this build does not know"]
+                case .entry(let entry):
+                    return entry.sequence >= 0 && !entry.because.isEmpty || entry.by == .timeout ? [] : ["an entry with no reason"]
+                case .delivery(let delivery):
+                    return delivery.id.isEmpty ? ["an announcement for no release"] : []
+                }
+            },
+            generated: 0))
+    }
+
+    /// The names on disk are the promise: a state, an event or an effect renamed (or a case
+    /// removed) is a record an older build cannot read, and one it can read must keep its meaning.
+    func testTheNamesTheReleaseRecordWritesAreFrozen() throws {
+        XCTAssertEqual(Release.name, "lodestar.release")
+        XCTAssertEqual(Release.version, 1)
+        XCTAssertEqual(Release.State.allCases.map(\.rawValue),
+                       ["offered", "downloading", "staged", "applying", "running", "rolledBack", "refused"])
+        XCTAssertEqual(Release.Event.allCases.map(\.rawValue),
+                       ["download", "verified", "failed", "incompatible", "apply", "confirm", "rollBack", "unchanged", "stall", "abandon"])
+        XCTAssertEqual(Release.Announcement.allCases.map(\.rawValue), ["running", "rolledBack"])
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        func json(_ value: some Encodable) throws -> String { String(decoding: try encoder.encode(value), as: UTF8.self) }
+        XCTAssertEqual(try json(Release.Effect.announce(.running)), #"{"announce":{"_0":"running"}}"#)
+        XCTAssertEqual(try json(Release.Principal.successor(pid: 7)), #"{"successor":{"pid":7}}"#)
+        XCTAssertEqual(try json(Release.Principal.watchdog), #"{"watchdog":{}}"#)
     }
 
     // MARK: - Helpers

@@ -330,7 +330,14 @@ public final class ReleaseRecords: Sendable {
         func open() async -> Store? {
             let attempts = max(1, Int(lockWait / Self.retryEvery))
             do throws(StoreError) {
-                return try await retry(.fixed(Self.retryEvery).attempts(attempts), label: "release-records.open") { _ throws(StoreError) in
+                // Unlimited budget: this is a wait on a local lock that the other
+                // instance of a handover holds for a moment, bounded by its own
+                // schedule (`lockWait`). A retry budget is for a dependency under
+                // load; this one's reserve is spent in a second of polling, and a
+                // spent budget made every later wait in the process an at-once
+                // "unavailable" (a boot unrecorded, a rollback said twice).
+                return try await retry(.fixed(Self.retryEvery).attempts(attempts), budget: .unlimited,
+                                       label: "release-records.open") { _ throws(StoreError) in
                     try await Store.open(at: path, fileSystem: fileSystem,
                                          journalOptions: Journal.Options(crossProcessLock: true))
                 }

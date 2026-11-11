@@ -16,9 +16,16 @@ final class VirtualClock {
 
     init(start: Date = Date()) { now = start }
 
+    /// Weak, not unowned: a controller can outlive the test that made it
+    /// (a hop it queued runs after the rig is gone), and reading an unowned
+    /// clock then ends the whole shard process, every test after it unrun
+    /// (seen with the editor's compute hop under scheduling jitter). Once its
+    /// owner is gone it answers the moment it was handed out and schedules
+    /// nothing.
     var clock: Clock {
-        Clock(now: { [unowned self] in self.now },
-              after: { [unowned self] delay, work in self.after(delay, work) })
+        let start = now
+        return Clock(now: { [weak self] in self?.now ?? start },
+                     after: { [weak self] delay, work in self?.after(delay, work) })
     }
 
     private func after(_ delay: TimeInterval, _ work: DispatchWorkItem) {

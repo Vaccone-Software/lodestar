@@ -50,6 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastSettingsProgress: ContinuousClock.Instant?
     private var coach: CoachController!
     private var updater: UpdateController!
+    /// Once a day, the site is told this Mac used Lodestar (`DailyCount`).
+    private let dailyCount = DailyCountController()
     private var clipboardController: ClipboardController!
     private var statusItem: NSStatusItem?
     /// Who tells the running icon that the appearance moved.
@@ -847,6 +849,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updater.requiresRouting = { [weak self] in self?.config.webHandleClicks ?? false }
         launchStages.enter("updater and settings")
         updater.start()
+        installDailyCount()
         // A note left waiting by the last run is tried again once things have
         // settled, and then on the queue's schedule while any remain. Costs
         // nothing for a person who never wrote one.
@@ -1247,9 +1250,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // The Write, Keep and Speak walks each wait on one real moment:
         // a mark drawn and a fix taken, a copy kept, words landed.
         editorController?.onMarked = { [weak self] in self?.walk.notice(.editorMarked) }
-        editorController?.onFixed = { [weak self] in self?.walk.notice(.editorFixed) }
+        // A fix taken and words landed are also the day's use of Lodestar
+        // for the daily count, when a hand was at the keys.
+        editorController?.onFixed = { [weak self] in
+            self?.walk.notice(.editorFixed)
+            self?.dailyCount.used()
+        }
         clipboardController.onCopied = { [weak self] in self?.walk.notice(.clipCopied) }
-        draftController?.onLanded = { [weak self] in self?.walk.notice(.draftLanded) }
+        draftController?.onLanded = { [weak self] in
+            self?.walk.notice(.draftLanded)
+            self?.dailyCount.used()
+        }
         walk.markCompleted = { [weak self] in
             self?.store.markWalkCompleted(version: Lodestar.version)
         }
@@ -1688,6 +1699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             parking.adopt(store.parkedSpots)
             applyEditor(config)
             settleEditingStyle()
+            dailyCount.stateSettled()
         }
         if let warning = store.bootWarning, warning != stateWarningFlashed {
             stateWarningFlashed = warning
@@ -2603,6 +2615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate
         updater.channel = loaded.channel
+        dailyCount.enabled = loaded.dailyCount
         clipboardController.excludedApps = loaded.clipboardExcludedApps
         clipboardController.excludedPatterns = loaded.clipboardExcludePatterns
         draftController?.words = loaded.draftWords
@@ -2968,6 +2981,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // The instance that says ready is the resident one, so it is the
         // one that retires the update's markers.
         updater.acknowledgeBoot()
+    }
+
+    /// The daily count's wiring: its switch, its record in the machine-owned
+    /// state, the notice on the HUD, and the gesture that is a use.
+    private func installDailyCount() {
+        dailyCount.enabled = config.dailyCount
+        dailyCount.channel = { [weak self] in self?.config.channel ?? .stable }
+        dailyCount.lastHumanKeyAt = { [weak self] in self?.engine.lastHumanInputAt ?? .distantPast }
+        // Nothing in front of the hand: the notice is never drawn over a
+        // chain, a bar, the coach's chip, or a shared screen.
+        dailyCount.quiet = { [weak self] in
+            guard let self else { return false }
+            return self.engine.isQuiet && self.hud.owner == .none && !self.presenting.isOn
+        }
+        dailyCount.stateKnown = { [weak self] in self?.store.isKnown ?? false }
+        dailyCount.read = { [weak self] in self?.store.dailyCount ?? DailyCount.Record() }
+        dailyCount.write = { [weak self] record in self?.store.setDailyCount(record) }
+        dailyCount.evidence = { [weak self] in
+            let folder = (try? FileManager.default.attributesOfItem(atPath: Paths.data.path))?[.creationDate] as? Date
+            return [folder, self?.observationStore.observations.since]
+        }
+        dailyCount.showNotice = { [weak self] text in self?.hud.flash(text) }
+        engine.onHumanGesture = { [weak self] in self?.dailyCount.used(byHand: true) }
+        dailyCount.start()
     }
 
     static let readyNote = "Ready when you are"

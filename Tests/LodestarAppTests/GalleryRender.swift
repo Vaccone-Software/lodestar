@@ -39,17 +39,32 @@ struct GalleryLook: Equatable {
         settleMain()
     }
 
-    /// Turn the run loop until the main queue answers promptly three times
+    /// Take every event AppKit has queued and turn the run loop, until
+    /// there are no events and the main queue answers promptly, three times
     /// in a row, or `limit` passes.
+    ///
+    /// The events are work too. Every window a gallery builds, orders or
+    /// closes queues `.appKitDefined` events, and only an event loop takes
+    /// them; a run of the run loop does not. Left, they waited for the next
+    /// XCTest wait, which runs the event loop: after MaterialTests about 240
+    /// of them took 1.6 to 4.3 s in a two-core VM, and over two minutes on
+    /// CI, inside PersonKeeperTests' 5 s wait, which XCTest then aborted as
+    /// a stall (2026-11-12).
     static func settleMain(limit: TimeInterval = 30) {
         let deadline = Date().addingTimeInterval(limit)
         var quiet = 0
         while quiet < 3, Date() < deadline {
+            var events = 0
+            while Date() < deadline,
+                  let event = NSApplication.shared.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true) {
+                NSApplication.shared.sendEvent(event)
+                events += 1
+            }
             var answered = false
             let asked = Date()
             DispatchQueue.main.async { answered = true }
             while !answered, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
-            quiet = Date().timeIntervalSince(asked) < 0.02 ? quiet + 1 : 0
+            quiet = events == 0 && Date().timeIntervalSince(asked) < 0.02 ? quiet + 1 : 0
         }
     }
 }

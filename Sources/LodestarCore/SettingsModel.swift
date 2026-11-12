@@ -435,6 +435,9 @@ public enum SettingsModel {
                                  current: config.channel.rawValue),
                 detail: "Stable takes a build once it has run on preview Macs for a few days. Preview takes every build as it ships",
                 isDefault: config.channel == .stable, group: "Lodestar"),
+            Row(title: DailyCount.settingsTitle, path: "app.daily-count",
+                control: .toggle(config.dailyCount), detail: DailyCount.settingsDetail,
+                isDefault: config.dailyCount, group: "Lodestar"),
             Row(title: "Menu bar icon", path: "app.show-menu-bar",
                 control: .toggle(config.showMenuBar), isDefault: config.showMenuBar, group: "Lodestar"),
             Row(title: "Sounds", path: "app.sounds",
@@ -1069,7 +1072,7 @@ public enum SettingsModel {
 
     /// The words people type for a place that is named by what it does.
     static let aliases: [String: String] = [
-        "General": "login startup updates stable preview channel release eye comfort sunset bedtime dim dark night sound menu bar display accessibility permission",
+        "General": "login startup updates stable preview channel release daily count usage ping eye comfort sunset bedtime dim dark night sound menu bar display accessibility permission",
         "Write": "editor grammar spelling typos proofread",
         "Switch": "windows launcher apps graph letters breaths layout maximize",
         "Keep": "clipboard copy paste history clips",

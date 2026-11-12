@@ -53,6 +53,7 @@ public struct ConfigFile: Sendable, Equatable {
         public var activeDisplay = ActivePolicy.Mode.pointer
         public var autoUpdate = true
         public var channel = Updater.Channel.stable
+        public var dailyCount = true
         public var showMenuBar = true
         public var sounds = true
         public var startAtLogin = true
@@ -204,7 +205,7 @@ extension ConfigFile {
         Field("clipboard", \.clipboard, clipboardSection, doc: "Clipboard history.")
         Field("editor", \.editor, editorSection, doc: "The editor: marks under mistakes, lode ⇥ to fix.")
         Field("observations", \.observations, observationsSection,
-              doc: "What Lodestar observes, in two records with their own switches. Nothing leaves the machine.")
+              doc: "What Lodestar observes, in two records with their own switches. Nothing it observes leaves the machine.")
         Field("coach", \.coach, coachSection,
               doc: "The coach: rare, evidence-backed suggestions drawn from the observations.")
         Field("keys", \.keys,
@@ -304,6 +305,8 @@ extension ConfigFile {
               doc: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only).")
         Field("channel", \.channel, .enumeration(Updater.Channel.self),
               doc: "Which releases updates follow. Stable takes a build once it has run on preview Macs for a few days. Preview takes every build as it ships.")
+        Field("daily-count", \.dailyCount, .bool,
+              doc: "Once a day, tell the Lodestar site that this Mac used Lodestar: the version, the update channel and how long ago it was installed, with no ID and no tracker. Its own switch, apart from updates (installed app only).")
         Field("show-menu-bar", \.showMenuBar, .bool,
               doc: "Show the status item permanently; false hides it until lodestar is picked in the launcher.")
         Field("sounds", \.sounds, .bool,

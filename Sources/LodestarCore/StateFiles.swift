@@ -358,6 +358,10 @@ extension PersistedState {
         out.editingStyleSettled = newer.editingStyleSettled ?? editingStyleSettled
         // Consent was given once, when it was first given.
         out.editorConsentAt = [editorConsentAt, newer.editorConsentAt].compactMap { $0 }.min()
+        switch (dailyCount, newer.dailyCount) {
+        case let (older?, newer?): out.dailyCount = older.merging(newer: newer)
+        case let (older, newer): out.dailyCount = newer ?? older
+        }
 
         let spent = Set(meetingSpent ?? []).union(newer.meetingSpent ?? [])
         out.meetingSpent = spent.isEmpty ? meetingSpent : spent.sorted()

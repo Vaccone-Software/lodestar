@@ -57,6 +57,9 @@ final class HotkeyEngine {
     /// swallowed). And whenever the engine claims a surface — a chain
     /// guide, a bar, the peek — the chip yields first.
     var onLodeDoubleTap: (() -> Void)?
+    /// A key struck under lode, or inside a chain, by a hand rather than a
+    /// posted event: the daily count's use. Called from the tap.
+    var onHumanGesture: (() -> Void)?
     var coachDelete: (() -> Bool)?
     var onSurfaceClaimed: (() -> Void)?
     private var coachTaps = LodeTapDetector()
@@ -1005,7 +1008,12 @@ final class HotkeyEngine {
         let effectiveShift = core.isIdle ? shift : chainShift(keepFlags)
         // Ordinary typing is not engine activity; lode gestures and
         // anything mid-chain are.
-        if held || !core.isIdle { lastActivityAt = clock.now() }
+        if held || !core.isIdle {
+            lastActivityAt = clock.now()
+            // A gesture from a hand is a use of Lodestar (`DailyCount`); one
+            // comparison after the day's first.
+            if actingInputWasHuman { onHumanGesture?() }
+        }
 
         let wasIdle = core.isIdle
         select.keyFlags = keepFlags

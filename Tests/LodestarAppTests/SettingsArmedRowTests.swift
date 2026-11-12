@@ -101,9 +101,9 @@ final class SettingsArmedRowTests: XCTestCase {
         let settings = window { written.append($0) }
         settings.renderForTesting(place: general)
         let eye = try row(settings, place: general, path: "appearance.eye-comfort")
-        // Switch has a toggle at the same row: Display move.
-        let move = try row(settings, place: switchPlace, path: "gestures.display-move")
-        XCTAssertEqual(eye, move, "the two places share the row's number")
+        // Switch has a toggle at the same row: Breaths.
+        let breaths = try row(settings, place: switchPlace, path: "gestures.breaths")
+        XCTAssertEqual(eye, breaths, "the two places share the row's number")
         land(settings, place: general, row: eye)
         try clickBack(settings)
         XCTAssertNil(settings.placeForTesting, "the back row shows the overview")

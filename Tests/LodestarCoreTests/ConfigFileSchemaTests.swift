@@ -20,8 +20,8 @@ final class ConfigFileSchemaTests: XCTestCase {
             "lode": .table(["trigger": .string("right-command"), "tap": .bool(true)]),
             "gestures": .table(Dictionary(uniqueKeysWithValues: Gestures.roster.map { ($0.name, ConfigValue.bool(true)) })),
             "app": .table([
-                "auto-update": .bool(true), "channel": .string("stable"), "sounds": .bool(true),
-                "start-at-login": .bool(true), "show-menu-bar": .bool(true),
+                "auto-update": .bool(true), "channel": .string("stable"), "daily-count": .bool(true),
+                "sounds": .bool(true), "start-at-login": .bool(true), "show-menu-bar": .bool(true),
                 "active-display": .string("pointer"), "units": .string(""),
             ]),
             "graph": .table([:]),

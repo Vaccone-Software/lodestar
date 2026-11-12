@@ -36,6 +36,10 @@ public struct Config {
     /// Which releases those updates follow: stable, a build that has soaked
     /// on the preview Macs, or preview, every build as it ships.
     public var channel = Updater.Channel.stable
+    /// Once a day, tell the site this Mac used Lodestar (`DailyCount`). Its
+    /// own switch: turning updates off does not turn this off, and the
+    /// other way round.
+    public var dailyCount = true
     /// Lodestar's own sounds, together. The alert sound is the Mac's.
     public var sounds = true
     /// Eye comfort: Lodestar's own surfaces ease through the day (dimmer and
@@ -427,6 +431,7 @@ public struct Config {
         config.eyeComfort = file.appearance.eyeComfort
         config.autoUpdate = file.app.autoUpdate
         config.channel = file.app.channel
+        config.dailyCount = file.app.dailyCount
         config.startAtLogin = file.app.startAtLogin
         config.showMenuBar = file.app.showMenuBar
         config.units = file.app.units

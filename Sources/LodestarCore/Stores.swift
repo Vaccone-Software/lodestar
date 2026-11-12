@@ -110,6 +110,11 @@ public struct PersistedState: Codable, Sendable {
     /// Machine owned: it must outlive a config that drops the key at its
     /// default, or a hand that chose Standard would be given Vim back.
     public var editingStyleSettled: Bool?
+    /// The daily count's own memory: when Lodestar first ran here, when the
+    /// notice was seen, the last day counted and the day waiting
+    /// (`DailyCount.Record`). Machine owned: none of it is sent, and a
+    /// config copied to another Mac must not carry this one's days.
+    public var dailyCount: DailyCount.Record?
 }
 
 /// The corruption ritual, shared by every store that keeps user data:
@@ -447,6 +452,16 @@ public final class StateStore {
 
     public func setEditorConsent(_ at: Date?) {
         state.editorConsentAt = at
+        save()
+    }
+
+    // MARK: - The daily count
+
+    public var dailyCount: DailyCount.Record { state.dailyCount ?? DailyCount.Record() }
+
+    public func setDailyCount(_ record: DailyCount.Record) {
+        guard record != state.dailyCount else { return }
+        state.dailyCount = record
         save()
     }
 

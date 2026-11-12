@@ -4,14 +4,14 @@ import StoicHTTP
 import XCTest
 @testable import LodestarCore
 
-/// The daily count: what is sent (two words and nothing that could tell one
-/// Mac from another), when (once a UTC day, after the notice, with the
-/// switch on), who may send at all, and what each answer means.
+/// The daily count: what is sent (three words and nothing that could tell
+/// one Mac from another), when (once a UTC day, with the switch on), who may
+/// send at all, what each answer means, and the one sentence that says so.
 final class DailyCountTests: XCTestCase {
     private let day: TimeInterval = 86_400
     /// 2026-11-12T15:00:00Z.
     private let noon = Date(timeIntervalSince1970: 1_794_495_600)
-    private var seen: DailyCount.Record { DailyCount.Record(installedAt: noon, noticeSeenAt: noon) }
+    private var known: DailyCount.Record { DailyCount.Record(installedAt: noon) }
 
     // MARK: - What is sent
 
@@ -127,25 +127,26 @@ final class DailyCountTests: XCTestCase {
         XCTAssertEqual(DailyCount.day(of: Date(timeIntervalSince1970: 1_794_441_600)), "2026-11-12", "00:00:00Z")
     }
 
-    func testNothingIsSentBeforeTheNotice() {
-        let fresh = DailyCount.Record(installedAt: noon)
-        XCTAssertEqual(DailyCount.use(fresh, now: noon, enabled: true, delay: 0), .showNotice)
-        XCTAssertEqual(DailyCount.use(fresh, now: noon, enabled: false, delay: 0), .nothing,
-                       "with the switch off, not even the notice")
+    func testAFreshMacCountsWithNothingToDismissAndTheSwitchStopsIt() {
+        let fresh = DailyCount.Record()
+        XCTAssertEqual(DailyCount.use(fresh, now: noon, enabled: true, delay: 0),
+                       .schedule(DailyCount.Pending(day: "2026-11-12", due: noon)),
+                       "no notice stands between a new Mac and its first day")
+        XCTAssertEqual(DailyCount.use(fresh, now: noon, enabled: false, delay: 0), .nothing)
     }
 
     func testTheFirstUseOfADayWaitsItsRandomDelay() {
-        XCTAssertEqual(DailyCount.use(seen, now: noon, enabled: true, delay: 600),
+        XCTAssertEqual(DailyCount.use(known, now: noon, enabled: true, delay: 600),
                        .schedule(DailyCount.Pending(day: "2026-11-12", due: noon.addingTimeInterval(600))))
-        XCTAssertEqual(DailyCount.use(seen, now: noon, enabled: true, delay: 99_999),
+        XCTAssertEqual(DailyCount.use(known, now: noon, enabled: true, delay: 99_999),
                        .schedule(DailyCount.Pending(day: "2026-11-12", due: noon.addingTimeInterval(7200))),
                        "never more than two hours")
-        XCTAssertEqual(DailyCount.use(seen, now: noon, enabled: true, delay: -5),
+        XCTAssertEqual(DailyCount.use(known, now: noon, enabled: true, delay: -5),
                        .schedule(DailyCount.Pending(day: "2026-11-12", due: noon)))
     }
 
     func testOncePerDay() {
-        var record = seen
+        var record = known
         record.lastSentDay = "2026-11-12"
         XCTAssertEqual(DailyCount.use(record, now: noon, enabled: true, delay: 0), .nothing, "sent today")
         record.lastSentDay = "2026-11-11"
@@ -180,13 +181,11 @@ final class DailyCountTests: XCTestCase {
     // MARK: - The record
 
     func testRecordsMergeToTheEarliestFirstRunAndTheLatestDay() {
-        let older = DailyCount.Record(installedAt: noon.addingTimeInterval(-9 * day), noticeSeenAt: noon,
-                                      lastSentDay: "2026-11-10")
-        let newer = DailyCount.Record(installedAt: noon, noticeSeenAt: nil, lastSentDay: "2026-11-12",
+        let older = DailyCount.Record(installedAt: noon.addingTimeInterval(-9 * day), lastSentDay: "2026-11-10")
+        let newer = DailyCount.Record(installedAt: noon, lastSentDay: "2026-11-12",
                                       pending: DailyCount.Pending(day: "2026-11-12", due: noon))
         let merged = older.merging(newer: newer)
         XCTAssertEqual(merged.installedAt, noon.addingTimeInterval(-9 * day))
-        XCTAssertEqual(merged.noticeSeenAt, noon, "a notice seen stays seen")
         XCTAssertEqual(merged.lastSentDay, "2026-11-12")
         XCTAssertNil(merged.pending, "a day already counted is not waiting")
         XCTAssertEqual(merged.merging(newer: newer), merged, "idempotent, as the state's merge must be")
@@ -194,26 +193,33 @@ final class DailyCountTests: XCTestCase {
 
     func testTheRecordRidesInTheStateAndOlderStatesReadWithoutIt() throws {
         var state = PersistedState()
-        state.dailyCount = seen
+        state.dailyCount = known
         let data = try JSONEncoder().encode(state)
-        XCTAssertEqual(try JSONDecoder().decode(PersistedState.self, from: data).dailyCount, seen)
+        XCTAssertEqual(try JSONDecoder().decode(PersistedState.self, from: data).dailyCount, known)
         // A state written before the count has no such key, and reads as never counted.
         let older = try JSONEncoder().encode(PersistedState())
         XCTAssertFalse(String(decoding: older, as: UTF8.self).contains("dailyCount"))
         XCTAssertNil(try JSONDecoder().decode(PersistedState.self, from: older).dailyCount)
     }
 
+    func testARecordFromTheUnshippedNoticeBuildStillReads() throws {
+        // A build of this branch kept `noticeSeenAt`; it never shipped, and a
+        // record that carries it reads with the field ignored.
+        let json = #"{"installedAt":0,"noticeSeenAt":0,"lastSentDay":"2026-11-12"}"#
+        let record = try JSONDecoder().decode(DailyCount.Record.self, from: Data(json.utf8))
+        XCTAssertEqual(record.lastSentDay, "2026-11-12")
+        XCTAssertNotNil(record.installedAt)
+    }
+
     // MARK: - Words
 
     func testTheWordsSayWhatIsSentAndWhereToTurnItOff() {
-        let (fact, way) = FlashLine.split(DailyCount.notice)
-        XCTAssertTrue(fact.hasPrefix("⚠ "), "a flash that waits for the next key")
-        let way_ = try? XCTUnwrap(way)
-        XCTAssertTrue(way_?.contains("the version, the update channel") == true)
+        let note = DailyCount.welcomeNote
+        XCTAssertEqual(note, "Once a day Lodestar tells its site that this Mac used it, with no ID. Turn it off in Settings.")
+        XCTAssertEqual(note.first, "O", "a caption, with no mark or glyph before it")
         XCTAssertTrue(DailyCount.settingsDetail.contains("its version, the update channel"))
-        XCTAssertTrue(way_?.contains("No ID and no tracker") == true)
-        XCTAssertTrue(way_?.contains("Settings, General") == true)
-        for text in [DailyCount.notice, DailyCount.settingsDetail] {
+        XCTAssertTrue(DailyCount.settingsDetail.contains("No ID and no tracker"))
+        for text in [note, DailyCount.settingsDetail] {
             XCTAssertFalse(text.contains("—") || text.contains("–") || text.contains(";"), "the voice has no dashes")
         }
         XCTAssertFalse(DailyCount.settingsDetail.hasSuffix("."), "a row's detail ends without a stop, as its neighbours do")

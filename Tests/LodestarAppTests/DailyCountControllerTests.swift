@@ -6,10 +6,9 @@ import LodestarCore
 @testable import lodestar
 
 /// The daily count in the shell, on a clock of the test's own and a site
-/// played by a scripted transport: the notice comes first and only counts
-/// as seen when a key meets it, a day is sent once after its wait, a failed
-/// send is tried three more times and then let go, the switch stops it, and
-/// a copy that may not count never speaks.
+/// played by a scripted transport: nothing is drawn, a day is sent once
+/// after its wait, a failed send is tried three more times and then let go,
+/// the switch stops it, and a copy that may not count never speaks.
 @MainActor
 final class DailyCountControllerTests: XCTestCase {
     /// A clock the test moves: work runs when the clock passes its moment.
@@ -45,18 +44,14 @@ final class DailyCountControllerTests: XCTestCase {
     private var hands: Hands!
     private var transport: ScriptedTransport!
     private var record = DailyCount.Record()
-    private var notices: [String] = []
     private var lastKey = Date.distantPast
-    private var quiet = true
 
     override func setUp() {
         super.setUp()
         hands = Hands(noon)
         transport = ScriptedTransport()
         record = DailyCount.Record()
-        notices = []
         lastKey = .distantPast
-        quiet = true
     }
 
     private func controller(eligible: Bool = true) -> DailyCountController {
@@ -64,12 +59,10 @@ final class DailyCountControllerTests: XCTestCase {
                                               client: DailyCount.client(transport: transport), random: .seeded(3))
         controller.channel = { .preview }
         controller.lastHumanKeyAt = { [unowned self] in lastKey }
-        controller.quiet = { [unowned self] in quiet }
         controller.stateKnown = { true }
         controller.read = { [unowned self] in record }
         controller.write = { [unowned self] in record = $0 }
         controller.evidence = { [unowned self] in [noon.addingTimeInterval(-10 * 86_400)] }
-        controller.showNotice = { [unowned self] in notices.append($0) }
         current = controller
         return controller
     }
@@ -84,21 +77,12 @@ final class DailyCountControllerTests: XCTestCase {
         await current?.inFlight?.value
     }
 
-    /// Show the notice and strike a key while it stands.
-    private func seeNotice(_ controller: DailyCountController) {
-        controller.used(byHand: true)
-        XCTAssertEqual(notices, [DailyCount.notice])
-        lastKey = hands.now.addingTimeInterval(2)
-        hands.advance(by: HUD.heldCeiling + 1)
-    }
-
     func testACopyThatMayNotCountNeverSpeaks() async {
         let controller = controller(eligible: false)
         controller.start()
         controller.used(byHand: true)
         hands.advance(by: 86_400)
         await settle()
-        XCTAssertEqual(notices, [])
         XCTAssertEqual(record, DailyCount.Record())
         XCTAssertEqual(sent.count, 0)
     }
@@ -107,42 +91,21 @@ final class DailyCountControllerTests: XCTestCase {
         let controller = controller()
         controller.used(byHand: false)
         controller.used() // a fix with no key for an hour
-        XCTAssertEqual(notices, [])
+        XCTAssertNil(record.pending)
         lastKey = hands.now.addingTimeInterval(-60)
         controller.used() // a fix a minute after a key
-        XCTAssertEqual(notices, [DailyCount.notice])
+        XCTAssertNotNil(record.pending)
     }
 
-    func testTheNoticeWaitsForQuietAndOnlyAKeyMakesItSeen() {
-        let controller = controller()
-        quiet = false
-        controller.used(byHand: true)
-        hands.advance(by: 30)
-        XCTAssertEqual(notices, [], "never over a chain, a bar or a chip")
-        quiet = true
-        hands.advance(by: DailyCountController.noticePoll)
-        XCTAssertEqual(notices.count, 1)
-        // Nobody struck a key while it stood.
-        hands.advance(by: HUD.heldCeiling + 1)
-        XCTAssertNil(record.noticeSeenAt)
-        XCTAssertNil(record.pending, "nothing waits to be sent before the notice is seen")
-        controller.used(byHand: true)
-        XCTAssertEqual(notices.count, 1, "not again within half an hour")
-        hands.advance(by: DailyCountController.noticeSpacing)
-        controller.used(byHand: true)
-        XCTAssertEqual(notices.count, 2)
-    }
-
-    func testOnceSeenTheDayIsSentOnceAfterItsWait() async throws {
+    func testTheFirstUseWaitsAndTheDayIsSentOnce() async throws {
         transport.on(.post(DailyCount.path, body: [], contentType: "application/json"), respond: [.status(204)])
         let controller = controller()
         controller.start()
-        seeNotice(controller)
-        XCTAssertNotNil(record.noticeSeenAt)
+        controller.used(byHand: true)
         XCTAssertEqual(record.installedAt, noon.addingTimeInterval(-10 * 86_400), "the oldest evidence")
-        let pending = try XCTUnwrap(record.pending)
+        let pending = try XCTUnwrap(record.pending, "the first use queues the day, with nothing to dismiss first")
         XCTAssertEqual(pending.day, "2026-11-12")
-        XCTAssertLessThanOrEqual(pending.due.timeIntervalSince(noon), DailyCount.maximumDelay + HUD.heldCeiling + 1)
+        XCTAssertLessThanOrEqual(pending.due.timeIntervalSince(noon), DailyCount.maximumDelay)
         XCTAssertEqual(sent.count, 0, "not before its moment")
 
         hands.advance(to: pending.due)
@@ -172,7 +135,7 @@ final class DailyCountControllerTests: XCTestCase {
     func testAFailedSendIsTriedThreeMoreTimesAndThenLetGo() async throws {
         transport.on(.post(DailyCount.path, body: [], contentType: "application/json"), respond: [.status(503)])
         let controller = controller()
-        seeNotice(controller)
+        controller.used(byHand: true)
         let pending = try XCTUnwrap(record.pending)
         hands.advance(to: pending.due)
         await settle()
@@ -189,7 +152,7 @@ final class DailyCountControllerTests: XCTestCase {
     func testARefusalSettlesTheDay() async throws {
         transport.on(.post(DailyCount.path, body: [], contentType: "application/json"), respond: [.status(400)])
         let controller = controller()
-        seeNotice(controller)
+        controller.used(byHand: true)
         hands.advance(to: try XCTUnwrap(record.pending).due)
         await settle()
         hands.advance(by: 3 * 3600)
@@ -202,7 +165,7 @@ final class DailyCountControllerTests: XCTestCase {
     func testTurningItOffForgetsTheWaitingDay() async throws {
         transport.on(.post(DailyCount.path, body: [], contentType: "application/json"), respond: [.status(204)])
         let controller = controller()
-        seeNotice(controller)
+        controller.used(byHand: true)
         XCTAssertNotNil(record.pending)
         controller.enabled = false
         XCTAssertNil(record.pending)
@@ -214,7 +177,7 @@ final class DailyCountControllerTests: XCTestCase {
 
     func testALaunchTakesUpTodaysWaitingDayAndDropsYesterdays() async {
         transport.on(.post(DailyCount.path, body: [], contentType: "application/json"), respond: [.status(204)])
-        record = DailyCount.Record(installedAt: noon, noticeSeenAt: noon,
+        record = DailyCount.Record(installedAt: noon,
                                    pending: DailyCount.Pending(day: "2026-11-12", due: noon.addingTimeInterval(-600)))
         let controller = controller()
         controller.start()
@@ -226,7 +189,7 @@ final class DailyCountControllerTests: XCTestCase {
         XCTAssertEqual(sent.count, 1)
         XCTAssertEqual(record.lastSentDay, "2026-11-12")
 
-        record = DailyCount.Record(installedAt: noon, noticeSeenAt: noon,
+        record = DailyCount.Record(installedAt: noon,
                                    pending: DailyCount.Pending(day: "2026-11-11", due: noon.addingTimeInterval(-86_400)))
         let next = self.controller()
         next.start()

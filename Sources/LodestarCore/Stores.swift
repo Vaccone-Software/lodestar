@@ -110,8 +110,8 @@ public struct PersistedState: Codable, Sendable {
     /// Machine owned: it must outlive a config that drops the key at its
     /// default, or a hand that chose Standard would be given Vim back.
     public var editingStyleSettled: Bool?
-    /// The daily count's own memory: when Lodestar first ran here, when the
-    /// notice was seen, the last day counted and the day waiting
+    /// The daily count's own memory: when Lodestar first ran here, the last
+    /// day counted and the day waiting
     /// (`DailyCount.Record`). Machine owned: none of it is sent, and a
     /// config copied to another Mac must not carry this one's days.
     public var dailyCount: DailyCount.Record?

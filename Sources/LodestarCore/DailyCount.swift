@@ -22,8 +22,11 @@ import StoicHTTP
 /// say when someone sat down. A Lodestar that is merely running at login
 /// is not counted.
 ///
-/// **Never** before the person has seen the notice that says all of this,
-/// never with the switch off (`app.daily-count`, a switch of its own,
+/// **Said** once, quietly: a sentence on the first-launch window
+/// (`welcomeNote`) for a new Mac, and the release notes for one that
+/// updates into it. There is no notice on the glass and nothing to dismiss.
+///
+/// **Never** with the switch off (`app.daily-count`, a switch of its own,
 /// apart from updates), and never from a test run, a debug or development
 /// build, or a copy that is not the installed app.
 ///
@@ -177,29 +180,24 @@ public enum DailyCount {
     public struct Record: Codable, Equatable, Sendable {
         /// When Lodestar first ran on this Mac, as far as the Mac can tell.
         public var installedAt: Date?
-        /// When the person moved on from the notice. Nothing is sent before.
-        public var noticeSeenAt: Date?
         /// The last UTC day counted, `yyyy-MM-dd`.
         public var lastSentDay: String?
         /// The day waiting to be counted, and when.
         public var pending: Pending?
 
-        public init(installedAt: Date? = nil, noticeSeenAt: Date? = nil,
-                    lastSentDay: String? = nil, pending: Pending? = nil) {
+        public init(installedAt: Date? = nil, lastSentDay: String? = nil, pending: Pending? = nil) {
             self.installedAt = installedAt
-            self.noticeSeenAt = noticeSeenAt
             self.lastSentDay = lastSentDay
             self.pending = pending
         }
 
         /// Two records of one Mac, as a launch after a downgrade finds them:
-        /// the first run and the notice were when they first were, the
-        /// last day counted is the later one, and a pending day is the
-        /// newer side's unless that day was already counted.
+        /// the first run was when it first was, the last day counted is the
+        /// later one, and a pending day is the newer side's unless that day
+        /// was already counted.
         public func merging(newer: Record) -> Record {
             var out = Record()
             out.installedAt = [installedAt, newer.installedAt].compactMap { $0 }.min()
-            out.noticeSeenAt = [noticeSeenAt, newer.noticeSeenAt].compactMap { $0 }.min()
             out.lastSentDay = [lastSentDay, newer.lastSentDay].compactMap { $0 }.max()
             let pending = newer.pending ?? pending
             out.pending = pending.flatMap { $0.day == out.lastSentDay ? nil : $0 }
@@ -240,9 +238,6 @@ public enum DailyCount {
     public enum Step: Equatable, Sendable {
         /// Nothing: counting is off, already done today or already waiting.
         case nothing
-        /// The person has not seen the notice: show it, and count only
-        /// once they have moved on from it.
-        case showNotice
         /// Today waits to be counted, at this moment.
         case schedule(Pending)
     }
@@ -251,7 +246,6 @@ public enum DailyCount {
     /// wait, drawn by the caller, clamped to the two hours.
     public static func use(_ record: Record, now: Date, enabled: Bool, delay: TimeInterval) -> Step {
         guard enabled else { return .nothing }
-        guard record.noticeSeenAt != nil else { return .showNotice }
         let today = day(of: now)
         if record.lastSentDay == today || record.pending?.day == today { return .nothing }
         let wait = min(max(delay, 0), maximumDelay)
@@ -274,10 +268,11 @@ public enum DailyCount {
 
     // MARK: - Words
 
-    /// The notice, as a flash that waits for the next key: what is sent,
-    /// where, and where it is turned off.
-    public static let notice =
-        "⚠ Once a day Lodestar tells its site that this Mac used it\nOnly the version, the update channel and how long ago it was installed. No ID and no tracker. Turn it off in Settings, General"
+    /// The one sentence a new Mac is told, quietly, at the foot of the
+    /// first-launch window. A Mac that updates into the count is told by
+    /// the release notes.
+    public static let welcomeNote =
+        "Once a day Lodestar tells its site that this Mac used it, with no ID. Turn it off in Settings."
 
     /// The switch's row in Settings.
     public static let settingsTitle = "Daily count"

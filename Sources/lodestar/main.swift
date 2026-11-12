@@ -2984,17 +2984,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// The daily count's wiring: its switch, its record in the machine-owned
-    /// state, the notice on the HUD, and the gesture that is a use.
+    /// state, and the gesture that is a use. Nothing is drawn: the
+    /// first-launch window says it once.
     private func installDailyCount() {
         dailyCount.enabled = config.dailyCount
         dailyCount.channel = { [weak self] in self?.config.channel ?? .stable }
         dailyCount.lastHumanKeyAt = { [weak self] in self?.engine.lastHumanInputAt ?? .distantPast }
-        // Nothing in front of the hand: the notice is never drawn over a
-        // chain, a bar, the coach's chip, or a shared screen.
-        dailyCount.quiet = { [weak self] in
-            guard let self else { return false }
-            return self.engine.isQuiet && self.hud.owner == .none && !self.presenting.isOn
-        }
         dailyCount.stateKnown = { [weak self] in self?.store.isKnown ?? false }
         dailyCount.read = { [weak self] in self?.store.dailyCount ?? DailyCount.Record() }
         dailyCount.write = { [weak self] record in self?.store.setDailyCount(record) }
@@ -3002,7 +2997,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let folder = (try? FileManager.default.attributesOfItem(atPath: Paths.data.path))?[.creationDate] as? Date
             return [folder, self?.observationStore.observations.since]
         }
-        dailyCount.showNotice = { [weak self] text in self?.hud.flash(text) }
         engine.onHumanGesture = { [weak self] in self?.dailyCount.used(byHand: true) }
         dailyCount.start()
     }

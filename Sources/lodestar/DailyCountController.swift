@@ -3,16 +3,17 @@ import LodestarCore
 import Stoic
 import StoicHTTP
 
-/// The daily count's effectful half: the notice, the wait and the one
-/// request (the rules are `DailyCount`'s). Main thread only.
+/// The daily count's effectful half: the wait and the one request (the
+/// rules are `DailyCount`'s). Main thread only. Nothing is drawn: a new Mac
+/// is told on the first-launch window, an updated one by the release notes.
 ///
 /// A use (`used`) is the hook the engine, the editor and the draft call. It
 /// is cheap after the day's first: one comparison against the next UTC
 /// midnight, because the engine calls it from the key tap.
 ///
 /// The record lives in the machine-owned state, so a count waits for the
-/// state to be read (`stateKnown`): an empty state read as "never seen the
-/// notice, never counted" would ask again and count again.
+/// state to be read (`stateKnown`): an empty state read as "never counted"
+/// would count a day twice.
 final class DailyCountController {
     /// Whether this copy may count at all (`DailyCount.eligible`), fixed
     /// for the life of the process.
@@ -40,15 +41,11 @@ final class DailyCountController {
     var channel: () -> Updater.Channel = { .stable }
     /// The last moment a hand (not a posted event) was at the keys.
     var lastHumanKeyAt: () -> Date = { .distantPast }
-    /// Whether nothing is in front of the hand: no chain, no bar, no chip,
-    /// no screen being shared. The notice waits for it.
-    var quiet: () -> Bool = { false }
     var stateKnown: () -> Bool = { false }
     var read: () -> DailyCount.Record = { DailyCount.Record() }
     var write: (DailyCount.Record) -> Void = { _ in }
     /// What the Mac kept that says when Lodestar first ran here.
     var evidence: () -> [Date?] = { [] }
-    var showNotice: (String) -> Void = { _ in }
 
     /// Uses are ignored until this moment: the day's count is already
     /// settled (waiting, sent, or off), so the tap pays one comparison.
@@ -58,8 +55,6 @@ final class DailyCountController {
     /// The try now going, for a test to wait on rather than guess at.
     private(set) var inFlight: Task<Void, Never>?
     private var failures = 0
-    private var noticeShownAt: Date?
-    private var noticeWait: DispatchWorkItem?
     private var wakeObserver: NSObjectProtocol?
 
     init(eligible: Bool = DailyCount.thisProcessIsEligible(), clock: Clock = .live,
@@ -101,10 +96,6 @@ final class DailyCountController {
         guard eligible, enabled else { return }
         let now = clock.now()
         if let handledUntil, now < handledUntil { return }
-        // The notice is waiting to be drawn, or was drawn lately and not
-        // seen: the tap pays nothing more until it may be drawn again.
-        if noticeWait != nil { return }
-        if let shown = noticeShownAt, now.timeIntervalSince(shown) < Self.noticeSpacing { return }
         let human = byHand ?? (now.timeIntervalSince(lastHumanKeyAt()) <= DailyCount.handWindow)
         guard human, stateKnown() else { return }
         var record = read()
@@ -116,8 +107,6 @@ final class DailyCountController {
         switch DailyCount.use(record, now: now, enabled: enabled, delay: delay) {
         case .nothing:
             handledUntil = Self.nextUTCMidnight(after: now)
-        case .showNotice:
-            offerNotice()
         case .schedule(let pending):
             record.pending = pending
             write(record)
@@ -128,59 +117,6 @@ final class DailyCountController {
     }
 
     private lazy var generator = random.generator()
-
-    // MARK: - The notice
-
-    /// The notice waits until nothing is in front of the hand, for up to
-    /// ten minutes, then stands as a flash until the next key. It counts as
-    /// seen only when a key comes while it stands; otherwise the next use
-    /// shows it again.
-    private func offerNotice() {
-        guard noticeWait == nil else { return }
-        if let shown = noticeShownAt, clock.now().timeIntervalSince(shown) < Self.noticeSpacing { return }
-        tryNotice(attempt: 0)
-    }
-
-    static let noticeSpacing: TimeInterval = 30 * 60
-    static let noticeTries = 200
-    static let noticePoll: TimeInterval = 3
-
-    private func tryNotice(attempt: Int) {
-        noticeWait = nil
-        guard enabled, eligible, attempt < Self.noticeTries else { return }
-        guard quiet() else {
-            let work = DispatchWorkItem { [weak self] in self?.tryNotice(attempt: attempt + 1) }
-            noticeWait = work
-            clock.after(Self.noticePoll, work)
-            return
-        }
-        let shownAt = clock.now()
-        noticeShownAt = shownAt
-        showNotice(DailyCount.notice)
-        Log.info("daily-count", ["notice": "shown"])
-        // HUD.heldCeiling, and a breath past it: the flash is gone by then
-        // either way, and a key while it stood is what was asked.
-        let work = DispatchWorkItem { [weak self] in self?.readNotice(shownAt: shownAt) }
-        noticeWait = work
-        clock.after(HUD.heldCeiling + 1, work)
-    }
-
-    private func readNotice(shownAt: Date) {
-        noticeWait = nil
-        let key = lastHumanKeyAt()
-        guard key.timeIntervalSince(shownAt) > 0.6, key.timeIntervalSince(shownAt) <= HUD.heldCeiling,
-              stateKnown() else {
-            Log.info("daily-count", ["notice": "not seen"])
-            return
-        }
-        var record = read()
-        record.noticeSeenAt = key
-        write(record)
-        Log.info("daily-count", ["notice": "seen"])
-        // The use that brought the notice is today's use.
-        noticeShownAt = nil
-        used(byHand: true)
-    }
 
     // MARK: - Sending
 

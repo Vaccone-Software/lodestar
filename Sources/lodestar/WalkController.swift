@@ -522,6 +522,10 @@ final class WalkController: NSObject {
         + "needs an administrator's name and password. On a Mac from work, that is usually "
         + "your IT team."
 
+    /// The welcome's last line: what the daily count is, and where it is
+    /// turned off (`DailyCount.welcomeNote`).
+    static let countNote = DailyCount.welcomeNote
+
     /// Each door's line on the welcome.
     static func doorLine(_ door: Walk.Door) -> String {
         switch door {
@@ -575,6 +579,11 @@ final class WalkController: NSObject {
             ]))
             footer.widthAnchor.constraint(equalToConstant: text).isActive = true
             stack.addArrangedSubview(footer)
+            // The daily count, said once and quietly, in the caption's voice
+            // at the window's foot: no mark and nothing to press.
+            stack.setCustomSpacing(Grid.part, after: footer)
+            stack.addArrangedSubview(wrapped(Self.countNote, role: .meta, color: BarTheme.secondaryColor,
+                                             alignment: .left, width: text))
         case .permission:
             stack.addArrangedSubview(heading("One permission"))
             stack.addArrangedSubview(wrapped(Self.permissionReason(chosen ?? .switcher), role: .body,

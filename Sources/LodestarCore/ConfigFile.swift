@@ -306,7 +306,7 @@ extension ConfigFile {
         Field("channel", \.channel, .enumeration(Updater.Channel.self),
               doc: "Which releases updates follow. Stable takes a build once it has run on preview Macs for a few days. Preview takes every build as it ships.")
         Field("daily-count", \.dailyCount, .bool,
-              doc: "Once a day, tell the Lodestar site that this Mac used Lodestar: the update channel and how long ago it was installed, with no ID and no tracker. Its own switch, apart from updates (installed app only).")
+              doc: "Once a day, tell the Lodestar site that this Mac used Lodestar: the version, the update channel and how long ago it was installed, with no ID and no tracker. Its own switch, apart from updates (installed app only).")
         Field("show-menu-bar", \.showMenuBar, .bool,
               doc: "Show the status item permanently; false hides it until lodestar is picked in the launcher.")
         Field("sounds", \.sounds, .bool,

@@ -149,7 +149,8 @@ final class DailyCountControllerTests: XCTestCase {
         await settle()
         XCTAssertEqual(sent.count, 1)
         let body = try XCTUnwrap(sent.first?.body)
-        XCTAssertEqual(String(decoding: body, as: UTF8.self), #"{"age":"7-29","channel":"preview"}"#)
+        XCTAssertEqual(String(decoding: body, as: UTF8.self),
+                       #"{"age":"7-29","channel":"preview","version":"\#(Lodestar.version)"}"#)
         XCTAssertEqual(record.lastSentDay, "2026-11-12")
         XCTAssertNil(record.pending)
 

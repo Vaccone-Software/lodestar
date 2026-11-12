@@ -7,14 +7,14 @@ import StoicHTTP
 /// leaves the Mac to say Lodestar is in use, and it is built so that it can
 /// say nothing else.
 ///
-/// **What is sent** is two words and nothing more: the update channel this
-/// Mac follows and how long ago Lodestar first ran here, as one of five
-/// coarse buckets. No version, no macOS version, no date (the site dates it
-/// on arrival) and no identifier of any kind. The Mac remembers the last
-/// day it sent, so the site never needs to tell one Mac from another to
-/// count each once, and it is never given the means to. The site keeps
-/// each word as its own counter, never the pair, so no stored row is one
-/// Mac.
+/// **What is sent** is three words and nothing more: the Lodestar version,
+/// the update channel this Mac follows and how long ago Lodestar first ran
+/// here, as one of five coarse buckets. No macOS version, no date (the site
+/// dates it on arrival) and no identifier of any kind. The Mac remembers
+/// the last day it sent, so the site never needs to tell one Mac from
+/// another to count each once, and it is never given the means to. The
+/// site keeps each word as its own counter, never the combination, so no
+/// stored row is one Mac.
 ///
 /// **When** is the first deliberate use of a UTC day (a lode gesture, a
 /// dictation landed, an editor fix taken), from a hand rather than a posted
@@ -79,16 +79,20 @@ public enum DailyCount {
     public struct Payload: Equatable, Sendable {
         public var channel: Updater.Channel
         public var age: Age
+        /// The plain dotted version, `0.54.25`: no `v`, no build suffix.
+        public var version: String
 
-        public init(channel: Updater.Channel, age: Age) {
+        public init(channel: Updater.Channel, age: Age, version: String = Lodestar.version) {
             self.channel = channel
             self.age = age
+            self.version = version
         }
 
-        /// `{"age":"7-29","channel":"stable"}`: sorted keys, so the same
-        /// count is the same bytes, and exactly these two.
+        /// `{"age":"7-29","channel":"stable","version":"0.54.25"}`: sorted
+        /// keys, so the same count is the same bytes, and exactly these
+        /// three.
         public var body: Data {
-            let object = ["channel": channel.rawValue, "age": age.rawValue]
+            let object = ["channel": channel.rawValue, "age": age.rawValue, "version": version]
             return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
         }
 
@@ -273,10 +277,10 @@ public enum DailyCount {
     /// The notice, as a flash that waits for the next key: what is sent,
     /// where, and where it is turned off.
     public static let notice =
-        "⚠ Once a day Lodestar tells its site that this Mac used it\nOnly the update channel and how long ago it was installed. No ID and no tracker. Turn it off in Settings, General"
+        "⚠ Once a day Lodestar tells its site that this Mac used it\nOnly the version, the update channel and how long ago it was installed. No ID and no tracker. Turn it off in Settings, General"
 
     /// The switch's row in Settings.
     public static let settingsTitle = "Daily count"
     public static let settingsDetail =
-        "Once a day, tells the Lodestar site that this Mac used Lodestar, with the update channel and how long ago it was installed. No ID and no tracker"
+        "Once a day, tells the Lodestar site that this Mac used Lodestar, with its version, the update channel and how long ago it was installed. No ID and no tracker"
 }

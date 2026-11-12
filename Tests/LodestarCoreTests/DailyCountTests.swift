@@ -33,11 +33,19 @@ final class DailyCountTests: XCTestCase {
                        "a clock set back is the first day, never a negative bucket")
     }
 
-    func testThePayloadIsTheChannelAndTheAgeAndNothingElse() throws {
-        let body = DailyCount.Payload(channel: .preview, age: .firstMonth).body
-        XCTAssertEqual(String(data: body, encoding: .utf8), #"{"age":"7-29","channel":"preview"}"#)
+    func testThePayloadIsTheChannelTheAgeAndTheVersionAndNothingElse() throws {
+        let body = DailyCount.Payload(channel: .preview, age: .firstMonth, version: "0.54.25").body
+        XCTAssertEqual(String(data: body, encoding: .utf8),
+                       #"{"age":"7-29","channel":"preview","version":"0.54.25"}"#)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
-        XCTAssertEqual(Set(object.keys), ["channel", "age"], "no version, no macOS, no date, no id")
+        XCTAssertEqual(Set(object.keys), ["channel", "age", "version"], "no macOS, no date, no id")
+    }
+
+    func testTheVersionIsThePlainDottedNumber() {
+        let version = DailyCount.Payload(channel: .stable, age: .later).version
+        XCTAssertEqual(version, Lodestar.version)
+        XCTAssertNotNil(version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression),
+                        "no v and no build suffix: \(version)")
     }
 
     func testTheRequestGoesToTheSitesCountDoor() async throws {
@@ -201,7 +209,8 @@ final class DailyCountTests: XCTestCase {
         let (fact, way) = FlashLine.split(DailyCount.notice)
         XCTAssertTrue(fact.hasPrefix("⚠ "), "a flash that waits for the next key")
         let way_ = try? XCTUnwrap(way)
-        XCTAssertTrue(way_?.contains("update channel") == true)
+        XCTAssertTrue(way_?.contains("the version, the update channel") == true)
+        XCTAssertTrue(DailyCount.settingsDetail.contains("its version, the update channel"))
         XCTAssertTrue(way_?.contains("No ID and no tracker") == true)
         XCTAssertTrue(way_?.contains("Settings, General") == true)
         for text in [DailyCount.notice, DailyCount.settingsDetail] {

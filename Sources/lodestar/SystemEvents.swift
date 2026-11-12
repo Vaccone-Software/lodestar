@@ -73,6 +73,14 @@ enum SystemEvents {
         try process.run()
     }
 
+    /// Start a process that acts on the Mac and outlives this one
+    /// (`DetachedProcess`). Nil under a test run, as when it could not be
+    /// started, so the caller's fallback is the path taken.
+    static func spawnDetached(_ arguments: [String]) -> pid_t? {
+        if held() { return nil }
+        return DetachedProcess.spawn(arguments)
+    }
+
     /// Lodestar comes to the front, for a room that takes focus on purpose.
     static func activateLodestar() {
         guard !held() else { return }

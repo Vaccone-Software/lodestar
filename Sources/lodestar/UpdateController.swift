@@ -48,6 +48,10 @@ final class UpdateController {
     /// channel passes it, because the updater never moves backwards.
     var channel = Updater.Channel.stable
     var engineQuiet: () -> Bool = { false }
+    /// launchd's view of the login agent, read when a swapped-in build is
+    /// started (`launchSuccessor`). Unknown until the app says otherwise,
+    /// which starts it the way that needs no answer.
+    var agentState: () -> LoginAgent.State = { .unknown("not wired") }
     /// The last moment a hand was at the keyboard, gesture or not.
     var lastActivity: () -> Date = { .distantPast }
     var flash: (String) -> Void = { _ in }
@@ -870,10 +874,39 @@ final class UpdateController {
         }
     }
 
+    /// The swapped-in build starts once. When launchd's job is this
+    /// instance, launchd restarts the job: it stops this process and starts
+    /// the new build in its place, already the supervised one. Every update
+    /// used to boot twice, a new instance through LaunchServices and then
+    /// launchd's after it handed the session over, two full launches and
+    /// two handovers of the keys a couple of seconds apart. phase stays
+    /// .applying: this process is done deciding things.
     private func launchSuccessor(_ installURL: URL) {
+        let me = ProcessInfo.processInfo.processIdentifier
+        guard LoginAgent.successorStart(state: agentState(), me: me) == .restartJob else {
+            return openSuccessor(installURL)
+        }
+        guard let helper = SystemEvents.spawnDetached(LoginAgent.restart(uid: getuid())) else {
+            Log.error("update", ["successor": "the job could not be restarted, so a new instance starts"])
+            return openSuccessor(installURL)
+        }
+        Log.info("update", ["successor": "launchd restarts its job from the new build"])
+        // A refusal comes back as an exit status; the restart itself ends
+        // this process. Refused, the new build starts the other way, and
+        // the watchdog still judges whichever comes up.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var status: Int32 = 0
+            guard waitpid(helper, &status, 0) == helper, status != 0 else { return }
+            DispatchQueue.main.async {
+                Log.error("update", ["successor": "launchd refused the restart, so a new instance starts", "status": status])
+                self?.openSuccessor(installURL)
+            }
+        }
+    }
+
+    private func openSuccessor(_ installURL: URL) {
         // The successor's boot takes over the pid file and SIGTERMs this
         // process — the same handoff every manual reinstall already uses.
-        // phase stays .applying: this process is done deciding things.
         //
         // createsNewApplicationInstance is the launch: by default
         // LaunchServices "opens" a running app by activating the running

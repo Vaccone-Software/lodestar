@@ -842,6 +842,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                           systemIdleSeconds: idle, now: Moment.now.date)
         }
         updater.flash = { [weak self] text in self?.hud.flash(text) }
+        updater.agentState = { [weak self] in self?.agentJobState() ?? .unknown("the app is gone") }
         updater.voice = { [weak self] sentence, detail, mark, stands in
             self?.voice(sentence, detail: detail, mark: mark, stands: stands)
         }

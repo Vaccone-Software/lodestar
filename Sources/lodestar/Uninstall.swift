@@ -407,6 +407,35 @@ extension LoginAgent {
             return pid == me ? .nothing : .kickstart(agentPid: pid)
         }
     }
+
+    /// How an update that has swapped its build in starts that build.
+    enum SuccessorStart: Equatable {
+        /// launchd's job is this instance: launchd stops it and starts the
+        /// job again, which is the new build at the same path. One launch,
+        /// and the one launchd watches.
+        case restartJob
+        /// Anything else: a new instance of the app, which takes over
+        /// through the pid file and then hands the session to launchd
+        /// (`readoption`), a second launch.
+        case launchApp
+    }
+
+    /// The job is restarted only when it is known to run this very
+    /// process, and so this install: a job not loaded, idle, running
+    /// another instance or unreadable keeps the launch that works without
+    /// it.
+    static func successorStart(state: State, me: pid_t) -> SuccessorStart {
+        if case .loaded(let pid) = state, pid == me { return .restartJob }
+        return .launchApp
+    }
+
+    /// The restart: `-k` stops the instance the job runs (SIGTERM, the
+    /// same graceful shutdown a takeover gives) and starts the job again.
+    /// It stops the process that asks, so it is run from a session of its
+    /// own (`SystemEvents.spawnDetached`).
+    static func restart(uid: uid_t) -> [String] {
+        ["/bin/launchctl", "kickstart", "-k", "gui/\(uid)/\(UninstallPlan.agentLabel)"]
+    }
 }
 
 /// The `lodestar` command on the PATH, which the zip install has no

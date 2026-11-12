@@ -60,6 +60,42 @@ final class LoginItemTests: XCTestCase {
                        .reload(agentPid: 7))
     }
 
+    // MARK: - Starting an update's build
+
+    /// An update boots once: when launchd's job is the instance applying
+    /// it, launchd restarts the job, and the new build is the supervised
+    /// one from its first moment, with no second launch to hand over to.
+    func testAnUpdateRestartsTheJobOnlyWhenTheJobIsThisInstance() {
+        XCTAssertEqual(LoginAgent.successorStart(state: .loaded(pid: 7), me: 7), .restartJob)
+        XCTAssertEqual(LoginAgent.successorStart(state: .loaded(pid: 9), me: 7), .launchApp,
+                       "another instance's job is not this install's to restart")
+        XCTAssertEqual(LoginAgent.successorStart(state: .loaded(pid: 0), me: 7), .launchApp,
+                       "an idle job runs nothing of this instance")
+        XCTAssertEqual(LoginAgent.successorStart(state: .notLoaded, me: 7), .launchApp)
+        XCTAssertEqual(LoginAgent.successorStart(state: .unknown("launchctl could not be run"), me: 7), .launchApp,
+                       "launchd unread is never a guess")
+    }
+
+    func testTheRestartStopsAndStartsTheAgentJobInThisSession() {
+        XCTAssertEqual(LoginAgent.restart(uid: 501),
+                       ["/bin/launchctl", "kickstart", "-k", "gui/501/\(UninstallPlan.agentLabel)"])
+    }
+
+    func testATestRunNeverStartsADetachedProcess() {
+        let before = SystemEvents.heldBack
+        XCTAssertNil(SystemEvents.spawnDetached(LoginAgent.restart(uid: getuid())),
+                     "a test run must not restart the person's Lodestar")
+        XCTAssertEqual(SystemEvents.heldBack, before + 1)
+    }
+
+    /// The updater asks launchd only once the app has wired it: until
+    /// then the job is unknown, and an update starts the way that needs
+    /// no answer.
+    func testAnUnwiredUpdaterStartsTheNewBuildAsANewInstance() {
+        let updater = UpdateController(installURL: nil, records: nil)
+        XCTAssertEqual(LoginAgent.successorStart(state: updater.agentState(), me: getpid()), .launchApp)
+    }
+
     // MARK: - The command's link
 
     private var folder: URL!

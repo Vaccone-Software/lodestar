@@ -374,6 +374,10 @@ final class CompatibilityTests: XCTestCase {
         state.curriculum = ["breaths": Curriculum.Record(offers: 2, lastOfferedAt: Date(timeIntervalSinceReferenceDate: 783_100_000.25),
                                                          completedAt: nil)]
         state.editingStyleSettled = true
+        state.dailyCount = DailyCount.Record(installedAt: Date(timeIntervalSinceReferenceDate: 782_000_000.5),
+                                             lastSentDay: "2026-11-11",
+                                             pending: .init(day: "2026-11-12",
+                                                            due: Date(timeIntervalSinceReferenceDate: 784_700_000.25)))
         return [("typical", state), ("empty", PersistedState())]
     }()
 

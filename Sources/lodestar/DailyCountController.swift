@@ -101,6 +101,10 @@ final class DailyCountController {
         guard eligible, enabled else { return }
         let now = clock.now()
         if let handledUntil, now < handledUntil { return }
+        // The notice is waiting to be drawn, or was drawn lately and not
+        // seen: the tap pays nothing more until it may be drawn again.
+        if noticeWait != nil { return }
+        if let shown = noticeShownAt, now.timeIntervalSince(shown) < Self.noticeSpacing { return }
         let human = byHand ?? (now.timeIntervalSince(lastHumanKeyAt()) <= DailyCount.handWindow)
         guard human, stateKnown() else { return }
         var record = read()
@@ -174,6 +178,7 @@ final class DailyCountController {
         write(record)
         Log.info("daily-count", ["notice": "seen"])
         // The use that brought the notice is today's use.
+        noticeShownAt = nil
         used(byHand: true)
     }
 

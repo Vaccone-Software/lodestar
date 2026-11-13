@@ -21,9 +21,15 @@ private final class WatchdogRig {
     private let lock = NSLock()
     private var stalled: [TimeInterval] = []
     private var late: [(seconds: TimeInterval, launch: Bool)] = []
+    private var sampled: [[MainThreadWatchdog.Sample]] = []
+    private var looksWhileHeld: [Bool] = []
     private var logged = 0
     var stalls: [TimeInterval] { lock.withLock { stalled } }
     var lates: [(seconds: TimeInterval, launch: Bool)] { lock.withLock { late } }
+    /// The samples each late answer carried.
+    var samples: [[MainThreadWatchdog.Sample]] { lock.withLock { sampled } }
+    /// For each look at "main", whether it was held when looked at.
+    var looks: [Bool] { lock.withLock { looksWhileHeld } }
     var logs: Int { lock.withLock { logged } }
 
     private var watchdog: MainThreadWatchdog?
@@ -53,7 +59,16 @@ private final class WatchdogRig {
         } else {
             watchdog.onStall = { [unowned self] seconds in lock.withLock { stalled.append(seconds) } }
         }
-        watchdog.onLate = { [unowned self] seconds, launch in lock.withLock { late.append((seconds, launch)) } }
+        watchdog.onLate = { [unowned self] seconds, launch, samples in
+            lock.withLock { late.append((seconds, launch)); sampled.append(samples) }
+        }
+        // "Main"'s stack, as a stand-in: one address, and a note of whether
+        // the queue was held when it was read.
+        watchdog.sampler = { [unowned self] in
+            let held = self.held
+            lock.withLock { looksWhileHeld.append(held) }
+            return [0xA11CE]
+        }
         self.watchdog = watchdog
         watchdog.start()
         await wall.waitForSleepers(timeout: .seconds(60))
@@ -165,6 +180,40 @@ final class MainThreadWatchdogTests: XCTestCase {
         XCTAssertEqual(rig.lates.map(\.seconds), [0.6, 0.8], "then one while running, with how long it held")
         XCTAssertEqual(rig.lates.map(\.launch), [true, false], "and only the launch's is the launch's")
         XCTAssertEqual(rig.stalls, [], "late is not frozen")
+        await rig.finish()
+    }
+
+    /// A late answer carries what main was doing while it did not answer:
+    /// read once the wait is already late, then each second, four at most,
+    /// every one of them while main was still held.
+    func testALateAnswerCarriesWhatMainWasDoing() async {
+        let rig = WatchdogRig()
+        await rig.start(interval: 0.05, ceiling: 10, lateThreshold: 0.2)
+        rig.hold()
+        await rig.tick()          // the interval passes and the ask is made
+        await rig.tick(100)       // five seconds unanswered
+        rig.release()
+        await rig.tick()
+        XCTAssertEqual(rig.lates.count, 1)
+        let afters = rig.samples.first?.map { ($0.after * 100).rounded() / 100 }
+        XCTAssertEqual(afters, [0.2, 1.2, 2.2, 3.2], "late first, then each second, four at most")
+        XCTAssertEqual(rig.samples.first?.first?.addresses, [0xA11CE])
+        XCTAssertEqual(rig.looks, [true, true, true, true], "every look while main was held")
+        await rig.finish()
+    }
+
+    /// An answer on time is never looked into.
+    func testAnAnswerOnTimeTakesNoSample() async {
+        let rig = WatchdogRig()
+        await rig.start(interval: 0.05, ceiling: 10, lateThreshold: 0.5)
+        rig.hold()
+        await rig.tick()
+        await rig.tick(8)         // 0.4 s: under the threshold
+        rig.release()
+        await rig.tick()
+        await rig.tick(20)
+        XCTAssertEqual(rig.lates.count, 0)
+        XCTAssertEqual(rig.looks, [], "nothing read for an answer that came in time")
         await rig.finish()
     }
 

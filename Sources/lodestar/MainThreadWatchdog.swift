@@ -71,11 +71,36 @@ final class MainThreadWatchdog {
     /// what held main or for how long. A late answer is now written down,
     /// so a dropped keystroke has a duration and a neighbour in the log.
     let lateThreshold: TimeInterval
-    /// What happens on a late answer, with how late and whether it was the
-    /// launch's. The default logs; a test substitutes a hook.
-    var onLate: (TimeInterval, Bool) -> Void = { seconds, launch in
-        Log.error("main thread late", ["ms": Int(seconds * 1000), "during": launch ? "launch" : "run"])
+    /// What happens on a late answer, with how late, whether it was the
+    /// launch's, and what main was doing while it did not answer. The
+    /// default logs; a test substitutes a hook.
+    var onLate: (TimeInterval, Bool, [Sample]) -> Void = { seconds, launch, samples in
+        Log.error("main thread late", ["ms": Int(seconds * 1000), "during": launch ? "launch" : "run",
+                                       "samples": samples.count])
+        // Named here, after main has answered: a lookup while it was held
+        // could wait on a lock it holds.
+        for sample in samples {
+            Log.error("main thread was", ["after-ms": Int(sample.after * 1000),
+                                          "stack": StackSampler.names(sample.addresses).joined(separator: " ← ")])
+        }
     }
+
+    /// What main was doing at one moment of a late answer: its stack, read
+    /// `after` seconds into the wait, innermost first.
+    struct Sample: Equatable {
+        let after: TimeInterval
+        let addresses: [UInt]
+    }
+
+    /// Reads main's stack while it is not answering, nil when it cannot. Set
+    /// at `start` when the queue asked is main and the caller is on it; a
+    /// test sets its own.
+    var sampler: (() -> [UInt]?)?
+    /// The first look comes when the answer is already late, so every late
+    /// answer has one, then one each `sampleEvery`, up to `samplesPerWait`:
+    /// a long stall can move from one cause to the next.
+    static let sampleEvery: TimeInterval = 1
+    static let samplesPerWait = 4
 
     /// Time is measured on a clock that stands still while the Mac
     /// sleeps. On the wall clock (`Date`) a lid closed with a ping
@@ -125,6 +150,10 @@ final class MainThreadWatchdog {
 
     func start() {
         guard thread == nil else { return }
+        if sampler == nil, target === DispatchQueue.main, Thread.isMainThread {
+            let main = StackSampler.current()
+            sampler = { main.addresses() }
+        }
         running = true
         let thread = Thread { [weak self] in self?.loop() }
         thread.name = "lodestar.watchdog"
@@ -161,6 +190,10 @@ final class MainThreadWatchdog {
     /// How often a pending ask is looked at again.
     static let step: TimeInterval = 0.05
 
+    static func seconds(_ duration: Duration) -> TimeInterval {
+        TimeInterval(duration.components.seconds) + TimeInterval(duration.components.attoseconds) / 1e18
+    }
+
     private func loop() {
         var limit = launchCeiling
         var launching = true
@@ -178,21 +211,31 @@ final class MainThreadWatchdog {
             // Wait for the pong in small steps, so a stop is honoured and
             // a prompt answer costs no more than the interval.
             var verdict = Verdict.waiting
+            var samples: [Sample] = []
+            var nextLook = lateThreshold
             while running, verdict == .waiting {
                 pause(Self.step)
                 lock.lock()
                 let answer = answeredAt
                 lock.unlock()
-                verdict = Self.judge(asked: asked, now: clock.now, answered: answer,
+                let now = clock.now
+                verdict = Self.judge(asked: asked, now: now, answered: answer,
                                      limit: .seconds(limit), lateThreshold: .seconds(lateThreshold))
+                // Still no answer and already late: what main is doing now
+                // is what is making it late.
+                let waited = Self.seconds(asked.duration(to: now))
+                if verdict == .waiting, answer == nil, waited >= nextLook, samples.count < Self.samplesPerWait,
+                   let sampler {
+                    if let addresses = sampler() { samples.append(Sample(after: waited, addresses: addresses)) }
+                    nextLook = waited + Self.sampleEvery
+                }
             }
             guard running else { return }
             switch verdict {
             case .stalled:
                 stalled(for: limit)
             case .answered(let late?):
-                onLate(TimeInterval(late.components.seconds) + TimeInterval(late.components.attoseconds) / 1e18,
-                       launching)
+                onLate(Self.seconds(late), launching, samples)
             case .answered(nil), .waiting:
                 break
             }

@@ -106,6 +106,64 @@ final class ClipboardCaptureTests: XCTestCase {
         XCTAssertEqual(board.string(forType: .string), "what the hand copied last")
         XCTAssertEqual(board.changeCount, before, "the board was never touched")
     }
+
+    /// A browser's Copy Image: one item that leads with the HTML of an
+    /// `<img>` and carries the picture after it, in that order on the board.
+    private func copyBrowserImage() throws -> (clip: Clipboard.Clip, html: Data, png: Data) {
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        let html = Data(#"<img src="https://example.com/picture.png">"#.utf8)
+        let board = SystemEvents.pasteboard
+        board.clearContents()
+        let item = NSPasteboardItem()
+        item.setData(html, forType: .html)
+        item.setData(png, forType: .png)
+        board.writeObjects([item])
+        controller.capture()
+        store.flushIO()
+        let clip = try XCTUnwrap(store.clips.first)
+        XCTAssertEqual(clip.kind, .image)
+        XCTAssertEqual(store.nativeData(clip).map(\.type), [NSPasteboard.PasteboardType.html.rawValue,
+                                                            NSPasteboard.PasteboardType.png.rawValue],
+                       "kept in the board's order, the HTML first")
+        return (clip, html, png)
+    }
+
+    /// Pastes the clip over a board that holds something else, and gives
+    /// the one item the paste wrote.
+    private func paste(_ clip: Clipboard.Clip, action: PasteAction) throws -> NSPasteboardItem {
+        let board = SystemEvents.pasteboard
+        board.clearContents()
+        board.setString("something else", forType: .string)
+        controller.secureInput = { false }
+        var posted = 0
+        controller.postPaste = { posted += 1 }
+        controller.paste(clip, action: action)
+        XCTAssertEqual(posted, 1)
+        let items = try XCTUnwrap(board.pasteboardItems)
+        XCTAssertEqual(items.count, 1)
+        return try XCTUnwrap(items.first)
+    }
+
+    /// A plain paste of an image card is the picture, not whatever form
+    /// led the copy: a browser leads with the HTML of an `<img>`, and an
+    /// app that takes pictures but not that HTML got nothing, or a link.
+    func testAPlainPasteOfABrowserImageIsThePicture() throws {
+        let (clip, _, png) = try copyBrowserImage()
+        let pasted = try paste(clip, action: .plain)
+        XCTAssertEqual(pasted.data(forType: .png), png, "the picture")
+        XCTAssertNil(pasted.data(forType: .html), "and not the HTML that led the copy")
+    }
+
+    /// ⇧ pastes as copied: every form, the HTML and the picture both.
+    func testAPasteAsCopiedOfABrowserImageIsEveryForm() throws {
+        let (clip, html, png) = try copyBrowserImage()
+        let pasted = try paste(clip, action: .native)
+        XCTAssertEqual(pasted.data(forType: .html), html)
+        XCTAssertEqual(pasted.data(forType: .png), png)
+    }
 }
 
 /// A copy is written in two steps the poll can fall between: the board is

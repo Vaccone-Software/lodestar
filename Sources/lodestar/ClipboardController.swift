@@ -305,10 +305,7 @@ final class ClipboardController {
         // preview comes out of the file header and the thumbnail is
         // downsampled from the same source, so a 40MB screenshot is never
         // fully decoded just to be filed.
-        let imageData = items[0].natives.first {
-            $0.type == NSPasteboard.PasteboardType.png.rawValue
-                || $0.type == NSPasteboard.PasteboardType.tiff.rawValue
-        }?.data
+        let imageData = Clipboard.picture(among: items[0].natives)?.data
 
         let identity = Clipboard.identityData(items: items.map { item in
             item.plain ?? item.natives.first?.data ?? Data()
@@ -456,8 +453,10 @@ final class ClipboardController {
                 if let plain = content.plain, let text = String(data: plain, encoding: .utf8) {
                     item.setString(text, forType: .string)
                     wrote = true
-                } else if action != .native, let native = content.natives.first {
-                    // An image has no plain form; both labels paste the image.
+                } else if action != .native,
+                          let native = Clipboard.picture(among: content.natives) ?? content.natives.first {
+                    // An image has no plain form; both labels paste the image,
+                    // and the image itself: a browser's copy leads with HTML.
                     item.setData(native.data, forType: NSPasteboard.PasteboardType(native.type))
                     wrote = true
                 }
@@ -620,10 +619,7 @@ final class ClipboardController {
                              natives: [(type: String, data: Data)]) -> URL? {
         // The same pick capture makes for the thumbnail: natives arrive in
         // pasteboard type order, and a browser copy can lead with HTML.
-        guard let first = natives.first(where: {
-            $0.type == NSPasteboard.PasteboardType.png.rawValue
-                || $0.type == NSPasteboard.PasteboardType.tiff.rawValue
-        }) ?? natives.first, let folder = handover.prepared() else { return nil }
+        guard let first = Clipboard.picture(among: natives) ?? natives.first, let folder = handover.prepared() else { return nil }
         let url = folder.appendingPathComponent(
             "\(Clipboard.handoverPrefix)\(clip.id).\(Clipboard.pasteableImageExtension)")
         if FileManager.default.fileExists(atPath: url.path) {
@@ -693,10 +689,7 @@ final class ClipboardController {
         // The same pick capture makes for the thumbnail — the first native
         // can be HTML — and the bytes have to be honest: undecodable
         // bytes never go to disk wearing an image's extension.
-        let native = natives.first {
-            $0.type == NSPasteboard.PasteboardType.png.rawValue
-                || $0.type == NSPasteboard.PasteboardType.tiff.rawValue
-        } ?? natives.first
+        let native = Clipboard.picture(among: natives) ?? natives.first
         guard let native, let pixels = ClipboardStore.pixelSize(of: native.data) else { return nil }
         return (native.data, pixels)
     }

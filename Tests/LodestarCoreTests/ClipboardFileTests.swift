@@ -250,6 +250,18 @@ final class ClipboardFileTests: XCTestCase {
         XCTAssertEqual(Clipboard.kind(ofCopy: [["public.html", "public.utf8-plain-text"]]), .text, "rich text")
     }
 
+    /// The picture among a copy's forms is the first that is one, not the
+    /// first form: a browser's copy leads with the HTML of an `<img>`.
+    func testThePictureAmongACopysFormsIsTheFirstPictureNotTheFirstForm() {
+        let html = (type: "public.html", data: Data("<img>".utf8))
+        let png = (type: "public.png", data: Data([1]))
+        let tiff = (type: "public.tiff", data: Data([2]))
+        XCTAssertEqual(Clipboard.picture(among: [html, png])?.type, "public.png", "a browser's copy")
+        XCTAssertEqual(Clipboard.picture(among: [tiff, png])?.type, "public.tiff", "the first picture of two")
+        XCTAssertNil(Clipboard.picture(among: [html]), "no picture at all")
+        XCTAssertNil(Clipboard.picture(among: []))
+    }
+
     func testNothingCopiedIsNotFiles() {
         XCTAssertEqual(Clipboard.kind(ofCopy: []), .text)
         XCTAssertEqual(Clipboard.kind(ofCopy: [[]]), .text, "an item with no types is not a file")

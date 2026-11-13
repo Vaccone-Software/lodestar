@@ -110,6 +110,13 @@ extension Clipboard {
     /// The types a picture travels as on the pasteboard.
     public static let imageTypes: Set<String> = ["public.png", "public.tiff"]
 
+    /// The picture among a copy's natives: the first of them that is one,
+    /// whatever leads. Natives keep the board's type order, and a browser's
+    /// Copy Image leads with the HTML of an `<img>`, not the picture.
+    public static func picture(among natives: [(type: String, data: Data)]) -> (type: String, data: Data)? {
+        natives.first { imageTypes.contains($0.type) }
+    }
+
     /// What a copy becomes. A picture stays a picture, whatever else rides
     /// beside it, as it always has: it is read, captioned and opened large.
     /// Otherwise it is files exactly when **every** item is a file's address

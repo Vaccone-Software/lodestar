@@ -1,0 +1,1 @@
+{"created":{"at":"2026-01-01T00:05:00Z","because":"the refusal tombstone an earlier build left names it","by":{"principal":{"importer":{}}}},"key":"0123456789abcdef0123456789abcdef","lifecycle":"lodestar.release","revision":1,"sequence":0,"since":"2026-01-01T00:05:00Z","state":"refused","updated":"2026-01-01T00:05:00Z","version":1}

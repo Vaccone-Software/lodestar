@@ -160,6 +160,111 @@ final class EditorSessionTests: XCTestCase {
 
 /// The cases a real field throws at the editor: what it must mark, where,
 /// and what it must leave alone.
+/// The sentence being written keeps its marks between readings, the
+/// sentence at the caret is read first, and a typo the spell checker marked
+/// is not taken back by a reading that left it alone.
+final class EditorSessionSteadinessTests: XCTestCase {
+    func testAMarkStandsWhileTheSentenceIsWrittenOn() {
+        let session = EditorSession()
+        session.record(sentence: "I has a", corrected: "I have a")
+        let read = session.issues(text: "I has a", caret: 7)
+        XCTAssertEqual(read.map(\.replacement), ["have"])
+        // The next keystrokes make a sentence the model has not read.
+        let on = "I has a dog and"
+        let carried = session.issues(text: on, caret: (on as NSString).length)
+        XCTAssertEqual(carried.map(\.replacement), ["have"], "the mark stays until the next reading")
+        XCTAssertEqual(carried.first?.range, NSRange(location: 2, length: 3))
+    }
+
+    func testAMarkOnTheLastWordReadCarriesOnceTheHandMovesPast() {
+        let session = EditorSession()
+        session.record(sentence: "Their going", corrected: "They're going")
+        XCTAssertEqual(session.issues(text: "Their going", caret: nil).map(\.replacement), ["They're"])
+        let on = "Their going to"
+        XCTAssertEqual(session.issues(text: on, caret: (on as NSString).length).map(\.replacement), ["They're"])
+    }
+
+    func testAWordLengthenedSinceTheReadingLosesItsMark() {
+        let session = EditorSession()
+        session.record(sentence: "I has", corrected: "I have")
+        XCTAssertEqual(session.issues(text: "I has", caret: nil).map(\.replacement), ["have"])
+        // "has" became "hash": not the word that was read.
+        let on = "I hash it"
+        XCTAssertFalse(session.issues(text: on, caret: (on as NSString).length).contains { $0.replacement == "have" })
+    }
+
+    func testAnEditBeforeTheMarkLetsItGo() {
+        let session = EditorSession()
+        session.record(sentence: "I has a", corrected: "I have a")
+        _ = session.issues(text: "I has a", caret: nil)
+        let edited = "We has a dog"
+        XCTAssertTrue(session.issues(text: edited, caret: (edited as NSString).length).isEmpty,
+                      "the words before it changed, so the reading no longer describes them")
+    }
+
+    func testANewReadingReplacesTheCarriedOne() {
+        let session = EditorSession()
+        session.record(sentence: "I has a", corrected: "I have a")
+        _ = session.issues(text: "I has a", caret: nil)
+        session.record(sentence: "I has a dog", corrected: "I has a dog")
+        XCTAssertTrue(session.issues(text: "I has a dog", caret: nil).isEmpty, "the newer reading says nothing")
+        let on = "I has a dog and"
+        XCTAssertTrue(session.issues(text: on, caret: (on as NSString).length).isEmpty)
+    }
+
+    func testAnEmptiedFieldForgetsItsReadings() {
+        let session = EditorSession()
+        session.record(sentence: "I has a", corrected: "I have a")
+        _ = session.issues(text: "I has a", caret: nil)
+        _ = session.issues(text: "", caret: 0)
+        let next = "I has a cat"
+        XCTAssertTrue(session.issues(text: next, caret: (next as NSString).length).isEmpty)
+    }
+
+    func testASlipStaysMarkedWhenTheReadingLeftItAlone() {
+        let session = EditorSession()
+        session.record(sentence: "We need to recieve them", corrected: "We need to recieve them")
+        let issues = session.issues(text: "We need to recieve them", caret: nil)
+        XCTAssertEqual(issues.map(\.replacement), ["receive"])
+        XCTAssertEqual(issues.first?.kind, .spelling)
+    }
+
+    func testOnlyOneSlipFromItsFixIsASlip() {
+        func spelling(_ word: String, _ fix: String) -> EditorIssue {
+            EditorIssue(range: NSRange(location: 0, length: word.utf16.count), original: word, replacement: fix,
+                        kind: .spelling)
+        }
+        XCTAssertTrue(EditorSpelling.isSlip(spelling("teh", "the")), "two letters swapped")
+        XCTAssertTrue(EditorSpelling.isSlip(spelling("recieve", "receive")))
+        XCTAssertTrue(EditorSpelling.isSlip(spelling("untill", "until")), "a letter extra")
+        XCTAssertFalse(EditorSpelling.isSlip(spelling("kubectl", "kibitz")), "a stranger")
+        XCTAssertFalse(EditorSpelling.isSlip(spelling("tosses", "toes")), "two letters away")
+        XCTAssertFalse(EditorSpelling.isSlip(EditorIssue(range: NSRange(location: 0, length: 3), original: "has",
+                                                          replacement: "had", kind: .grammar)),
+                       "only a spelling mark is a slip")
+    }
+
+    func testTheSentenceAtTheCaretIsReadFirst() {
+        let session = EditorSession()
+        let text = "One two three. Four five six. Seven eight nine."
+        XCTAssertEqual(session.sentencesToCheck(text: text, caret: (text as NSString).length, paused: false),
+                       ["Seven eight nine.", "Four five six.", "One two three."])
+        XCTAssertEqual(session.sentencesToCheck(text: text, caret: 16, paused: true),
+                       ["Four five six.", "One two three.", "Seven eight nine."],
+                       "the one before ahead of the one after at the same distance")
+        XCTAssertEqual(session.sentencesToCheck(text: text, caret: nil, paused: true),
+                       ["One two three.", "Four five six.", "Seven eight nine."], "no caret: the order written")
+    }
+
+    func testASentenceWithNoFullStopIsReadAtAPause() {
+        let session = EditorSession()
+        let text = "hey can you send me there numbers"
+        let caret = (text as NSString).length
+        XCTAssertTrue(session.sentencesToCheck(text: text, caret: caret, paused: false).isEmpty)
+        XCTAssertEqual(session.sentencesToCheck(text: text, caret: caret, paused: true), [text])
+    }
+}
+
 final class EditorCasesTests: XCTestCase {
     private func issues(_ text: String, _ corrected: String, guards: EditorGuards = EditorGuards()) -> [EditorIssue] {
         let ns = text as NSString

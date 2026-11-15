@@ -114,6 +114,9 @@ final class EditorController: EditorLens {
     private var fieldTextSeen = ""
     private var caretSeen: Int?
     private var lastTextChange = Date.distantPast
+    /// The read that finds the pause, waiting on the clock; replaced at
+    /// every change of the text.
+    private var pauseWork: DispatchWorkItem?
     private(set) var issues: [EditorIssue] = []
     /// The text `issues` were read from. Until the read of the field's own
     /// text comes home they are about words the hand has changed.
@@ -148,8 +151,12 @@ final class EditorController: EditorLens {
     /// Longest field read, in UTF-16 units: the editor is for messages
     /// and mail, not for documents.
     static let maxLength = 20_000
-    /// A pause this long finishes the sentence the caret is in.
-    static let pause: TimeInterval = 1.0
+    /// A pause this long finishes the sentence the caret is in, whether
+    /// or not it ends in a full stop: a message is mostly sent without one,
+    /// so a pause, not a character, is what asks for grammar. Measured from
+    /// the last change by a timer of its own, not found by the next beat,
+    /// which had a pause noticed anywhere from one to two seconds late.
+    static let pause: TimeInterval = 0.6
     /// The slow beat under the notifications: apps that announce nothing,
     /// and scrolling, which no app announces. It was every 0.2 seconds
     /// before the editor listened.
@@ -276,6 +283,8 @@ final class EditorController: EditorLens {
         if let summary = readCost.flush() { logReadCost(summary) }
         timer?.cancel()
         timer = nil
+        pauseWork?.cancel()
+        pauseWork = nil
         watch.stop()
         pressure?.cancel()
         pressure = nil
@@ -482,6 +491,7 @@ final class EditorController: EditorLens {
             // marks go now rather than when the new ones are placed.
             clearField()
             lastTextChange = now
+            schedulePauseRead()
             resumed = false
             // A field the hand left with its marks standing, and is back in:
             // the same marks, not new ones.
@@ -495,6 +505,7 @@ final class EditorController: EditorLens {
         lastRead = now
         if read.text != fieldTextSeen {
             lastTextChange = now
+            schedulePauseRead()
             // Typing: load the model now, so the sentence's end does not
             // wait on the load. Loaded, this only keeps it from its idle
             // release.
@@ -522,6 +533,15 @@ final class EditorController: EditorLens {
             placeMarks()
         }
         compute(read, issues: changed, paused: paused)
+    }
+
+    /// One read when the pause is reached, so the sentence the caret is in
+    /// is asked about then, not at whichever beat comes after.
+    private func schedulePauseRead() {
+        pauseWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.poll() }
+        pauseWork = work
+        clock.after(Self.pause, work)
     }
 
     /// Is `read` the field `field` was, seen again? Another accessibility
@@ -590,10 +610,12 @@ final class EditorController: EditorLens {
                         self.issuesRead = read.text
                         self.placeMarks()
                     }
-                    for sentence in toCheck where !self.inFlight.contains(sentence) {
-                        self.inFlight.insert(sentence)
-                        self.queue.append(sentence)
-                    }
+                    // What was just asked for goes ahead of what was waiting
+                    // (a long paste's sentences): it is the sentence being
+                    // written, nearest the caret first.
+                    let fresh = toCheck.filter { !self.inFlight.contains($0) }
+                    self.inFlight.formUnion(fresh)
+                    self.queue = fresh + self.queue
                     self.drain()
                 }
                 if let next = self.pendingCompute {
@@ -610,7 +632,10 @@ final class EditorController: EditorLens {
         // Asking would load the weights: what is queued waits with the rest.
         guard !working, !modelHeld(at: clock.now()), let next = queue.first else { return }
         queue.removeFirst()
-        guard field?.text.contains(next) == true else {
+        // A sentence the field no longer holds whole is skipped: one asked
+        // about at a pause and written on since is inside the sentence it
+        // became, and its answer would describe text no longer there.
+        guard let text = field?.text, Self.holds(text, sentence: next) else {
             inFlight.remove(next)
             drain()
             return
@@ -639,11 +664,25 @@ final class EditorController: EditorLens {
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.inFlight.remove(next)
-                    self.issuesText = ""   // an answer landed: read again on the next beat
+                    self.issuesText = ""
+                    // An answer landed: its marks are worked out now, on
+                    // the text as last read, not at the next beat a second
+                    // later. A read already on its way brings them anyway.
+                    if let field = self.field, !self.readQueued {
+                        self.compute(field, issues: true,
+                                     paused: self.clock.now().timeIntervalSince(self.lastTextChange) >= Self.pause)
+                    }
                 }
             }
             self.drain()
         }
+    }
+
+    /// Is `sentence` one of the text's sentences, whole?
+    static func holds(_ text: String, sentence: String) -> Bool {
+        guard text.contains(sentence) else { return false }
+        let ns = text as NSString
+        return EditorText.sentences(in: text).contains { ns.substring(with: $0) == sentence }
     }
 
     /// The model answered, or did not. It can stop answering for minutes

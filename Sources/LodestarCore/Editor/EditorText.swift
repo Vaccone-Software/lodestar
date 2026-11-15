@@ -25,6 +25,13 @@ public struct EditorIssue: Equatable, Hashable {
         self.note = note
     }
 
+    /// The same issue, its range moved by `offset` UTF-16 units.
+    public func shifted(by offset: Int) -> EditorIssue {
+        var moved = self
+        moved.range.location += offset
+        return moved
+    }
+
     /// What the lens shows beside the letter.
     public var shown: String { note ?? replacement }
 

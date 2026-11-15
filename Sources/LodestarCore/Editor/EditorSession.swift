@@ -51,6 +51,14 @@ public enum EditorSpelling {
         return out
     }
 
+    /// Is the spelling mark one slip from its fix: a letter wrong,
+    /// missing, extra, or two swapped? Every common typo is, and a name or
+    /// a term the checker does not know seldom is.
+    public static func isSlip(_ issue: EditorIssue) -> Bool {
+        issue.kind == .spelling
+            && distance(Array(issue.original.lowercased()), Array(issue.replacement.lowercased())) == 1
+    }
+
     /// Is this word misspelled, by itself? Used to tell a model's typo fix
     /// from its grammar fix, for the label.
     public static func isMisspelled(_ word: String, language: String) -> Bool {
@@ -238,23 +246,44 @@ public final class EditorSession {
     /// answer, or whose last try went unanswered long enough ago. A sentence is finished when the caret is past it, or when
     /// it ends in a full stop the caret is beyond, or — after a pause —
     /// whatever holds the caret too.
+    ///
+    /// The nearest the caret come first: the sentence being written is the
+    /// one whose marks the hand is waiting for, and a long paste's other
+    /// sentences can wait behind it.
     public func sentencesToCheck(text: String, caret: Int?, paused: Bool) -> [String] {
         let ns = text as NSString
         let protected = EditorText.protectedRanges(in: text)
-        return EditorText.sentences(in: text).compactMap { range in
+        let wanted: [(sentence: String, range: NSRange)] = EditorText.sentences(in: text).compactMap { range in
             let sentence = ns.substring(with: range)
             if EditorText.isForeign(sentence) { return nil }
             guard wantsAnswer(sentence), sentence.split(whereSeparator: \.isWhitespace).count >= 2 else { return nil }
             // A sentence that is all code or link has nothing to read.
             if protected.contains(where: { NSIntersectionRange($0, range).length == range.length }) { return nil }
-            guard let caret else { return sentence }
+            guard let caret else { return (sentence, range) }
             let end = range.location + range.length
-            if caret < range.location || caret > end { return sentence }
-            if paused { return sentence }
+            if caret < range.location || caret > end { return (sentence, range) }
+            if paused { return (sentence, range) }
             let last = ns.character(at: end - 1)
             let finished = [".", "!", "?"].contains(Character(UnicodeScalar(last) ?? " "))
-            return finished && caret >= end ? sentence : nil
+            return finished && caret >= end ? (sentence, range) : nil
         }
+        guard let caret else { return wanted.map(\.sentence) }
+        return Self.nearestFirst(wanted, caret: caret).map(\.sentence)
+    }
+
+    /// Sentences ordered by how far they stand from the caret: the one
+    /// holding it first, then outward, the one before ahead of the one
+    /// after at the same distance, since that is the one just written.
+    static func nearestFirst<T>(_ items: [(sentence: T, range: NSRange)], caret: Int) -> [(sentence: T, range: NSRange)] {
+        func distance(_ range: NSRange) -> (Int, Int) {
+            let end = range.location + range.length
+            if caret >= range.location && caret <= end { return (0, 0) }
+            return caret > end ? (caret - end, 0) : (range.location - caret, 1)
+        }
+        return items.enumerated().sorted { a, b in
+            let (da, db) = (distance(a.element.range), distance(b.element.range))
+            return da != db ? da < db : a.offset < b.offset
+        }.map(\.element)
     }
 
     /// Everything wrong in the text as it stands: the model's corrections
@@ -267,6 +296,7 @@ public final class EditorSession {
         if text.isEmpty {
             dismissedOnce.removeAll()
             dismissedOrder.removeAll()
+            readings.removeAll()
             return []
         }
         let ns = text as NSString
@@ -279,18 +309,32 @@ public final class EditorSession {
         var read: [NSRange] = []
         for (position, range) in sentences.enumerated() {
             let sentence = ns.substring(with: range)
-            guard let answer = answers[sentence], let corrected = answer else { continue }
-            // A reply that rewrote or answered the sentence did not read
-            // it: the spell checker still speaks there.
-            guard EditorDiff.isReading(text: ns, sentence: range, corrected: corrected) else { continue }
-            read.append(range)
-            for var issue in EditorDiff.issues(text: ns, sentence: range, corrected: corrected,
-                                               guards: guards, protected: protected) {
-                if issue.original.split(whereSeparator: \.isWhitespace).count == 1,
-                   issue.replacement.split(whereSeparator: \.isWhitespace).count == 1,
-                   EditorSpelling.isMisspelled(issue.original, language: language) {
-                    issue.kind = .spelling
+            var found: [EditorIssue] = []
+            if let answer = answers[sentence], let corrected = answer,
+               // A reply that rewrote or answered the sentence did not read
+               // it: the spell checker still speaks there.
+               EditorDiff.isReading(text: ns, sentence: range, corrected: corrected) {
+                read.append(range)
+                for var issue in EditorDiff.issues(text: ns, sentence: range, corrected: corrected,
+                                                   guards: guards, protected: protected) {
+                    if issue.original.split(whereSeparator: \.isWhitespace).count == 1,
+                       issue.replacement.split(whereSeparator: \.isWhitespace).count == 1,
+                       EditorSpelling.isMisspelled(issue.original, language: language) {
+                        issue.kind = .spelling
+                    }
+                    found.append(issue)
                 }
+                remember(Reading(sentence: sentence, issues: found.map { $0.shifted(by: -range.location) }), at: position)
+            } else if let last = readings[position], last.sentence != sentence {
+                // Not read as it stands, but read a moment ago: the marks of
+                // that reading on words still written as they were stand
+                // until the new reading comes, rather than going at the next
+                // keystroke and coming back at the next pause.
+                let carried = Self.carry(last, into: sentence)
+                found = carried.issues.map { $0.shifted(by: range.location) }
+                if carried.read > 0 { read.append(NSRange(location: range.location, length: carried.read)) }
+            }
+            for issue in found {
                 // A pause in the middle of a word asks the model about a word
                 // not yet finished, as the spell checker and the rules
                 // know; its answer waits for the word.
@@ -311,10 +355,13 @@ public final class EditorSession {
                                              guards: guards, protected: protected)
             .filter { issue in !(modelIssues + rules).contains { NSIntersectionRange($0.range, issue.range).length > 0 } }
             .filter { issue in
-                // A sentence the model read keeps the words it left alone:
-                // the spell checker does not overrule a reading that
-                // accepted a name or a term.
-                !read.contains { NSIntersectionRange($0, issue.range).length > 0 }
+                // A sentence the model read keeps the words it left alone
+                // when the spell checker's fix is a stranger to them: a
+                // name or a term the model accepted. A slip (one letter
+                // wrong, missing, extra or swapped) stays marked whatever
+                // the reading said, so a typo marked the moment its word
+                // was finished does not vanish when the sentence is read.
+                EditorSpelling.isSlip(issue) || !read.contains { NSIntersectionRange($0, issue.range).length > 0 }
             }
             .filter { !dismissed($0) }
         return (modelIssues + rules + spelling).sorted { $0.range.location < $1.range.location }
@@ -327,6 +374,50 @@ public final class EditorSession {
         guard let caret else { return false }
         let closing = issue.original.reversed().prefix { !$0.isLetter && !$0.isNumber }.map(\.utf16.count).reduce(0, +)
         return caret >= issue.range.location && caret <= issue.range.location + issue.range.length - closing
+    }
+
+    /// A sentence's last reading: its text then and the model's marks in
+    /// it, by offset from the sentence's start.
+    struct Reading {
+        let sentence: String
+        let issues: [EditorIssue]
+    }
+
+    /// The last reading of each sentence, by its place in the field. A
+    /// sentence still being written has a new text at every keystroke and
+    /// no answer for it until the next pause, so its marks are carried
+    /// from the reading before (`carry`). Let go with the keeps when the
+    /// field is read empty.
+    private var readings: [Int: Reading] = [:]
+
+    private func remember(_ reading: Reading, at position: Int) {
+        readings[position] = reading
+        if readings.count > capacity, let far = readings.keys.max() { readings[far] = nil }
+    }
+
+    /// What a reading of `last.sentence` still says about `sentence`: the
+    /// marks whose words, and every word before them, are written as they
+    /// were, and how far from the start the reading still covers. A word
+    /// the hand has since lengthened ("sto" to "store") is not the word
+    /// read, so neither its mark nor its reading carries; a mark on the
+    /// last words read carries once the hand has moved past them.
+    static func carry(_ last: Reading, into sentence: String) -> (issues: [EditorIssue], read: Int) {
+        let old = Array(last.sentence.utf16), new = Array(sentence.utf16)
+        var shared = 0
+        while shared < old.count, shared < new.count, old[shared] == new[shared] { shared += 1 }
+        func wordy(_ unit: UInt16) -> Bool {
+            guard let scalar = UnicodeScalar(unit) else { return true }   // a surrogate: inside a character
+            return CharacterSet.alphanumerics.contains(scalar) || scalar == "'" || scalar == "\u{2019}"
+        }
+        // A place where the words before are whole in both texts.
+        func boundary(_ k: Int) -> Bool {
+            if k == 0 || !wordy(new[k - 1]) { return true }
+            return (k == old.count || !wordy(old[k])) && (k == new.count || !wordy(new[k]))
+        }
+        var read = shared
+        while read > 0, !boundary(read) { read -= 1 }
+        let issues = last.issues.filter { $0.range.location + $0.range.length <= read }
+        return (issues, read)
     }
 
     /// Kept as written: the issue stays quiet while the words before it in

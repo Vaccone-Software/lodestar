@@ -426,9 +426,12 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 1.5, accuracy: 0.11)
     }
 
+    /// Overruled only where the spell checker's fix is two slips away: a
+    /// one-slip typo stays marked whatever the model read.
     func testAMarkTheModelOverrulesIsWithdrawnAndNeverShown() {
         let rig = EditorRig()
         rig.reader.hold()
+        let typo = "We need to recieeve them."
         rig.reader.answer(typo, typo)
         rig.type(typo)
         rig.settle("the spell checker's mark") { rig.controller.lensMarks.count == 1 }

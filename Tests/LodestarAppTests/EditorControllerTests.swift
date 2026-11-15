@@ -394,7 +394,9 @@ final class EditorControllerTests: XCTestCase {
         rig.drain()
         rig.type("One two three. Four five six. Seven eight nine. Ten.")
         rig.settle("the waiting sentences asked") { rig.reader.asked.count == 3 }
-        XCTAssertEqual(rig.reader.asked, ["One two three.", "Four five six.", "Seven eight nine."])
+        // Nearest the caret first: the last was asked before the editor
+        // went off, and the two left wait no longer.
+        XCTAssertEqual(rig.reader.asked, ["Seven eight nine.", "Four five six.", "One two three."])
     }
 
     /// Every key on the Mac waits in the tap on the main thread, and the
@@ -420,11 +422,50 @@ final class EditorControllerTests: XCTestCase {
         rig.reader.hold()
         rig.type("One two three. Four five six. Seven eight nine.")
         rig.settle("the first question") { rig.reader.waitingCount == 1 }
-        rig.type("One two three. Four five six.")
+        rig.type("Four five six. Seven eight nine.")
         rig.reader.letGo()
         rig.settle("the second answered") { rig.reader.asked.count == 2 }
         for _ in 0..<10 { Stage.pump() }
-        XCTAssertEqual(rig.reader.asked, ["One two three.", "Four five six."])
+        XCTAssertEqual(rig.reader.asked, ["Seven eight nine.", "Four five six."])
+    }
+
+    /// A message is mostly sent without a full stop: the pause asks, on a
+    /// timer of its own, with no beat to find it.
+    func testAPauseAloneAsksAboutASentenceWithNoFullStop() {
+        let rig = EditorRig()
+        let text = "hey can you send me there numbers"
+        rig.type(text)
+        rig.drain()
+        XCTAssertTrue(rig.reader.asked.isEmpty, "still typing")
+        rig.clock.advance(by: EditorController.pause)
+        rig.settle("asked at the pause") { rig.reader.asked == [text] }
+    }
+
+    /// The answer's marks are placed when it lands, not at the beat after.
+    func testAnAnswerIsMarkedWithoutWaitingForABeat() {
+        let rig = EditorRig()
+        rig.reader.answer("Their going to push it.", "They're going to push it.")
+        rig.type("Their going to push it.")
+        rig.settle("the mark, with no beat") { rig.controller.lensMarks.count == 1 }
+        XCTAssertEqual(rig.controller.lensMarks.first?.issue.replacement, "They're")
+    }
+
+    /// The words asked about at a pause, written on before their turn,
+    /// are inside the sentence they became: only that sentence is asked.
+    func testAHalfSentenceWrittenOnIsNeverAsked() {
+        let rig = EditorRig()
+        rig.reader.hold()
+        rig.type("Alpha beta gamma.")
+        rig.settle("the first question") { rig.reader.waitingCount == 1 }
+        rig.type("Alpha beta gamma. We should")
+        rig.clock.advance(by: EditorController.pause)
+        rig.drain()
+        rig.type("Alpha beta gamma. We should go now.")
+        rig.drain()
+        rig.reader.letGo()
+        rig.settle("the whole sentence asked") { rig.reader.asked.count == 2 }
+        for _ in 0..<10 { Stage.pump() }
+        XCTAssertEqual(rig.reader.asked, ["Alpha beta gamma.", "We should go now."])
     }
 
     func testAnAnswerForAnEditedSentenceMarksNothing() {
@@ -529,16 +570,23 @@ final class EditorControllerTests: XCTestCase {
         rig.settle("both answered") { rig.reader.asked.count == 2 }
         rig.drain()
         rig.beat()
-        // The model read the first sentence: its mark replaces the spell
-        // checker's there.
-        rig.settle("the model's mark") { Set(rig.controller.lensMarks.map(\.issue.original)) == ["Their", "recieve"] }
+        // The model read the first sentence and its grammar mark stands
+        // there; "lodestr", one slip from a word, stays marked though the
+        // model left it alone.
+        rig.settle("the model's mark") {
+            Set(rig.controller.lensMarks.map(\.issue.original)) == ["Their", "lodestr", "recieve"]
+        }
         let marks = rig.controller.lensMarks
         // Learn on a grammar mark has nothing to learn: it is ignored.
         rig.controller.learn(try XCTUnwrap(marks.first { $0.issue.original == "Their" }, "\(marks.map(\.issue))"))
+        rig.controller.learn(try XCTUnwrap(marks.first { $0.issue.original == "lodestr" }, "\(marks.map(\.issue))"))
         rig.controller.learn(try XCTUnwrap(marks.first { $0.issue.original == "recieve" }, "\(marks.map(\.issue))"))
-        XCTAssertEqual(rig.names, ["recieve"], "a spelling learned is the hand's word: draft.words")
+        XCTAssertEqual(rig.names, ["lodestr", "recieve"], "a spelling learned is the hand's word: draft.words")
         XCTAssertTrue(rig.controller.lensMarks.isEmpty)
-        XCTAssertEqual(rig.events.filter { $0.action == "dismissed" }.map(\.rec), ["sentence", "name"])
+        XCTAssertEqual(rig.events.filter { $0.action == "dismissed" }.map(\.rec), ["sentence", "name", "name"])
+        // The app writes a learned word to draft.words, and the config's
+        // reload hands it back as vocabulary.
+        rig.controller.apply(enabled: true, engine: .standard, language: "en_US", vocabulary: rig.names, skipApps: [])
 
         // The grammar mark stays quiet while its sentence stands...
         rig.clock.advance(by: 0.6)

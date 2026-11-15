@@ -86,11 +86,10 @@ final class DraftEditor: EditorLens {
 
     private func ask(paused: Bool) {
         guard enabled, modelReady, !ghost, !modelHeld else { return }
-        for sentence in session.sentencesToCheck(text: text, caret: caret, paused: paused)
-        where !inFlight.contains(sentence) {
-            inFlight.insert(sentence)
-            queue.append(sentence)
-        }
+        // The sentence just asked about goes ahead of what was waiting.
+        let fresh = session.sentencesToCheck(text: text, caret: caret, paused: paused).filter { !inFlight.contains($0) }
+        inFlight.formUnion(fresh)
+        queue = fresh + queue
         drain()
     }
 
@@ -98,7 +97,7 @@ final class DraftEditor: EditorLens {
         // Asking would load the weights: what is queued waits with the rest.
         guard !working, !modelHeld, let next = queue.first else { return }
         queue.removeFirst()
-        guard text.contains(next) else {
+        guard EditorController.holds(text, sentence: next) else {
             inFlight.remove(next)
             drain()
             return

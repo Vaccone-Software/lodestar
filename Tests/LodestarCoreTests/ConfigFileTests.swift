@@ -130,11 +130,11 @@ final class ConfigFileTests: XCTestCase {
         XCTAssertEqual(problems.count, 2, "\(problems)")
         XCTAssertTrue(problems.contains { $0.hasPrefix("lode.trigger: ") }, "\(problems)")
         XCTAssertTrue(problems.contains { $0.hasPrefix("scroll.speed: ") }, "\(problems)")
-        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(false))! }
+        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(true))! }
         let tree = try Json.parse(onDisk)
         XCTAssertEqual(tree.value(at: ["lode", "trigger"]), .string("nonsense"))
         XCTAssertEqual(tree.value(at: ["scroll", "speed"]), .string("fast"))
-        XCTAssertEqual(tree.value(at: ["coach", "stand"]), .bool(false))
+        XCTAssertEqual(tree.value(at: ["coach", "stand"]), .bool(true))
     }
 
 
@@ -150,7 +150,7 @@ final class ConfigFileTests: XCTestCase {
         }
         """)
         XCTAssertEqual(Config.load(from: file).1, [], "read clean")
-        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(false))! }
+        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(true))! }
         XCTAssertEqual(onDisk, written("""
           "lode": {
             "trigger": "left-command"
@@ -159,7 +159,7 @@ final class ConfigFileTests: XCTestCase {
             "launcher": false
           },
           "coach": {
-            "stand": false
+            "stand": true
           }
 
         """))
@@ -171,7 +171,7 @@ final class ConfigFileTests: XCTestCase {
     func testNullsAreSilentAndNotWrittenBack() throws {
         try write(#"{"web": {"links": null, "routes": null}, "scroll": null, "meetings": {"enabled": null}}"#)
         XCTAssertEqual(Config.load(from: file).1, [])
-        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(false))! }
+        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(true))! }
         XCTAssertFalse(onDisk.contains("null"), onDisk)
     }
 
@@ -236,7 +236,7 @@ final class ConfigFileTests: XCTestCase {
     func testAnEntryTheTableDroppedIsKeptThroughAnUnrelatedWrite() throws {
         try write(#"{"clipboard": {"exclude-apps": {"com.a": true, "com.b": "yes"}}}"#)
         _ = Config.load(from: file)
-        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(false))! }
+        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(true))! }
         let tree = try Json.parse(onDisk)
         XCTAssertEqual(tree.value(at: ["clipboard", "exclude-apps", "com.a"]), .bool(true), "the good entry stays")
         XCTAssertEqual(tree.value(at: ["clipboard", "exclude-apps", "com.b"]), .string("yes"), "the dropped one is the person's")
@@ -251,7 +251,7 @@ final class ConfigFileTests: XCTestCase {
         XCTAssertEqual(config.clipboardMaxBytes, 10_000_000)
         XCTAssertEqual(problems.count, 2, "\(problems)")
         XCTAssertTrue(problems.allSatisfy { $0.contains("out of range") && $0.contains("clamped to") }, "\(problems)")
-        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(false))! }
+        try Config.edit(in: file) { Json.setting($0, path: ["coach", "stand"], to: .bool(true))! }
         let tree = try Json.parse(onDisk)
         XCTAssertEqual(tree.value(at: ["scroll", "speed"]), .int(4000))
         XCTAssertEqual(tree.value(at: ["clipboard", "max-size-mb"]), .int(10))

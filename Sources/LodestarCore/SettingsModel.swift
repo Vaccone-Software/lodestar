@@ -815,7 +815,7 @@ public enum SettingsModel {
             Row(title: "Walk", path: "coach.stand",
                 control: .toggle(config.standEnabled),
                 detail: "A cue to walk for two minutes, at the next stopping point after a stretch without a break",
-                isDefault: config.standEnabled, group: "Walk"),
+                isDefault: !config.standEnabled, group: "Walk"),
             Row(title: "After", path: "coach.stand-after",
                 control: .number(config.standAfterMinutes, min: 15, max: 120, unit: "min"),
                 detail: config.standEnabled ? "Thirty is what the research supports" : "Needs the walk",

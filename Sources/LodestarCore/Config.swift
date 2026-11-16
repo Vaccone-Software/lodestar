@@ -176,7 +176,7 @@ public struct Config {
     public var coachEnabled = true
     /// The walk: a cue at a stopping point after `standAfterMinutes` of
     /// unbroken work.
-    public var standEnabled = true
+    public var standEnabled = false
     public var standAfterMinutes = 30
     /// The chain guide fades as a subtree is learned: the map waits for
     /// recall before it appears. The coach's doctrine, not a switch.

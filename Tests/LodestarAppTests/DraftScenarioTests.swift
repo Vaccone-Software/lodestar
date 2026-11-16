@@ -58,7 +58,7 @@ final class DraftScenarioTests: XCTestCase {
     func testZoOpensTheWholeTextAndZcFoldsIt() {
         let stage = Stage()
         stage.lode(".", shift: true)
-        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, false, "typing with the mic off: four lines")
+        XCTAssertEqual(stage.draft.state["expanded"] as? Bool, false, "typing with the mic off: three lines")
         cmd(stage, "h"); cmd(stage, "i")
         cmd(stage, "escape")
         XCTAssertEqual(stage.draft.state["expanded"] as? Bool, false, "escape changes the mode, not the size")

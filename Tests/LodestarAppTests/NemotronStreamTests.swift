@@ -5,7 +5,7 @@ import LodestarCore
 
 /// The Nemotron stream's arithmetic, without the weights: the mel against
 /// values FluidAudio computed, the encoder's input and its mel cache, the
-/// chunks audio is cut into, and tokens into words.
+/// chunks audio is cut into, tokens into words, and the pinned files.
 final class NemotronStreamTests: XCTestCase {
     // MARK: - Mel
 
@@ -204,6 +204,41 @@ final class NemotronStreamTests: XCTestCase {
         XCTAssertNil(vocabulary[1])
         XCTAssertThrowsError(try NemotronVocabulary(json: Data(#"["▁a"]"#.utf8)))
         XCTAssertThrowsError(try NemotronVocabulary(json: Data("{}".utf8)))
+    }
+
+    // MARK: - Files
+
+    func testTheManifestPinsTheVariantsFiles() {
+        let manifest = NemotronStream.manifest
+        XCTAssertEqual(manifest.repo, "FluidInference/nemotron-speech-streaming-en-0.6b-coreml")
+        XCTAssertEqual(manifest.revision.count, 40)
+        XCTAssertTrue(manifest.revision.allSatisfy(\.isHexDigit))
+        XCTAssertTrue(manifest.license.hasPrefix("NVIDIA Open Model License"))
+        XCTAssertEqual(manifest.files.count, 10)
+        XCTAssertEqual(manifest.total, 607_940_952)
+        XCTAssertEqual(Set(manifest.files.map(\.path)).count, manifest.files.count, "no file twice")
+        for file in manifest.files {
+            XCTAssertTrue(file.path.hasPrefix(NemotronStream.variant + "/"), file.path)
+            XCTAssertEqual(file.sha256.count, 64, file.path)
+            XCTAssertTrue(file.sha256.allSatisfy(\.isHexDigit), file.path)
+            XCTAssertGreaterThan(file.size, 0, file.path)
+        }
+        // Every file the stream opens is fetched.
+        let inVariant = Set(manifest.files.map { String($0.path.dropFirst(NemotronStream.variant.count + 1)) })
+        for path in [NemotronStream.File.metadata, NemotronStream.File.tokenizer] {
+            XCTAssertTrue(inVariant.contains(path), path)
+        }
+        for model in [NemotronStream.File.encoder, NemotronStream.File.decoderJoint] {
+            for part in ["coremldata.bin", "model.mil", "weights/weight.bin", "analytics/coremldata.bin"] {
+                XCTAssertTrue(inVariant.contains("\(model)/\(part)"), "\(model)/\(part)")
+            }
+        }
+        XCTAssertEqual(manifest.url(for: manifest.files[0]).absoluteString,
+                       "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/"
+                           + "\(manifest.revision)/nemotron_coreml_560ms/decoder_joint.mlmodelc/analytics/coremldata.bin")
+        let download = URL(fileURLWithPath: "/models").appendingPathComponent(manifest.folder)
+        XCTAssertEqual(NemotronStream.folder(inDownload: download).path,
+                       "/models/nemotron-speech-streaming-en-0.6b-coreml/nemotron_coreml_560ms")
     }
 }
 

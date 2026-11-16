@@ -58,7 +58,7 @@ struct DraftView {
     /// What the panel stands above — the strip's row of recents, while a
     /// card is open over it.
     var standsAbove: CGFloat = 0
-    /// The whole text, or its last four lines: `zo` and `zc`, decided by
+    /// The whole text, or its last three lines: `zo` and `zc`, decided by
     /// the controller, never guessed here.
     var expanded = false
     /// Ink still drying: words the second ear or the intent pass may yet
@@ -358,8 +358,8 @@ final class DraftPanel {
     /// The level, as the top edge's light.
     private let voiceLight = VoiceLight(frame: .zero)
 
-    /// Whether the draft shows all of its text or the last four lines,
-    /// as the view says: four lines from every door so the work behind
+    /// Whether the draft shows all of its text or the last three lines,
+    /// as the view says: three lines from every door so the work behind
     /// stays in view, `zo` to open it whole, `zc` or the voice to fold
     /// it again.
     private(set) var expanded = false
@@ -435,7 +435,7 @@ final class DraftPanel {
     /// The least room the input's name is given before it gives way.
     private static let leastInputWidth: CGFloat = 80
     /// The lines a speaking draft holds.
-    static let compactLines = 4
+    static let compactLines = 3
     /// The width of a space, one cell: what a block cursor covers where no letter is.
     private static var spaceWidth: CGFloat { BarTheme.spaceWidth(in: .draft) }
     /// The panel's ground, for the glyph a block cursor inverts: the
@@ -1020,7 +1020,7 @@ final class DraftPanel {
         // Opened whole, the text grows the panel to the display's visible
         // height and scrolls past it — one rule for every door. A card
         // opened to be read wants all of itself on screen. Folded, it
-        // holds four whole lines, so the screen behind stays in view.
+        // holds three whole lines, so the screen behind stays in view.
         // The foot steps away while the voice is being heard and it has
         // nothing to say: the light is the whole message then, and the
         // foot is a band of someone else's screen covered for nothing.

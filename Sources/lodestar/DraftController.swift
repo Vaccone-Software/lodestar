@@ -377,7 +377,7 @@ final class DraftController {
     /// What a second ⏎ runs while the first waits: the ghost settles as
     /// seen and the draft lands with what stands.
     private var landNow: (() -> Void)?
-    /// Whether the panel shows the whole text or its last four lines:
+    /// Whether the panel shows the whole text or its last three lines:
     /// `zo` and `zc`, and the voice folds it.
     private var expanded = false
     /// The word that runs if the recognizer never says it is listening:

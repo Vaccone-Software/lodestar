@@ -3,7 +3,7 @@ import XCTest
 @testable import lodestar
 @testable import LodestarCore
 
-/// The draft while speaking holds four whole lines, so the screen behind
+/// The draft while speaking holds three whole lines, so the screen behind
 /// stays in view; stopping to read opens the whole text, and it stays
 /// open through typing until the voice comes back.
 final class DraftFoldTests: XCTestCase {
@@ -65,7 +65,7 @@ final class DraftFoldTests: XCTestCase {
         return (whole, cut)
     }
 
-    func testSpeakingHoldsFourWholeLines() {
+    func testSpeakingHoldsItsWholeLines() {
         panel.show(view(long, ghost: "and the ghost of what comes next"))
         XCTAssertFalse(panel.expanded)
         let lines = visibleLines()
@@ -87,14 +87,14 @@ final class DraftFoldTests: XCTestCase {
         panel.show(view(long, editor: .normal))
         XCTAssertFalse(panel.expanded, "normal mode alone does not open it")
         XCTAssertEqual(panel.textFrame.height, foldedText, accuracy: 0.5,
-                       "the same four lines; only the foot returns")
+                       "the same three lines; only the foot returns")
         var typed = view(long)
         typed.micOn = false
         panel.show(typed)
-        XCTAssertFalse(panel.expanded, "typing with the mic off stays four lines")
+        XCTAssertFalse(panel.expanded, "typing with the mic off stays three lines")
     }
 
-    func testAShortDraftIsNotPaddedToFourLines() {
+    func testAShortDraftIsNotPaddedToItsLines() {
         panel.show(view("A few words", ghost: "and more"))
         XCTAssertLessThan(panel.frame.height, 160)
     }
@@ -357,11 +357,11 @@ final class DraftFoldTests: XCTestCase {
     /// window now stays where it stood while the cursor is inside it.
     func testAMoveInsideTheWindowLeavesItWhereItStood() {
         panel.show(standing(on: 12))
-        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 9), accuracy: 0.5, "ends on the cursor's line")
-        panel.show(standing(on: 9))
-        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 9), accuracy: 0.5, "the top line, and nothing moved")
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 10), accuracy: 0.5, "ends on the cursor's line")
         panel.show(standing(on: 10))
-        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 9), accuracy: 0.5)
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 10), accuracy: 0.5, "the top line, and nothing moved")
+        panel.show(standing(on: 11))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 10), accuracy: 0.5)
         XCTAssertEqual(visibleLines().cut, 0)
     }
 
@@ -369,15 +369,15 @@ final class DraftFoldTests: XCTestCase {
         panel.show(standing(on: 12))
         panel.show(standing(on: 5))
         XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 5), accuracy: 0.5, "above: starts on the cursor's line")
-        panel.show(standing(on: 7))
+        panel.show(standing(on: 6))
         XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 5), accuracy: 0.5, "inside again: held")
         panel.show(standing(on: 10))
-        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 7), accuracy: 0.5, "below: ends on the cursor's line")
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 8), accuracy: 0.5, "below: ends on the cursor's line")
     }
 
     /// The common case, and the reason the old rule was right for a long
-    /// time: words arriving at the end always show the last four lines.
-    func testTextArrivingAtTheEndStillShowsTheLastFourLines() {
+    /// time: words arriving at the end always show the last three lines.
+    func testTextArrivingAtTheEndStillShowsTheLastLines() {
         panel.show(standing(on: 12))
         for count in 13...15 {
             var view = standing(on: 1, of: count)
@@ -386,7 +386,7 @@ final class DraftFoldTests: XCTestCase {
             view = DraftView(buffer: buffer, mode: .insert, editor: .insert, speech: nil,
                              destination: ("Ghostty", nil), replacing: false)
             panel.show(view)
-            XCTAssertEqual(panel.textScrollOrigin, top(ofLine: count - 3), accuracy: 0.5, "\(count) lines")
+            XCTAssertEqual(panel.textScrollOrigin, top(ofLine: count - DraftPanel.compactLines + 1), accuracy: 0.5, "\(count) lines")
         }
         XCTAssertEqual(visibleLines().whole, DraftPanel.compactLines)
     }
@@ -394,21 +394,21 @@ final class DraftFoldTests: XCTestCase {
     func testAWindowThatIsNoLongerFullIsFoundAgainOnTheCursor() {
         panel.show(standing(on: 12))
         panel.show(standing(on: 4, of: 5))
-        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 1), accuracy: 0.5,
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 2), accuracy: 0.5,
                        "the old window began past where a full one can: it ends on the cursor's line")
         panel.show(standing(on: 5, of: 5))
-        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 2), accuracy: 0.5, "and holds there")
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 3), accuracy: 0.5, "and holds there")
     }
 
     func testOpeningThenFoldingFindsTheWindowAfresh() {
         panel.show(standing(on: 12))
-        panel.show(standing(on: 10))
-        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 9), accuracy: 0.5, "held while folded")
-        var open = standing(on: 10)
+        panel.show(standing(on: 11))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 10), accuracy: 0.5, "held while folded")
+        var open = standing(on: 11)
         open.expanded = true
         panel.show(open)
-        panel.show(standing(on: 10))
-        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 7), accuracy: 0.5,
+        panel.show(standing(on: 11))
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 9), accuracy: 0.5,
                        "folded again, it ends on the cursor's line like a first fold")
     }
 
@@ -416,7 +416,7 @@ final class DraftFoldTests: XCTestCase {
         panel.show(standing(on: 12))
         panel.hide()
         panel.show(standing(on: 10))
-        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 7), accuracy: 0.5)
+        XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 8), accuracy: 0.5)
     }
 
     /// A wheel may have moved the text since the last render. The press
@@ -438,6 +438,6 @@ final class DraftFoldTests: XCTestCase {
         clip.scroll(to: NSPoint(x: 0, y: top(ofLine: 5)))
         panel.show(standing(on: 6))
         XCTAssertEqual(panel.textScrollOrigin, top(ofLine: 6), accuracy: 0.5,
-                       "the old window was lines 9 to 12, and line 6 is above it")
+                       "the old window was lines 10 to 12, and line 6 is above it")
     }
 }

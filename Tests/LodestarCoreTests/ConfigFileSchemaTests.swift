@@ -47,7 +47,7 @@ final class ConfigFileSchemaTests: XCTestCase {
                 "enabled": .bool(false), "model": .string(""), "language": .string(""), "skip-apps": .table([:]),
             ]),
             "meetings": .table(["enabled": .bool(false), "lead-minutes": .int(5), "calendars": .table([:])]),
-            "coach": .table(["enabled": .bool(true), "stand": .bool(true), "stand-after": .int(30)]),
+            "coach": .table(["enabled": .bool(true), "stand": .bool(false), "stand-after": .int(30)]),
             "health": .table(["keyboards": .table([:])]),
             "keys": .table([:]),
             "mice": .table(["reversed-wheels": .table([:])]),

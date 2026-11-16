@@ -142,6 +142,10 @@ final class EditorController: EditorLens {
     /// followed stopped: a field that answers nothing for a moment and then
     /// answers again is the same field, and its state is kept through it.
     private var lastRead = Date.distantPast
+    /// A fix, a ⏎ or an undo changed the field since it was last read: what
+    /// `field` holds is no longer its text, and marks are not worked out on
+    /// it until a read says what the text is now.
+    private var editedSinceRead = false
     private var silentSince: Date?
     /// Sentences the model has left unanswered in a row, and whether the
     /// hand has been told about this run of them.
@@ -503,6 +507,7 @@ final class EditorController: EditorLens {
             }
         }
         lastRead = now
+        editedSinceRead = false
         if read.text != fieldTextSeen {
             lastTextChange = now
             schedulePauseRead()
@@ -604,7 +609,8 @@ final class EditorController: EditorLens {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.computing = false
-                if self.enabled, self.field?.text == read.text {
+                // A fix since the read: these are the issues of words gone.
+                if self.enabled, !self.editedSinceRead, self.field?.text == read.text {
                     if let issues {
                         self.issues = issues
                         self.issuesRead = read.text
@@ -668,7 +674,11 @@ final class EditorController: EditorLens {
                     // An answer landed: its marks are worked out now, on
                     // the text as last read, not at the next beat a second
                     // later. A read already on its way brings them anyway.
-                    if let field = self.field, !self.readQueued {
+                    // After a fix the text last read is not the text there, and its
+                    // marks would land on words already fixed: a read first.
+                    if self.editedSinceRead {
+                        self.poll()
+                    } else if let field = self.field, !self.readQueued {
                         self.compute(field, issues: true,
                                      paused: self.clock.now().timeIntervalSince(self.lastTextChange) >= Self.pause)
                     }
@@ -720,10 +730,11 @@ final class EditorController: EditorLens {
         axQueue.async { [weak self] in
             let rects = source.rects(for: issues.map(\.range), in: field)
             DispatchQueue.main.async {
-                // Places found for text the hand has since changed say nothing
-                // of the marks in it, and the read of the new text is on its way.
+                // Places found for text the hand has since changed, or a fix
+                // has, say nothing of the marks in it, and the read of the new
+                // text is on its way.
                 guard let self, self.geometryGeneration == expected, self.enabled,
-                      self.field?.text == field.text else { return }
+                      !self.editedSinceRead, self.field?.text == field.text else { return }
                 self.marks = zip(issues, rects).compactMap { issue, rect in rect.map { Mark(issue: issue, rect: $0) } }
                 self.stand(drawn: self.marks.map(\.issue), all: issues)
                 self.hover?.marksChanged()
@@ -830,6 +841,7 @@ final class EditorController: EditorLens {
                                           original: issue.original, replacement: issue.replacement,
                                           kind: issue.kind, batch: self.batches))
                     self.trimFixes()
+                    self.editedSinceRead = true
                     self.marks.removeAll { $0.issue == issue }
                     self.issues.removeAll { $0 == issue }
                     self.hover?.marksChanged()
@@ -863,6 +875,7 @@ final class EditorController: EditorLens {
                     completion(0)
                     return
                 }
+                self.editedSinceRead = true
                 self.batches += 1
                 for (issue, range) in zip(landed, Self.settled(landed)) {
                     self.fixes.append(Fix(pid: field.pid, element: field.element, range: range,
@@ -976,6 +989,8 @@ final class EditorController: EditorLens {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
+                // Taken back in part or whole, the text is not what was read.
+                self.editedSinceRead = true
                 // One for each fix taken back, so what is fixed is what is left fixed.
                 if done {
                     for fix in reverts {

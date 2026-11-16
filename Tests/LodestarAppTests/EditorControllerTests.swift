@@ -510,6 +510,55 @@ final class EditorControllerTests: XCTestCase {
         XCTAssertTrue(rig.controller.lensMarks.isEmpty)
     }
 
+    /// An answer that lands after a fix works its marks out on the field as
+    /// the fix left it, not as it was last read: the fixed words are not
+    /// marked again.
+    func testAnAnswerThatLandsAfterAFixDoesNotMarkTheFixedWordsAgain() throws {
+        let rig = EditorRig()
+        rig.reader.answer("Their going to push it.", "They're going to push it.")
+        rig.reader.answer("Its fine.", "It's fine.")
+        rig.type("Their going to push it.")
+        rig.settleBeating("the first mark") { rig.controller.lensMarks.count == 1 }
+        rig.drain()
+        rig.reader.hold()
+        rig.type("Their going to push it. Its fine.")
+        rig.settle("the second asked") { rig.reader.waitingCount == 1 }
+        let mark = try XCTUnwrap(rig.controller.lensMarks.first { $0.issue.shown == "They're" })
+        var done: Bool?
+        rig.controller.fix(mark) { done = $0 }
+        rig.settle("the fix") { done != nil }
+        XCTAssertEqual(rig.source.text, "They're going to push it. Its fine.")
+        rig.reader.letGo()
+        rig.settle("the second answered") { rig.reader.waitingCount == 0 }
+        for _ in 0..<5 { rig.drain() }
+        XCTAssertFalse(rig.controller.lensMarks.contains { $0.issue.shown == "They're" },
+                       "\(rig.controller.lensMarks.map(\.issue.shown))")
+    }
+
+    /// A read's marks placed while a fix is on its way land after it: they
+    /// were placed for the text before the fix, and the fixed word is not
+    /// marked again.
+    func testMarksPlacedAsAFixLandsDoNotMarkTheFixedWordAgain() throws {
+        let rig = EditorRig()
+        rig.reader.answer("Their going to push it.", "They're going to push it.")
+        rig.type("Their going to push it.")
+        rig.settleBeating("the mark") { rig.controller.lensMarks.count == 1 }
+        rig.drain()
+        let mark = try XCTUnwrap(rig.controller.lensMarks.first)
+        rig.clock.advance(by: 0.6)
+        rig.drain()
+        rig.clock.advance(by: 0.6)
+        var done: Bool?
+        // The fix is on its way when a beat, still reading the text before
+        // it, places the marks again: their places come home after the fix.
+        rig.controller.fix(mark) { done = $0 }
+        rig.beat()
+        rig.settle("the fix") { done != nil }
+        for _ in 0..<5 { rig.drain() }
+        XCTAssertEqual(rig.source.text, "They're going to push it.")
+        XCTAssertTrue(rig.controller.lensMarks.isEmpty, "\(rig.controller.lensMarks.map(\.issue.shown))")
+    }
+
     func testAFixAndItsUndo() {
         let rig = EditorRig()
         rig.type("We need to recieve them.")

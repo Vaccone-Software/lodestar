@@ -154,6 +154,45 @@ public final class MLXLanguageModel: ServedLanguageModel, @unchecked Sendable {
         }
     }
 
+    /// How likely the model finds each of `answers` as its reply to `text`:
+    /// the sum of every answer token's log-probability, read with the
+    /// answer given (one forward pass each, nothing generated). Two answers
+    /// that differ by one edit compare as the model's confidence in it.
+    public func logLikelihoods(of answers: [String], to text: String, prompt: IntentPass.Prompt) async throws -> [Double] {
+        let additional = additionalContext
+        let caching = cachesInstructions
+        return try await container.perform { (context: ModelContext) async throws -> [Double] in
+            let full = try await Self.tokens(text, prompt: prompt, context: context, additional: additional)
+            let parameters = GenerateParameters(maxTokens: 1, temperature: 0)
+            if caching {
+                try await self.ensurePrefix(prompt, context: context, additional: additional, parameters: parameters)
+            }
+            var scores: [Double] = []
+            for answer in answers {
+                let reply = context.tokenizer.encode(text: answer, addSpecialTokens: false)
+                var cache: [KVCache]
+                var rest: [Int]
+                if caching, let prefix = self.prefixes.last(where: { $0.prompt == prompt }),
+                   full.count > prefix.tokens.count, Array(full.prefix(prefix.tokens.count)) == prefix.tokens {
+                    cache = prefix.cache.map { $0.copy() }
+                    rest = Array(full.dropFirst(prefix.tokens.count))
+                } else {
+                    cache = context.model.newCache(parameters: parameters)
+                    rest = full
+                }
+                let input = rest + reply
+                let logits = context.model(LMInput.Text(tokens: MLXArray(input))[text: .newAxis],
+                                           cache: cache, state: nil).logits[0].asType(.float32)
+                let logProbs = logits - logSumExp(logits, axis: -1, keepDims: true)
+                let positions = MLXArray(Array((rest.count - 1)..<(input.count - 1)).map(Int32.init))
+                let picked = takeAlong(logProbs[positions],
+                                       MLXArray(reply.map(Int32.init))[0..., .newAxis], axis: -1)
+                scores.append(Double(picked.sum().item(Float.self)))
+            }
+            return scores
+        }
+    }
+
     /// Guess from the input (`PromptLookup`) unless told not to, which the
     /// measurement of the difference needs.
     static let looksUp = ProcessInfo.processInfo.environment["LODESTAR_EDITOR_NO_LOOKUP"] == nil

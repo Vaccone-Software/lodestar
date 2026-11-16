@@ -33,6 +33,7 @@ func runEditor(_ args: inout [String]) {
     case "residency": editorResidency(&args)
     case "bench": editorBench(&args)
     case "cost": editorCost(&args)
+    case "gec": editorGEC(&args)
     case let other: fail("probe editor: unknown subcommand '\(other)'")
     }
 }

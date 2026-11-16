@@ -58,7 +58,7 @@ struct DraftView {
     /// What the panel stands above — the strip's row of recents, while a
     /// card is open over it.
     var standsAbove: CGFloat = 0
-    /// The whole text, or its last four lines: `zo` and `zc`, decided by
+    /// The whole text, or its last three lines: `zo` and `zc`, decided by
     /// the controller, never guessed here.
     var expanded = false
     /// Ink still drying: words the second ear or the intent pass may yet
@@ -358,8 +358,8 @@ final class DraftPanel {
     /// The level, as the top edge's light.
     private let voiceLight = VoiceLight(frame: .zero)
 
-    /// Whether the draft shows all of its text or the last four lines,
-    /// as the view says: four lines from every door so the work behind
+    /// Whether the draft shows all of its text or the last three lines,
+    /// as the view says: three lines from every door so the work behind
     /// stays in view, `zo` to open it whole, `zc` or the voice to fold
     /// it again.
     private(set) var expanded = false
@@ -395,22 +395,47 @@ final class DraftPanel {
     /// The mouse did something on the words.
     var onPointer: ((DraftPointerEvent) -> Void)?
 
-    private static let width: CGFloat = 720
-    private static let margin = Grid.section
+    /// The measure: characters to a line of prose. Typographers put the
+    /// comfortable range at 45 to 75 with 66 at its middle (Bringhurst),
+    /// on screen 55 or so reads with the best comprehension (Dyson and
+    /// Haselgrove), and WCAG's readable-text criterion asks for no more
+    /// than 80. Longer lines make every return sweep a longer saccade and
+    /// a likelier miss of the next line's start.
+    static let measure = 66
+
+    /// Ordinary prose, for the face's average letter: a line of it is
+    /// what the measure counts.
+    private static let measureSample = "The flex container has a gap of twelve but the cards still touch, so something is overriding it, probably the margin reset in globals.css. Check whether the card component sets its own margin and if it does, remove it."
+
+    /// The draft's width: the measure in the face the text is set in, and
+    /// its air. The sans and the mono have different letters, so the same
+    /// count is a different width in each.
+    static func readingWidth(for role: BarTheme.Role) -> CGFloat {
+        let sample = measureSample as NSString
+        let average = sample.size(withAttributes: [.font: role.font]).width / CGFloat(sample.length)
+        return (average * CGFloat(measure) + padX * 2).rounded(.up)
+    }
+    /// The draft stands over whatever is at the bottom of the screen,
+    /// which is often what the hand wants to read: every point of air
+    /// around the words is a point of someone else's window hidden.
+    static let margin = Grid.group
     private static let padX = Grid.section
-    /// The foot, under the text: where the words land, and the mic.
-    private static let footHeight: CGFloat = 40
+    /// The foot, under the text: where the words land, and the mic. As
+    /// tall as its tallest control and a hairline of air either side.
+    private static let footHeight: CGFloat = 32
     /// The air over the text, under the light.
-    private static let padTop = Grid.group
+    private static let padTop = Grid.part
+    /// The air under the text when the foot has stepped away: the same
+    /// as over it.
+    private static let padBottom = Grid.part
     /// Air between the text and the keys: the pill's own inset, so a
     /// draft holding its keys is spaced like a bar holding its keys. The
     /// foot's own air is the air under them.
     private static let keysAbove: CGFloat = Grid.section
-    private static let minTextHeight: CGFloat = 58
     /// The least room the input's name is given before it gives way.
     private static let leastInputWidth: CGFloat = 80
     /// The lines a speaking draft holds.
-    static let compactLines = 4
+    static let compactLines = 3
     /// The width of a space, one cell: what a block cursor covers where no letter is.
     private static var spaceWidth: CGFloat { BarTheme.spaceWidth(in: .draft) }
     /// The panel's ground, for the glyph a block cursor inverts: the
@@ -575,6 +600,8 @@ final class DraftPanel {
         walk(keysView)
         return out.joined(separator: " ")
     }
+    /// Whether the foot stands under the text right now.
+    var footShown: Bool { !registerName.isHidden }
     /// Whether the foot names the microphone right now.
     var inputNamed: Bool { !inputButton.isHidden }
     /// The name the foot shows, and the menu it opens, for the tests.
@@ -606,7 +633,7 @@ final class DraftPanel {
             longest = max(longest, measured)
         }
         let asked = (longest + Self.padX * 2 + 8).rounded(.up)
-        return min(max(Self.width, asked), screen.width - Self.margin * 2)
+        return min(max(Self.readingWidth(for: DraftView.role(for: style)), asked), screen.width - Self.margin * 2)
     }
 
     /// Where one visual line up or down from character `index` lands, by
@@ -799,6 +826,12 @@ final class DraftPanel {
             return Draft.Pointer.Hit(at: 0)
         }
         let box = textBoxInWindow
+        // The box hugs its lines, so the air under it is under the last
+        // line: the text's end, as a Mac field has it, once nothing more
+        // lies below to scroll to.
+        if window.y < box.minY, scroll.contentView.bounds.maxY >= textView.frame.height - 0.5 {
+            return Draft.Pointer.Hit(at: buffer.count)
+        }
         var point = textView.convert(NSPoint(x: window.x, y: min(max(window.y, box.minY + 1), box.maxY - 1)),
                                      from: nil)
         point.x -= textView.textContainerOrigin.x
@@ -891,7 +924,7 @@ final class DraftPanel {
         if view.expanded != expanded { windowTop = nil }
         expanded = view.expanded
         let screen = ActivePolicy.presentationFrame
-        let width = min(view.width ?? Self.width, screen.width - Self.margin * 2)
+        let width = min(view.width ?? Self.readingWidth(for: view.role), screen.width - Self.margin * 2)
         let textWidth = width - Self.padX * 2
 
         // The text: settled before the cursor, the ghost dimmed at the
@@ -987,9 +1020,16 @@ final class DraftPanel {
         // Opened whole, the text grows the panel to the display's visible
         // height and scrolls past it — one rule for every door. A card
         // opened to be read wants all of itself on screen. Folded, it
-        // holds four whole lines, so the screen behind stays in view.
-        let chrome = Self.padTop + Self.footHeight + keysBand
-        let maxTextHeight = max(Self.minTextHeight,
+        // holds three whole lines, so the screen behind stays in view.
+        // The foot steps away while the voice is being heard and it has
+        // nothing to say: the light is the whole message then, and the
+        // foot is a band of someone else's screen covered for nothing.
+        // It returns the moment it has news, a key is shown, or the mic
+        // stops hearing.
+        let footless = Self.footless(view, keysShown: keysShown)
+        let footBand = footless ? Self.padBottom : Self.footHeight
+        let chrome = Self.padTop + footBand + keysBand
+        let maxTextHeight = max(lineHeight,
                                 screen.height - view.standsAbove - Self.margin * 2 - chrome)
 
         // Where the words are arriving: the end of a standing ghost, or
@@ -1067,13 +1107,10 @@ final class DraftPanel {
         }
         if !folded { windowTop = nil }
         adopted = false
-        // The text box keeps a floor of its own so an empty draft is not a
-        // slot — but that floor is slack under the words, and with keys
-        // up it stacks on the keys' own air and reads as one gap of
-        // twice the size. With keys up the box hugs instead; the air
-        // between the words and their keys is then exactly the one inset
-        // every other surface uses.
-        let floor = keysShown ? lineHeight : Self.minTextHeight
+        // The text box hugs its words, down to one line: an empty draft
+        // is a single line waiting, and grows upward as words arrive.
+        // Slack under the words would only cover more of the screen.
+        let floor = lineHeight
         // Folded, the box is exactly its lines: a line cut through the
         // middle at the top would be a fade drawn by a ruler.
         let textHeight = window?.height ?? (whole
@@ -1194,7 +1231,13 @@ final class DraftPanel {
         placeText(registerNote, x: x, width: max(0, min(registerNote.frame.width, trailing - x)))
 
         // The text.
-        scroll.frame = NSRect(x: Self.padX, y: Self.footHeight + keysBand,
+        for view in [registerIcon, registerName] { view.isHidden = footless }
+        if footless {
+            registerNote.isHidden = true
+            inputButton.isHidden = true
+            inputMenu.hide()
+        }
+        scroll.frame = NSRect(x: Self.padX, y: footBand + keysBand,
                               width: textWidth, height: textHeight)
         textMargin.frame = NSRect(x: 0, y: scroll.frame.minY,
                               width: root.bounds.width, height: max(0, root.bounds.height - scroll.frame.minY))
@@ -1349,6 +1392,14 @@ final class DraftPanel {
         if view.mode == .insert { return true }
         if let selection = view.selection, !selection.isEmpty, case .visual = view.editor { return true }
         return false
+    }
+
+    /// Whether the foot steps away: the microphone is hearing, nothing
+    /// is wrong, nothing is replaced, and no card, keys or menu are up.
+    static func footless(_ view: DraftView, keysShown: Bool) -> Bool {
+        guard view.card == nil, !keysShown, !view.finishing, micWanted(view),
+              case .listening = view.speech else { return false }
+        return note(for: view).isEmpty
     }
 
     static func note(for view: DraftView) -> String {

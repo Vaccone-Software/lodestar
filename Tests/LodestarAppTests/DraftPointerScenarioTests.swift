@@ -311,9 +311,10 @@ final class DraftPointerScenarioTests: XCTestCase {
     }
 
     func testATripleClickAndDragGrowsByWholeLines() {
-        let stage = standard("one\ntwo\nthree\nfour", cursor: 0)
+        // Three lines, so the fold shows them all.
+        let stage = standard("one\ntwo\nthree", cursor: 0)
         drag(stage, from: 5, to: 10, clicks: 3, release: false)
-        XCTAssertEqual(selected(stage), "two\nthree\n")
+        XCTAssertEqual(selected(stage), "two\nthree")
         stage.draft.pointerDragged(to: over(stage, 1))
         XCTAssertEqual(selected(stage), "one\ntwo\n")
         stage.draft.pointerUp()
@@ -459,27 +460,27 @@ final class DraftPointerScenarioTests: XCTestCase {
     func testAClickInsideTheFoldedWindowDoesNotMoveTheText() {
         let stage = standard(twelveLines)
         let before = panel(stage).textScrollOrigin
-        XCTAssertGreaterThan(before, 0, "folded to the last four lines")
-        // The top visible line is the ninth.
-        click(stage, lineStart(9) + 2)
+        XCTAssertGreaterThan(before, 0, "folded to the last three lines")
+        // The top visible line is the tenth.
+        click(stage, lineStart(10) + 2)
         XCTAssertEqual(panel(stage).textScrollOrigin, before, accuracy: 0.5, "the text did not scroll under the pointer")
-        XCTAssertEqual(stage.draft.buffer.cursor, lineStart(9) + 2)
-        click(stage, lineStart(10) + 1)
+        XCTAssertEqual(stage.draft.buffer.cursor, lineStart(10) + 2)
+        click(stage, lineStart(11) + 1)
         XCTAssertEqual(panel(stage).textScrollOrigin, before, accuracy: 0.5)
     }
 
     func testAClickInsideTheFoldedWindowInVimDoesNotMoveItEither() {
         let stage = vim(twelveLines, cursor: twelveLines.count)
         let before = panel(stage).textScrollOrigin
-        click(stage, lineStart(9) + 2)
+        click(stage, lineStart(10) + 2)
         XCTAssertEqual(panel(stage).textScrollOrigin, before, accuracy: 0.5)
-        XCTAssertEqual(stage.draft.buffer.cursor, lineStart(9) + 2)
+        XCTAssertEqual(stage.draft.buffer.cursor, lineStart(10) + 2)
     }
 
     func testAWheelScrolledWindowIsWhatAPressLandsIn() {
         let stage = standard(twelveLines)
         let clip = panel(stage).textView.enclosingScrollView!.contentView
-        // The hand scrolled the text up to lines 5 to 8.
+        // The hand scrolled the text up to lines 5 to 7.
         var tops: [CGFloat] = []
         let layout = panel(stage).textView.layoutManager!
         layout.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: layout.numberOfGlyphs)) {
@@ -540,29 +541,29 @@ final class DraftPointerScenarioTests: XCTestCase {
         stage.draft.pointerDragged(to: NSPoint(x: x, y: box.maxY + 30))
         XCTAssertTrue(stage.draft.autoscrolling, "past the top: a timer, not a loop")
         let first = stage.draft.buffer.cursor
-        XCTAssertEqual(stage.draft.buffer.lineIndex(of: first), 8, "the top visible line, to begin with")
+        XCTAssertEqual(stage.draft.buffer.lineIndex(of: first), 9, "the top visible line, to begin with")
         stage.draft.autoscrollStep()
-        XCTAssertEqual(stage.draft.buffer.lineIndex(of: stage.draft.buffer.cursor), 7, "one line up")
+        XCTAssertEqual(stage.draft.buffer.lineIndex(of: stage.draft.buffer.cursor), 8, "one line up")
         stage.draft.autoscrollStep()
-        XCTAssertEqual(stage.draft.buffer.lineIndex(of: stage.draft.buffer.cursor), 6)
+        XCTAssertEqual(stage.draft.buffer.lineIndex(of: stage.draft.buffer.cursor), 7)
         XCTAssertEqual(stage.draft.buffer.anchor, start, "the press point stays the anchor")
         // Back over the text: the pointer decides again.
-        stage.draft.pointerDragged(to: over(stage, lineStart(7) + 2))
+        stage.draft.pointerDragged(to: over(stage, lineStart(8) + 2))
         XCTAssertFalse(stage.draft.autoscrolling)
         stage.draft.pointerUp()
-        XCTAssertEqual(selected(stage)?.hasPrefix("ne 7\n"), true, "from the line the pointer came back over")
+        XCTAssertEqual(selected(stage)?.hasPrefix("ne 8\n"), true, "from the line the pointer came back over")
     }
 
     func testAutoscrollGoesDownAndStopsWhenTheButtonComesUp() {
         let stage = standard(twelveLines, cursor: 0)
-        // Lines 1 to 4 are the window, with the caret at the top of the text.
+        // Lines 1 to 3 are the window, with the caret at the top of the text.
         let start = 2
         stage.draft.pointerDown(at: over(stage, start), clicks: 1, shift: false)
         let box = panel(stage).textBoxInWindow
         stage.draft.pointerDragged(to: NSPoint(x: over(stage, start).x, y: box.minY - 30))
         XCTAssertTrue(stage.draft.autoscrolling)
         for _ in 0..<5 { stage.draft.autoscrollStep() }
-        XCTAssertEqual(stage.draft.buffer.lineIndex(of: stage.draft.buffer.cursor), 3 + 5,
+        XCTAssertEqual(stage.draft.buffer.lineIndex(of: stage.draft.buffer.cursor), 2 + 5,
                        "the last visible line to begin with, then a line a step")
         stage.draft.pointerUp()
         XCTAssertFalse(stage.draft.autoscrolling)
@@ -581,8 +582,8 @@ final class DraftPointerScenarioTests: XCTestCase {
         stage.draft.autoscrollStep()
         stage.draft.autoscrollStep()
         XCTAssertEqual(stage.draft.vim.mode, .visual(line: false))
-        XCTAssertEqual(stage.draft.buffer.lineIndex(of: stage.draft.buffer.cursor), 6,
-                       "the top visible line, the ninth, then two lines up")
+        XCTAssertEqual(stage.draft.buffer.lineIndex(of: stage.draft.buffer.cursor), 7,
+                       "the top visible line, the tenth, then two lines up")
         XCTAssertLessThan(panel(stage).textScrollOrigin, held, "the editor keeps its fold, so the window followed")
         stage.draft.pointerUp()
     }

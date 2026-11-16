@@ -2191,7 +2191,7 @@ final class HotkeyEngine {
                 .init(header: "Draft", rows: [
                     GuideRow(key: "⏎", label: commit),
                     GuideRow(key: "i a", label: "Back to typing, before or after"),
-                    GuideRow(key: "zo zc", label: "The whole text · four lines"),
+                    GuideRow(key: "zo zc", label: "The whole text · three lines"),
                     GuideRow(key: "esc", label: leave),
                 ]),
                 .init(header: "Move", rows: [

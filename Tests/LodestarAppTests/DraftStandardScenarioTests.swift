@@ -428,10 +428,10 @@ final class DraftStandardScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "one two three")
     }
 
-    // MARK: - The four lines
+    // MARK: - The three lines
 
     /// The cursor is never out of sight: the folded view follows it out of
-    /// the four lines, wherever a move takes it, so there is no `zo` to ask.
+    /// the three lines, wherever a move takes it, so there is no `zo` to ask.
     func testTheFoldedViewFollowsTheCursorUp() {
         let panel = DraftPanel()
         defer { panel.hide() }
@@ -455,7 +455,7 @@ final class DraftStandardScenarioTests: XCTestCase {
 
     private func height(_ stage: Stage) -> CGFloat { stage.draft.editorCanvas?.height ?? 0 }
 
-    /// Standard has no `zo`: a selection the four lines would cut is shown
+    /// Standard has no `zo`: a selection the three lines would cut is shown
     /// whole while it stands, so what ⌘X, ⌫ or speech takes can be read.
     func testASelectionThatTheHeldLinesWouldCutShowsTheWholeText() {
         let stage = standardStage(field: twelveLines, cursor: twelveLines.count)

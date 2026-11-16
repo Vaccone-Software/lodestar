@@ -102,22 +102,30 @@ final class StateSaveCostTests: XCTestCase {
     }
 
     /// Opening is once per launch, off the main thread; it is measured so the
-    /// number is on record.
+    /// number is on record, and its own work is held to a budget. Its wall
+    /// time is mostly the backup's write waiting on the disk: under other
+    /// processes' flushes to the same volume (2026-11-16, four writers
+    /// forcing a megabyte each to the disk in a loop) the median went from
+    /// 20 ms to 130–157 ms, failing a 100 ms wall budget three times in three,
+    /// while its CPU time went from 2.8 ms to 4.0, as a busy test machine
+    /// had it at 106 ms. So the budget is the CPU time, as the save's is.
     func testOpeningTheSealedStateIsFast() throws {
         let file = directory.appendingPathComponent("state.json")
         let seed = SealedFixture.stateStore(file)
         for breath in realisticState().breaths { seed.setBreath(breath) }
-        var times: [Double] = []
+        var times: [Double] = [], cpus: [Double] = []
         for _ in 0..<20 {
-            let start = DispatchTime.now().uptimeNanoseconds
+            let start = DispatchTime.now().uptimeNanoseconds, cpu = Self.cpu()
             let store = StateStore(file: file, vault: SealedFixture.vault(directory))
             store.load()
             times.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6)
+            cpus.append(Self.cpu() - cpu)
             XCTAssertEqual(store.state.breaths.count, 30)
         }
         times.sort()
-        print(String(format: "state open (read, decrypt, decode, refresh the backup): median %.2f ms, p95 %.2f ms",
-                     times[times.count / 2], times[Int(Double(times.count) * 0.95)]))
-        XCTAssertLessThan(times[times.count / 2], 100)
+        cpus.sort()
+        print(String(format: "state open (read, decrypt, decode, refresh the backup): median %.2f ms, p95 %.2f ms, cpu median %.2f ms",
+                     times[times.count / 2], times[Int(Double(times.count) * 0.95)], cpus[cpus.count / 2]))
+        XCTAssertLessThan(cpus[cpus.count / 2], 20)
     }
 }

@@ -13,7 +13,9 @@ Software
     https://github.com/apple/swift-collections
   FluidAudio (FluidInference). Apache License 2.0. Lodestar's Parakeet
     ear (Sources/LodestarEars/Parakeet*.swift) is ported from its decoding
-    loop, windowing and seam merge.
+    loop, windowing and seam merge, and its Nemotron stream
+    (Sources/LodestarEars/Nemotron*.swift) from its streaming Nemotron
+    pipeline, log-mel front end and tokenizer.
     https://github.com/FluidInference/FluidAudio
   mlx-audio (Prince Canuma and contributors). MIT License. Lodestar's
     Qwen3-ASR ear (Sources/LodestarEars/Qwen*.swift) is ported from its
@@ -29,6 +31,14 @@ Models, downloaded when chosen
     Creative Commons Attribution 4.0 International (CC BY 4.0).
     https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2
     https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v2-coreml
+  Nemotron Speech Streaming 0.6B (NVIDIA), Core ML conversion by
+    FluidInference.
+    Licensed by NVIDIA Corporation under the NVIDIA Open Model License
+    The agreement's text ships beside this file as
+    NVIDIA-Open-Model-License.txt.
+    https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/
+    https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b
+    https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml
   Qwen3-ASR 1.7B (Alibaba Qwen), MLX conversion by mlx-community.
     Apache License 2.0.
     https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-8bit

@@ -25,6 +25,13 @@ import LodestarMLX
 ///       item with its words, in the same JSON lines `settle` reads, plus
 ///       the time each took after its audio ended.
 ///
+///   probe dictation stream --model dir --manifest m.json --out runs.jsonl [--root dir]
+///       Each item through the Nemotron stream (`NemotronStream`, `--model`
+///       the 560 ms variant's folder), fed 80 ms at a time as a microphone
+///       gives it. One JSON line per item: after every feed, the audio time
+///       it ends at, the milliseconds it took and the text so far
+///       (`steps`), then one final with its words, as `settle` reads.
+///
 ///   probe dictation record --out dir [--corpus utterances.json] [--from n01]
 ///       Reads the test sentences to you one at a time and records each
 ///       (16 kHz mono WAV), writing a manifest the scorer reads.
@@ -50,6 +57,7 @@ func runDictation(_ args: inout [String]) {
     case "transcribe": dictationTranscribe(options)
     case "record": dictationRecord(options)
     case "ear": dictationEar(options)
+    case "stream": dictationStream(options)
     case "draft": dictationDraft(options)
     case "phones":
         // probe dictation phones "super base" Supabase …: each phrase's
@@ -72,6 +80,7 @@ private func dictationUsage() {
     probe dictation transcribe --manifest m.json --out runs.jsonl [--root dir] [--ids a,b]
     probe dictation settle --runs runs.jsonl --out hyps.json [--words names.txt] [--raw]
     probe dictation ear --engine parakeet-v2 --model dir --manifest m.json --out runs.jsonl [--context names.txt] [--root dir]
+    probe dictation stream --model dir --manifest m.json --out runs.jsonl [--root dir]
     probe dictation record --out dir [--corpus utterances.json] [--from id]
     """)
 }
@@ -355,6 +364,85 @@ private func dictationEar(_ options: [String: String]) {
             try handle.close()
         } catch {
             print("ear: \(error)")
+            exit(70)
+        }
+        done.signal()
+    }
+    done.wait()
+}
+
+// MARK: - Stream
+
+private func dictationStream(_ options: [String: String]) {
+    guard let model = options["model"], let manifestPath = options["manifest"], let out = options["out"] else {
+        dictationUsage(); exit(64)
+    }
+    let root = options["root"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+        ?? URL(fileURLWithPath: manifestPath).deletingLastPathComponent()
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: manifestPath)),
+          let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let items = manifest["items"] as? [[String: Any]] else { print("stream: bad manifest"); exit(66) }
+    let stream = NemotronStream(folder: URL(fileURLWithPath: (model as NSString).expandingTildeInPath))
+    // 80 ms, as the microphone tap gives it.
+    let feed = 1280
+    let done = DispatchSemaphore(value: 0)
+    Task {
+        do {
+            var began = ContinuousClock.now
+            try await stream.load()
+            let load = began.secondsElapsed
+            began = ContinuousClock.now
+            try await stream.warm()
+            let warm = began.secondsElapsed
+            FileHandle.standardError.write(String(format: "stream: loaded in %.2f s, warmed in %.2f s, footprint %d MB\n",
+                                                  load, warm, footprintMB().now).data(using: .utf8)!)
+            FileManager.default.createFile(atPath: out, contents: nil)
+            let handle = FileHandle(forWritingAtPath: out)!
+            var chunkMs: [Double] = []
+            for (n, item) in items.enumerated() {
+                guard let id = item["id"] as? String, let file = item["file"] as? String else { continue }
+                let audio = try samples16k(root.appendingPathComponent(file))
+                try await stream.reset()
+                var tokens: [NemotronStream.Token] = []
+                var steps: [[String: Any]] = []
+                var i = 0
+                while i < audio.count {
+                    let j = min(audio.count, i + feed)
+                    let before = await stream.chunks
+                    let start = ContinuousClock.now
+                    tokens += try await stream.feed(Array(audio[i..<j]))
+                    let ms = start.secondsElapsed * 1000
+                    if await stream.chunks > before { chunkMs.append(ms) }
+                    steps.append(["at": Double(j) / 16_000, "ms": ms, "text": NemotronStream.text(tokens)])
+                    i = j
+                }
+                let start = ContinuousClock.now
+                tokens += try await stream.finish()
+                let finishMs = start.secondsElapsed * 1000
+                let heard = NemotronStream.heard(tokens)
+                let runs: [[String: Any]] = heard.words.map { word in
+                    var d: [String: Any] = ["t": word.text]
+                    if let s = word.start { d["s"] = s }
+                    if let e = word.end { d["e"] = e }
+                    return d
+                }
+                let line: [String: Any] = ["id": id, "audio": Double(audio.count) / 16_000, "steps": steps,
+                                           "finish_ms": finishMs,
+                                           "events": [["text": heard.text, "fin": true, "runs": runs]]]
+                handle.write(try JSONSerialization.data(withJSONObject: line))
+                handle.write("\n".data(using: .utf8)!)
+                FileHandle.standardError.write("[\(n + 1)/\(items.count)] \(id) \(heard.words.count) words\n".data(using: .utf8)!)
+            }
+            try handle.close()
+            let sorted = chunkMs.sorted()
+            if !sorted.isEmpty {
+                let memory = footprintMB()
+                FileHandle.standardError.write(String(format: "stream: %d chunks, p50 %.1f ms, p90 %.1f ms, max %.1f ms; footprint %d MB, peak %d MB\n",
+                                                      sorted.count, sorted[sorted.count / 2], sorted[sorted.count * 9 / 10],
+                                                      sorted[sorted.count - 1], memory.now, memory.peak).data(using: .utf8)!)
+            }
+        } catch {
+            print("stream: \(error)")
             exit(70)
         }
         done.signal()

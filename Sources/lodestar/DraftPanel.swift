@@ -395,7 +395,26 @@ final class DraftPanel {
     /// The mouse did something on the words.
     var onPointer: ((DraftPointerEvent) -> Void)?
 
-    private static let width: CGFloat = 720
+    /// The measure: characters to a line of prose. Typographers put the
+    /// comfortable range at 45 to 75 with 66 at its middle (Bringhurst),
+    /// on screen 55 or so reads with the best comprehension (Dyson and
+    /// Haselgrove), and WCAG's readable-text criterion asks for no more
+    /// than 80. Longer lines make every return sweep a longer saccade and
+    /// a likelier miss of the next line's start.
+    static let measure = 66
+
+    /// Ordinary prose, for the face's average letter: a line of it is
+    /// what the measure counts.
+    private static let measureSample = "The flex container has a gap of twelve but the cards still touch, so something is overriding it, probably the margin reset in globals.css. Check whether the card component sets its own margin and if it does, remove it."
+
+    /// The draft's width: the measure in the face the text is set in, and
+    /// its air. The sans and the mono have different letters, so the same
+    /// count is a different width in each.
+    static func readingWidth(for role: BarTheme.Role) -> CGFloat {
+        let sample = measureSample as NSString
+        let average = sample.size(withAttributes: [.font: role.font]).width / CGFloat(sample.length)
+        return (average * CGFloat(measure) + padX * 2).rounded(.up)
+    }
     /// The draft stands over whatever is at the bottom of the screen,
     /// which is often what the hand wants to read: every point of air
     /// around the words is a point of someone else's window hidden.
@@ -614,7 +633,7 @@ final class DraftPanel {
             longest = max(longest, measured)
         }
         let asked = (longest + Self.padX * 2 + 8).rounded(.up)
-        return min(max(Self.width, asked), screen.width - Self.margin * 2)
+        return min(max(Self.readingWidth(for: DraftView.role(for: style)), asked), screen.width - Self.margin * 2)
     }
 
     /// Where one visual line up or down from character `index` lands, by
@@ -905,7 +924,7 @@ final class DraftPanel {
         if view.expanded != expanded { windowTop = nil }
         expanded = view.expanded
         let screen = ActivePolicy.presentationFrame
-        let width = min(view.width ?? Self.width, screen.width - Self.margin * 2)
+        let width = min(view.width ?? Self.readingWidth(for: view.role), screen.width - Self.margin * 2)
         let textWidth = width - Self.padX * 2
 
         // The text: settled before the cursor, the ghost dimmed at the

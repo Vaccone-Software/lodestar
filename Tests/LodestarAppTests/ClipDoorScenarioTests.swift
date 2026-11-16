@@ -504,11 +504,12 @@ final class ClipDoorPanelTests: XCTestCase {
     func testProseKeepsTheDraftsWidthAndCodeWidensToTheScreen() {
         let panel = DraftPanel()
         let screen = ActivePolicy.presentationFrame
-        XCTAssertEqual(panel.width(for: "short", style: .vim), 720)
-        XCTAssertEqual(panel.width(for: (1...50).map { "line \($0)" }.joined(separator: "\n"), style: .vim), 720)
+        let reading = DraftPanel.readingWidth(for: .draft)
+        XCTAssertEqual(panel.width(for: "short", style: .vim), reading)
+        XCTAssertEqual(panel.width(for: (1...50).map { "line \($0)" }.joined(separator: "\n"), style: .vim), reading)
         let code = String(repeating: "let value = compute(input) ", count: 4)
         let wide = panel.width(for: code, style: .vim)
-        XCTAssertGreaterThan(wide, 720)
+        XCTAssertGreaterThan(wide, reading)
         XCTAssertLessThanOrEqual(wide, screen.width - DraftPanel.margin * 2)
         XCTAssertEqual(panel.width(for: String(repeating: "x", count: 5000), style: .vim), screen.width - DraftPanel.margin * 2,
                        "never past the screen")
@@ -522,7 +523,7 @@ final class ClipDoorPanelTests: XCTestCase {
         panel.show(wide)
         XCTAssertEqual(panel.frame.width, wide.width!, accuracy: 0.5)
         panel.show(view("short"))
-        XCTAssertEqual(panel.frame.width, 720, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.width, DraftPanel.readingWidth(for: .body), accuracy: 0.5)
     }
 
     func testTheRegisterLineNamesTheCardAndDrawsNoMicrophone() {

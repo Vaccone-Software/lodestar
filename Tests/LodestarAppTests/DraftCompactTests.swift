@@ -101,6 +101,23 @@ final class DraftCompactTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(panel.textFrame.minY, panel.keysFrame.maxY)
     }
 
+    /// A line of prose holds the reading measure, about 66 characters, in
+    /// either face: the sans of Standard and the mono of Vim.
+    func testALineOfProseHoldsTheReadingMeasure() {
+        let prose = Array(repeating: "The flex container has a gap of twelve but the cards still touch, so something is overriding it.",
+                          count: 4).joined(separator: " ")
+        for style in [Draft.EditingStyle.standard, .vim] {
+            var shown = view(prose)
+            shown.style = style
+            panel.show(shown)
+            XCTAssertEqual(panel.frame.width, DraftPanel.readingWidth(for: shown.role), accuracy: 0.5)
+            let layout = panel.textView.layoutManager!
+            var range = NSRange()
+            layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: &range)
+            XCTAssertTrue((55...75).contains(range.length), "\(style): \(range.length) characters on the first line")
+        }
+    }
+
     /// The glass stands a group's air off the screen's edge.
     func testTheGlassStandsAGroupOffTheEdge() {
         panel.show(view("hello"))

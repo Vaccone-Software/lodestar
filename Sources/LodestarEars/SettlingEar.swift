@@ -79,9 +79,15 @@ extension EarTier {
         }
     }
 
-    /// Every engine the setup runs, in the order they are fetched: the one
-    /// that hears first.
+    /// Every ear the setup hears again with, in the order they are fetched:
+    /// the one that hears first.
     public var engines: [String] { [engine, backgroundEngine].compactMap { $0 } }
+
+    /// The live recognizer, Nemotron, in place of Apple's: fetched before
+    /// the ears (it is what the words on the draft are), and not part of
+    /// whether the setup is whole, since Apple's recognizer stands in for
+    /// it until it is here. 280 MB in memory, so every setup has it.
+    public var liveEngine: String? { self == .apple ? nil : EarEngines.nemotron }
 
     /// The memory a setup asks of the Mac, in GB.
     public var memoryNeeded: Double {
@@ -110,8 +116,12 @@ extension EarTier {
 
 /// The ears by engine name: their pinned files.
 public enum EarEngines {
+    /// Nemotron Speech Streaming 0.6B, English, 560 ms chunks.
+    public static let nemotron = "nemotron-en-560"
+
     public static func manifest(_ engine: String) -> EarManifest? {
         switch engine {
+        case nemotron: return NemotronStream.manifest
         case ParakeetEar.Variant.v2.name: return ParakeetEar.manifestV2
         case ParakeetEar.Variant.v3.name: return ParakeetEar.manifestV3
         default: return QwenEarFiles.manifest(for: engine)
@@ -120,6 +130,7 @@ public enum EarEngines {
 
     /// How an engine is named where a person reads it.
     public static func displayName(_ engine: String) -> String {
+        if engine == nemotron { return "Nemotron" }
         if engine.hasPrefix("parakeet") { return "Parakeet" }
         if engine == "qwen3-asr-0.6b" { return "Qwen3-ASR 0.6B" }
         if engine.hasPrefix("qwen3-asr") { return "Qwen3-ASR" }
@@ -129,7 +140,8 @@ public enum EarEngines {
     /// Every engine any setup runs.
     public static var all: [String] {
         var seen: [String] = []
-        for engine in EarTier.allCases.flatMap(\.engines) where !seen.contains(engine) { seen.append(engine) }
+        for engine in EarTier.allCases.flatMap({ [$0.liveEngine].compactMap { $0 } + $0.engines })
+            where !seen.contains(engine) { seen.append(engine) }
         return seen
     }
 }

@@ -447,13 +447,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         scroller.latency = { [weak self] surface, seconds in
             self?.observationStore?.latency(surface: surface, seconds: seconds)
         }
-        let draft = DraftController(speech: AnalyzerSpeechSession())
+        let speech = AnalyzerSpeechSession()
+        let draft = DraftController(speech: speech)
         draft.flash = { [weak self] text in self?.hud.flash(text) }
         draft.observations = observationStore
         draft.words = config.draftWords
         draft.codeRepository = { RepoNames.repository(pid: $0.pid, bundleID: $0.bundleID) }
         // The settling ear: chosen by tier, loaded when dictation starts.
         earHost.configure(config.draftModel)
+        // Nemotron hears in place of Apple's recognizer once it is warm.
+        speech.live = { [weak self] in self?.earHost.live }
         draft.earContext = toldWords(config)
         draft.onNamesUsed = { [weak self] terms in self?.recentWords.touch(terms) }
         draft.onListen = { [weak self, weak draft] in

@@ -60,6 +60,9 @@ cp packaging/Listening.aiff packaging/Landed.aiff "$APP/Contents/Resources/"
 cp packaging/cmudict.dict packaging/cmudict-LICENSE "$APP/Contents/Resources/"
 # Who Lodestar is built on, and the licenses that ask to be named.
 cp packaging/Acknowledgements.txt "$APP/Contents/Resources/"
+# The agreement the Nemotron stream's model is used under, which asks that
+# its text go with the model.
+cp packaging/NVIDIA-Open-Model-License.txt "$APP/Contents/Resources/"
 # Which words are everyday ones, most frequent first: the single-token
 # English words of the Qwen tokenizer's vocabulary (Apache 2.0).
 cp packaging/common-words.txt "$APP/Contents/Resources/"

@@ -75,10 +75,12 @@ final class SettingsChoiceTests: XCTestCase {
         }
         // The rows this was found on, by name, so a place that stops drawing
         // its menus fails here rather than passing on nothing.
-        for path in ["health.sex", "health.hand", "health.typing", "lode.trigger", "draft.model"] {
+        for path in ["health.sex", "health.hand", "health.typing", "lode.trigger"] {
             XCTAssertTrue(paths.contains(path), "\(path) was clicked")
         }
-        XCTAssertGreaterThanOrEqual(clicked, 36, "every enabled choice of every menu")
+        // Speak's models are sized by the Mac now, not chosen: no menu.
+        XCTAssertFalse(paths.contains("draft.model"))
+        XCTAssertGreaterThanOrEqual(clicked, 33, "every enabled choice of every menu")
         settings.close()
     }
 

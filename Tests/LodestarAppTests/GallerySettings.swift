@@ -27,9 +27,7 @@ enum GallerySettings {
             state.editorEngines = ["spelling", "minimal", "standard", "full"]
             state.editorEngineLabels = ["Spelling · no download", "Minimal · built into macOS",
                                         "Standard · 2.6 GB download · holds 4 GB", "Full · 11.0 GB download · holds 20 GB"]
-            state.draftModelLabels = ["Apple only", "Standard · Parakeet and Gemma 4 E2B",
-                                      "Full · Qwen3-ASR and Gemma 4 E2B", "Max · needs 64 GB"]
-            state.draftModelsUnavailable = ["max"]
+            state.earStatus = "Parakeet and Qwen3-ASR in use"
             state.editorModelStatus = "Standard is ready"
             state.isDark = Tone.systemDark
             return state

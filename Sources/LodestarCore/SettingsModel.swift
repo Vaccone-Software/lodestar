@@ -287,11 +287,6 @@ public enum SettingsModel {
         /// The health key is gone and sealed files need it: the row that
         /// starts a new record is shown.
         public var healthKeyLost = false
-        /// Each dictation tier as its row lists it, Apple only first: the
-        /// models it runs, or what this Mac lacks for it.
-        public var draftModelLabels = ["Apple only", "Standard", "Full", "Max"]
-        /// The tiers this Mac has too little memory for: listed, greyed.
-        public var draftModelsUnavailable: Set<String> = []
         public var editorModelStatus = ""
         /// Engines this Mac cannot run (too little memory, no Apple
         /// Intelligence): listed, greyed.
@@ -573,14 +568,13 @@ public enum SettingsModel {
         // 4 · Speak: the draft
         let inputOptions = [""] + machine.inputDevices
         let inputLabels = ["System · " + (machine.defaultInput ?? "Default")] + machine.inputDevices
-        var speakModel = Row(title: "Model", path: "draft.model",
-            control: .choice(options: ["", "apple", "standard", "full", "max"],
-                             labels: [Self.automaticModelLabel] + machine.draftModelLabels,
-                             current: config.draftModel),
-            detail: (machine.earStatus.isEmpty ? "" : machine.earStatus + ". ")
-                + "Hears what you said again while you keep talking, writes it better, and takes out the words you take back",
+        // Not a choice: the draft sizes its models by this Mac's memory.
+        // `draft.model` still names one, by hand, for a measurement.
+        let speakModel = Row(title: "Models", path: "draft.model",
+            control: .readout(machine.earStatus.isEmpty ? "Apple's recognizer" : machine.earStatus, sub: nil),
+            detail: "Chosen for this Mac's memory. They hear what you said again while you keep talking, "
+                + "and take out the words you take back",
             isDefault: config.draftModel.isEmpty, group: "Draft")
-        speakModel.disabledChoices = machine.draftModelsUnavailable
         sections.append(Section(name: "Speak", rows: [
             gesture("draft", group: "Draft", detail: "Speak into it and ⏎ pastes where your cursor was"),
             Row(title: "Microphone", path: "draft.input",

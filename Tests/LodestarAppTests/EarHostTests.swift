@@ -122,6 +122,45 @@ final class EarHostTests: XCTestCase {
         XCTAssertFalse(ear.isLoaded)
     }
 
+    // MARK: - The ear behind
+
+    /// The quick ear loads first and the ear behind it after, each heard
+    /// with the moment it is in; the language model waits for both.
+    func testTheEarBehindLoadsAfterTheQuickOne() {
+        let quick = SlowEar()
+        let behind = SlowEar()
+        let loads = Loads()
+        let host = EarHost(clock: clock.clock)
+        host.hasCleanup = { _ in true }
+        host.install(ear: quick, behind: behind, tier: .max,
+                     model: DraftModel(model: .qwen36, loader: { _ in loads.note(); return Quiet() }, clearCache: {}))
+        var told = 0
+        host.loaded = { told += 1 }
+        host.warm()
+        behind.finishLoading()
+        pump(until: { true })
+        XCTAssertFalse(behind.isLoaded, "not before the quick ear")
+        quick.finishLoading()
+        pump(until: { behind.isLoaded && loads.count == 1 })
+        XCTAssertEqual(told, 2, "each ear says when it is in")
+    }
+
+    /// A warning lets the ear behind go with the language model; the quick
+    /// ear, which ⏎ waits for, stays.
+    func testAWarningLetsTheEarBehindGoAndKeepsTheQuickOne() {
+        let quick = SlowEar(loaded: true)
+        let behind = SlowEar(loaded: true)
+        let host = EarHost(clock: clock.clock)
+        host.install(ear: quick, behind: behind, tier: .full)
+        host.warm()
+        host.rest()
+        host.memoryWarning()
+        XCTAssertFalse(behind.isLoaded)
+        XCTAssertTrue(quick.isLoaded)
+        clock.advance(by: 31 * 60)
+        XCTAssertFalse(quick.isLoaded, "and both go after thirty minutes")
+    }
+
     // MARK: - Memory pressure
 
     func testMemoryPressureLetsAGoneRestingEarGoAtOnce() {

@@ -125,14 +125,15 @@ struct EditorManifest: Equatable {
 /// own instance and folder.
 enum ModelID: Hashable {
     case editor(EditorEngine)
-    case ear(EarTier)
+    /// A settling ear, by its engine name (`EarEngines`).
+    case ear(String)
     /// The model dictation asks what was meant.
     case cleanup(CleanupModel)
 
     var name: String {
         switch self {
         case .editor(let engine): return engine.name
-        case .ear(let tier): return tier.name
+        case .ear(let engine): return EarEngines.displayName(engine)
         case .cleanup(let model): return model.name
         }
     }
@@ -140,7 +141,7 @@ enum ModelID: Hashable {
     static func manifest(_ id: ModelID) -> EditorManifest? {
         switch id {
         case .editor(let engine): return EditorManifest.forEngine(engine)
-        case .ear(let tier): return tier.manifest.map(EditorManifest.init)
+        case .ear(let engine): return EarEngines.manifest(engine).map(EditorManifest.init)
         case .cleanup(let model): return model.manifest
         }
     }
@@ -184,7 +185,7 @@ final class EditorDownload {
     /// whole and in place.
     var changed: () -> Void = {}
     var finished: (EditorEngine) -> Void = { _ in }
-    var finishedEar: (EarTier) -> Void = { _ in }
+    var finishedEar: (String) -> Void = { _ in }
     var finishedCleanup: (CleanupModel) -> Void = { _ in }
 
     let root: URL
@@ -362,7 +363,7 @@ final class EditorDownload {
             if state == .ready, let model = self.model {
                 switch model {
                 case .editor(let engine): self.finished(engine)
-                case .ear(let tier): self.finishedEar(tier)
+                case .ear(let engine): self.finishedEar(engine)
                 case .cleanup(let model): self.finishedCleanup(model)
                 }
             }

@@ -436,8 +436,8 @@ extension ConfigFile {
               doc: "How the draft is edited: standard, as in any Mac text field, or vim, the modal editor (esc leaves typing for normal mode).")
         Field("input", \.input, .string(),
               doc: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input.")
-        Field("model", \.model, .string(oneOf: ["", "apple", "standard", "full", "max"]),
-              doc: "The models that hear what you said again and take out the words you take back: apple (Apple's recognizer only), standard (Parakeet and Gemma 4 E2B, 16 GB Macs and up), full (Qwen3-ASR and Gemma 4 E2B, 24 GB and up), max (Qwen3-ASR and Qwen3.6 35B, 64 GB and up). Empty picks the one this Mac suits and fetches it the first time you dictate.")
+        Field("model", \.model, .string(oneOf: ["", "apple", "small", "standard", "full", "max"]),
+              doc: "Leave empty: the draft sizes its models by this Mac's memory and fetches them the first time you dictate. Every setup but apple hears live with Nemotron in place of Apple's recognizer once it is here. A name forces one setup, for measuring: apple (Apple's recognizer only), small (Parakeet), standard (Parakeet, Qwen3-ASR 0.6B behind it and Gemma 4 E2B, 16 GB and up), full (Parakeet, Qwen3-ASR 1.7B and Gemma 4 E2B, 24 GB and up), max (Parakeet, Qwen3-ASR 1.7B and Qwen3.6 35B, 64 GB and up).")
         Field("words", \.words, switches("true to keep this word in the draft's vocabulary."),
               doc: "Word → true. Names and terms speech gets wrong; a settled result that sounds like one is written as it, case and all.")
     }

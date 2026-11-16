@@ -345,6 +345,9 @@ final class AnalyzerSpeechSession: SpeechSession {
     /// The Mac's own microphone, standing in while a headset wakes.
     private let bridge = BridgeMic()
     let held = HeldAudio()
+    /// The live recognizer that hears in place of Apple's, when this Mac
+    /// has it warm (`LiveEar`); Apple's otherwise.
+    var live: () -> LiveEar? = { nil }
 
     var isAvailable: Bool {
         if #available(macOS 26, *) { return SpeechTranscriber.isAvailable }
@@ -371,7 +374,7 @@ final class AnalyzerSpeechSession: SpeechSession {
         bridge.stop()
         if let old = box as? AnalyzerBox { Task { await old.stop() } }
         held.clear()
-        let box = AnalyzerBox(microphone: microphone, bridge: bridge, held: held)
+        let box = AnalyzerBox(microphone: microphone, bridge: bridge, held: held, live: live())
         self.box = box
         Task { await box.listen(input: input,
                                 stillWanted: { [weak self] in (self?.box as AnyObject?) === box },
@@ -1411,6 +1414,9 @@ private actor AnalyzerBox {
     private var analyzer: SpeechAnalyzer?
     private var transcriber: SpeechTranscriber?
     private var continuation: AsyncStream<AnalyzerInput>.Continuation?
+    /// Nemotron's stream: the samples themselves (an `AnalyzerInput` takes
+    /// only the formats Apple's analyzer asks for, and traps on others).
+    private var liveContinuation: AsyncStream<[Float]>.Continuation?
     private var results: Task<Void, Never>?
     private var feed: AudioFeed?
     private var format: AVAudioFormat?
@@ -1420,13 +1426,23 @@ private actor AnalyzerBox {
     private var starting = false
 
     private let held: HeldAudio
+    /// Nemotron, when it hears this session in place of Apple's recognizer,
+    /// and the session's claim on it.
+    private let liveEar: LiveEar?
+    private var liveSession: Int?
 
-    init(microphone: AudioInput, bridge: BridgeMic, held: HeldAudio) {
+    init(microphone: AudioInput, bridge: BridgeMic, held: HeldAudio, live: LiveEar? = nil) {
         self.microphone = microphone
         self.micTicket = microphone.reserveTicket()
         self.bridge = bridge
         self.held = held
+        self.liveEar = live
     }
+
+    /// The format Nemotron hears: 16 kHz mono floats, what the held audio
+    /// keeps too.
+    private static let liveFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000,
+                                                  channels: 1, interleaved: false)
 
     /// A result's words, each with when it was said and how sure the
     /// recognizer was.
@@ -1477,6 +1493,14 @@ private actor AnalyzerBox {
         }
         Log.info("draft", ["speech": "start", "available": SpeechTranscriber.isAvailable,
                            "locale": Locale.current.identifier])
+        // Nemotron hears when it is warm and English is spoken; Apple's
+        // recognizer otherwise, as it always has.
+        let english = Locale.current.language.languageCode == .english
+        if english, let liveEar, let id = await liveEar.begin() {
+            liveSession = id
+            Log.info("draft", ["speech": "live", "recognizer": "nemotron"])
+        }
+        if liveSession == nil {
         guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current) else {
             Log.info("draft", ["speech": "no supported locale"])
             say(.unavailable); return
@@ -1517,6 +1541,7 @@ private actor AnalyzerBox {
                 say(.failed(SpeechState.modelNotInstalled)); return
             }
         }
+        }
 
         // The grant, asked at the moment of use and never before.
         Log.info("draft", ["speech": "asking for the microphone",
@@ -1526,6 +1551,12 @@ private actor AnalyzerBox {
         guard granted else { say(.denied); return }
         guard !stopped else { return }
 
+        if let liveEar, let id = liveSession {
+            await listenLive(liveEar, session: id, input: wanted, stillWanted: stillWanted, say: say,
+                             onLevel: onLevel, onAlive: onAlive, onVolatile: onVolatile, onSettled: onSettled)
+            return
+        }
+        guard let transcriber = self.transcriber else { return }
         let analyzer = SpeechAnalyzer(modules: [transcriber], options: Self.options)
         self.analyzer = analyzer
         var prepared: AVAudioFormat?
@@ -1581,7 +1612,44 @@ private actor AnalyzerBox {
             say(.failed("the recognizer could not start")); return
         }
         guard !stopped else { return }
-        let feed = AudioFeed(outFormat: outFormat, continuation: continuation, held: held,
+        await openMicrophone(outFormat: outFormat, yield: { continuation.yield(AnalyzerInput(buffer: $0)).isDropped },
+                             input: wanted, stillWanted: stillWanted, say: say, onLevel: onLevel, onAlive: onAlive)
+    }
+
+    /// Nemotron hears the session: the same microphone, bridge and held
+    /// audio, the stream read by a loop of its own in place of the analyzer.
+    private func listenLive(_ live: LiveEar, session id: Int, input wanted: String?,
+                            stillWanted: @escaping @MainActor () -> Bool,
+                            say: @escaping (SpeechState) -> Void,
+                            onLevel: @escaping (Float, Double) -> Void,
+                            onAlive: @escaping () -> Void,
+                            onVolatile: @escaping (String) -> Void,
+                            onSettled: @escaping (Heard) -> Void) async {
+        guard let outFormat = Self.liveFormat else { say(.failed("the recognizer has no audio format")); return }
+        self.format = outFormat
+        let (stream, continuation) = AsyncStream<[Float]>.makeStream(
+            bufferingPolicy: .bufferingNewest(AudioFeed.backlogLimit))
+        self.liveContinuation = continuation
+        results = Task {
+            await live.hear(id, from: stream, onVolatile: onVolatile, onSettled: onSettled)
+        }
+        guard !stopped else { return }
+        await openMicrophone(outFormat: outFormat, yield: { buffer in
+            guard let floats = buffer.floatChannelData else { return false }
+            let samples = Array(UnsafeBufferPointer(start: floats[0], count: Int(buffer.frameLength)))
+            return continuation.yield(samples).isDropped
+        }, input: wanted, stillWanted: stillWanted, say: say, onLevel: onLevel, onAlive: onAlive)
+    }
+
+    /// The microphone (and the bridge while a headset wakes) into the
+    /// recognizer's stream and the held audio.
+    private func openMicrophone(outFormat: AVAudioFormat, yield: @escaping (AVAudioPCMBuffer) -> Bool,
+                                input wanted: String?,
+                                stillWanted: @escaping @MainActor () -> Bool,
+                                say: @escaping (SpeechState) -> Void,
+                                onLevel: @escaping (Float, Double) -> Void,
+                                onAlive: @escaping () -> Void) async {
+        let feed = AudioFeed(outFormat: outFormat, yield: yield, held: held,
                              onLevel: onLevel, onAlive: onAlive)
         self.feed = feed
         let gate = Handover(push: { feed.push($0) })
@@ -1797,6 +1865,8 @@ private actor AnalyzerBox {
         }
         continuation?.finish()
         continuation = nil
+        liveContinuation?.finish()
+        liveContinuation = nil
         // Let the last words settle; the probe measured ~100ms. Bounded, so
         // a wedged recognizer can never hold the paste.
         if let analyzer {
@@ -2088,7 +2158,9 @@ final class Handover: @unchecked Sendable {
 // stoic:allow(unchecked-sendable): `alive`, `converter`, `inFormat` and `lastLevelAt` are written only by `push` (and the `meter` it calls), which is reached only through `Handover`, whose lock is held around every push of both microphones' taps, or by `feed(file:)`, which stands in for the taps; `buffers` and `peak` are behind `flow`; every other stored property is a `let`
 private final class AudioFeed: @unchecked Sendable {
     private let outFormat: AVAudioFormat
-    private let continuation: AsyncStream<AnalyzerInput>.Continuation
+    /// Hands a converted buffer to the recognizer's stream; true when the
+    /// stream let one go because the recognizer is that far behind.
+    private let yield: (AVAudioPCMBuffer) -> Bool
     private let onLevel: (Float, Double) -> Void
     /// Fired once, on the first buffer with signal. A device the system
     /// names can deliver nothing but zeros (a dock, a monitor, a radio
@@ -2119,10 +2191,10 @@ private final class AudioFeed: @unchecked Sendable {
 
     private let held: HeldAudio
 
-    init(outFormat: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation, held: HeldAudio,
+    init(outFormat: AVAudioFormat, yield: @escaping (AVAudioPCMBuffer) -> Bool, held: HeldAudio,
          onLevel: @escaping (Float, Double) -> Void, onAlive: @escaping () -> Void) {
         self.outFormat = outFormat
-        self.continuation = continuation
+        self.yield = yield
         self.held = held
         self.onLevel = onLevel
         self.onAlive = onAlive
@@ -2148,7 +2220,7 @@ private final class AudioFeed: @unchecked Sendable {
             return buffer
         }
         if error == nil, out.frameLength > 0 {
-            if case .dropped = continuation.yield(AnalyzerInput(buffer: out)) {
+            if yield(out) {
                 let first = flow.withLock { flow in
                     flow.dropped += 1
                     return flow.dropped == 1
@@ -2198,5 +2270,13 @@ private final class AudioFeed: @unchecked Sendable {
         let level = max(0, min(1, (db + 55) / 45))
         flow.withLock { $0.peak = max($0.peak, rms) }
         DispatchQueue.main.async { self.onLevel(level, Double(db)) }
+    }
+}
+
+extension AsyncStream.Continuation.YieldResult {
+    /// The stream let the oldest element go to take this one.
+    var isDropped: Bool {
+        if case .dropped = self { return true }
+        return false
     }
 }

@@ -2,8 +2,9 @@ import Foundation
 import LodestarCore
 import LodestarEars
 
-/// The draft's settling ear, chosen by tier and kept in memory only while
-/// it is wanted: loaded when dictation starts, let go thirty minutes after
+/// The draft's settling ears, sized by the Mac (`EarTier`), kept in memory
+/// only while wanted: Parakeet in front, which ⏎ waits for, and on a Mac
+/// with room Qwen3-ASR behind it. Loaded when dictation starts, let go thirty minutes after
 /// the draft closes, or at once when macOS says memory is critical. (Measured
 /// on the maker's record: kept five minutes, 62% of drafts found it warm;
 /// kept thirty, 83%. It is 2.5 GB, and the 35B model beside it is not kept
@@ -27,6 +28,12 @@ final class EarHost {
     static let modelIdleSeconds: TimeInterval = 300
 
     private(set) var ear: SettlingEar?
+    /// The ear behind the quick one, when the setup has one.
+    private(set) var backgroundEar: SettlingEar?
+    /// The live recognizer, once its files are here: loaded and warmed at
+    /// launch and kept, so no draft waits for it (`LiveEar`).
+    private(set) var live: LiveEar?
+    private var liveWarm = false
     private(set) var tier: EarTier = .apple
     private var idle: DispatchWorkItem?
     private var modelIdle: DispatchWorkItem?
@@ -37,12 +44,14 @@ final class EarHost {
     /// macOS said memory was short while the ear was in use: it goes the
     /// moment the draft closes, not thirty minutes on.
     private var pressed = false
-    /// The same, for the language model, which goes on a warning too.
+    /// The same, for the language model and the ear behind, which go on a
+    /// warning too.
     private var modelPressed = false
     private var pressure: DispatchSourceMemoryPressure?
     private let clock: Clock
 
-    /// Fetches a chosen tier's model; `ready` runs when it is whole.
+    /// Fetches a setup's ears, one engine at a time; `ready` runs when one
+    /// is whole.
     let download = EditorDownload(root: EarHost.folder)
     var ready: (EarTier) -> Void = { _ in }
     private var named = ""
@@ -79,8 +88,10 @@ final class EarHost {
 
     private func fetchIfMissing() {
         guard suited != .apple else { return }
-        if !Self.hasModel(suited), suited.manifest != nil {
-            download.fetch(.ear(suited))
+        // The live recognizer, then the ear that hears first, then the one
+        // behind it.
+        if let missing = ([suited.liveEngine].compactMap { $0 } + suited.engines).first(where: { !Self.hasEngine($0) }) {
+            if download.model != .ear(missing) { download.fetch(.ear(missing)) }
             return
         }
         // The ear first: it is what hears. Then the model for what was meant.
@@ -105,17 +116,22 @@ final class EarHost {
         }
         pressure.resume()
         self.pressure = pressure
-        download.finishedEar = { [weak self] tier in
+        download.finishedEar = { [weak self] engine in
             guard let self else { return }
-            Log.info("draft", ["ear downloaded": tier.rawValue])
+            Log.info("draft", ["ear downloaded": engine])
             self.configure(self.named)
+            guard engine != EarEngines.nemotron else {
+                // Words on the draft as they are said, from the next draft.
+                self.fetchIfMissing()
+                return
+            }
             // Loaded once now, in the background: Parakeet's first load
             // compiles it for the Neural Engine (about 30 s, cached after),
             // and the first dictation must not be the one that pays.
             self.warm()
             self.rest()
-            self.ready(tier)
-            // The ear is whole: its model for what was meant follows.
+            self.ready(self.tier)
+            // The next ear, or the model for what was meant, follows.
             self.fetchIfMissing()
         }
         cleanupDownload.finishedCleanup = { [weak self] model in
@@ -126,20 +142,25 @@ final class EarHost {
         }
     }
 
-    /// A tier's model folder: its pinned download's, or, for a model put
-    /// there by hand, one named after its engine.
-    static func modelFolder(_ tier: EarTier) -> URL? {
-        if let manifest = tier.manifest {
+    /// An engine's model folder: its pinned download's, or, for a model put
+    /// there by hand, one named after the engine.
+    static func modelFolder(_ engine: String) -> URL {
+        if let manifest = EarEngines.manifest(engine) {
             return folder.appendingPathComponent(EditorManifest(manifest).folder, isDirectory: true)
         }
-        return tier.engine.map { folder.appendingPathComponent($0, isDirectory: true) }
+        return folder.appendingPathComponent(engine, isDirectory: true)
     }
 
-    static func hasModel(_ tier: EarTier) -> Bool {
-        guard let url = modelFolder(tier) else { return false }
-        if let manifest = tier.manifest { return EditorModels.isComplete(url, EditorManifest(manifest)) }
+    static func hasEngine(_ engine: String) -> Bool {
+        let url = modelFolder(engine)
+        if let manifest = EarEngines.manifest(engine) { return EditorModels.isComplete(url, EditorManifest(manifest)) }
         let files = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
         return !files.isEmpty
+    }
+
+    /// Every ear the setup runs is on this Mac.
+    static func hasModel(_ tier: EarTier) -> Bool {
+        tier.engines.allSatisfy(hasEngine)
     }
 
     /// The tier the setting names, resolved for this Mac. A tier named
@@ -153,21 +174,26 @@ final class EarHost {
         // dictates downloads a model. Meanwhile the best one here is used.
         suited = EarTier.resolved(named, memoryGB: EditorEngine.physicalGB, hasModel: { _ in true })
         if !named.isEmpty { fetchIfMissing() }
-        if let fetching = download.model, fetching != .ear(suited) { download.cancel(keepingPartial: true) }
+        if case .ear(let engine)? = download.model, !suited.engines.contains(engine) { download.cancel(keepingPartial: true) }
         if let fetching = cleanupDownload.model, fetching != suited.cleanup.map(ModelID.cleanup) {
             cleanupDownload.cancel(keepingPartial: true)
         }
-        defer { adoptCleanup() }
+        defer { adoptCleanup(); adoptLive() }
         let next = EarTier.resolved(named, memoryGB: EditorEngine.physicalGB, hasModel: Self.hasModel)
         guard next != tier || (ear == nil && next != .apple) else { return }
-        ear?.unload()
-        ear = nil
-        tier = next
-        if let engine = next.engine, let url = Self.modelFolder(next) {
+        // An ear the new setup runs too stays as it is, loaded or not.
+        func make(_ engine: String?, keeping old: SettlingEar?) -> SettlingEar? {
+            guard let engine else { old?.unload(); return nil }
+            if let old, old.name == engine { return old }
+            old?.unload()
             // Qwen3-ASR hears in the models service; Parakeet here.
-            ear = EarFactory.make(engine, folder: url, qwen: { ServiceEar(name: $0, folder: $1) })
+            return EarFactory.make(engine, folder: Self.modelFolder(engine), qwen: { ServiceEar(name: $0, folder: $1) })
         }
-        Log.info("draft", ["ear": next.rawValue, "engine": next.engine ?? "none", "ready": ear != nil])
+        ear = make(next.engine, keeping: ear)
+        backgroundEar = make(next.backgroundEngine, keeping: backgroundEar)
+        tier = next
+        Log.info("draft", ["ear": next.rawValue, "engine": next.engine ?? "none",
+                           "behind": next.backgroundEngine ?? "none", "ready": ear != nil])
         // One model on disk at a time, as the editor keeps it: once the
         // tier this Mac settled on is whole (or needs none), the others'
         // pinned downloads go.
@@ -186,27 +212,53 @@ final class EarHost {
         draftModel = wanted.map { DraftModel(model: $0) }
     }
 
+    /// The live recognizer follows the setup this Mac suits, whether or not
+    /// its ears are here yet: made and warmed once its files are whole, let
+    /// go when the setup has none.
+    private func adoptLive() {
+        guard let engine = suited.liveEngine, Self.hasEngine(engine) else {
+            if let old = live { Task { await old.unload() } }
+            live = nil
+            liveWarm = false
+            return
+        }
+        if live == nil { live = LiveEar(folder: Self.modelFolder(engine)) }
+        prepareLive()
+    }
+
+    /// Load and warm the live recognizer in the background, if it is not.
+    private func prepareLive() {
+        guard let live, !liveWarm else { return }
+        liveWarm = true
+        Task(priority: .utility) { [weak self] in
+            await live.prepare()
+            let warm = await live.isWarm
+            await MainActor.run { [weak self] in if !warm { self?.liveWarm = false } }
+        }
+    }
+
     /// The editor changed what it holds: whose copy is asked may change.
     func editorChanged() {
         adoptCleanup()
     }
 
-    /// Every pinned ear but `keep`, and any half-finished download of one.
-    /// Only Lodestar's own folders: a model put here by hand stays.
+    /// Every pinned ear `keep` does not run, and any half-finished download
+    /// of one. Only Lodestar's own folders: a model put here by hand stays.
     @discardableResult
-    static func removeAll(except keep: EarTier, root: URL = folder) -> [EarTier] {
-        var removed: [EarTier] = []
-        let kept = keep.manifest.map { EditorManifest($0).folder }
-        for tier in EarTier.allCases where tier != keep {
-            // Full and Max hear with the same ear.
-            guard let manifest = tier.manifest.map(EditorManifest.init), manifest.folder != kept else { continue }
+    static func removeAll(except keep: EarTier, root: URL = folder) -> [String] {
+        var removed: [String] = []
+        let kept = Set(([keep.liveEngine].compactMap { $0 } + keep.engines)
+            .compactMap(EarEngines.manifest).map { EditorManifest($0).folder })
+        let known = EarEngines.all + [ParakeetEar.Variant.v3.name]
+        for engine in known {
+            guard let manifest = EarEngines.manifest(engine).map(EditorManifest.init), !kept.contains(manifest.folder) else { continue }
             let model = root.appendingPathComponent(manifest.folder, isDirectory: true)
             let partial = root.appendingPathComponent(".\(manifest.folder).partial", isDirectory: true)
             for url in [model, partial] where FileManager.default.fileExists(atPath: url.path) {
                 Log.attemptUnlessAbsent("draft: could not remove an ear's files", ["name": url.lastPathComponent]) {
                     try FileManager.default.removeItem(at: url)
                 }
-                if url == model { removed.append(tier) }
+                if url == model { removed.append(engine) }
                 Log.info("draft", ["ear removed": url.lastPathComponent])
             }
         }
@@ -218,7 +270,11 @@ final class EarHost {
         if let fetching = download.status ?? cleanupDownload.status { return fetching }
         switch tier {
         case .apple: return named == "apple" ? "" : "Not on this Mac yet"
-        case .standard, .full, .max: return "\(tier.name) in use"
+        case .small, .standard, .full, .max:
+            let live = live != nil ? [EarEngines.nemotron] : []
+            let names = (live + tier.engines).map(EarEngines.displayName)
+            return (names.count > 1 ? names.dropLast().joined(separator: ", ") + " and " + names.last! : names.joined())
+                + " in use"
         }
     }
 
@@ -232,9 +288,14 @@ final class EarHost {
         modelIdle?.cancel()
         inUse = true
         fetchIfMissing()
-        guard let ear, !ear.isLoaded else { loadModels(); return }
+        // Let go under pressure: warm again, for the next draft.
+        prepareLive()
         // A load already on its way starts the models when it is done.
         guard !loading else { return }
+        // The quick ear first, then the one behind it: each starts hearing
+        // the moment it is in.
+        let cold = [ear, backgroundEar].compactMap { $0 }.filter { !$0.isLoaded }
+        guard !cold.isEmpty else { loadModels(); return }
         loading = true
         // An ordinary Task, not a detached one, so the ear's load runs with the
         // ambient context that started it (Stoic's events from it reach the
@@ -243,20 +304,19 @@ final class EarHost {
         // takes its creator's, which is the main thread's, and a model load
         // should not.
         Task(priority: .medium) { [weak self] in
-            let began = ContinuousClock.now
-            let whole: Bool
-            do {
-                try await ear.load()
-                whole = true
-                Log.info("draft", ["ear": ear.name, "loaded ms": Int(began.secondsElapsed * 1000)])
-            } catch {
-                whole = false
-                Log.info("draft", ["ear": ear.name, "load failed": "\(error)"])
+            for ear in cold {
+                let began = ContinuousClock.now
+                do {
+                    try await ear.load()
+                    Log.info("draft", ["ear": ear.name, "loaded ms": Int(began.secondsElapsed * 1000)])
+                    await MainActor.run { [weak self] in self?.loaded() }
+                } catch {
+                    Log.info("draft", ["ear": ear.name, "load failed": "\(error)"])
+                }
             }
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.loading = false
-                if whole { self.loaded() }
                 self.loadModels()
                 // Memory ran short while it loaded and nothing is using it.
                 if self.pressed, !self.inUse { self.letGo() }
@@ -286,7 +346,10 @@ final class EarHost {
         clock.after(Self.modelIdleSeconds, models)
         if modelPressed { letModelGo() }
         if pressed { letGo(); return }
-        let ears = DispatchWorkItem { [weak self] in self?.ear?.unload() }
+        let ears = DispatchWorkItem { [weak self] in
+            self?.ear?.unload()
+            self?.backgroundEar?.unload()
+        }
         idle = ears
         clock.after(Self.idleSeconds, ears)
     }
@@ -305,9 +368,9 @@ final class EarHost {
         }
     }
 
-    /// macOS says memory is short: the draft's own language model goes now,
-    /// not when its idle time is up, or when its draft closes if one is open.
-    /// The ear stays. See `init`.
+    /// macOS says memory is short: the draft's own language model and the
+    /// ear behind go now, not when their idle time is up, or when their
+    /// draft closes if one is open. The quick ear stays. See `init`.
     func memoryWarning() {
         Log.info("draft", ["memory warning": true, "in use": inUse || loading])
         if inUse || loading { modelPressed = true } else { letModelGo() }
@@ -317,6 +380,9 @@ final class EarHost {
     /// was still on its way when this asked, and then it is what lets go.
     private func letModelGo() {
         modelPressed = false
+        // The ear behind goes with it: it is a gigabyte or more, and the
+        // quick ear still hears.
+        if !loading { backgroundEar?.unload() }
         if let model = draftModel { Task { await model.release() } }
     }
 
@@ -325,12 +391,20 @@ final class EarHost {
         idle?.cancel()
         guard !loading else { return }
         ear?.unload()
+        backgroundEar?.unload()
+        // Critical: the live recognizer too. The next draft hears with
+        // Apple's while it warms again.
+        if let live {
+            liveWarm = false
+            Task { await live.unload() }
+        }
     }
 
     #if DEBUG
     /// A stage's ear and model, in place of what a tier's files would make.
-    func install(ear: SettlingEar?, tier: EarTier, model: DraftModel? = nil) {
+    func install(ear: SettlingEar?, behind: SettlingEar? = nil, tier: EarTier, model: DraftModel? = nil) {
         self.ear = ear
+        backgroundEar = behind
         self.tier = tier
         draftModel = model
     }

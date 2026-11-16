@@ -100,7 +100,7 @@ final class EditorDownloadRunTests: XCTestCase {
         let (tiny, other) = (self.tiny, self.other)
         let manifests: (ModelID) -> EditorManifest? = { id in
             switch id {
-            case .editor(.standard), .ear(.standard), .cleanup(.gemma): return tiny
+            case .editor(.standard), .ear("parakeet-v2"), .cleanup(.gemma): return tiny
             case .editor(.full): return other
             default: return nil
             }
@@ -209,7 +209,7 @@ final class EditorDownloadRunTests: XCTestCase {
     func testEachKindOfModelIsToldToItsOwnCallback() async throws {
         try await run { clock in
             for (id, expected) in [(ModelID.editor(.standard), "finished standard"),
-                                   (.ear(.standard), "finishedEar standard"),
+                                   (.ear("parakeet-v2"), "finishedEar parakeet-v2"),
                                    (.cleanup(.gemma), "finishedCleanup gemma")] {
                 try? FileManager.default.removeItem(at: root)
                 let download = download(transport())

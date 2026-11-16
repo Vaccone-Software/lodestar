@@ -447,18 +447,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         scroller.latency = { [weak self] surface, seconds in
             self?.observationStore?.latency(surface: surface, seconds: seconds)
         }
-        let draft = DraftController(speech: AnalyzerSpeechSession())
+        let speech = AnalyzerSpeechSession()
+        let draft = DraftController(speech: speech)
         draft.flash = { [weak self] text in self?.hud.flash(text) }
         draft.observations = observationStore
         draft.words = config.draftWords
         draft.codeRepository = { RepoNames.repository(pid: $0.pid, bundleID: $0.bundleID) }
         // The settling ear: chosen by tier, loaded when dictation starts.
         earHost.configure(config.draftModel)
+        // Nemotron hears in place of Apple's recognizer once it is warm.
+        speech.live = { [weak self] in self?.earHost.live }
         draft.earContext = toldWords(config)
         draft.onNamesUsed = { [weak self] terms in self?.recentWords.touch(terms) }
         draft.onListen = { [weak self, weak draft] in
             guard let self, let draft else { return }
             draft.ear = self.earHost.ear
+            draft.backgroundEar = self.earHost.backgroundEar
             self.refreshToldWords()
             self.earHost.warm()
         }
@@ -483,7 +487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.settings.machineStateChanged()
         }
         earHost.ready = { [weak self] tier in
-            self?.hud.flash("✓ The \(tier.name.lowercased()) dictation model is ready\nIt now hears each phrase twice")
+            self?.hud.flash("✓ Dictation's models are ready\nIt now hears each phrase again")
         }
         draft.editingStyle = config.draftEditingStyle
         draft.inputDevice = config.draftInput.isEmpty ? nil : config.draftInput
@@ -1484,9 +1488,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // privacy service is never asked from here.
             state.inputMonitoring = (self?.reversedWheels.listenGranted ?? self?.health.listenGranted)
                 .map { $0 ? "Granted" : "Not granted" } ?? "unknown"
-            state.draftModelLabels = EarTier.allCases.map { $0.label(memoryGB: EditorEngine.physicalGB) }
-            state.draftModelsUnavailable = Set(EarTier.allCases
-                .filter { EditorEngine.physicalGB < $0.memoryNeeded - 1 }.map(\.rawValue))
             state.editorRegionInferred = EditorRegion.inferred()
             state.unitsInferred = ClipQuantity.System.regional().rawValue
             state.isDark = Tone.systemDark

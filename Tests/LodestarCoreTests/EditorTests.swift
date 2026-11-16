@@ -512,21 +512,24 @@ final class EditorSettingsTests: XCTestCase {
         XCTAssertEqual(model.disabledChoices, ["full"])
     }
 
-    /// Both Model menus lead with a bare Automatic, the one thing to trust.
-    func testBothModelMenusLeadWithABareAutomatic() throws {
+    /// Write's Model menu leads with a bare Automatic, the one thing to
+    /// trust; Speak's models are not a menu at all, only what is in use.
+    func testWritesModelMenuLeadsWithABareAutomaticAndSpeaksIsNoMenu() throws {
         var machine = SettingsModel.MachineState()
         machine.editorEngines = ["spelling", "minimal", "standard", "full"]
         machine.editorEngineLabels = ["Spelling", "Minimal", "Standard", "Full"]
+        machine.earStatus = "Nemotron, Parakeet and Qwen3-ASR in use"
         let rows = SettingsModel.catalog(config: Config(), machine: machine).flatMap(\.rows)
-        for path in ["editor.model", "draft.model"] {
-            let model = try XCTUnwrap(rows.first { $0.path == path })
-            guard case .choice(let options, let labels, _) = model.control else {
-                return XCTFail("\(path) is a choice")
-            }
-            XCTAssertEqual(options.first, "", path)
-            XCTAssertEqual(labels.first, "Automatic", path)
-            XCTAssertEqual(labels.count, options.count, path)
+        let editor = try XCTUnwrap(rows.first { $0.path == "editor.model" })
+        guard case .choice(let options, let labels, _) = editor.control else {
+            return XCTFail("editor.model is a choice")
         }
+        XCTAssertEqual(options.first, "")
+        XCTAssertEqual(labels.first, "Automatic")
+        XCTAssertEqual(labels.count, options.count)
+        let speak = try XCTUnwrap(rows.first { $0.path == "draft.model" })
+        guard case .readout(let text, _) = speak.control else { return XCTFail("draft.model is a readout") }
+        XCTAssertEqual(text, "Nemotron, Parakeet and Qwen3-ASR in use")
     }
 
     func testNothingIsLearnedFromGrammar() {

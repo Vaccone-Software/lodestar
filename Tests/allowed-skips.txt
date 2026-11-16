@@ -20,6 +20,8 @@ any EditorRegionLiveTests.*
 any EditorWatchProbeTests.*
 any IntentPassLiveTests.*
 any MicBridgeLiveTests.*
+any NemotronStreamLiveTests.*
+any LiveEarLiveTests.*
 any QwenEarTests.testTokenizerFromTheFolderMatchesTransformers
 any WindowModelLiveTests.*
 # The render gallery draws every surface to PNGs for a person to look at:

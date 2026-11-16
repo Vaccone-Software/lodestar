@@ -478,9 +478,9 @@ final class ClipDoorPanelTests: XCTestCase {
         let text = (1...200).map { "line \($0)" }.joined(separator: "\n")
         panel.show(view(text))
         let screen = ActivePolicy.presentationFrame
-        XCTAssertGreaterThan(panel.frame.maxY, screen.maxY - Grid.section - 60, "up to the top of the display")
-        XCTAssertLessThanOrEqual(panel.frame.maxY, screen.maxY - Grid.section + 1, "and never past the margin")
-        XCTAssertEqual(panel.frame.minY, screen.minY + Grid.section + ClipboardStrip.doorFloor(in: screen), accuracy: 0.5,
+        XCTAssertGreaterThan(panel.frame.maxY, screen.maxY - DraftPanel.margin - 60, "up to the top of the display")
+        XCTAssertLessThanOrEqual(panel.frame.maxY, screen.maxY - DraftPanel.margin + 1, "and never past the margin")
+        XCTAssertEqual(panel.frame.minY, screen.minY + DraftPanel.margin + ClipboardStrip.doorFloor(in: screen), accuracy: 0.5,
                        "standing above Keep's clips")
     }
 
@@ -498,7 +498,7 @@ final class ClipDoorPanelTests: XCTestCase {
         panel.show(view(text, card: false))
         let screen = ActivePolicy.presentationFrame
         XCTAssertGreaterThan(panel.frame.height, screen.height * 0.4 + 60)
-        XCTAssertEqual(panel.frame.minY, screen.minY + Grid.section, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.minY, screen.minY + DraftPanel.margin, accuracy: 0.5)
     }
 
     func testProseKeepsTheDraftsWidthAndCodeWidensToTheScreen() {
@@ -509,8 +509,8 @@ final class ClipDoorPanelTests: XCTestCase {
         let code = String(repeating: "let value = compute(input) ", count: 4)
         let wide = panel.width(for: code, style: .vim)
         XCTAssertGreaterThan(wide, 720)
-        XCTAssertLessThanOrEqual(wide, screen.width - Grid.section * 2)
-        XCTAssertEqual(panel.width(for: String(repeating: "x", count: 5000), style: .vim), screen.width - Grid.section * 2,
+        XCTAssertLessThanOrEqual(wide, screen.width - DraftPanel.margin * 2)
+        XCTAssertEqual(panel.width(for: String(repeating: "x", count: 5000), style: .vim), screen.width - DraftPanel.margin * 2,
                        "never past the screen")
     }
 

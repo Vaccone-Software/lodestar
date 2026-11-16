@@ -43,20 +43,11 @@ enum CleanupModel: String, CaseIterable {
 }
 
 extension EarTier {
-    /// The row's line for the tier: the models it runs, so the choice says
-    /// what it holds, or the memory this Mac lacks for it.
-    func label(memoryGB: Double) -> String {
-        guard self != .apple else { return name }
-        if memoryGB < memoryNeeded - 1 { return "\(name) · needs \(Int(memoryNeeded)) GB" }
-        let ear = self == .standard ? "Parakeet" : "Qwen3-ASR"
-        return "\(name) · \(ear) and \(cleanup?.name ?? "")"
-    }
-
     /// The model this tier writes what was meant with. Apple only has none:
     /// the settler's cue rule is all it does.
     var cleanup: CleanupModel? {
         switch self {
-        case .apple: return nil
+        case .apple, .small: return nil
         case .standard, .full: return .gemma
         case .max: return .qwen36
         }

@@ -183,6 +183,72 @@ final class SettlingEarScenarioTests: XCTestCase {
         XCTAssertEqual(stage.pasteboard.last, "Rebase local/dev on main.")
     }
 
+    /// A run longer than fifteen seconds begins again: a longer one made
+    /// every hearing slower and worse.
+    func testARunPastFifteenSecondsBeginsAgain() {
+        let ear = FakeEar(answers: ["First part.", "Second part."])
+        let stage = Stage()
+        stage.draft.ear = ear
+        stage.speech.held.append([Float](repeating: 0.01, count: 16_000 * 20), rate: 16_000)
+        stage.lode(".")
+        stage.speech.settle(timed("First part.", 0, 1.5))
+        stage.pump(until: { ear.answered == 1 })
+        stage.speech.settle(timed("Second bart.", 16, 17.5))
+        stage.pump(until: { stage.draft.buffer.text.contains("Second part") })
+        XCTAssertEqual(ear.heard.last.map { $0 < 16_000 * 3 }, true, "only the new run")
+    }
+
+    // MARK: - The ear behind
+
+    /// The slower ear hears the run after the quick one, from the words the
+    /// quick one left, and its words go in where those stand.
+    func testTheEarBehindHearsWhatTheQuickOneLeft() {
+        let quick = FakeEar(answer: "Ask Claude code to fix the panel.")
+        let behind = FakeEar(answer: "Ask Claude Code to fix the panel.")
+        let stage = stageWithAudio(quick)
+        stage.draft.backgroundEar = behind
+        stage.lode(".")
+        stage.speech.settle(timed("Ask clone code to fix the panel.", 0, 2.5))
+        stage.pump(until: { stage.draft.buffer.text == "Ask Claude Code to fix the panel." })
+        XCTAssertEqual(quick.heard.count, 1)
+        XCTAssertEqual(behind.heard.count, 1, "after the quick ear, once")
+    }
+
+    /// ⏎ waits for the quick ear alone: the paste goes with its words while
+    /// the ear behind is still hearing.
+    func testReturnDoesNotWaitForTheEarBehind() {
+        let quick = FakeEar(answer: "Rebase local/dev on main.")
+        let behind = FakeEar(answer: "Rebase local/dev onto main.", delay: 3)
+        let stage = stageWithAudio(quick)
+        stage.draft.backgroundEar = behind
+        stage.lode(".")
+        stage.speech.settle(timed("Rebase local dev on main.", 0, 2))
+        stage.pump(until: { quick.answered == 1 })
+        stage.press("return")
+        stage.pump(until: { !stage.pasteboard.isEmpty })
+        XCTAssertEqual(stage.pasteboard.last, "Rebase local/dev on main.")
+        XCTAssertEqual(behind.answered, 0, "landed before the ear behind answered")
+    }
+
+    /// A new phrase moves the run on: the ear behind's hearing of the run
+    /// before it is not taken, and the run is heard again whole.
+    func testANewPhraseDropsTheEarBehindsOlderHearing() {
+        let quick = FakeEar(answers: ["Open the file and look at the.", "Open the file and look at the function that clothes it."])
+        let behind = FakeEar(answers: ["Open the vile and look at the.", "Open the file and look at the function that closes it."])
+        behind.holdFirst()
+        let stage = stageWithAudio(quick)
+        stage.draft.backgroundEar = behind
+        stage.lode(".")
+        stage.speech.settle(timed("Open the file and look at the.", 0, 2))
+        stage.pump(until: { behind.heard.count == 1 })
+        stage.speech.settle(timed("Function that clothes it.", 3, 5))
+        stage.pump(until: { quick.answered == 2 })
+        behind.release()
+        stage.pump(until: { stage.draft.buffer.text.contains("closes") })
+        XCTAssertEqual(stage.draft.buffer.text, "Open the file and look at the function that closes it.")
+        XCTAssertFalse(stage.draft.buffer.text.contains("vile"), "the older hearing is not taken")
+    }
+
     // MARK: - Catching up
 
     /// Said while the ear was still loading, a run is heard from the held

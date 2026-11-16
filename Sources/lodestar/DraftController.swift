@@ -79,12 +79,17 @@ final class DraftController {
     /// hears the whole thought, not the pieces the live recognizer cut it
     /// into at pauses (measured on the maker's voice: 8.7% error and 2 of
     /// 10 pauses read as sentence ends, against 9.1% and 4 phrase by
-    /// phrase). At most a minute: past that a new run begins. Kept whether
+    /// phrase). At most fifteen seconds: past that a new run begins. A
+    /// longer run made every hearing longer and worse: Qwen3-ASR took 3.3 s
+    /// at the median and 6.6 s at the 90th percentile for a run near a
+    /// minute, against 0.8 s for the newest sentence alone, and erred more
+    /// (7.6% against 5.5%), so ⏎ waited its full second and landed the
+    /// words unheard. Kept whether
     /// or not the ear is loaded, with where the last phrase ends in the
     /// buffer and in the audio, so an ear that finishes loading while the
     /// draft is open can hear the run from the audio the draft holds.
     private var run: (start: Int, time: Double, upper: Int, end: Double, heard: Heard)?
-    static let runSeconds: Double = 60
+    static let runSeconds: Double = 15
     /// Only the newest hearing of the run is taken; an older one finishing
     /// late would put back words a newer one already settled.
     private var earGeneration = 0
@@ -111,6 +116,18 @@ final class DraftController {
     /// How long ⏎ waits for the last phrase to be heard again before it
     /// lands what it has.
     static let earWaitSeconds: TimeInterval = 1.0
+    /// The slower, better ear that hears the run again behind the quick
+    /// one, when this Mac has room for it: Parakeet hears each run in a
+    /// tenth of a second and ⏎ waits for it alone; Qwen3-ASR hears the run
+    /// again from what Parakeet left (about 0.8 s) and its words go in if
+    /// they come before the draft lands. ⏎ never waits for it. Replayed on
+    /// the maker's long dictations: 7.1% error and 97% of names, landing at
+    /// once, against 9.0% and 90% for Parakeet alone.
+    var backgroundEar: SettlingEar?
+    private var backgroundRunning = false
+    private var backgroundNext: EarJob?
+    private var backgroundGeneration = 0
+    private var backgroundPending: Int { (backgroundRunning ? 1 : 0) + (backgroundNext == nil ? 0 : 1) }
     /// The dictation journal, when `draft.journal-days` keeps one.
     var journal: DictationJournal?
     /// Phrases the ear changed this session, for the record.
@@ -549,7 +566,7 @@ final class DraftController {
     /// either is at work. Nil when nothing is being checked, and always
     /// nil on a Mac with neither pass.
     var wetRange: Range<Int>? {
-        guard earPending > 0 || intentInFlight, let last = lastSpoken,
+        guard earPending > 0 || backgroundPending > 0 || intentInFlight, let last = lastSpoken,
               last.range.upperBound <= buffer.count, buffer.slice(last.range) == last.text else { return nil }
         var start = last.range.lowerBound
         if let run, run.start <= start { start = run.start }
@@ -1241,6 +1258,7 @@ final class DraftController {
         settler.reset()
         run = nil
         earNext = nil
+        backgroundNext = nil
         lastSpoken = nil
         handSinceSpeech = false
         resetIntent()
@@ -2111,35 +2129,57 @@ final class DraftController {
         } else {
             run = (landed.range.lowerBound, start, landed.range.upperBound, end, heard)
         }
-        guard let ear, ear.isLoaded else { return }
-        hearRun(with: ear)
+        // The run has grown: what the ear behind is hearing is no longer
+        // the run, and its answer would move the words just landed.
+        backgroundGeneration += 1
+        backgroundNext = nil
+        if let ear, ear.isLoaded { hearRun(with: ear) } else { hearRunBehind() }
     }
 
-    /// The second ear finished loading with the draft open: the run
+    /// An ear finished loading with the draft open: the run
     /// stands as the live recognizer wrote it, and the audio is still
     /// held, so it hears the run now, through the same path and with the
     /// same guards as any phrase. Nothing is heard if the hand has touched
     /// the words since (the run ends with the hand) or the run is gone.
     func earLoaded() {
-        guard isOpen, sessionStarted, let ear, ear.isLoaded, run != nil else { return }
-        hearRun(with: ear)
+        guard isOpen, sessionStarted, run != nil else { return }
+        if let ear, ear.isLoaded {
+            // The quick ear hears it, and the one behind follows it.
+            if earPending == 0 { hearRun(with: ear) }
+        } else {
+            hearRunBehind()
+        }
     }
 
     /// The run so far, heard again from the held audio, off the main thread.
     private func hearRun(with ear: SettlingEar) {
-        guard let run, run.upper <= buffer.count else { return }
-        let range = run.start..<run.upper
-        let whole = (range: range, text: buffer.slice(range))
-        let samples = speech.held.slice(from: max(0, run.time - 0.2), to: run.end + 0.3)
-        // Under half a second is a word or a breath: not worth a second ear.
-        guard samples.count >= 8_000 else { return }
+        guard let job = runJob(for: ear, generation: earGeneration + 1) else { return }
         earGeneration += 1
-        let job = EarJob(ear: ear, samples: samples, context: earContext, apple: run.heard, landed: whole,
-                         session: session, generation: earGeneration)
         // The ear is busy: this one waits, and takes the place of any that
         // was waiting. The one running cannot be recalled, but its answer
         // is stale now and is not taken (the generation moved on).
         if earRunning { earNext = job } else { launch(job) }
+    }
+
+    /// The run as the buffer holds it now, with its audio, for `ear`.
+    private func runJob(for ear: SettlingEar, generation: Int) -> EarJob? {
+        guard let run, run.upper <= buffer.count else { return nil }
+        let range = run.start..<run.upper
+        let whole = (range: range, text: buffer.slice(range))
+        let samples = speech.held.slice(from: max(0, run.time - 0.2), to: run.end + 0.3)
+        // Under half a second is a word or a breath: not worth a second ear.
+        guard samples.count >= 8_000 else { return nil }
+        return EarJob(ear: ear, samples: samples, context: earContext, apple: run.heard, landed: whole,
+                      session: session, generation: generation)
+    }
+
+    /// The run heard again by the ear behind, from the words the quick ear
+    /// left. Not once ⏎ is landing: the draft would be gone before it answers.
+    private func hearRunBehind() {
+        guard !closing, let ear = backgroundEar, ear.isLoaded,
+              let job = runJob(for: ear, generation: backgroundGeneration + 1) else { return }
+        backgroundGeneration += 1
+        if backgroundRunning { backgroundNext = job } else { launchBehind(job) }
     }
 
     private func launch(_ job: EarJob) {
@@ -2154,16 +2194,28 @@ final class DraftController {
             let began = ContinuousClock.now
             let again = try? await job.ear.transcribe(job.samples, context: job.context)
             let seconds = began.secondsElapsed
-            await MainActor.run {
-                self?.earHeard(again, apple: job.apple, landed: job.landed, session: job.session,
-                               generation: job.generation, seconds: seconds)
+            await MainActor.run { [weak self] in
+                self?.earHeard(again, job: job, seconds: seconds)
             }
         }
     }
 
-    private func earHeard(_ again: Heard?, apple: Heard, landed: (range: Range<Int>, text: String),
-                          session mine: Int, generation: Int, seconds: Double) {
+    private func launchBehind(_ job: EarJob) {
+        backgroundRunning = true
+        // Below the quick ear, which ⏎ waits for.
+        Task(priority: .utility) { [weak self] in
+            let began = ContinuousClock.now
+            let again = try? await job.ear.transcribe(job.samples, context: job.context)
+            let seconds = began.secondsElapsed
+            await MainActor.run { [weak self] in
+                self?.heardBehind(again, job: job, seconds: seconds)
+            }
+        }
+    }
+
+    private func earHeard(_ again: Heard?, job: EarJob, seconds: Double) {
         earRunning = false
+        let newest = job.generation == earGeneration
         defer {
             // The newest waiting hearing starts as this one ends, unless
             // the draft it was for has gone.
@@ -2172,6 +2224,8 @@ final class DraftController {
                 if isOpen, next.session == session { launch(next) }
             }
             if earPending == 0 {
+                // The ear behind hears what this one left.
+                if newest, isOpen, job.session == session { hearRunBehind() }
                 // The ear is done: the pass reads its words, and starts
                 // before ⏎'s wait for the ear lets go.
                 startIntentIfReady()
@@ -2182,13 +2236,37 @@ final class DraftController {
                 render()
             }
         }
-        guard session == mine, isOpen, generation == earGeneration, let again, landed.range.upperBound <= buffer.count,
+        guard newest else { return }
+        apply(again, job: job, seconds: seconds)
+    }
+
+    private func heardBehind(_ again: Heard?, job: EarJob, seconds: Double) {
+        backgroundRunning = false
+        defer {
+            if let next = backgroundNext {
+                backgroundNext = nil
+                if isOpen, next.session == session { launchBehind(next) }
+            }
+            if backgroundPending == 0 {
+                startIntentIfReady()
+                render()
+            }
+        }
+        guard job.generation == backgroundGeneration, earPending == 0 else { return }
+        apply(again, job: job, seconds: seconds)
+    }
+
+    /// An ear's hearing of the run, put in place of the words it heard, if
+    /// those words still stand as they were sent.
+    private func apply(_ again: Heard?, job: EarJob, seconds: Double) {
+        let landed = job.landed
+        guard session == job.session, isOpen, let again, landed.range.upperBound <= buffer.count,
               buffer.slice(landed.range) == landed.text else { return }
         let lead = String(landed.text.prefix { $0.isWhitespace })
         let core = String(landed.text.dropFirst(lead.count))
         let before = buffer.slice(max(0, landed.range.lowerBound - 200)..<landed.range.lowerBound) + lead
         let resettled = settler.resettled(again, landed: core, after: before, context: earContext)
-        journal?.earHeard(ear?.name ?? "ear", heard: again.text, stood: core,
+        journal?.earHeard(job.ear.name, heard: again.text, stood: core,
                           placed: resettled == core ? nil : resettled, seconds: seconds, at: clock.now())
         guard let text = resettled, text != core else { return }
         let replacement = lead + text
@@ -2196,13 +2274,17 @@ final class DraftController {
         vim.replaceKeepingCursor(landed.range, with: replacement, buffer: &buffer)
         markRevision(at: landed.range.lowerBound, old: landed.text, new: replacement)
         earChanged += 1
+        let newEnd = landed.range.lowerBound + replacement.count
         if let last = lastSpoken, last.range.upperBound == landed.range.upperBound {
             // The last phrase is now the end of the settled run.
-            let newEnd = landed.range.lowerBound + replacement.count
             lastSpoken = (min(last.range.lowerBound, newEnd)..<newEnd,
                           buffer.slice(min(last.range.lowerBound, newEnd)..<newEnd))
         }
-        Log.info("draft", ["ear": ear?.name ?? "?", "changed": true, "ms": Int(seconds * 1000)])
+        // The run is the words the ear put there now, for the ear behind.
+        if let current = run, current.start == landed.range.lowerBound, current.upper == landed.range.upperBound {
+            run = (current.start, current.time, newEnd, current.end, current.heard)
+        }
+        Log.info("draft", ["ear": job.ear.name, "changed": true, "ms": Int(seconds * 1000)])
         render()
     }
 
@@ -2264,7 +2346,9 @@ final class DraftController {
     /// moving: the ear has finished, no reservation or anchor stands, the
     /// draft is writing, and the speech is English (the rules are).
     private func startIntentIfReady() {
-        guard intentWanted, earPending == 0, let intend, isOpen, settler.removesFillers,
+        // The ear behind is waited for while the draft is open (its words
+        // would refuse the pass's), not once ⏎ is landing it.
+        guard intentWanted, earPending == 0, backgroundPending == 0 || closing, let intend, isOpen, settler.removesFillers,
               mode == .insert, provisional == nil, speechAnchor == nil,
               let last = lastSpoken, last.range.upperBound <= buffer.count, buffer.slice(last.range) == last.text
         else { return }
@@ -2631,6 +2715,7 @@ final class DraftController {
         lastVoiceAt = nil
         session += 1
         earNext = nil
+        backgroundNext = nil
         run = nil
         resetIntent()
         resetPointer()

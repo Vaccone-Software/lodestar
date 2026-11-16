@@ -3,18 +3,20 @@ import XCTest
 @testable import lodestar
 @testable import LodestarEars
 
-/// One dictation model on disk at a time, as the editor keeps its own.
+/// Only the ears the Mac's setup runs stay on disk, as the editor keeps its
+/// own model.
 final class EarPruneTests: XCTestCase {
-    func testOnlyTheKeptTiersDownloadStays() throws {
+    func testOnlyTheKeptSetupsEarsStay() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lodestar-ears-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let fm = FileManager.default
-        func folder(_ tier: EarTier, partial: Bool = false) throws -> URL {
-            let name = EditorManifest(try XCTUnwrap(tier.manifest)).folder
+        func folder(_ engine: String, partial: Bool = false) throws -> URL {
+            let name = EditorManifest(try XCTUnwrap(EarEngines.manifest(engine))).folder
             return root.appendingPathComponent(partial ? ".\(name).partial" : name, isDirectory: true)
         }
-        for url in [try folder(.standard), try folder(.standard, partial: true), try folder(.full)] {
+        let (parakeet, small, large) = ("parakeet-v2", "qwen3-asr-0.6b", "qwen3-asr-1.7b")
+        for url in [try folder(parakeet), try folder(small), try folder(small, partial: true), try folder(large)] {
             try fm.createDirectory(at: url, withIntermediateDirectories: true)
         }
         let byHand = root.appendingPathComponent("my-own-model", isDirectory: true)
@@ -22,10 +24,11 @@ final class EarPruneTests: XCTestCase {
 
         let removed = EarHost.removeAll(except: .full, root: root)
 
-        XCTAssertEqual(removed, [.standard])
-        XCTAssertFalse(fm.fileExists(atPath: try folder(.standard).path))
-        XCTAssertFalse(fm.fileExists(atPath: try folder(.standard, partial: true).path))
-        XCTAssertTrue(fm.fileExists(atPath: try folder(.full).path))
+        XCTAssertEqual(removed, [small])
+        XCTAssertFalse(fm.fileExists(atPath: try folder(small).path))
+        XCTAssertFalse(fm.fileExists(atPath: try folder(small, partial: true).path))
+        XCTAssertTrue(fm.fileExists(atPath: try folder(large).path), "the ear behind stays")
+        XCTAssertTrue(fm.fileExists(atPath: try folder(parakeet).path), "the quick ear stays")
         XCTAssertTrue(fm.fileExists(atPath: byHand.path), "a model put there by hand stays")
     }
 }

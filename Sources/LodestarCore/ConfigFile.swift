@@ -121,7 +121,7 @@ public struct ConfigFile: Sendable, Equatable {
 
     public struct Coach: Sendable, Equatable {
         public var enabled = true
-        public var stand = true
+        public var stand = false
         public var standAfter = 30
     }
 
@@ -418,7 +418,7 @@ extension ConfigFile {
         Field("enabled", \.enabled, .bool,
               doc: "Let Lodestar offer one improvement at a time, in quiet moments, priced in seconds.")
         Field("stand", \.stand, .bool,
-              doc: "After a stretch of work with no break, a cue to walk for two minutes, at the next natural stopping point. Twice at most in a stretch.")
+              doc: "After a stretch of work with no break, a cue to walk for two minutes, at the next natural stopping point. Twice at most in a stretch. Off until you turn it on.")
         Field("stand-after", \.standAfter, .int(.range(15...120)).clampingToRange(),
               doc: "Minutes of unbroken work before the walk is due. The research supports thirty: two minutes of walking every twenty to thirty minutes.",
               unit: "min")

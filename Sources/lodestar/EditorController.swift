@@ -776,23 +776,23 @@ final class EditorController: EditorLens {
         let now = clock.now()
         for ending in endings {
             let kind = ending.kind.rawValue
-            if ending.shown { observations?.edited(action: "stood", kind: kind, app: app, at: now) }
+            if ending.shown { observations?.edited(action: "stood", kind: kind, app: app, sort: ending.sort, at: now) }
             switch ending.outcome {
             case .fixed(let via):
-                observations?.edited(action: "applied", kind: kind, app: app, via: via, stood: ending.stood, at: now)
+                observations?.edited(action: "applied", kind: kind, app: app, via: via, stood: ending.stood, sort: ending.sort, at: now)
             case .answered(let learned, let via):
                 observations?.edited(action: "dismissed", kind: learned ? "name" : "sentence", app: app, via: via,
-                                     mark: kind, stood: ending.stood, at: now)
+                                     mark: kind, stood: ending.stood, sort: ending.sort, at: now)
             case .byHand:
-                observations?.edited(action: "byhand", kind: kind, app: app, stood: ending.stood, at: now)
+                observations?.edited(action: "byhand", kind: kind, app: app, stood: ending.stood, sort: ending.sort, at: now)
             case .edited:
-                observations?.edited(action: "changed", kind: kind, app: app, stood: ending.stood, at: now)
+                observations?.edited(action: "changed", kind: kind, app: app, stood: ending.stood, sort: ending.sort, at: now)
             case .withdrawn:
-                observations?.edited(action: "withdrawn", kind: kind, app: app, stood: ending.stood, at: now)
+                observations?.edited(action: "withdrawn", kind: kind, app: app, stood: ending.stood, sort: ending.sort, at: now)
             case .replaced:
-                observations?.edited(action: "replaced", kind: kind, app: app, stood: ending.stood, at: now)
+                observations?.edited(action: "replaced", kind: kind, app: app, stood: ending.stood, sort: ending.sort, at: now)
             case .away:
-                observations?.edited(action: "away", kind: kind, app: app, stood: ending.stood, at: now)
+                observations?.edited(action: "away", kind: kind, app: app, stood: ending.stood, sort: ending.sort, at: now)
             }
         }
     }

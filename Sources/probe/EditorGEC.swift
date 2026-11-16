@@ -23,10 +23,11 @@ func editorGEC(_ args: inout [String]) {
         return value
     }
     let shots = has("--shots", in: &args)
+    let thinkingOff = has("--thinking-off", in: &args)
     guard let model = option("model"), let out = option("out"), let path = args.first,
           let data = FileManager.default.contents(atPath: path),
           var fixture = try? JSONDecoder().decode(EditorBench.Fixture.self, from: data) else {
-        fail("usage: probe editor gec <fixture.json> --model <dir> --out <marks.jsonl> [--shots] [--instructions file] [--limit N]")
+        fail("usage: probe editor gec <fixture.json> --model <dir> --out <marks.jsonl> [--shots] [--thinking-off] [--instructions file] [--limit N]")
     }
     if let limit = option("limit").flatMap(Int.init) { fixture.cases = Array(fixture.cases.prefix(limit)) }
     let instructions = option("instructions").flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
@@ -42,7 +43,8 @@ func editorGEC(_ args: inout [String]) {
             handle.write("\n".data(using: .utf8)!)
         }
         do {
-            let lm = try await MLXLanguageModels.load(LanguageModelSpec(directory: model, label: "probe"))
+            let lm = try await MLXLanguageModels.load(LanguageModelSpec(directory: model, label: "probe",
+                                                                           context: thinkingOff ? ["enable_thinking": false] : [:]))
             _ = try await lm.rewrite("Warm up.", prompt: prompt)
             var times: [Double] = []
             for (n, item) in cases.enumerated() {

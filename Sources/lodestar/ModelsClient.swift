@@ -105,6 +105,11 @@ final class ModelsClient: Sendable {
             handle: handle, text: sentence, prompt: IntentPass.Prompt(instructions: instructions, examples: [])))
     }
 
+    func score(_ handle: String, _ answers: [String], to text: String, instructions: String) async throws -> [Double] {
+        try await call(ModelsAPI.score, ModelsScore(
+            handle: handle, text: text, answers: answers, prompt: IntentPass.Prompt(instructions: instructions, examples: [])))
+    }
+
     func rewrite(_ handle: String, _ text: String, prompt: IntentPass.Prompt) async throws -> String {
         try await call(ModelsAPI.rewrite, ModelsGenerate(handle: handle, text: text, prompt: prompt))
     }
@@ -282,6 +287,12 @@ final class ServiceLanguageModel: EditorBackend, Sendable {
 
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String {
         try await asked { try await self.client.rewrite(self.handle, text, prompt: prompt) }
+    }
+
+    var scores: Bool { true }
+
+    func likelihoods(of answers: [String], to text: String, instructions: String) async throws -> [Double] {
+        try await asked { try await self.client.score(self.handle, answers, to: text, instructions: instructions) }
     }
 
     func warm(_ prompt: IntentPass.Prompt) async throws {

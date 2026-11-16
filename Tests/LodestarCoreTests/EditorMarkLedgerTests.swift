@@ -231,8 +231,10 @@ final class EditorMarkLedgerTests: XCTestCase {
 
 final class EditorRecordTests: XCTestCase {
     private func event(_ action: String, kind: String? = "spelling", app: String = "slack",
-                       via: String? = nil, seconds: Double? = nil, source: String? = nil, at t: TimeInterval) -> ObservationEvent {
+                       via: String? = nil, seconds: Double? = nil, source: String? = nil, sort: String? = nil,
+                       at t: TimeInterval) -> ObservationEvent {
         var event = ObservationEvent(t: Date(timeIntervalSinceReferenceDate: 800_000_000 + t), kind: .editor)
+        event.change = sort
         event.action = action
         event.rec = kind
         event.app = app
@@ -240,6 +242,35 @@ final class EditorRecordTests: XCTestCase {
         event.row = via
         event.source = source
         return event
+    }
+
+    func testGrammarMarksAreCountedBySortWhereTheRecordSaysIt() {
+        var events: [ObservationEvent] = []
+        var t = 0.0
+        func mark(_ sort: String?, ending: String, kind: String = "grammar") {
+            events.append(event("stood", kind: kind, sort: sort, at: t))
+            events.append(event(ending, kind: kind, seconds: 2, sort: sort, at: t + 1))
+            t += 2
+        }
+        mark("punctuation", ending: "away")
+        mark("punctuation", ending: "away")
+        mark("punctuation", ending: "applied")
+        mark("word", ending: "byhand")
+        mark(nil, ending: "applied")                       // an older build's: no sort
+        mark(nil, ending: "applied", kind: "spelling")
+        events.append(event("stood", kind: "grammar", sort: "capital", at: t))
+        events.append(event("dismissed", kind: "sentence", seconds: 2, source: "grammar", sort: "capital", at: t + 1))
+        let record = EditorRecord(events: events)
+        XCTAssertEqual(record.byGrammarSort["punctuation"]?.shown, 3)
+        XCTAssertEqual(record.byGrammarSort["punctuation"]?.away, 2)
+        XCTAssertEqual(record.byGrammarSort["punctuation"]?.fixed, 1)
+        XCTAssertEqual(record.byGrammarSort["word"]?.byHand, 1)
+        XCTAssertEqual(record.byGrammarSort["capital"]?.kept, 1, "a dismissal counts under the mark's own kind")
+        XCTAssertEqual(record.byKind["grammar"]?.shown, 6, "every grammar mark, sorted or not")
+        XCTAssertEqual(record.byGrammarSort.values.reduce(0) { $0 + $1.shown }, 5)
+        let report = record.report()
+        XCTAssertTrue(report.contains("  grammar by sort, where recorded:"), "\(report)")
+        XCTAssertTrue(report.contains { $0.hasPrefix("    punctuation 3 shown") && $0.contains("left 67%") }, "\(report)")
     }
 
     func testTheOldEraIsKeptApartAndTheNewOneCountsOutcomes() throws {

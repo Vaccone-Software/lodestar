@@ -79,6 +79,14 @@ final class ModelsServiceTests: XCTestCase {
         func warm(_ prompt: IntentPass.Prompt) async throws {
             gauge.note("warm")
         }
+        /// Any fix far likelier than the text as written, as a model finds a
+        /// plain correction (so the editor's gate keeps it); the text itself
+        /// less the instructions' length, proof they crossed.
+        func logLikelihoods(of answers: [String], to text: String, prompt: IntentPass.Prompt) async throws -> [Double] {
+            gauge.note("score")
+            try await behave()
+            return answers.map { $0 == text ? -Double(prompt.instructions.count) : 50 }
+        }
         private func behave() async throws {
             switch mood {
             case .prompt: return
@@ -281,6 +289,11 @@ final class ModelsServiceTests: XCTestCase {
             XCTAssertEqual(rig.gauge.specs.first?.cachesInstructions, false)
             let answer = try await model!.respond(to: "Their going.", instructions: "Correct it.")
             XCTAssertEqual(answer, "They're going. [Corre]")
+            XCTAssertTrue(model!.scores)
+            let weights = try await model!.likelihoods(of: ["Their going.", "They're going."], to: "Their going.",
+                                                       instructions: "Correct it.")
+            XCTAssertEqual(weights, [-11, 50], "every answer weighed, in order, under the instructions")
+            XCTAssertEqual(rig.gauge.count("score"), 1)
             let prompt = IntentPass.Prompt(instructions: "Mean it.", examples: [.init(said: "uh hi", meant: "Hi")])
             try await model!.warm(prompt)
             let meant = try await model!.rewrite("um, hello", prompt: prompt)

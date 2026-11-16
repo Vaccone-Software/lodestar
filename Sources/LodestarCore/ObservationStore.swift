@@ -349,10 +349,13 @@ public final class ObservationStore {
     /// `stood` is how long the mark stood before it ended (rounded to a
     /// tenth), kept on the outcome events; `mark` is the kind of mark an
     /// answer was about, for the outcomes whose `kind` says something else
-    /// (a dismissal's reach). `EventLog` lists what the actions mean.
+    /// (a dismissal's reach); `sort` a grammar mark's sort
+    /// (`EditorIssue.sort`). `EventLog` lists what the actions mean.
     public func edited(action: String, kind: String?, app: String, via: String? = nil,
-                       mark: String? = nil, stood: TimeInterval? = nil, at now: Date = Moment.now.date) {
+                       mark: String? = nil, stood: TimeInterval? = nil, sort: String? = nil,
+                       at now: Date = Moment.now.date) {
         var event = ObservationEvent(t: now, kind: .editor)
+        event.change = sort
         event.action = action
         event.rec = kind
         event.app = app.lowercased()

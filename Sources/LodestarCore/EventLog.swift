@@ -163,7 +163,9 @@ public struct ObservationEvent: Codable, Equatable, Sendable {
         /// written the instant a mark was placed, beside `applied`,
         /// `dismissed` and `undone`: the two eras are never mixed in one
         /// rate (`EditorRecord`). `rec` the kind of mark (spelling |
-        /// grammar), `app` where. Counts, never the words.
+        /// grammar), `app` where, and for a grammar mark `change` its sort
+        /// (punctuation | capital | added | removed | word, from builds
+        /// after 0.55.0). Counts, never the words.
         case editor
     }
 

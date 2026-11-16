@@ -97,6 +97,12 @@ public enum ModelsAPI {
     public static let respond = XPCMethod<ModelsGenerate, String, ModelsFailure>(
         Backend.models.notRepeatable("respond", length: .long), ifStuck: .endService(after: stuckAfter))
 
+    /// How likely the model finds each answer as its reply to the text
+    /// (`EditorConfidence`): read, never generated. Not repeatable, as a
+    /// generation is not: it names a handle only this run holds.
+    public static let score = XPCMethod<ModelsScore, [Double], ModelsFailure>(
+        Backend.models.notRepeatable("score", length: .long), ifStuck: .endService(after: stuckAfter))
+
     /// The text as meant, by the same rule.
     public static let rewrite = XPCMethod<ModelsGenerate, String, ModelsFailure>(
         Backend.models.notRepeatable("rewrite", length: .long), ifStuck: .endService(after: stuckAfter))
@@ -163,6 +169,20 @@ public struct ModelsGenerate: Codable, Sendable {
     public init(handle: String, text: String, prompt: IntentPass.Prompt) {
         self.handle = handle
         self.text = text
+        self.prompt = prompt
+    }
+}
+
+/// Answers to weigh as replies to one text, under a prompt's instructions.
+public struct ModelsScore: Codable, Sendable {
+    public var handle: String
+    public var text: String
+    public var answers: [String]
+    public var prompt: IntentPass.Prompt
+    public init(handle: String, text: String, answers: [String], prompt: IntentPass.Prompt) {
+        self.handle = handle
+        self.text = text
+        self.answers = answers
         self.prompt = prompt
     }
 }
@@ -243,6 +263,14 @@ public protocol ServedLanguageModel: Sendable {
     func respond(to sentence: String, instructions: String) async throws -> String
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String
     func warm(_ prompt: IntentPass.Prompt) async throws
+    /// Each answer's log-likelihood as the model's reply to `text`.
+    func logLikelihoods(of answers: [String], to text: String, prompt: IntentPass.Prompt) async throws -> [Double]
+}
+
+extension ServedLanguageModel {
+    public func logLikelihoods(of answers: [String], to text: String, prompt: IntentPass.Prompt) async throws -> [Double] {
+        throw ModelsFailure.failed("this model does not score")
+    }
 }
 
 /// The ear the service loaded. It takes the MLX lane itself (`QwenEar`).

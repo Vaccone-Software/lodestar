@@ -58,6 +58,8 @@ public struct EditorMarkLedger {
         /// How long the mark stood, up to the moment it ended (for the
         /// hand's own edits, up to the first keystroke in its words).
         public let stood: TimeInterval
+        /// A grammar mark's sort (`EditorIssue.sort`), nil for spelling.
+        public var sort: String? = nil
 
         /// Counted as shown: all but a mark the editor took back itself.
         public var shown: Bool { outcome != .withdrawn }
@@ -267,7 +269,7 @@ public struct EditorMarkLedger {
             stood = max(0, reading - standing[found].born)
             standing.remove(at: found)
         }
-        return Ending(kind: issue.kind, outcome: outcome, stood: stood)
+        return Ending(kind: issue.kind, outcome: outcome, stood: stood, sort: issue.sort)
     }
 
     /// The field was left, or the editor switched off: every mark still
@@ -324,6 +326,7 @@ public struct EditorMarkLedger {
     /// mark that stood under a second was never read.
     private static func ending(_ mark: Standing, _ outcome: Outcome, stood: TimeInterval) -> Ending? {
         guard stood >= Self.stand else { return nil }
-        return Ending(kind: mark.kind, outcome: outcome, stood: stood)
+        return Ending(kind: mark.kind, outcome: outcome, stood: stood,
+                      sort: EditorIssue.sort(kind: mark.kind, original: mark.original, replacement: mark.replacement))
     }
 }

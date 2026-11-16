@@ -99,6 +99,19 @@ final class InstanceProbe {
 
     var isRunning: Bool { process.isRunning }
 
+    /// Has the process ended, as the kernel tells it: gone, or a zombie its
+    /// parent has not reaped yet. `isRunning` turns false only once
+    /// Foundation reaps the child on a queue of its own, which follows the
+    /// exit and can lag it under load (2026-11-16: a child the kernel had
+    /// ended still read as running 200 times in 200), so whether a wait
+    /// ended after the exit is asked of the kernel.
+    var hasExited: Bool {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(process.processIdentifier, PROC_PIDTBSDINFO, 0, &info, size) == size else { return true }
+        return info.pbi_status == UInt32(SZOMB)
+    }
+
     /// A crash: no chance to say anything, nothing released but by the kernel.
     func crash() {
         guard process.isRunning else { return }

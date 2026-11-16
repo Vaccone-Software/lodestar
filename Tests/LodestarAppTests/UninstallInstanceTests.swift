@@ -43,7 +43,7 @@ final class UninstallInstanceTests: XCTestCase {
         UninstallPlan.stopInstance(files)
         XCTAssertNotNil(running.wait(for: "TERMED"), "\(running.lines)")
         XCTAssertTrue(UninstallPlan.awaitInstanceExit(files), "it went")
-        XCTAssertFalse(running.isRunning, "and the wait did not end before it had")
+        XCTAssertTrue(running.hasExited, "and the wait did not end before it had")
         XCTAssertEqual(running.waitForExit(), 0, "it shut down, it was not killed")
         XCTAssertTrue(running.lines.contains("EXITING \(running.pid)"), "\(running.lines)")
     }

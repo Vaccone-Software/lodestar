@@ -509,8 +509,11 @@ final class EditorDownloadRunTests: XCTestCase {
             held.release()
             XCTAssertEqual(download.state, .failed("could not be downloaded (503)"))
             // The wait is over: the run goes on, slowly, and says what it gets.
-            await clock.advance(by: .seconds(300))
+            // A second at a time: one long advance also wakes every chunk the
+            // retried stream sleeps on inside it, when the stream is quick to
+            // start, and the whole file lands before it is asked for again.
             await drive(clock) { held.count >= 3 }
+            XCTAssertFalse(EditorModels.isComplete(finalFolder, tiny), "still on its way when asked again")
             download.fetch(standard)
             XCTAssertEqual(download.state, downloading(), "asked again")
             let logged = seen.log.count

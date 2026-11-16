@@ -114,8 +114,13 @@ final class EditorRecordScenarioTests: XCTestCase {
         rig.type(typo)
         rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
         rig.clock.advance(by: 0.3)
+        // Gone for every read, the pause's own too: it comes due inside
+        // the grace, and a field that still answered it would be found
+        // again, and the grace begun again from there.
+        rig.source.field = nil
         rig.controller.receive(nil)
         rig.clock.advance(by: 1.0)
+        rig.drain()
         rig.controller.receive(nil)
         rig.clock.advance(by: 1.0)
         rig.controller.receive(nil)

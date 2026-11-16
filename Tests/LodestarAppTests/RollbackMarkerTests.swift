@@ -295,13 +295,47 @@ final class RollbackMarkerTests: XCTestCase {
     func testBootsRepeatedBeforeReadySayTheUpdateOnce() async throws {
         try leaveUpdate()
         let said = Said()
+        var last: UpdateController?
         for _ in 0..<3 {
             let controller = instance(said)
             controller.boot()
             await linger(0.5)
-            withExtendedLifetime(controller) {}
+            last = controller
         }
+        // Waited for, then given time to come twice: on a busy machine the
+        // record answers after the boots' half seconds are over, and a fixed
+        // wait heard nothing (2026-11-16, the repro below).
+        let heard = await eventually { !said.voices.isEmpty }
+        XCTAssertTrue(heard)
+        await linger()
         XCTAssertEqual(said.voices, [updatedWords])
+        withExtendedLifetime(last) {}
+    }
+
+    /// The same boots while the record is held for two seconds, as a slow
+    /// store under load holds it: still said, and said once.
+    func testBootsRepeatedWhileTheRecordIsHeldSayTheUpdateOnce() async throws {
+        try leaveUpdate()
+        let store = try await ReleaseRecords.Store.open(at: recordsPath, journalOptions: Journal.Options(crossProcessLock: true))
+        let holder = Holder()
+        holder.store = store
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            try? await holder.store?.close()
+        }
+        let said = Said()
+        var last: UpdateController?
+        for _ in 0..<3 {
+            let controller = instance(said)
+            controller.boot()
+            await linger(0.5)
+            last = controller
+        }
+        let heard = await eventually { !said.voices.isEmpty }
+        XCTAssertTrue(heard)
+        await linger()
+        XCTAssertEqual(said.voices, [updatedWords])
+        withExtendedLifetime(last) {}
     }
 
     /// The v0.32.4 guard: applied, relaunched, and still not that version.

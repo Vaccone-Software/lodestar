@@ -86,8 +86,8 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertGreaterThan(panel.frame.height, folded)
         panel.show(view(long, editor: .normal))
         XCTAssertFalse(panel.expanded, "normal mode alone does not open it")
-        XCTAssertEqual(panel.textFrame.height, foldedText, accuracy: 0.5,
-                       "the same three lines; only the foot returns")
+        XCTAssertEqual(panel.textFrame.height, foldedText, accuracy: 0.5, "the same three lines")
+        XCTAssertEqual(panel.frame.height, folded, accuracy: 0.5, "and the same glass: the foot stands in both modes")
         var typed = view(long)
         typed.micOn = false
         panel.show(typed)
@@ -99,9 +99,9 @@ final class DraftFoldTests: XCTestCase {
         XCTAssertLessThan(panel.frame.height, 160)
     }
 
-    /// The input is named while the microphone is wanted and not yet
-    /// heard, or has news. Once it hears with nothing to say the whole
-    /// foot steps away (DraftCompactTests), and the menu with it.
+    /// The input is named whenever the microphone is on, heard or not:
+    /// it is the one thing about the mic the keys cannot choose, and it
+    /// is read before a word is said.
     func testTheInputIsNamedWhileTheMicIsWanted() {
         var opening = DraftView(buffer: Draft.Buffer(), mode: .insert, speech: .preparing(progress: nil),
                                 destination: ("Ghostty", nil), replacing: false)
@@ -109,7 +109,7 @@ final class DraftFoldTests: XCTestCase {
         panel.show(opening)
         XCTAssertTrue(panel.inputNamed)
         panel.show(view("", ghost: "hello"))
-        XCTAssertFalse(panel.inputNamed, "heard, the foot steps away")
+        XCTAssertTrue(panel.inputNamed, "still named once heard")
         var silent = view("", ghost: "hello")
         silent.silent = true
         panel.show(silent)

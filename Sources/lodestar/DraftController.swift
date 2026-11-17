@@ -114,15 +114,22 @@ final class DraftController {
     /// earlier than where the phrase before ended.
     static let runLeadSeconds: Double = 3.0
 
+    /// Past the phrase before's last word's time, its voice may still be
+    /// sounding: Nemotron times a word by the frame it wrote it at, which
+    /// can come before the word is done. Heard from that time, the run
+    /// took the word's tail for its own and wrote it again ("combination of
+    /// both. Both inner force"). A phrase settles only after a second with
+    /// no new word, so half a second on is clear of both phrases.
+    static let previousTailSeconds: Double = 0.5
+
     /// Where a run whose first word is timed `start` is heard from: three
-    /// seconds before it, not before the end of the phrase before (whose
-    /// words are timed late too, so its voice is over by then), and never
-    /// later than the 0.2 s margin it always had.
+    /// seconds before it, not before half a second after the phrase
+    /// before's last word, and never later than the 0.2 s margin it always
+    /// had.
     static func audioStart(of start: Double, after previous: Double?) -> Double {
         let latest = start - 0.2
         var from = start - runLeadSeconds
-        if let previous, previous < latest { from = max(from, previous) }
-        if let previous, previous >= latest { from = latest }
+        if let previous { from = max(from, previous + previousTailSeconds) }
         return max(0, min(latest, from))
     }
     /// Only the newest hearing of the run is taken; an older one finishing

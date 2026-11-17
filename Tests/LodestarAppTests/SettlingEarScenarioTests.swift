@@ -170,7 +170,7 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.speech.settle(timed("Second bart.", 3, 4.5))
         stage.pump(until: { stage.draft.buffer.text.contains("Second part") })
         XCTAssertEqual(stage.draft.buffer.text, "First part. Second part.")
-        XCTAssertEqual(ear.heard.last, Int((16_000 * (4.8 - 1.5)).rounded()), "only what came after the hand: from where the first phrase ended")
+        XCTAssertEqual(ear.heard.last, Int((16_000 * (4.8 - 2.0)).rounded()), "only what came after the hand: from half a second past the first phrase")
     }
 
     func testReturnWaitsForTheLastPhrase() {
@@ -416,7 +416,8 @@ final class SettlingEarScenarioTests: XCTestCase {
     }
 
     /// Never into the phrase before: a run the hand began, soon after
-    /// another phrase ended, is heard from where that phrase ended.
+    /// another phrase ended, is heard from half a second past that phrase's
+    /// last word, whose voice may sound past its time.
     func testARunIsNotHeardFromInsideThePhraseBefore() {
         let ear = FakeEar(answers: ["First part.", "Second part."])
         let stage = Stage()
@@ -428,7 +429,7 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.press("space")
         stage.speech.settle(timed("Second part", 17.0, 19))
         stage.pump(until: { ear.answered == 2 })
-        XCTAssertEqual(ear.heard.last, Int((16_000 * (19.3 - 16.6)).rounded()), "from 16.6 s, where the first ended")
+        XCTAssertEqual(ear.heard.last, Int((16_000 * (19.3 - 16.8)).rounded()), "from 16.8 s: past the first's tail, 0.2 s before the second")
     }
 
     /// ⏎ on a take the voice ended lands it with its last sentence ended,
@@ -501,5 +502,21 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.pump(until: { stage.draft.buffer.text.hasSuffix("shape.") })
         XCTAssertEqual(stage.draft.buffer.text, "We want a variance in the radii. It holds the shape.")
         XCTAssertEqual(ear.heard.last, Int(16_000 * (21.3 - 15.0)), "from three seconds before its first word")
+    }
+
+    /// The phrase before's last word may still be sounding at its time: a
+    /// run is heard from half a second past it, not from it.
+    func testARunIsNotHeardFromThePhraseBeforesLastWord() {
+        let ear = FakeEar(answers: ["We want both.", "Inner force holds it."])
+        let stage = Stage()
+        stage.draft.ear = ear
+        stage.speech.held.append([Float](repeating: 0.01, count: 16_000 * 30), rate: 16_000)
+        stage.lode(".")
+        stage.speech.settle(timed("we want both", 0, 10))
+        stage.pump(until: { stage.draft.buffer.text.hasSuffix(".") })
+        stage.press("space")
+        stage.speech.settle(timed("inner force holds it", 11.5, 14))
+        stage.pump(until: { ear.answered == 2 })
+        XCTAssertEqual(ear.heard.last, Int((16_000 * (14.3 - 10.5)).rounded()), "from 10.5 s, not 10 s")
     }
 }

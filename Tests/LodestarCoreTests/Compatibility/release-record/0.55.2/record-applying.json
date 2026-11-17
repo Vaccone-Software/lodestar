@@ -1,0 +1,1 @@
+{"created":{"at":"2026-01-01T00:00:00Z","because":"the stable feed offered it","by":{"principal":{"updater":{}}}},"dueAt":"2026-01-02T00:40:00Z","key":"0123456789abcdef0123456789abcdef","lifecycle":"lodestar.release","revision":4,"sequence":3,"since":"2026-01-01T00:40:00Z","state":"applying","updated":"2026-01-01T00:40:00Z","version":1}

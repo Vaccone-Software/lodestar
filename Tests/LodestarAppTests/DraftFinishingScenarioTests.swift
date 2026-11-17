@@ -74,7 +74,7 @@ final class DraftFinishingScenarioTests: XCTestCase {
         XCTAssertTrue(stage.draft.isOpen, "the recognizer is still finishing")
         stage.press("return")
         XCTAssertFalse(stage.draft.isOpen)
-        XCTAssertEqual(stage.pasteboard.last, "send this and these")
+        XCTAssertEqual(stage.pasteboard.last, "send this and these.")
         stage.speech.finish()
         XCTAssertEqual(stage.posted.map(\.key), ["v"], "the late final changes nothing")
     }

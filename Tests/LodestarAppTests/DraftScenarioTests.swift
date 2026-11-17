@@ -115,7 +115,7 @@ final class DraftScenarioTests: XCTestCase {
         stage.speech.settle("First")
         stage.speech.hear("second")
         cmd(stage, "return")
-        XCTAssertEqual(stage.pasteboard, ["First second"], "the last words are not lost to the paste")
+        XCTAssertEqual(stage.pasteboard, ["First second."], "the last words are not lost to the paste")
     }
 
     func testCommandDeleteTakesTheWordsStillBeingHeardWithTheLine() {
@@ -395,7 +395,7 @@ final class DraftScenarioTests: XCTestCase {
         // The user switched apps before ⏎: a paste there, not a replacement.
         stage.actions.focused = (pid: 2, name: "Slack")
         cmd(stage, "return")
-        XCTAssertEqual(stage.pasteboard, ["old new"])
+        XCTAssertEqual(stage.pasteboard, ["old new."])
         XCTAssertEqual(stage.posted.map(\.key), ["v"])
         XCTAssertEqual(stage.lastDraft?.app, "slack")
         XCTAssertEqual(stage.lastDraft?.row, "paste")
@@ -407,7 +407,7 @@ final class DraftScenarioTests: XCTestCase {
         stage.speech.settle("anywhere")
         stage.actions.focused = nil
         cmd(stage, "return")
-        XCTAssertEqual(stage.pasteboard, ["anywhere"])
+        XCTAssertEqual(stage.pasteboard, ["anywhere."])
         XCTAssertTrue(stage.posted.isEmpty, "nothing to paste into")
         XCTAssertEqual(stage.hud.owner, .flash)
         XCTAssertEqual(stage.lastDraft?.action, "copied")
@@ -437,7 +437,7 @@ final class DraftScenarioTests: XCTestCase {
         stage.actions.focused = (pid: 2, name: "Slack")
         cmd(stage, "return")
         XCTAssertEqual(stage.lastDraft?.app, "slack")
-        XCTAssertEqual(stage.pasteboard, ["for slack"])
+        XCTAssertEqual(stage.pasteboard, ["for slack."])
     }
 
     func testAnotherBarBorrowsTheKeysAndTheDraftWaits() {
@@ -878,7 +878,7 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertTrue(stage.posted.isEmpty)
         stage.speech.finish()
         XCTAssertFalse(stage.draft.isOpen)
-        XCTAssertEqual(stage.pasteboard.last, "first sentence. second one")
+        XCTAssertEqual(stage.pasteboard.last, "first sentence. second one.")
         XCTAssertEqual(stage.posted.map(\.key), ["v"])
     }
 
@@ -960,7 +960,7 @@ final class DraftScenarioTests: XCTestCase {
         stage.speech.hear("please")
         stage.speech.settle("please")
         cmd(stage, "return")
-        XCTAssertEqual(stage.pasteboard, ["Ship it as now please"],
+        XCTAssertEqual(stage.pasteboard, ["Ship it as now please."],
                        "a second utterance lands after the typing, in spoken order")
     }
     /// v0.26.7 crashed on every `j`: the layout seam read the
@@ -1034,7 +1034,7 @@ final class DraftScenarioTests: XCTestCase {
         XCTAssertTrue(stage.press("return"), "swallowed meanwhile")
         stage.clock.advance(by: DraftController.landBackstopSeconds)
         XCTAssertFalse(stage.draft.isOpen, "the backstop lands what it has")
-        XCTAssertEqual(stage.pasteboard.last, "send this and this", "the ghost landed as seen")
+        XCTAssertEqual(stage.pasteboard.last, "send this and this.", "the ghost landed as seen")
         XCTAssertEqual(stage.posted.map(\.key), ["v"])
         XCTAssertFalse(stage.press("x"), "keys reach the app again")
         stage.speech.finish()
@@ -1231,7 +1231,7 @@ final class DraftKeysScenarioTests: XCTestCase {
         XCTAssertTrue(stage.draft.keysShown)
         _ = stage.press("return")
         XCTAssertFalse(stage.draft.isOpen)
-        XCTAssertEqual(stage.pasteboard, ["with the keys up"])
+        XCTAssertEqual(stage.pasteboard, ["with the keys up."])
     }
 }
 

@@ -253,6 +253,26 @@ final class DictationTests: XCTestCase {
         XCTAssertEqual(first.text, "Then we ship.")
     }
 
+    // MARK: - The end of a take
+
+    /// A take the voice ended lands with its last sentence ended.
+    func testATakeTheVoiceEndedLandsWithAPeriod() {
+        XCTAssertEqual(Draft.ended("This is worse to interact with", endedBySpeech: true), "This is worse to interact with.")
+        XCTAssertEqual(Draft.ended("Bump it to 0.39.6", endedBySpeech: true), "Bump it to 0.39.6.")
+        XCTAssertEqual(Draft.ended("Ship it  ", endedBySpeech: true), "Ship it.  ", "before any trailing space")
+    }
+
+    /// Punctuation, a bracket or a quote at the end, the hand's last word,
+    /// or no text: as it stands.
+    func testATakeThatEndsOtherwiseLandsAsItStands() {
+        XCTAssertEqual(Draft.ended("Does that make sense?", endedBySpeech: true), "Does that make sense?")
+        XCTAssertEqual(Draft.ended("Ship it.", endedBySpeech: true), "Ship it.")
+        XCTAssertEqual(Draft.ended("see (the logs)", endedBySpeech: true), "see (the logs)")
+        XCTAssertEqual(Draft.ended("call it \"done\"", endedBySpeech: true), "call it \"done\"")
+        XCTAssertEqual(Draft.ended("fix getUser", endedBySpeech: false), "fix getUser")
+        XCTAssertEqual(Draft.ended("", endedBySpeech: true), "")
+    }
+
     // MARK: - The ear's sentence ends
 
     /// The ear heard the run whole; where it ends a sentence the live

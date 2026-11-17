@@ -49,7 +49,7 @@ final class DraftSoundTests: XCTestCase {
         stage.speech.settle("Hello")
         stage.press("return")
         XCTAssertEqual(heard, [])
-        XCTAssertEqual(stage.pasteboard, ["Hello"], "the words still land")
+        XCTAssertEqual(stage.pasteboard, ["Hello."], "the words still land")
     }
 
     func testTheNotesShipWithTheApp() {

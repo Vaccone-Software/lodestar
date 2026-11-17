@@ -70,7 +70,7 @@ final class DraftEndingScenarioTests: XCTestCase {
         landed.press("return")
         XCTAssertFalse(landed.draft.isOpen)
         XCTAssertEqual(kept.pasteboard, ["sent so far and these"])
-        XCTAssertEqual(landed.pasteboard, kept.pasteboard, "⏎ lands the words esc would keep")
+        XCTAssertEqual(landed.pasteboard, ["sent so far and these."], "⏎ lands the words esc would keep, its last sentence ended")
         XCTAssertEqual(landed.speech.openSessions, 0)
     }
 

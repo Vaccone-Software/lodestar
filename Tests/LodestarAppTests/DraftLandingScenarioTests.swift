@@ -44,7 +44,7 @@ final class DraftLandingScenarioTests: XCTestCase {
         stage.speech.hear("and these")
         stage.press("return")
         XCTAssertFalse(stage.draft.isOpen)
-        XCTAssertEqual(stage.pasteboard.last, "sent so far and these")
+        XCTAssertEqual(stage.pasteboard.last, "sent so far and these.")
     }
 
     // MARK: - A dropped final keeps what comes after the edit
@@ -187,9 +187,9 @@ final class DraftLandingScenarioTests: XCTestCase {
         stage.lode(".")
         stage.speech.settle("New words")
         stage.press("return")
-        XCTAssertEqual(stage.pasteboard, ["New words"])
+        XCTAssertEqual(stage.pasteboard, ["New words."])
         stage.speech.finish()
-        XCTAssertEqual(stage.pasteboard, ["New words"], "the newer landing stays the pasteboard")
+        XCTAssertEqual(stage.pasteboard, ["New words."], "the newer landing stays the pasteboard")
     }
 
     func testAQuitDoesNotWaitForTheStop() {
@@ -308,7 +308,7 @@ final class DraftBlindPasteTests: XCTestCase {
         stage.target = .focus(role: "AXList", text: false)
         landed(stage)
         XCTAssertTrue(stage.posted.isEmpty, "no key into the air")
-        XCTAssertEqual(stage.pasteboard.last, "Meet at noon", "the words are on the pasteboard")
+        XCTAssertEqual(stage.pasteboard.last, "Meet at noon.", "the words are on the pasteboard")
         XCTAssertEqual(heard, [.listening], "and Landed does not play")
         XCTAssertEqual(seen.texts, ["⌂ copied, no field there takes a paste"])
         XCTAssertEqual(stage.lastDraft?.action, "copied")
@@ -321,7 +321,7 @@ final class DraftBlindPasteTests: XCTestCase {
         stage.target = .noFocus
         landed(stage)
         XCTAssertTrue(stage.posted.isEmpty)
-        XCTAssertEqual(stage.pasteboard.last, "Meet at noon")
+        XCTAssertEqual(stage.pasteboard.last, "Meet at noon.")
         XCTAssertEqual(heard, [.listening])
         XCTAssertEqual(seen.texts, ["⌂ copied, no field there takes a paste"])
     }
@@ -335,7 +335,7 @@ final class DraftBlindPasteTests: XCTestCase {
         landed(stage)
         XCTAssertEqual(stage.targetAsks, 0)
         XCTAssertTrue(stage.posted.isEmpty)
-        XCTAssertEqual(stage.pasteboard.last, "Meet at noon")
+        XCTAssertEqual(stage.pasteboard.last, "Meet at noon.")
     }
 
     func testAReplaceIntoTheFieldTheWordsCameFromIsNotAsked() {

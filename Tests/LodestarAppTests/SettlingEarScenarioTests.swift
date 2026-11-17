@@ -429,4 +429,27 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.pump(until: { ear.answered == 2 })
         XCTAssertEqual(ear.heard.last, Int((16_000 * (19.3 - 16.6)).rounded()), "from 16.6 s, where the first ended")
     }
+
+    /// ⏎ on a take the voice ended lands it with its last sentence ended,
+    /// whether or not the ear wrote the period; the hand's own ending stands.
+    func testReturnLandsATakeTheVoiceEndedWithAPeriod() {
+        let ear = FakeEar(answer: "but this is noticeably worse to interact with")
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("but this is noticeably worse to interact with", 0, 3))
+        stage.pump(until: { ear.answered == 1 })
+        stage.press("return")
+        stage.pump(until: { !stage.pasteboard.isEmpty })
+        XCTAssertEqual(stage.pasteboard.last, "but this is noticeably worse to interact with.")
+    }
+
+    func testReturnLeavesATakeTheHandEnded() {
+        let stage = Stage()
+        stage.lode(".")
+        stage.speech.settle(timed("Rename it to", 0, 1.5))
+        for key in ["space", "g", "o"] { stage.press(key) }
+        stage.press("return")
+        stage.pump(until: { !stage.pasteboard.isEmpty })
+        XCTAssertEqual(stage.pasteboard.last, "Rename it to go")
+    }
 }

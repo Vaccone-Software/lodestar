@@ -245,7 +245,7 @@ final class DraftPointerScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.ghost, "second one", "a press while closing changes nothing")
         XCTAssertEqual(stage.draft.buffer.cursor, "first sentence.".count)
         stage.speech.finish()
-        XCTAssertEqual(stage.pasteboard.last, "first sentence. second one")
+        XCTAssertEqual(stage.pasteboard.last, "first sentence. second one.")
         XCTAssertEqual(stage.lastDraft?.pointerActs, 0, "and is not counted")
     }
 

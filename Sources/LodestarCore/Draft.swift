@@ -456,6 +456,24 @@ public enum Draft {
         }
     }
 
+    // MARK: - The end of what was said
+
+    /// The text a draft lands, its last sentence ended when the voice
+    /// wrote its end: a take stops where a sentence does, and the ears,
+    /// hearing a run that stops at ⏎, often write no period (Parakeet
+    /// ended 46 of the maker's 60 recordings with one, Nemotron none), so
+    /// the drafts landed open ("…worse to interact with"). Apple's
+    /// recognizer ended every result with one, and every draft before 0.55
+    /// with it. Only after a letter or a digit: a draft that ends in
+    /// punctuation, a bracket or a quote, or that the hand ended, lands
+    /// as it stands.
+    public static func ended(_ text: String, endedBySpeech: Bool) -> String {
+        guard endedBySpeech else { return text }
+        let body = text.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+        guard let last = body.last, last.isLetter || last.isNumber else { return text }
+        return body + "." + text.dropFirst(body.count)
+    }
+
     // MARK: - Joining speech to text
 
     /// What goes between what stands before the cursor and a settled

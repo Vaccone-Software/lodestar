@@ -486,6 +486,17 @@ final class DraftController {
     private var openedAt = Date.distantPast
     private var typedCharacters = 0
     private var spokenWords = 0
+    /// The text as speech last left it, when speech wrote its end: ⏎ ends
+    /// the last sentence only while the draft still stands so (`Draft.ended`).
+    private var spokenText: String?
+
+    /// Speech just wrote up to `upper`: if nothing but space follows, the
+    /// draft's end is the voice's.
+    private func noteSpeech(endingAt upper: Int) {
+        if upper <= buffer.count, buffer.slice(upper..<buffer.count).allSatisfy(\.isWhitespace) {
+            spokenText = buffer.text
+        }
+    }
     /// Health's switch: a spoken draft's voice is measured as it closes
     /// (`VoiceStats`) only while it is on.
     var measuresVoice = false
@@ -737,7 +748,7 @@ final class DraftController {
         listening = false
         provisional = nil
         openedAt = clock.now()
-        typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
+        typedCharacters = 0; spokenWords = 0; spokenText = nil; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0; retries = 0
         resetMicrophoneRecord()
         resetPointer()
@@ -819,7 +830,7 @@ final class DraftController {
         self.standsAbove = standsAbove
         doorWidth = panel.width(for: text, style: sessionStyle)
         openedAt = clock.now()
-        typedCharacters = 0; spokenWords = 0; backspaces = 0; modeSwitches = 0; pointerActs = 0
+        typedCharacters = 0; spokenWords = 0; spokenText = nil; backspaces = 0; modeSwitches = 0; pointerActs = 0
         firstKeyAt = nil; firstWordAt = nil; peakDb = nil; inputsHeard = []; listens = 0
         resetMicrophoneRecord()
         resetPointer()
@@ -1593,6 +1604,7 @@ final class DraftController {
             if mode == .normal { vim.enterNormal(&buffer) }
             provisional = nil
             lastSpoken = (range.lowerBound..<(range.lowerBound + replacement.count), replacement)
+            noteSpeech(endingAt: range.lowerBound + replacement.count)
             handSinceSpeech = false
             if let landed = lastSpoken {
                 rehear(heard, landed: landed)
@@ -1637,6 +1649,7 @@ final class DraftController {
             // The editor hears what speech typed, so `.` can say it again.
             vim.typed(buffer.slice(buffer.cursor - grew..<buffer.cursor))
             lastSpoken = (start..<buffer.cursor, buffer.slice(start..<buffer.cursor))
+            noteSpeech(endingAt: buffer.cursor)
             if anchor == nil, let landed = lastSpoken {
                 rehear(heard, landed: landed)
                 wantIntent(from: landed.range.lowerBound, handActed: handActed)
@@ -2301,7 +2314,9 @@ final class DraftController {
         if lead.isEmpty { lead = Draft.separator(after: buffer.characters[..<landed.range.lowerBound], before: text) }
         let replacement = lead + text
         learnFromTheHand()
+        let spokenEnd = spokenText == buffer.text
         vim.replaceKeepingCursor(landed.range, with: replacement, buffer: &buffer)
+        if spokenEnd { spokenText = buffer.text }
         markRevision(at: landed.range.lowerBound, old: landed.text, new: replacement)
         earChanged += 1
         let newEnd = landed.range.lowerBound + replacement.count
@@ -2504,7 +2519,9 @@ final class DraftController {
         let before = buffer.slice(max(0, sent.range.lowerBound - 200)..<sent.range.lowerBound) + lead
         let replacement = lead + settler.reshaped(meant, like: core, after: before)
         learnFromTheHand()
+        let spokenEnd = spokenText == buffer.text
         vim.replaceKeepingCursor(sent.range, with: replacement, buffer: &buffer)
+        if spokenEnd { spokenText = buffer.text }
         markRevision(at: sent.range.lowerBound, old: sent.text, new: replacement)
         intentChanged += 1
         journal?.intent(sent: core, answer: answer, placed: replacement, refused: nil, seconds: seconds, at: clock.now())
@@ -2554,7 +2571,7 @@ final class DraftController {
     private func land() {
         guard isOpen else { return }
         learnFromTheHand()
-        let text = buffer.text
+        let text = Draft.ended(buffer.text, endedBySpeech: spokenText == buffer.text)
         let destination = frontmost()
         let ending = Draft.ending(
             hasDestination: destination != nil,

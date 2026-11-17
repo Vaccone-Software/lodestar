@@ -82,6 +82,8 @@ final class FakeProofreader: EditorProofreader, @unchecked Sendable {
 
     var asked: [String] { lock.withLock { _asked } }
     var maxConcurrent: Int { lock.withLock { _maxConcurrent } }
+    /// Questions asked and not yet answered.
+    var concurrent: Int { lock.withLock { _concurrent } }
     var released: [String] { lock.withLock { _released } }
     var engines: [EditorEngine] { lock.withLock { _engines } }
     var waitingCount: Int { lock.withLock { waiting.count } }
@@ -194,8 +196,11 @@ final class EditorRig {
         controller.observations = observations
         // A fixed front app, never whichever terminal runs the tests.
         controller.frontmostApp = { (4242, "com.apple.TextEdit", "TextEdit") }
-        controller.flash = { [unowned self] in self.flashes.append($0) }
-        controller.learnName = { [unowned self] in self.names.append($0) }
+        // Weak, not unowned: an answer the rig asked for can land after the
+        // rig is gone (a long field's last sentences, read while the next
+        // test runs), and reading an unowned rig then ends the process.
+        controller.flash = { [weak self] in self?.flashes.append($0) }
+        controller.learnName = { [weak self] in self?.names.append($0) }
         controller.apply(enabled: true, engine: .standard, language: "en_US", vocabulary: [],
                          skipApps: skipApps)
     }

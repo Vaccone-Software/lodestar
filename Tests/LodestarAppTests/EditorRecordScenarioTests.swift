@@ -462,6 +462,32 @@ final class EditorRecordScenarioTests: XCTestCase {
     /// so the caret's own sentence waits.
     private func text(_ count: Int) -> String { sentences.prefix(count).joined(separator: " ") + " And" }
 
+    /// A rig can go while answers it asked for are still coming: a long
+    /// field's sentences were still being read when its test ended, and
+    /// their answers, landing in the next test, told a rig that was gone
+    /// that the model had gone quiet. Read through `unowned`, that ended
+    /// the whole test process (CI, 419188b5, in the test after
+    /// testALongFieldNeverHoldsTheMainThread).
+    func testAnAnswerThatLandsAfterItsRigIsGoneReachesNothing() {
+        var rig: EditorRig? = EditorRig()
+        let reader = rig!.reader
+        let controller = rig!.controller
+        reader.hold()
+        rig!.type(text(3))
+        rig!.settle("the first asked") { reader.waitingCount == 1 }
+        weak var gone = rig
+        rig = nil
+        XCTAssertNil(gone, "the rig is gone with its answers still out")
+        reader.letGo()
+        let deadline = Date().addingTimeInterval(EditorRig.patience)
+        while reader.asked.count < 3 || reader.concurrent > 0, Date() < deadline { Stage.pump() }
+        XCTAssertEqual(reader.asked.count, 3, "all three asked, and none answered")
+        XCTAssertEqual(reader.concurrent, 0, "every question answered")
+        // The answers reach the controller on the main queue.
+        for _ in 0..<50 { Stage.pump() }
+        withExtendedLifetime(controller) {}
+    }
+
     func testTheEditorSaysOnceWhenTheModelStopsAnswering() {
         let rig = EditorRig()
         rig.type(text(2))

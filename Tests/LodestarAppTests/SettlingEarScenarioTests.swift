@@ -370,4 +370,63 @@ final class SettlingEarScenarioTests: XCTestCase {
         XCTAssertTrue(text.contains("Rebase local dev on main."), "what the live recognizer heard")
         XCTAssertTrue(text.contains("\"ear\""), "what the ear heard")
     }
+
+    // MARK: - Nemotron in front
+
+    /// Nemotron writes a sentence's period late, at the head of the next
+    /// phrase. The ear's hearing of that phrase starts at its first word:
+    /// the period stays with the sentence it ends, and the words keep the
+    /// space between them (it read "keyboardhi Maria" at the desk).
+    func testALatePeriodSurvivesTheEarHearingTheNextPhrase() {
+        let ear = FakeEar(answers: ["Check it with a keyboard", "Hi Maria, the receipt is attached."])
+        let stage = Stage()
+        stage.draft.ear = ear
+        stage.speech.held.append([Float](repeating: 0.01, count: 16_000 * 32), rate: 16_000)
+        stage.lode(".")
+        stage.speech.settle(timed("Check it with a keyboard", 0, 10))
+        stage.pump(until: { ear.answered == 1 })
+        // Past fifteen seconds: a run of its own.
+        stage.speech.settle(timed(". Hi Maria, the receipt is attached.", 26, 30))
+        stage.pump(until: { ear.answered == 2 })
+        stage.settle(turns: 20)
+        XCTAssertEqual(stage.draft.buffer.text, "Check it with a keyboard. Hi Maria, the receipt is attached.")
+    }
+
+    /// The ear heard the whole run: its sentence end stands where the live
+    /// words had none.
+    func testTheEarsPeriodLands() {
+        let ear = FakeEar(answer: "There are a lot of issues with it.")
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("There are a lot of issues with it", 0, 3))
+        stage.pump(until: { stage.draft.buffer.text.hasSuffix(".") })
+        XCTAssertEqual(stage.draft.buffer.text, "There are a lot of issues with it.")
+    }
+
+    /// Nemotron times a word after the voice began it: the run is heard
+    /// from a second before its first word's time, so the first word is in
+    /// the audio ("Open draft controller" landed "Draft controller").
+    func testTheRunIsHeardFromASecondBeforeItsFirstWord() {
+        let ear = FakeEar(answer: "Open the draft controller.")
+        let stage = stageWithAudio(ear)
+        stage.lode(".")
+        stage.speech.settle(timed("Open the draft controller", 3, 5))
+        stage.pump(until: { ear.answered == 1 })
+        XCTAssertEqual(ear.heard.first, Int(16_000 * (5.3 - 2.0)), "from 2.0 s to 5.3 s")
+    }
+
+    /// Never into the phrase before: a run that begins soon after another
+    /// phrase ended is heard from where that phrase ended.
+    func testARunIsNotHeardFromInsideThePhraseBefore() {
+        let ear = FakeEar(answers: ["First part.", "Second part."])
+        let stage = Stage()
+        stage.draft.ear = ear
+        stage.speech.held.append([Float](repeating: 0.01, count: 16_000 * 22), rate: 16_000)
+        stage.lode(".")
+        stage.speech.settle(timed("First part", 0, 16.6))
+        stage.pump(until: { ear.answered == 1 })
+        stage.speech.settle(timed("Second part", 17.0, 19))
+        stage.pump(until: { ear.answered == 2 })
+        XCTAssertEqual(ear.heard.last, Int((16_000 * (19.3 - 16.6)).rounded()), "from 16.6 s, where the first ended")
+    }
 }

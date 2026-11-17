@@ -90,6 +90,29 @@ final class DraftController {
     /// draft is open can hear the run from the audio the draft holds.
     private var run: (start: Int, time: Double, upper: Int, end: Double, heard: Heard)?
     static let runSeconds: Double = 15
+    /// Where in the audio the run's hearing begins, and where the phrase
+    /// before the newest one ended (`audioStart`).
+    private var runFrom: Double = 0
+    private var lastPhraseEnd: Double?
+    /// How far before its first word's time a run's audio begins. Nemotron
+    /// times a word by when it wrote it, which is after the voice began it
+    /// (0.42 s on the maker's long takes), so the 0.2 s that served Apple's
+    /// times cut the run's first word off, and the ear's words, without it,
+    /// replaced the live ones: "Open draft controller" landed "Draft
+    /// controller". Never earlier than where the phrase before ended.
+    static let runLeadSeconds: Double = 1.0
+
+    /// Where a run whose first word is timed `start` is heard from: a
+    /// second before it, not before the end of the phrase before (whose
+    /// words are timed late too, so its voice is over by then), and never
+    /// later than the 0.2 s margin it always had.
+    static func audioStart(of start: Double, after previous: Double?) -> Double {
+        let latest = start - 0.2
+        var from = start - runLeadSeconds
+        if let previous, previous < latest { from = max(from, previous) }
+        if let previous, previous >= latest { from = latest }
+        return max(0, min(latest, from))
+    }
     /// Only the newest hearing of the run is taken; an older one finishing
     /// late would put back words a newer one already settled.
     private var earGeneration = 0
@@ -1257,6 +1280,7 @@ final class DraftController {
         if listens == 0 { journal?.begin(app: frontmost()?.name, at: clock.now()) }
         settler.reset()
         run = nil
+        lastPhraseEnd = nil
         earNext = nil
         backgroundNext = nil
         lastSpoken = nil
@@ -2128,7 +2152,9 @@ final class DraftController {
             run = (current.start, current.time, landed.range.upperBound, end, heard)
         } else {
             run = (landed.range.lowerBound, start, landed.range.upperBound, end, heard)
+            runFrom = Self.audioStart(of: start, after: lastPhraseEnd)
         }
+        lastPhraseEnd = end
         // The run has grown: what the ear behind is hearing is no longer
         // the run, and its answer would move the words just landed.
         backgroundGeneration += 1
@@ -2166,7 +2192,7 @@ final class DraftController {
         guard let run, run.upper <= buffer.count else { return nil }
         let range = run.start..<run.upper
         let whole = (range: range, text: buffer.slice(range))
-        let samples = speech.held.slice(from: max(0, run.time - 0.2), to: run.end + 0.3)
+        let samples = speech.held.slice(from: runFrom, to: run.end + 0.3)
         // Under half a second is a word or a breath: not worth a second ear.
         guard samples.count >= 8_000 else { return nil }
         return EarJob(ear: ear, samples: samples, context: earContext, apple: run.heard, landed: whole,
@@ -2262,13 +2288,17 @@ final class DraftController {
         let landed = job.landed
         guard session == job.session, isOpen, let again, landed.range.upperBound <= buffer.count,
               buffer.slice(landed.range) == landed.text else { return }
-        let lead = String(landed.text.prefix { $0.isWhitespace })
+        var lead = String(landed.text.prefix { $0.isWhitespace })
         let core = String(landed.text.dropFirst(lead.count))
         let before = buffer.slice(max(0, landed.range.lowerBound - 200)..<landed.range.lowerBound) + lead
         let resettled = settler.resettled(again, landed: core, after: before, context: earContext)
         journal?.earHeard(job.ear.name, heard: again.text, stood: core,
                           placed: resettled == core ? nil : resettled, seconds: seconds, at: clock.now())
         guard let text = resettled, text != core else { return }
+        // The words before the run end where they did: a run that began at
+        // the text's join (no space of its own) is joined again by the rule,
+        // so a hearing never runs two words together.
+        if lead.isEmpty { lead = Draft.separator(after: buffer.characters[..<landed.range.lowerBound], before: text) }
         let replacement = lead + text
         learnFromTheHand()
         vim.replaceKeepingCursor(landed.range, with: replacement, buffer: &buffer)

@@ -60,7 +60,10 @@ extension Draft {
             public var fillers = 0
             public var corrections = 0
 
-            public enum Before: Equatable { case unchanged, dropPeriod, addPeriod }
+            /// The text before keeps its end, loses a period, or is given a
+            /// mark: a period where an ellipsis stood, or punctuation the
+            /// live recognizer wrote late, at the head of this result.
+            public enum Before: Equatable { case unchanged, dropPeriod, add(Character) }
         }
 
         /// A phrase heard again by a settling ear, ready to stand where
@@ -90,19 +93,29 @@ extension Draft {
             return reshaped(text, like: landed, after: before)
         }
 
-        /// Words that stand where `landed` stood: they end the way the
-        /// landed words end and take their case from the text before, so
-        /// the next result's join reads what it would have.
+        /// Words that stand where `landed` stood, cased for the text before.
+        /// A sentence's end the ear heard stands: it heard the whole run,
+        /// and the live recognizer's ending is the weaker guess (Nemotron
+        /// ended none of the maker's 60 recordings with a period, and found
+        /// a fifth of the sentence breaks in long takes; the ears found
+        /// three quarters). Where the ear wrote no end and the landed words
+        /// had one, the landed end is kept, so a draft never loses a
+        /// period to a hearing again.
         public func reshaped(_ text: String, like landed: String, after before: String) -> String {
             var text = text
             let landedEnd = landed.trimmingCharacters(in: .whitespaces).last
             let ends: Set<Character> = [".", "!", "?"]
-            if let last = text.last, ends.contains(last), !(landedEnd.map { ends.contains($0) } ?? false) {
-                text.removeLast()
-            } else if let landedEnd, ends.contains(landedEnd), let last = text.last, !ends.contains(last) {
+            if let landedEnd, ends.contains(landedEnd), let last = text.last, !ends.contains(last) {
                 text.append(landedEnd)
             }
             return Draft.cased(text, after: before, isOrdinary: isOrdinary)
+        }
+
+        /// The mark a run of leading punctuation stands for: a sentence's
+        /// end over anything else, so ", ." ends the sentence.
+        static func strongest<S: Sequence>(_ marks: S) -> Character? where S.Element == Character {
+            let found = marks.filter { !$0.isWhitespace }
+            return found.last { ".!?".contains($0) } ?? found.last
         }
 
         /// A new session: nothing before.
@@ -126,8 +139,17 @@ extension Draft {
         public mutating func land(_ heard: Heard, after before: String, typedBetween: Bool = false,
                                   canReachBack: Bool = true) -> Landing {
             var landing = Landing(text: "", before: .unchanged)
-            // 1. Names.
             var text = heard.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // 0. Punctuation at the head of a result ends the text before
+            // it: Nemotron writes a sentence's period late, as the first
+            // piece after the pause (". Hi Maria, …"). Landed as the head of
+            // this result, the period was this result's, and a hearing of it
+            // again, which starts at "Hi", took the period away and left the
+            // words with no space between them ("keyboardhi Maria").
+            let head = text.prefix { ".,;:!?".contains($0) || $0.isWhitespace }
+            let lateMark = Self.strongest(head)
+            if !head.isEmpty { text = String(text.dropFirst(head.count)) }
+            // 1. Names.
             if let matcher, !matcher.isEmpty {
                 let tokens: [NameMatcher.Token]
                 if !heard.words.isEmpty,
@@ -163,12 +185,25 @@ extension Draft {
                 return start - end >= Self.pause
             }()
             let tail = String(before.suffix(200))
-            let joined = Seams.join(before: tail, incoming: text, pause: pause, trailedOff: trailedOff,
-                                    typedBetween: typedBetween, isOrdinary: isOrdinary)
             let trimmedTail = tail.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
-            if joined.before != tail {
-                if joined.before.count < trimmedTail.count { landing.before = .dropPeriod; landing.joins += 1 }
-                else if joined.before.count > trimmedTail.count { landing.before = .addPeriod }
+            // The late mark goes on the text before, unless that already
+            // ends in punctuation or there is none; the join then decides
+            // as if the recognizer had written it there.
+            var joinTail = tail
+            if let lateMark, let last = trimmedTail.last, !".,;:!?".contains(last) {
+                joinTail = trimmedTail + String(lateMark)
+            }
+            let joined = Seams.join(before: joinTail, incoming: text, pause: pause, trailedOff: trailedOff,
+                                    typedBetween: typedBetween, isOrdinary: isOrdinary)
+            let endsAs = joined.before.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+            if endsAs.count == trimmedTail.count - 1, trimmedTail.hasPrefix(endsAs) {
+                landing.before = .dropPeriod
+                landing.joins += 1
+            } else if endsAs.count == trimmedTail.count + 1, endsAs.hasPrefix(trimmedTail), let mark = endsAs.last {
+                landing.before = .add(mark)
+            } else if endsAs.count < joinTail.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression).count {
+                // The late period was joined away: nothing changes.
+                landing.joins += 1
             }
             text = joined.incoming
             // 4. Fillers and corrections.
@@ -203,7 +238,7 @@ extension Draft {
                 // a new line keeps its capital.
                 var context = tail
                 if landing.before == .dropPeriod { context = String(trimmedTail.dropLast()) }
-                if landing.before == .addPeriod { context = trimmedTail + "." }
+                if case .add(let mark) = landing.before { context = trimmedTail + String(mark) }
                 text = Draft.cased(text, after: context, isOrdinary: isOrdinary)
             }
             landing.text = text

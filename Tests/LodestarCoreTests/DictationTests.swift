@@ -201,6 +201,77 @@ final class DictationTests: XCTestCase {
         XCTAssertEqual(second.text, "function that closes it.")
     }
 
+    // MARK: - Punctuation the live recognizer wrote late
+
+    private func said(_ text: String, _ start: Double, _ end: Double) -> Heard {
+        Heard(text, words: [Heard.Word(text, start: start, end: end)])
+    }
+
+    /// Nemotron writes a sentence's period after the pause, at the head of
+    /// the next phrase. It ends the sentence before; the phrase is words.
+    func testAPeriodWrittenLateEndsTheSentenceBefore() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let landing = settler.land(said(". Hi Maria, the receipt is attached.", 21, 24), after: "Check it with a keyboard")
+        XCTAssertEqual(landing.before, .add("."))
+        XCTAssertEqual(landing.text, "Hi Maria, the receipt is attached.")
+    }
+
+    /// A late comma is the text before's too, and the word after it keeps
+    /// its lower case.
+    func testACommaWrittenLateGoesOnTheTextBefore() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let landing = settler.land(said(", and then we ship it", 5, 7), after: "We fix the seams")
+        XCTAssertEqual(landing.before, .add(","))
+        XCTAssertEqual(landing.text, "and then we ship it")
+    }
+
+    /// The late period is judged like any other at a pause: after a word a
+    /// sentence cannot end on, it goes, and the next word is lowered.
+    func testALatePeriodAfterAWordThatCannotEndASentenceGoes() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let landing = settler.land(said(". Function that closes it.", 4, 6), after: "Open the file and look at the")
+        XCTAssertEqual(landing.before, .unchanged)
+        XCTAssertEqual(landing.text, "function that closes it.")
+    }
+
+    /// A phrase that is nothing but the late period: the sentence before
+    /// gets it, and nothing lands.
+    func testAPhraseThatIsOnlyALatePeriodEndsTheSentenceBefore() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let landing = settler.land(said(".", 9, 9.1), after: "There are a lot of issues with it")
+        XCTAssertEqual(landing.before, .add("."))
+        XCTAssertEqual(landing.text, "")
+    }
+
+    /// Already ended, or nothing before: no second mark, and none at the start.
+    func testALatePeriodIsNotWrittenTwiceOrAtTheStart() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        XCTAssertEqual(settler.land(said(". Then we ship.", 3, 4), after: "We fix it.").before, .unchanged)
+        settler.reset()
+        let first = settler.land(said(". Then we ship.", 3, 4), after: "")
+        XCTAssertEqual(first.before, .unchanged)
+        XCTAssertEqual(first.text, "Then we ship.")
+    }
+
+    // MARK: - The ear's sentence ends
+
+    /// The ear heard the run whole; where it ends a sentence the live
+    /// recognizer did not, its period stands.
+    func testTheEarsSentenceEndStands() {
+        let settler = Draft.Settler(isOrdinary: ordinary)
+        XCTAssertEqual(settler.resettled(Heard("There are a lot of issues with it."), landed: "There are a lot of issues with it",
+                                         after: "", context: []),
+                       "There are a lot of issues with it.")
+    }
+
+    /// Where the live words ended a sentence and the ear wrote no end, the
+    /// period is kept: a hearing never takes one away.
+    func testAHearingNeverTakesAPeriodAway() {
+        let settler = Draft.Settler(isOrdinary: ordinary)
+        XCTAssertEqual(settler.resettled(Heard("Ship it today"), landed: "Ship it today.", after: "", context: []),
+                       "Ship it today.")
+    }
+
     func testTheSettlerReachesBackForACorrection() {
         var settler = Draft.Settler(isOrdinary: ordinary)
         let first = settler.land(Heard("Send it on Monday."), after: "")

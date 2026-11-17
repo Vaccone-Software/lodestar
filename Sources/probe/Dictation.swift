@@ -157,9 +157,9 @@ private func dictationSettle(_ options: [String: String], raw: Bool) {
             case .dropPeriod:
                 while buffer.last?.isWhitespace == true { buffer.removeLast() }
                 if buffer.last == "." { buffer.removeLast() }
-            case .addPeriod:
+            case .add(let mark):
                 while buffer.last?.isWhitespace == true { buffer.removeLast() }
-                buffer += "."
+                buffer += String(mark)
             case .unchanged: break
             }
             let separator = buffer.isEmpty ? "" : Draft.separator(after: Array(buffer), before: landing.text)
@@ -515,9 +515,9 @@ private func dictationDraft(_ options: [String: String]) {
                 case .dropPeriod:
                     while buffer.last?.isWhitespace == true { buffer.removeLast() }
                     if buffer.last == "." { buffer.removeLast() }
-                case .addPeriod:
+                case .add(let mark):
                     while buffer.last?.isWhitespace == true { buffer.removeLast() }
-                    buffer += "."
+                    buffer += String(mark)
                 case .unchanged: break
                 }
                 if landing.replacesLast { buffer = String(buffer.prefix(lastStart)) }

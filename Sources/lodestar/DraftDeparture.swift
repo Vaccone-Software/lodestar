@@ -15,8 +15,8 @@ extension Draft.Buffer {
             guard characters[end - 1] == "." else { return 0 }
             replace((end - 1)..<end, with: "")
             return -1
-        case .addPeriod:
-            replace(end..<end, with: ".")
+        case .add(let mark):
+            replace(end..<end, with: String(mark))
             return 1
         case .unchanged:
             return 0

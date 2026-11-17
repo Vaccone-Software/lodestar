@@ -422,12 +422,12 @@ final class DraftPanel {
     private static let padX = Grid.section
     /// The foot, under the text: where the words land, and the mic. As
     /// tall as its tallest control and a hairline of air either side.
+    /// Always there, in every mode: the draft looks the same whether it
+    /// is hearing or not, and where ⏎ lands and which mic is listening
+    /// are read before a word is said, not after.
     private static let footHeight: CGFloat = 32
     /// The air over the text, under the light.
     private static let padTop = Grid.part
-    /// The air under the text when the foot has stepped away: the same
-    /// as over it.
-    private static let padBottom = Grid.part
     /// Air between the text and the keys: the pill's own inset, so a
     /// draft holding its keys is spaced like a bar holding its keys. The
     /// foot's own air is the air under them.
@@ -1021,14 +1021,7 @@ final class DraftPanel {
         // height and scrolls past it — one rule for every door. A card
         // opened to be read wants all of itself on screen. Folded, it
         // holds three whole lines, so the screen behind stays in view.
-        // The foot steps away while the voice is being heard and it has
-        // nothing to say: the light is the whole message then, and the
-        // foot is a band of someone else's screen covered for nothing.
-        // It returns the moment it has news, a key is shown, or the mic
-        // stops hearing.
-        let footless = Self.footless(view, keysShown: keysShown)
-        let footBand = footless ? Self.padBottom : Self.footHeight
-        let chrome = Self.padTop + footBand + keysBand
+        let chrome = Self.padTop + Self.footHeight + keysBand
         let maxTextHeight = max(lineHeight,
                                 screen.height - view.standsAbove - Self.margin * 2 - chrome)
 
@@ -1231,13 +1224,7 @@ final class DraftPanel {
         placeText(registerNote, x: x, width: max(0, min(registerNote.frame.width, trailing - x)))
 
         // The text.
-        for view in [registerIcon, registerName] { view.isHidden = footless }
-        if footless {
-            registerNote.isHidden = true
-            inputButton.isHidden = true
-            inputMenu.hide()
-        }
-        scroll.frame = NSRect(x: Self.padX, y: footBand + keysBand,
+        scroll.frame = NSRect(x: Self.padX, y: Self.footHeight + keysBand,
                               width: textWidth, height: textHeight)
         textMargin.frame = NSRect(x: 0, y: scroll.frame.minY,
                               width: root.bounds.width, height: max(0, root.bounds.height - scroll.frame.minY))
@@ -1394,13 +1381,6 @@ final class DraftPanel {
         return false
     }
 
-    /// Whether the foot steps away: the microphone is hearing, nothing
-    /// is wrong, nothing is replaced, and no card, keys or menu are up.
-    static func footless(_ view: DraftView, keysShown: Bool) -> Bool {
-        guard view.card == nil, !keysShown, !view.finishing, micWanted(view),
-              case .listening = view.speech else { return false }
-        return note(for: view).isEmpty
-    }
 
     static func note(for view: DraftView) -> String {
         // The draft is waiting to land and is taking no keys: that is the

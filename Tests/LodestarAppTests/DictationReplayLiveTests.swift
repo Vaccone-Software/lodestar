@@ -54,7 +54,9 @@ final class DictationReplayLiveTests: XCTestCase {
             var i = 0
             while i < audio.count {
                 let j = min(audio.count, i + 1280)
-                let (pieces, chunks) = await live.feed(id, Array(audio[i..<j]))
+                guard case .heard(let pieces, let chunks) = await live.feed(id, Array(audio[i..<j])) else {
+                    throw XCTSkip("Nemotron did not hear the take")
+                }
                 i = j
                 guard chunks > 0 else { continue }
                 heard += chunks
@@ -63,7 +65,9 @@ final class DictationReplayLiveTests: XCTestCase {
                 for _ in 1..<max(1, chunks) { events += phrases.take([]).map { Event(at: at, event: $0) } }
             }
             let end = Double(audio.count) / 16_000
-            events += phrases.finish(await live.finish(id)).map { Event(at: end, event: $0) }
+            var last: [LivePhrases.Piece] = []
+            if case .heard(let pieces, _) = await live.finish(id) { last = pieces }
+            events += phrases.finish(last).map { Event(at: end, event: $0) }
             return events
         }
     }

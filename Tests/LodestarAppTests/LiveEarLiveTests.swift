@@ -81,7 +81,7 @@ final class LiveEarLiveTests: XCTestCase {
         let newer = try XCTUnwrap(replaced)
         XCTAssertNotEqual(newer, session)
         let stale = await live.feed(session, Array(audio.prefix(16_000)))
-        XCTAssertEqual(stale.chunks, 0)
+        guard case .notCurrent = stale else { return XCTFail("the replaced session's audio is refused, not heard: \(stale)") }
         await live.unload()
     }
 }

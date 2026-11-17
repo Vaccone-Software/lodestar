@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+import StoicTesting
 @testable import lodestar
 @testable import LodestarCore
 
@@ -913,15 +914,22 @@ final class EditorModelTests: XCTestCase {
         XCTAssertEqual(ledger.loads.count, 2, "the next sentence loads it again")
     }
 
+    /// The idle wait is on the ambient clock, so the time between uses is
+    /// virtual here: an answer that takes 0.2 s, as one does on a busy
+    /// machine, used to put a real 0.35 s between uses and let the model go.
     func testUseKeepsTheModelLoaded() async throws {
-        let (model, ledger) = model(idle: 0.3)
-        for _ in 0..<4 {
-            _ = await model.correct("Their going.")
-            try await Task.sleep(for: .seconds(0.15))
+        let clock = TestClock()
+        await withTestAmbient(clock: clock) {
+            let (model, ledger) = model(idle: 0.3, delay: 0.2)
+            for _ in 0..<4 {
+                _ = await model.correct("Their going.")
+                await clock.waitForSleepers()
+                await clock.advance(by: .milliseconds(150))
+            }
+            let state = await model.state
+            XCTAssertEqual(state, .ready, "0.6 s of use, never 0.3 s idle")
+            XCTAssertEqual(ledger.loads.count, 1)
         }
-        let state = await model.state
-        XCTAssertEqual(state, .ready)
-        XCTAssertEqual(ledger.loads.count, 1)
     }
 
     func testAnEngineChangeLetsTheOldModelGo() async {

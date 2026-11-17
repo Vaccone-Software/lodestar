@@ -653,6 +653,42 @@ final class EditorControllerTests: XCTestCase {
         }
     }
 
+    /// Work on the editor's queue that began before an Ignore and lands
+    /// after it was measured on the marks as they stood: a read of the
+    /// issues, made before the keep was known, and places found for the
+    /// marks then. Either one put the ignored mark back until the next read
+    /// (CI saw it as the learning test's "kept in its sentence").
+    func testAnIgnoredMarkIsNotBroughtBackByAReadThatBeganBeforeIt() throws {
+        let rig = EditorRig()
+        rig.type("We need to recieve them.")
+        rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
+        let mark = try XCTUnwrap(rig.controller.lensMarks.first)
+        for _ in 0..<3 { rig.drain() }   // the first read and its places done
+        let held = DispatchSemaphore(value: 0)
+        rig.queue.async { held.wait() }
+        rig.type("We need to recieve them.", caret: 3)   // the caret moved: the issues are read again
+        rig.controller.ignore(mark)
+        held.signal()
+        for _ in 0..<3 { rig.drain() }
+        XCTAssertTrue(rig.controller.lensMarks.isEmpty, "\(rig.controller.lensMarks.map(\.issue))")
+    }
+
+    func testAnIgnoredMarkIsNotBroughtBackByPlacesFoundBeforeIt() throws {
+        let rig = EditorRig()
+        rig.type("We need to recieve them.")
+        rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
+        let mark = try XCTUnwrap(rig.controller.lensMarks.first)
+        for _ in 0..<3 { rig.drain() }   // the first read and its places done
+        rig.clock.advance(by: 0.6)
+        let held = DispatchSemaphore(value: 0)
+        rig.queue.async { held.wait() }
+        rig.beat()   // nothing typed, half a second on: the marks are placed again
+        rig.controller.ignore(mark)
+        held.signal()
+        for _ in 0..<3 { rig.drain() }
+        XCTAssertTrue(rig.controller.lensMarks.isEmpty, "\(rig.controller.lensMarks.map(\.issue))")
+    }
+
     /// A mark is a line in the record when it ends, not when it is placed:
     /// standing through any number of beats writes nothing, and leaving
     /// the field writes it once.

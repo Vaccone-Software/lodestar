@@ -146,6 +146,10 @@ final class EditorController: EditorLens {
     /// `field` holds is no longer its text, and marks are not worked out on
     /// it until a read says what the text is now.
     private var editedSinceRead = false
+    /// Ignores and Learns so far. One takes its mark away here at once and
+    /// tells the session on its queue, where a read of the issues may have
+    /// begun before it: such a read is dropped and made again.
+    private var settles = 0
     private var silentSince: Date?
     /// Sentences the model has left unanswered in a row, and whether the
     /// hand has been told about this run of them.
@@ -603,15 +607,22 @@ final class EditorController: EditorLens {
         // the rules are all of it, and the sentences wait unasked until the
         // model is here.
         let modelReady = modelReadyNow && !modelHeld(at: clock.now())
+        let settlesAtRead = settles
         axQueue.async { [weak self] in
             let issues = wantIssues ? session.issues(text: read.text, caret: read.caret) : nil
             let toCheck = modelReady ? session.sentencesToCheck(text: read.text, caret: read.caret, paused: paused) : []
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.computing = false
+                // An Ignore or a Learn since the read: these issues may hold
+                // the mark it took away, so they are read again.
+                if issues != nil, settlesAtRead != self.settles {
+                    let waiting = self.pendingCompute
+                    self.pendingCompute = (waiting?.read ?? read, true, waiting?.paused ?? paused)
+                }
                 // A fix since the read: these are the issues of words gone.
                 if self.enabled, !self.editedSinceRead, self.field?.text == read.text {
-                    if let issues {
+                    if let issues, settlesAtRead == self.settles {
                         self.issues = issues
                         self.issuesRead = read.text
                         self.placeMarks()
@@ -950,6 +961,11 @@ final class EditorController: EditorLens {
             let text = field.text
             axQueue.async { session.dismissOnce(issue, in: text) }
         }
+        // What is on its way from the queue was measured with this mark
+        // standing: a read of the issues is made again, and places found
+        // for the marks are dropped.
+        settles += 1
+        geometryGeneration += 1
         marks.removeAll { $0.issue == issue }
         issues.removeAll { $0 == issue }
         hover?.marksChanged()

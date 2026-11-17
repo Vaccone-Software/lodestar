@@ -1,0 +1,163 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "lifecycle",
+        "version",
+        "key",
+        "revision",
+        "sequence",
+        "created",
+        "state",
+        "since",
+        "updated"
+      ],
+      "properties": {
+        "lifecycle": {
+          "enum": [
+            "lodestar.release"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "key": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "created": {
+          "type": "object",
+          "required": [
+            "at",
+            "by",
+            "because"
+          ]
+        },
+        "state": {
+          "enum": [
+            "offered",
+            "downloading",
+            "staged",
+            "applying",
+            "running",
+            "rolledBack",
+            "refused"
+          ]
+        },
+        "since": {
+          "type": "string"
+        },
+        "updated": {
+          "type": "string"
+        },
+        "dueAt": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "record",
+        "sequence",
+        "from",
+        "event",
+        "to",
+        "entered",
+        "at",
+        "by",
+        "because",
+        "effects"
+      ],
+      "properties": {
+        "record": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "from": {
+          "enum": [
+            "offered",
+            "downloading",
+            "staged",
+            "applying",
+            "running",
+            "rolledBack",
+            "refused"
+          ]
+        },
+        "to": {
+          "enum": [
+            "offered",
+            "downloading",
+            "staged",
+            "applying",
+            "running",
+            "rolledBack",
+            "refused"
+          ]
+        },
+        "event": {
+          "enum": [
+            "download",
+            "verified",
+            "failed",
+            "incompatible",
+            "apply",
+            "confirm",
+            "rollBack",
+            "unchanged",
+            "stall",
+            "abandon"
+          ]
+        },
+        "entered": {
+          "type": "boolean"
+        },
+        "at": {
+          "type": "string"
+        },
+        "because": {
+          "type": "string"
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "key",
+        "effect"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "effect": {
+          "type": "object"
+        }
+      }
+    }
+  ]
+}

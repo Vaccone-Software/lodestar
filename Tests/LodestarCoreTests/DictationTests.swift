@@ -253,6 +253,36 @@ final class DictationTests: XCTestCase {
         XCTAssertEqual(first.text, "Then we ship.")
     }
 
+    // MARK: - Hearing across a seam
+
+    /// The ear heard the words before the run too: its mark at the seam and
+    /// its words for the run come apart where the run begins.
+    func testAHearingAcrossASeamSplitsWhereTheRunBegins() {
+        let split = Draft.Seams.split(heard: "of the radii, it holds the shape.", before: "We want a variance in the radii.",
+                                      run: "it holds the shape")
+        XCTAssertEqual(split, .init(mark: ",", run: "it holds the shape."))
+        let ended = Draft.Seams.split(heard: "in the radii. It holds the shape.", before: "We want a variance in the radii",
+                                      run: "it holds the shape")
+        XCTAssertEqual(ended, .init(mark: ".", run: "It holds the shape."))
+        let open = Draft.Seams.split(heard: "actually a nonlinear function of its height", before: "It's actually a nonlinear.",
+                                     run: "function of its height")
+        XCTAssertEqual(open, .init(mark: "", run: "function of its height"))
+    }
+
+    /// A last word before the run that the ear heard otherwise stays the
+    /// context's: it is not put back at the head of the run.
+    func testAMisheardLastWordStaysBeforeTheSeam() {
+        let split = Draft.Seams.split(heard: "issues with id. The good news is quick.", before: "There are a lot of issues with it",
+                                      run: "the good news is quick")
+        XCTAssertEqual(split, .init(mark: ".", run: "The good news is quick."))
+    }
+
+    /// Too little of the context heard, or none of the run: not split.
+    func testAHearingThatCannotBeLinedUpIsNotSplit() {
+        XCTAssertNil(Draft.Seams.split(heard: "it holds the shape.", before: "We want a variance in the radii", run: "it holds the shape"))
+        XCTAssertNil(Draft.Seams.split(heard: "in the radii.", before: "We want a variance in the radii", run: "it holds the shape"))
+    }
+
     // MARK: - The end of a take
 
     /// A take the voice ended lands with its last sentence ended.

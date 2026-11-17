@@ -170,7 +170,7 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.speech.settle(timed("Second bart.", 3, 4.5))
         stage.pump(until: { stage.draft.buffer.text.contains("Second part") })
         XCTAssertEqual(stage.draft.buffer.text, "First part. Second part.")
-        XCTAssertEqual(ear.heard.last.map { $0 < 16_000 * 3 }, true, "only what came after the hand")
+        XCTAssertEqual(ear.heard.last, Int((16_000 * (4.8 - 1.5)).rounded()), "only what came after the hand: from where the first phrase ended")
     }
 
     func testReturnWaitsForTheLastPhrase() {
@@ -195,7 +195,7 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.pump(until: { ear.answered == 1 })
         stage.speech.settle(timed("Second bart.", 16, 17.5))
         stage.pump(until: { stage.draft.buffer.text.contains("Second part") })
-        XCTAssertEqual(ear.heard.last.map { $0 < 16_000 * 3 }, true, "only the new run")
+        XCTAssertEqual(ear.heard.last, Int((16_000 * (17.8 - 13.0)).rounded()), "only the new run: three seconds before it, long after the first ended")
     }
 
     // MARK: - The ear behind
@@ -404,19 +404,19 @@ final class SettlingEarScenarioTests: XCTestCase {
     }
 
     /// Nemotron times a word after the voice began it: the run is heard
-    /// from a second before its first word's time, so the first word is in
-    /// the audio ("Open draft controller" landed "Draft controller").
-    func testTheRunIsHeardFromASecondBeforeItsFirstWord() {
+    /// from three seconds before its first word's time, so the first words
+    /// are in the audio ("Hey team, quick update" landed "Quick update").
+    func testTheRunIsHeardFromThreeSecondsBeforeItsFirstWord() {
         let ear = FakeEar(answer: "Open the draft controller.")
         let stage = stageWithAudio(ear)
         stage.lode(".")
-        stage.speech.settle(timed("Open the draft controller", 3, 5))
+        stage.speech.settle(timed("Open the draft controller", 4, 5.5))
         stage.pump(until: { ear.answered == 1 })
-        XCTAssertEqual(ear.heard.first, Int(16_000 * (5.3 - 2.0)), "from 2.0 s to 5.3 s")
+        XCTAssertEqual(ear.heard.first, Int(16_000 * (5.8 - 1.0)), "from 1.0 s to 5.8 s")
     }
 
-    /// Never into the phrase before: a run that begins soon after another
-    /// phrase ended is heard from where that phrase ended.
+    /// Never into the phrase before: a run the hand began, soon after
+    /// another phrase ended, is heard from where that phrase ended.
     func testARunIsNotHeardFromInsideThePhraseBefore() {
         let ear = FakeEar(answers: ["First part.", "Second part."])
         let stage = Stage()
@@ -425,6 +425,7 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.lode(".")
         stage.speech.settle(timed("First part", 0, 16.6))
         stage.pump(until: { ear.answered == 1 })
+        stage.press("space")
         stage.speech.settle(timed("Second part", 17.0, 19))
         stage.pump(until: { ear.answered == 2 })
         XCTAssertEqual(ear.heard.last, Int((16_000 * (19.3 - 16.6)).rounded()), "from 16.6 s, where the first ended")
@@ -451,5 +452,54 @@ final class SettlingEarScenarioTests: XCTestCase {
         stage.press("return")
         stage.pump(until: { !stage.pasteboard.isEmpty })
         XCTAssertEqual(stage.pasteboard.last, "Rename it to go")
+    }
+
+    /// A run that goes on from the one before is heard from inside the
+    /// phrase before, and the ear's mark at the seam stands: a pause the
+    /// first run's ear ended with a period goes on as one sentence when
+    /// the ear hears both sides.
+    func testARunThatGoesOnIsHeardAcrossItsSeam() {
+        let ear = FakeEar(answers: ["We want a variance in the radii.", "in the radii, it holds the shape."])
+        let stage = Stage()
+        stage.draft.ear = ear
+        stage.speech.held.append([Float](repeating: 0.01, count: 16_000 * 30), rate: 16_000)
+        stage.lode(".")
+        stage.speech.settle(timed("we want a variance in the radii", 0, 10))
+        stage.pump(until: { stage.draft.buffer.text.hasSuffix(".") })
+        stage.speech.settle(timed("it holds the shape", 12, 21))
+        stage.pump(until: { ear.answered == 2 })
+        stage.settle(turns: 20)
+        XCTAssertEqual(stage.draft.buffer.text, "We want a variance in the radii, it holds the shape.")
+        XCTAssertEqual(ear.heard.last, Int(16_000 * (21.3 - 4.0)), "from six seconds before the phrase before ended")
+    }
+
+    /// And where the ear hears a sentence end at the seam, it stands.
+    func testASentenceEndHeardAcrossASeamStands() {
+        let ear = FakeEar(answers: ["We want a variance in the radii", "in the radii. It holds the shape."])
+        let stage = Stage()
+        stage.draft.ear = ear
+        stage.speech.held.append([Float](repeating: 0.01, count: 16_000 * 30), rate: 16_000)
+        stage.lode(".")
+        stage.speech.settle(timed("we want a variance in the radii", 0, 10))
+        stage.pump(until: { stage.draft.buffer.text.hasPrefix("We") })
+        stage.speech.settle(timed("it holds the shape", 12, 21))
+        stage.pump(until: { ear.answered == 2 })
+        stage.settle(turns: 20)
+        XCTAssertEqual(stage.draft.buffer.text, "We want a variance in the radii. It holds the shape.")
+    }
+
+    /// After a long pause the run is heard alone: no silence for context.
+    func testARunAfterALongPauseIsHeardAlone() {
+        let ear = FakeEar(answers: ["We want a variance in the radii.", "It holds the shape."])
+        let stage = Stage()
+        stage.draft.ear = ear
+        stage.speech.held.append([Float](repeating: 0.01, count: 16_000 * 30), rate: 16_000)
+        stage.lode(".")
+        stage.speech.settle(timed("we want a variance in the radii", 0, 10))
+        stage.pump(until: { stage.draft.buffer.text.hasSuffix(".") })
+        stage.speech.settle(timed("it holds the shape", 18, 21))
+        stage.pump(until: { stage.draft.buffer.text.hasSuffix("shape.") })
+        XCTAssertEqual(stage.draft.buffer.text, "We want a variance in the radii. It holds the shape.")
+        XCTAssertEqual(ear.heard.last, Int(16_000 * (21.3 - 15.0)), "from three seconds before its first word")
     }
 }

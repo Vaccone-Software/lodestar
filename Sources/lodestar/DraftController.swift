@@ -94,16 +94,28 @@ final class DraftController {
     /// before the newest one ended (`audioStart`).
     private var runFrom: Double = 0
     private var lastPhraseEnd: Double?
+    private var lastPhraseStart: Double?
+    /// Where the run's audio begins when the run went on from the one
+    /// before it: inside the phrase before, so the ear hears both sides of
+    /// the seam and decides it. Nil for a run the hand or a new session began.
+    private var runContext: Double?
+    /// How much of the phrase before a run is heard with it, at most.
+    static let seamContextSeconds: Double = 6
+    /// Past this long a pause, the run is heard alone, as before: the ear
+    /// would hear the silence along with the words, for a seam that a
+    /// pause so long has as good as decided.
+    static let seamContextPause: Double = 3
     /// How far before its first word's time a run's audio begins. Nemotron
     /// times a word by when it wrote it, which is after the voice began it
-    /// (0.42 s on the maker's long takes), so the 0.2 s that served Apple's
-    /// times cut the run's first word off, and the ear's words, without it,
-    /// replaced the live ones: "Open draft controller" landed "Draft
-    /// controller". Never earlier than where the phrase before ended.
-    static let runLeadSeconds: Double = 1.0
+    /// (0.4 s to 1.4 s on the maker's long takes), so the 0.2 s that served
+    /// Apple's times cut the run's first words off, and the ear's words,
+    /// without them, replaced the live ones: "Open draft controller" landed
+    /// "Draft controller", "Hey team, quick update" "Quick update". Never
+    /// earlier than where the phrase before ended.
+    static let runLeadSeconds: Double = 3.0
 
-    /// Where a run whose first word is timed `start` is heard from: a
-    /// second before it, not before the end of the phrase before (whose
+    /// Where a run whose first word is timed `start` is heard from: three
+    /// seconds before it, not before the end of the phrase before (whose
     /// words are timed late too, so its voice is over by then), and never
     /// later than the 0.2 s margin it always had.
     static func audioStart(of start: Double, after previous: Double?) -> Double {
@@ -129,6 +141,9 @@ final class DraftController {
         let landed: (range: Range<Int>, text: String)
         let session: Int
         let generation: Int
+        /// The audio begins inside the words before the run, so the ear
+        /// hears across the seam (`Draft.Seams.split`).
+        var acrossSeam = false
     }
     private var earRunning = false
     private var earNext: EarJob?
@@ -1292,6 +1307,7 @@ final class DraftController {
         settler.reset()
         run = nil
         lastPhraseEnd = nil
+        lastPhraseStart = nil
         earNext = nil
         backgroundNext = nil
         lastSpoken = nil
@@ -2164,9 +2180,19 @@ final class DraftController {
         if let current = run, current.start <= landed.range.lowerBound, end - current.time <= Self.runSeconds {
             run = (current.start, current.time, landed.range.upperBound, end, heard)
         } else {
+            // A run that goes on from the one before (no hand between) is
+            // heard from inside the phrase before: that seam is the voice's,
+            // and only an ear that hears both sides can say what it is.
+            let wentOn = run.map { $0.start <= landed.range.lowerBound } ?? false
             run = (landed.range.lowerBound, start, landed.range.upperBound, end, heard)
             runFrom = Self.audioStart(of: start, after: lastPhraseEnd)
+            runContext = nil
+            if wentOn, let before = lastPhraseStart, let ended = lastPhraseEnd, ended <= start,
+               start - ended <= Self.seamContextPause {
+                runContext = max(before, ended - Self.seamContextSeconds)
+            }
         }
+        lastPhraseStart = start
         lastPhraseEnd = end
         // The run has grown: what the ear behind is hearing is no longer
         // the run, and its answer would move the words just landed.
@@ -2205,11 +2231,11 @@ final class DraftController {
         guard let run, run.upper <= buffer.count else { return nil }
         let range = run.start..<run.upper
         let whole = (range: range, text: buffer.slice(range))
-        let samples = speech.held.slice(from: runFrom, to: run.end + 0.3)
+        let samples = speech.held.slice(from: runContext ?? runFrom, to: run.end + 0.3)
         // Under half a second is a word or a breath: not worth a second ear.
         guard samples.count >= 8_000 else { return nil }
         return EarJob(ear: ear, samples: samples, context: earContext, apple: run.heard, landed: whole,
-                      session: session, generation: generation)
+                      session: session, generation: generation, acrossSeam: runContext != nil)
     }
 
     /// The run heard again by the ear behind, from the words the quick ear
@@ -2301,6 +2327,7 @@ final class DraftController {
         let landed = job.landed
         guard session == job.session, isOpen, let again, landed.range.upperBound <= buffer.count,
               buffer.slice(landed.range) == landed.text else { return }
+        if job.acrossSeam { applyAcrossSeam(again, job: job, seconds: seconds); return }
         var lead = String(landed.text.prefix { $0.isWhitespace })
         let core = String(landed.text.dropFirst(lead.count))
         let before = buffer.slice(max(0, landed.range.lowerBound - 200)..<landed.range.lowerBound) + lead
@@ -2330,6 +2357,58 @@ final class DraftController {
             run = (current.start, current.time, newEnd, current.end, current.heard)
         }
         Log.info("draft", ["ear": job.ear.name, "changed": true, "ms": Int(seconds * 1000)])
+        render()
+    }
+
+    /// A hearing that began inside the phrase before the run: the seam
+    /// takes the mark the ear wrote there (a period, a comma, or none) in
+    /// place of the one standing, and the run takes the ear's words after
+    /// it. One step: the mark and the run are replaced together.
+    private func applyAcrossSeam(_ again: Heard, job: EarJob, seconds: Double) {
+        let landed = job.landed
+        let lower = landed.range.lowerBound
+        let before = buffer.slice(max(0, lower - 400)..<lower)
+        let lead = String(landed.text.prefix { $0.isWhitespace })
+        let core = String(landed.text.dropFirst(lead.count))
+        guard let split = Draft.Seams.split(heard: again.text, before: before, run: core) else {
+            journal?.earHeard(job.ear.name, heard: again.text, stood: core, placed: nil, seconds: seconds, at: clock.now())
+            return
+        }
+        // Where the words before end, and the mark that ends them.
+        let chars = buffer.characters
+        var wordsEnd = lower
+        while wordsEnd > 0, chars[wordsEnd - 1].isWhitespace { wordsEnd -= 1 }
+        var markStart = wordsEnd
+        while markStart > 0, ".?!,".contains(chars[markStart - 1]) { markStart -= 1 }
+        guard markStart > 0, wordsEnd - markStart <= 1 else { return }
+        let gap = buffer.slice(wordsEnd..<lower)
+        let marked = buffer.slice(max(0, markStart - 400)..<markStart) + split.mark
+        guard let text = settler.resettled(Heard(split.run), landed: core, after: marked + gap + lead,
+                                           context: earContext) else { return }
+        let old = buffer.slice(markStart..<landed.range.upperBound)
+        var spacing = gap + lead
+        if spacing.isEmpty { spacing = Draft.separator(after: Array(marked), before: text) }
+        let replacement = split.mark + spacing + text
+        journal?.earHeard(job.ear.name, heard: again.text, stood: old, placed: replacement == old ? nil : replacement,
+                          seconds: seconds, at: clock.now())
+        guard replacement != old else { return }
+        learnFromTheHand()
+        let spokenEnd = spokenText == buffer.text
+        let range = markStart..<landed.range.upperBound
+        vim.replaceKeepingCursor(range, with: replacement, buffer: &buffer)
+        if spokenEnd { spokenText = buffer.text }
+        markRevision(at: markStart, old: old, new: replacement)
+        earChanged += 1
+        let newEnd = markStart + replacement.count
+        let newStart = markStart + split.mark.count + spacing.count - lead.count
+        if let last = lastSpoken, last.range.upperBound == landed.range.upperBound {
+            let from = min(max(newStart, last.range.lowerBound + (newStart - lower)), newEnd)
+            lastSpoken = (from..<newEnd, buffer.slice(from..<newEnd))
+        }
+        if let current = run, current.start == lower, current.upper == landed.range.upperBound {
+            run = (newStart, current.time, newEnd, current.end, current.heard)
+        }
+        Log.info("draft", ["ear": job.ear.name, "changed": true, "ms": Int(seconds * 1000), "seam": split.mark.isEmpty ? "none" : split.mark])
         render()
     }
 

@@ -22,6 +22,7 @@ any IntentPassLiveTests.*
 any MicBridgeLiveTests.*
 any NemotronStreamLiveTests.*
 any LiveEarLiveTests.*
+any DictationReplayLiveTests.*
 any QwenEarTests.testTokenizerFromTheFolderMatchesTransformers
 any WindowModelLiveTests.*
 # The render gallery draws every surface to PNGs for a person to look at:

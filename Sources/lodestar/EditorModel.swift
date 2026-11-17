@@ -102,6 +102,16 @@ enum EditorEngine: String, CaseIterable {
         }
     }
 
+    /// The margin a grammar fix must win by (`EditorConfidence`), by the
+    /// model's own scale; nil where nothing weighs.
+    var confidenceThreshold: Double? {
+        switch self {
+        case .standard: return EditorConfidence.standard
+        case .full: return EditorConfidence.full
+        case .spelling, .minimal: return nil
+        }
+    }
+
     /// Thinking models are told not to: a reasoning trace is not a
     /// sentence, and it takes seconds.
     var additionalContext: [String: Bool] {
@@ -167,6 +177,12 @@ protocol EditorBackend: Sendable {
     /// Read the prompt's shared beginning now, so a rewrite under a
     /// deadline never pays for it.
     func warm(_ prompt: IntentPass.Prompt) async throws
+    /// How likely the model finds each answer as its reply to `text`
+    /// (`EditorConfidence`). A model that cannot say throws, and its
+    /// answers stand as they came.
+    func likelihoods(of answers: [String], to text: String, instructions: String) async throws -> [Double]
+    /// Can it weigh answers at all? One that cannot is never asked.
+    var scores: Bool { get }
     /// The model is gone from under this handle: the models service that
     /// held it ended (`ServiceLanguageModel`). Its owner lets it go and
     /// loads again at the next question. A model in the app is never lost.
@@ -178,6 +194,10 @@ extension EditorBackend {
         throw EditorModelError.unavailable("this model does not rewrite")
     }
     func warm(_ prompt: IntentPass.Prompt) async throws {}
+    func likelihoods(of answers: [String], to text: String, instructions: String) async throws -> [Double] {
+        throw EditorModelError.unavailable("this model does not score")
+    }
+    var scores: Bool { false }
     var isLost: Bool { false }
 }
 
@@ -365,8 +385,10 @@ actor EditorModel: EditorProofreader {
     nonisolated var ability: ModelAbility { calls.ability }
 
     private var instructions = EditorPrompt.instructions
+    private var language = "en_US"
 
     func setLanguage(_ language: String) {
+        self.language = language
         instructions = EditorPrompt.instructions(for: language)
     }
 
@@ -396,7 +418,32 @@ actor EditorModel: EditorProofreader {
         case .unanswered: Log.info("editor", ["unanswered": sentence.count, "engine": engine.rawValue])
         case .busy: Log.info("editor", ["busy": sentence.count, "engine": engine.rawValue])
         }
-        return asked.value
+        guard let answer = asked.value else { return nil }
+        return await weighed(answer, to: sentence, backend: backend, instructions: instructions)
+    }
+
+    /// The answer with the grammar fixes the model barely preferred taken
+    /// out (`EditorConfidence`). Most answers mark no grammar and are
+    /// returned as they came, unasked. One the model could not weigh in
+    /// time, or a model that cannot weigh (Apple's), stands as it came.
+    private func weighed(_ answer: String, to sentence: String, backend: any EditorBackend,
+                         instructions: String) async -> String {
+        guard backend.scores, let threshold = engine.confidenceThreshold,
+              let found = EditorConfidence.weighable(sentence: sentence, corrected: answer, language: language) else {
+            return answer
+        }
+        let replies = [sentence] + found.grammar.map { EditorConfidence.fixed(sentence, by: found.issues[$0]) }
+        let started = ContinuousClock.now
+        let scored = await calls.ask(deadline: answerDeadline, wait: gateWait, gated: backendEngine != .minimal) {
+            try? await backend.likelihoods(of: replies, to: sentence, instructions: instructions)
+        }
+        guard let scores = scored.value, scores.count == replies.count else { return answer }
+        let margins = scores.dropFirst().map { $0 - scores[0] }
+        let gated = EditorConfidence.gated(sentence: sentence, corrected: answer, issues: found.issues,
+                                           grammar: found.grammar, margins: margins, threshold: threshold)
+        Log.info("editor", ["weighed": margins.count, "dropped": gated.dropped,
+                            "ms": Int(started.secondsElapsed * 1000), "engine": engine.rawValue])
+        return gated.answer
     }
 
     /// Only the models on this Mac: Apple's gained little once checked

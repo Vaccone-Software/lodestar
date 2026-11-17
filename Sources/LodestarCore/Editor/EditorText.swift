@@ -25,6 +25,27 @@ public struct EditorIssue: Equatable, Hashable {
         self.note = note
     }
 
+    /// What sort of grammar mark it is, for the record (never the words):
+    /// `punctuation` (only marks around words differ), `capital` (only a
+    /// letter's case), `added` or `removed` (words put in or taken out),
+    /// `word` (words changed). Nil for spelling.
+    public var sort: String? { Self.sort(kind: kind, original: original, replacement: replacement) }
+
+    public static func sort(kind: Kind, original: String, replacement: String) -> String? {
+        guard kind == .grammar else { return nil }
+        func words(_ text: String) -> [String] {
+            text.split(whereSeparator: \.isWhitespace)
+                .map { String($0.filter { $0.isLetter || $0.isNumber || $0 == "'" || $0 == "\u{2019}" }) }
+                .filter { !$0.isEmpty }
+        }
+        let a = words(original), b = words(replacement)
+        if a == b { return "punctuation" }
+        if a.map { $0.lowercased() } == b.map { $0.lowercased() } { return "capital" }
+        if b.count > a.count { return "added" }
+        if b.count < a.count { return "removed" }
+        return "word"
+    }
+
     /// The same issue, its range moved by `offset` UTF-16 units.
     public func shifted(by offset: Int) -> EditorIssue {
         var moved = self

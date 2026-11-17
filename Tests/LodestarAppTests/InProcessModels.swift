@@ -13,6 +13,11 @@ enum InProcessModels {
         func respond(to sentence: String, instructions: String) async throws -> String {
             try await model.respond(to: sentence, instructions: instructions)
         }
+        var scores: Bool { true }
+        func likelihoods(of answers: [String], to text: String, instructions: String) async throws -> [Double] {
+            try await model.logLikelihoods(of: answers, to: text,
+                                           prompt: IntentPass.Prompt(instructions: instructions, examples: []))
+        }
         func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String {
             try await model.rewrite(text, prompt: prompt)
         }

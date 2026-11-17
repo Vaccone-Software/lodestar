@@ -101,6 +101,9 @@ public struct EditorRecord: Equatable {
     /// Each app's tally by the kind of mark, for the lines that must not
     /// mix spelling and grammar without saying so.
     public let byAppKind: [String: [String: Tally]]
+    /// Grammar marks by their sort (`EditorIssue.sort`), from the builds
+    /// that record it: which sorts are taken and which are left.
+    public let byGrammarSort: [String: Tally]
     /// How long the marks the hand edited had stood before it did:
     /// under 3 seconds, 3 to 30, and longer.
     public let handStood: [Int]
@@ -115,6 +118,7 @@ public struct EditorRecord: Equatable {
         since = cut
         var total = Tally(), kinds: [String: Tally] = [:], apps: [String: Tally] = [:]
         var appKinds: [String: [String: Tally]] = [:]
+        var sorts: [String: Tally] = [:]
         var hand = [0, 0, 0]
         var legacy = Legacy(), draft = Draft()
 
@@ -123,6 +127,7 @@ public struct EditorRecord: Equatable {
             change(&kinds[kind, default: Tally()])
             change(&apps[event.app ?? "?", default: Tally()])
             change(&appKinds[event.app ?? "?", default: [:]][kind, default: Tally()])
+            if kind == "grammar", let sort = event.change { change(&sorts[sort, default: Tally()]) }
         }
 
         for event in edits {
@@ -181,6 +186,7 @@ public struct EditorRecord: Equatable {
         byKind = kinds
         byApp = apps
         byAppKind = appKinds
+        byGrammarSort = sorts
         handStood = hand
         self.legacy = legacy
         self.draft = draft
@@ -234,6 +240,15 @@ extension EditorRecord {
             for kind in ["spelling", "grammar"] {
                 guard let k = byKind[kind], k.shown > 0 else { continue }
                 lines.append("  \(pad(kind, 10))\(pad("\(k.shown) shown", 11))\(pad("\(percent(k.useful, of: k)) useful", 12))"
+                             + "fixed \(percent(k.fixed, of: k)) · by hand \(percent(k.byHand, of: k))"
+                             + " · edited \(percent(k.edited, of: k)) · left \(percent(k.standing, of: k))"
+                             + " · kept \(percent(k.kept, of: k))")
+            }
+            let sorted = byGrammarSort.filter { $0.value.shown > 0 }
+                .sorted { ($0.value.shown, $1.key) > ($1.value.shown, $0.key) }
+            if !sorted.isEmpty { lines.append("  grammar by sort, where recorded:") }
+            for (sort, k) in sorted {
+                lines.append("    \(pad(sort, 12))\(pad("\(k.shown) shown", 11))\(pad("\(percent(k.useful, of: k)) useful", 12))"
                              + "fixed \(percent(k.fixed, of: k)) · by hand \(percent(k.byHand, of: k))"
                              + " · edited \(percent(k.edited, of: k)) · left \(percent(k.standing, of: k))"
                              + " · kept \(percent(k.kept, of: k))")

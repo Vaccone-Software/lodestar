@@ -812,7 +812,7 @@
           "could you double check the date on second slide?" : "could you double check the date on second slide?"
         },
         "standard" : {
-          "could you double check the date on second slide?" : "Could you double-check the date on the second slide?"
+          "could you double check the date on second slide?" : "could you double check the date on second slide?"
         }
       },
       "kind" : "missing_article",
@@ -840,13 +840,13 @@
     {
       "answers" : {
         "full" : {
-          "The The report covers the three months ending in September." : "The report covers the three months ending in September."
+          "The The report covers the three months ending in September." : "The The report covers the three months ending in September."
         },
         "minimal" : {
           "The The report covers the three months ending in September." : "The report covers the three months ending in Sept."
         },
         "standard" : {
-          "The The report covers the three months ending in September." : "The report covers the three months ending in September."
+          "The The report covers the three months ending in September." : "The The report covers the three months ending in September."
         }
       },
       "kind" : "duplicate_word",
@@ -863,7 +863,7 @@
           "the release is tagged, nites are going out in an hour" : "the release is tagged, nites are going out in an hour"
         },
         "standard" : {
-          "the release is tagged, nites are going out in an hour" : "The release is tagged, nights are going out in an hour."
+          "the release is tagged, nites are going out in an hour" : "the release is tagged, nites are going out in an hour"
         }
       },
       "kind" : "typo_adjacent",
@@ -976,7 +976,7 @@
     {
       "answers" : {
         "full" : {
-          "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off; I'm feeling sick."
+          "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off, feeling sick"
         },
         "minimal" : {
           "I'm going to take the rest of the day off, feeling sick" : "I'm going to take the rest of the day off, feeling sick."
@@ -1163,7 +1163,7 @@
     {
       "answers" : {
         "full" : {
-          "it looks like the cache was holding onto old version" : "It looks like the cache was holding onto an old version."
+          "it looks like the cache was holding onto old version" : "it looks like the cache was holding onto old version"
         },
         "minimal" : {
           "it looks like the cache was holding onto old version" : "It looks like the cache was holding onto old version."
@@ -2396,7 +2396,7 @@
           "Can you send me link to the doc?" : "Can you send me a link to the doc?"
         },
         "standard" : {
-          "Can you send me link to the doc?" : "Can you send me the link to the doc?"
+          "Can you send me link to the doc?" : "Can you send me link to the doc?"
         }
       },
       "kind" : "hand",
@@ -2441,13 +2441,13 @@
     {
       "answers" : {
         "full" : {
-          "Me and him will handle the setup." : "He and I will handle the setup."
+          "Me and him will handle the setup." : "Me and him will handle the setup."
         },
         "minimal" : {
           "Me and him will handle the setup." : "Me and him will handle the setup."
         },
         "standard" : {
-          "Me and him will handle the setup." : "I and he will handle the setup."
+          "Me and him will handle the setup." : "Me and him will handle the setup."
         }
       },
       "kind" : "hand",
@@ -2566,7 +2566,7 @@
           "I'll send the file's tomorrow." : "I'll send the file's tomorrow."
         },
         "standard" : {
-          "I'll send the file's tomorrow." : "I'll send the file tomorrow."
+          "I'll send the file's tomorrow." : "I'll send the file's tomorrow."
         }
       },
       "kind" : "hand",

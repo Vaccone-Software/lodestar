@@ -49,6 +49,11 @@ public final class ModelsService: Sendable {
                 try await model.respond(to: request.text, instructions: request.prompt.instructions)
             }
         }
+        host.handle(ModelsAPI.score) { [self] request, _ throws(ModelsFailure) in
+            try await generate(ModelsGenerate(handle: request.handle, text: request.text, prompt: request.prompt)) { model, asked in
+                try await model.logLikelihoods(of: request.answers, to: asked.text, prompt: asked.prompt)
+            }
+        }
         host.handle(ModelsAPI.rewrite) { [self] request, _ throws(ModelsFailure) in
             try await generate(request) { model, request in try await model.rewrite(request.text, prompt: request.prompt) }
         }

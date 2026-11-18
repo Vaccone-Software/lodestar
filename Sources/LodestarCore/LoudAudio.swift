@@ -6,8 +6,13 @@
 ///
 /// The level at the ear is the headphones' level at full volume, plus the
 /// content's level, plus the volume setting. With the loudest sustained
-/// music (about −8 dB under full scale) on headphones that reach 110 dBA,
-/// the setting that keeps the ear at a level is that level − 110 + 8. There
+/// music (about −8 dB under full scale) on headphones that reach F dBA at
+/// full volume, the setting that keeps the ear at a level is that level − F
+/// + 8. Bluetooth headphones drive themselves and are taken to reach 110.
+/// Wired ones are driven by the Mac: its jack gives up to 1.25 V into
+/// ordinary headphones (Apple, "Use high-impedance headphones with your
+/// Mac"), which typical earbuds and headphones, at 100 to 120 dB a volt,
+/// turn into 102 to 122 dB, so they are taken to reach 120. There
 /// are three levels, named for how much they reduce, never by a figure: the
 /// figure is a worst case that real headphones and loudness-matched
 /// streaming land 5 to 15 dB under, so printing it would claim a precision
@@ -38,15 +43,43 @@ public enum LoudAudio {
             }
         }
 
-        /// The volume setting, in the device's own dB, that the ceiling is:
-        /// −17, −22 or −27.
-        public var ceilingDecibels: Float? {
+        /// The volume setting, in the device's own dB, that the ceiling is,
+        /// on headphones that reach `fullScaleDBA` at full volume: −17, −22
+        /// or −27 on Bluetooth, 10 dB under on wired.
+        public func ceilingDecibels(fullScaleDBA: Double) -> Float? {
             limitDBA.map { Float($0 - fullScaleDBA - loudestContentDBFS) }
+        }
+
+        /// The level's name, as the menu says it.
+        public var name: String {
+            switch self {
+            case .off: "Off"
+            case .light: "Light"
+            case .standard: "Standard"
+            case .strong: "Strong"
+            }
         }
     }
 
-    /// What headphones are assumed to reach at full volume, in dBA.
-    public static let fullScaleDBA = 110.0
+    /// What Bluetooth headphones are assumed to reach at full volume, in dBA.
+    public static let bluetoothFullScaleDBA = 110.0
+    /// What wired headphones, driven by the Mac, are assumed to reach.
+    public static let wiredFullScaleDBA = 120.0
+    /// Bluetooth and Bluetooth LE, the transports whose headphones drive
+    /// themselves ('blue', 'blea').
+    public static let bluetoothTransports: Set<UInt32> = [0x626C_7565, 0x626C_6561]
+
+    /// What an output's headphones are assumed to reach at full volume, by
+    /// how they are connected: anything not Bluetooth is driven by the Mac.
+    public static func fullScaleDBA(transport: UInt32?) -> Double {
+        transport.map(bluetoothTransports.contains) == true ? bluetoothFullScaleDBA : wiredFullScaleDBA
+    }
+
+    /// What the note says the first time a hold stops the volume.
+    public static let noticeSentence = "Your volume is held to protect your hearing"
+    public static func noticeDetail(_ level: Level) -> String {
+        "Reduce loud audio is set to \(level.name) in Settings"
+    }
     /// The loudest sustained content, in dB under full scale.
     public static let loudestContentDBFS = -8.0
 

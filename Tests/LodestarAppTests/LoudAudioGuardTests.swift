@@ -1,4 +1,5 @@
 import AppKit
+import Synchronization
 import XCTest
 @testable import lodestar
 @testable import LodestarCore
@@ -54,6 +55,21 @@ final class LoudAudioGuardTests: XCTestCase {
         guardian.pretendHeld(ceiling: ceiling, volume: 0.9)
         XCTAssertFalse(swallowed(guardian, try key(1)), "volume down")
         XCTAssertFalse(swallowed(guardian, try key(7)), "mute")
+    }
+
+    /// The first press a hold stops brings the note, saying the level, and
+    /// the presses after it bring nothing: someone at the ceiling presses
+    /// again and again.
+    func testTheFirstStoppedPressSaysSoAndTheRestDoNot() throws {
+        let guardian = LoudAudioGuard(live: false)
+        let heard = Mutex<[LoudAudio.Level]>([])
+        guardian.onHeld { level in heard.withLock { $0.append(level) } }
+        guardian.pretendHeld(ceiling: ceiling, volume: 0.25, level: .strong)
+        XCTAssertFalse(swallowed(guardian, try key(LoudAudio.soundUpKey)))
+        XCTAssertEqual(heard.withLock { $0 }, [], "a press that passes says nothing")
+        guardian.pretendHeld(ceiling: ceiling, volume: 0.3125, level: .strong)
+        for _ in 0..<5 { XCTAssertTrue(swallowed(guardian, try key(LoudAudio.soundUpKey))) }
+        XCTAssertEqual(heard.withLock { $0 }, [.strong], "once")
     }
 
     func testNothingHeldSwallowsNothing() throws {

@@ -12,12 +12,33 @@ final class LoudAudioTests: XCTestCase {
     /// at 85, 80 or 75: each level 5 dB from the next, and off holds nothing.
     func testEachLevelKeepsTheLoudestMusicOnHundredTenHeadphonesAtItsOwnLimit() {
         XCTAssertEqual(LoudAudio.Level.allCases, [.off, .light, .standard, .strong], "the menu's order")
-        XCTAssertNil(LoudAudio.Level.off.ceilingDecibels)
-        XCTAssertEqual(LoudAudio.Level.light.ceilingDecibels ?? 0, -17, accuracy: 0.001)
-        XCTAssertEqual(LoudAudio.Level.standard.ceilingDecibels ?? 0, -22, accuracy: 0.001)
-        XCTAssertEqual(LoudAudio.Level.strong.ceilingDecibels ?? 0, -27, accuracy: 0.001)
+        XCTAssertNil(LoudAudio.Level.off.ceilingDecibels(fullScaleDBA: 110))
+        XCTAssertEqual(LoudAudio.Level.light.ceilingDecibels(fullScaleDBA: 110) ?? 0, -17, accuracy: 0.001)
+        XCTAssertEqual(LoudAudio.Level.standard.ceilingDecibels(fullScaleDBA: 110) ?? 0, -22, accuracy: 0.001)
+        XCTAssertEqual(LoudAudio.Level.strong.ceilingDecibels(fullScaleDBA: 110) ?? 0, -27, accuracy: 0.001)
         XCTAssertEqual(LoudAudio.Level.standard.limitDBA, 80, "the adult level, 40 hours a week")
         XCTAssertEqual(LoudAudio.Level.strong.limitDBA, 75, "the level for children")
+    }
+
+    /// Wired headphones are driven by the Mac, which gets them about 10 dB
+    /// louder than Bluetooth ones drive themselves: 1.25 V into earbuds at
+    /// 100 to 120 dB a volt. Their ceiling is 10 dB lower for the same ear.
+    func testWiredHeadphonesAreHeldTenDecibelsLowerThanBluetooth() {
+        XCTAssertEqual(LoudAudio.fullScaleDBA(transport: 0x626C_7565), 110, "Bluetooth")
+        XCTAssertEqual(LoudAudio.fullScaleDBA(transport: 0x626C_6561), 110, "Bluetooth LE")
+        XCTAssertEqual(LoudAudio.fullScaleDBA(transport: 0x626C_746E), 120, "the built-in jack: bltn")
+        XCTAssertEqual(LoudAudio.fullScaleDBA(transport: 0x7573_6220), 120, "USB")
+        XCTAssertEqual(LoudAudio.fullScaleDBA(transport: nil), 120, "unknown is taken as the louder")
+        let wired = LoudAudio.fullScaleDBA(transport: 0x626C_746E)
+        XCTAssertEqual(LoudAudio.Level.strong.ceilingDecibels(fullScaleDBA: wired) ?? 0, -37, accuracy: 0.001)
+        XCTAssertEqual(LoudAudio.Level.standard.ceilingDecibels(fullScaleDBA: wired) ?? 0, -32, accuracy: 0.001)
+        XCTAssertEqual(LoudAudio.Level.light.ceilingDecibels(fullScaleDBA: wired) ?? 0, -27, accuracy: 0.001)
+    }
+
+    func testTheNoteSaysWhyAndWhereItIsSet() {
+        XCTAssertEqual(LoudAudio.noticeSentence, "Your volume is held to protect your hearing")
+        XCTAssertEqual(LoudAudio.noticeDetail(.strong), "Reduce loud audio is set to Strong in Settings")
+        XCTAssertEqual(LoudAudio.Level.allCases.map(\.name), ["Off", "Light", "Standard", "Strong"])
     }
 
     func testABluetoothHeadsetIsHeldWhereEachLevelSays() throws {

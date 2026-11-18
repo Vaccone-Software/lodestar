@@ -48,12 +48,17 @@ final class LoudAudioGuard: Sendable {
         var held: Held?
         /// Raises put back since the hold began, said in the log when it ends.
         var putBack = 0
+        /// Whether this hold has said so yet: the first time it stops the
+        /// volume, a note says why and where it is set, and then no more,
+        /// until other headphones or another level.
+        var noticed = false
         var tap: CFMachPort?
         var loop: CFRunLoop?
         var generation = 0
     }
 
     private let state = Mutex(State())
+    private let notice = Mutex<(@Sendable (LoudAudio.Level) -> Void)?>(nil)
     private let queue = DispatchQueue(label: "lodestar.loud-audio", qos: .userInteractive)
 
     /// Whether anything real may run. A test run never holds the volume of
@@ -62,6 +67,12 @@ final class LoudAudioGuard: Sendable {
 
     init(live: Bool = !TestRun.active) {
         self.live = live
+    }
+
+    /// What to do the first time a hold stops the volume: called on the
+    /// tap's thread or the queue, so the receiver hops to main itself.
+    func onHeld(_ action: @escaping @Sendable (LoudAudio.Level) -> Void) {
+        notice.withLock { $0 = action }
     }
 
     /// Main. The level, from the config.
@@ -74,7 +85,10 @@ final class LoudAudioGuard: Sendable {
 
     private func apply(_ level: LoudAudio.Level) {
         let was = state.withLock { s in
-            defer { s.level = level }
+            defer {
+                s.level = level
+                s.noticed = false
+            }
             return s.level
         }
         guard was != level else { return }
@@ -101,13 +115,18 @@ final class LoudAudioGuard: Sendable {
     /// The default output, or what it is, changed: hold it if it is
     /// headphones, let it go if not.
     private func refresh() {
-        guard let ceilingDecibels = state.withLock({ $0.level.ceilingDecibels }) else { return }
+        let level = state.withLock { $0.level }
+        guard level != .off else { return }
         let device = Self.read(Self.system, Self.address(kAudioHardwarePropertyDefaultOutputDevice), AudioObjectID(0)) ?? 0
         watch(device)
         guard device != 0, Self.isHeadphones(device) else {
             release(reason: "not headphones")
             return
         }
+        // Wired headphones are driven by the Mac, which gets them louder
+        // than Bluetooth ones drive themselves: their ceiling is lower.
+        let fullScale = LoudAudio.fullScaleDBA(transport: Self.read(device, Self.address(kAudioDevicePropertyTransportType), UInt32(0)))
+        guard let ceilingDecibels = level.ceilingDecibels(fullScaleDBA: fullScale) else { return }
         let elements = Self.volumeElements(device)
         guard let first = elements.first,
               let ceiling = LoudAudio.ceilingScalar(ceilingDecibels, decibels: { Self.decibels(device, first, scalar: $0) }) else {
@@ -122,7 +141,10 @@ final class LoudAudioGuard: Sendable {
         // nothing, so the volume ones follow the controls there are now.
         let (unchanged, stale) = state.withLock { s -> (Bool, [Listener]) in
             let unchanged = s.held?.device == device && s.held?.elements == elements && s.held?.ceiling == ceiling
-            if s.held?.device != device { s.putBack = 0 }
+            if s.held?.device != device {
+                s.putBack = 0
+                s.noticed = false
+            }
             s.held = Held(device: device, elements: elements, ceiling: ceiling, volume: volume)
             guard !unchanged else { return (true, []) }
             let stale = s.deviceListeners.filter { $0.address.mSelector == kAudioDevicePropertyVolumeScalar }
@@ -138,6 +160,7 @@ final class LoudAudioGuard: Sendable {
                 }
             }
             Log.info("loud-audio", ["held": "headphones", "elements": elements.map(String.init).joined(separator: ","),
+                                    "full-scale-dba": Int(fullScale),
                                     "ceiling-db": String(format: "%.1f", ceilingDecibels),
                                     "ceiling": String(format: "%.3f", ceiling),
                                     "volume-db": String(format: "%.1f", Self.decibels(device, first, scalar: volume) ?? 0)])
@@ -198,6 +221,7 @@ final class LoudAudioGuard: Sendable {
                 s.putBack += 1
                 s.held?.volume = held.ceiling
             }
+            noticeOnce()
         }
     }
 
@@ -208,6 +232,7 @@ final class LoudAudioGuard: Sendable {
             defer {
                 s.held = nil
                 s.putBack = 0
+                s.noticed = false
             }
             let volumeListeners = s.deviceListeners.filter { $0.address.mSelector == kAudioDevicePropertyVolumeScalar }
             s.deviceListeners.removeAll { $0.address.mSelector == kAudioDevicePropertyVolumeScalar }
@@ -248,14 +273,28 @@ final class LoudAudioGuard: Sendable {
             s.held.map { LoudAudio.swallowsVolumeUp(at: $0.volume, step: LoudAudio.keyStep(fine: fine), ceiling: $0.ceiling) }
                 ?? false
         }
-        return swallow ? nil : Unmanaged.passUnretained(event)
+        guard swallow else { return Unmanaged.passUnretained(event) }
+        noticeOnce()
+        return nil
+    }
+
+    /// The hold stopped the volume: the first time, say so.
+    private func noticeOnce() {
+        let level = state.withLock { s -> LoudAudio.Level? in
+            guard s.held != nil, !s.noticed else { return nil }
+            s.noticed = true
+            return s.level
+        }
+        guard let level, let action = notice.withLock({ $0 }) else { return }
+        action(level)
     }
 
     /// What the listener would have filed, for a test that hands `handle`
     /// events: a ceiling held, at a volume. Nil holds nothing.
-    func pretendHeld(ceiling: Float?, volume: Float) {
+    func pretendHeld(ceiling: Float?, volume: Float, level: LoudAudio.Level = .standard) {
         state.withLock { s in
             s.held = ceiling.map { Held(device: 0, elements: [], ceiling: $0, volume: volume) }
+            s.level = level
         }
     }
 

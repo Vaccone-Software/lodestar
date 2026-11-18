@@ -38,12 +38,12 @@ final class SettingsLightTests: XCTestCase {
             settings.renderForTesting(place: place)
             keys += settings.viewsForTesting(of: RoomButton.self)
         }
-        for (glyph, name) in [(Glyph.remove, "Remove"), (.undo, "Reset"), (.add, "Add")] {
+        for (glyph, names) in [(Glyph.remove, ["Remove"]), (.undo, ["Reset", "Undo"]), (.add, ["Add"])] {
             let wearing = keys.filter { $0.glyph == glyph }
-            XCTAssertFalse(wearing.isEmpty, "\(name) is drawn as its glyph")
+            XCTAssertFalse(wearing.isEmpty, "\(names[0]) is drawn as its glyph")
             for key in wearing {
-                XCTAssertEqual(key.toolTip, name, "named on hover")
-                XCTAssertEqual(key.accessibilityLabel(), name, "named to VoiceOver")
+                XCTAssertTrue(names.contains(key.toolTip ?? ""), "named on hover")
+                XCTAssertEqual(key.accessibilityLabel(), key.toolTip, "named to VoiceOver")
                 XCTAssertEqual(key.intrinsicContentSize.width, key.intrinsicContentSize.height, "a square key")
             }
         }

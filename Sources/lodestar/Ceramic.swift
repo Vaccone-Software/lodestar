@@ -893,7 +893,17 @@ final class RoomButton: NSButton, CeramicDepth {
 
     required init?(coder: NSCoder) { nil }
 
-    private(set) var glyph: Glyph? { didSet { restyle() } }
+    private(set) var glyph: Glyph? {
+        didSet {
+            // Drawn each time it is shown, so the ink is always the key's own.
+            image = glyph.map { NSImage.glyph($0, size: BarTheme.glyph) { [weak self] in self?.ink ?? BarTheme.ink } }
+            imagePosition = .imageOnly
+        }
+    }
+
+    /// A button that cannot be undone says so in its words, never in an
+    /// alarm colour: one light, no paint.
+    private var ink: NSColor { primary ? BarTheme.onAccent : (isEnabled ? BarTheme.ink : BarTheme.secondaryColor) }
 
     override var title: String {
         didSet { restyle() }
@@ -945,17 +955,10 @@ final class RoomButton: NSButton, CeramicDepth {
     }
 
     private func restyle() {
-        // A button that cannot be undone says so in its words, never in
-        // an alarm colour: one light, no paint.
-        let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? BarTheme.ink : BarTheme.secondaryColor)
-        if let glyph {
-            image = NSImage.glyph(glyph, size: BarTheme.glyph) { color }
-            imagePosition = .imageOnly
-        } else {
-            let words = super.title
+        if glyph == nil {
             super.attributedTitle = NSAttributedString(
-                string: words,
-                attributes: BarTheme.attributes(.control, color: color, in: effectiveAppearance))
+                string: super.title,
+                attributes: BarTheme.attributes(.control, color: ink, in: effectiveAppearance))
         }
         standing.pressed = pressing
         let state: Keycaps.CapState = pressing ? .pressed : (hovering ? .hovered : .resting)

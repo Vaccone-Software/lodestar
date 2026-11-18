@@ -37,8 +37,18 @@ final class ClickDoorChipsTests: XCTestCase {
                                              stage.engine.select.entryLabeled.map(\.frame)))
     }
 
-    private func wait(_ seconds: TimeInterval) {
-        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    /// Spin the main run loop until `condition` holds. The chips are spent
+    /// by the door's own timer, and a loaded runner fires it late: a fixed
+    /// wait 200 ms past it saw no chips on CI (5e37043d, a 695 s run) and
+    /// the empty labels ended the process. The minute is a hang guard and
+    /// no bound on how long the door may take.
+    private func settle(_ what: String, file: StaticString = #filePath, line: UInt = #line,
+                        until condition: () -> Bool) {
+        let deadline = Date().addingTimeInterval(60)
+        while !condition() {
+            guard Date() < deadline else { XCTFail("never settled: \(what)", file: file, line: line); return }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
     }
 
     /// A full harvest: a role-named button first, then pressables found
@@ -56,17 +66,18 @@ final class ClickDoorChipsTests: XCTestCase {
         XCTAssertTrue(stage.engine.select.enter(door: .click))
         let deliver = try XCTUnwrap(answer, "the door asked the tree")
         deliver(first)
-        wait(0.6)
+        settle("the chips are spent") { !stage.engine.select.entryLabels.isEmpty }
         let spent = chips
         XCTAssertEqual(spent.count, capacity, "every target is unreachable with no words, so each wears a chip")
-        XCTAssertEqual(spent[stage.engine.select.entryLabels[0]], button)
+        let firstLabel = try XCTUnwrap(stage.engine.select.entryLabels.first)
+        XCTAssertEqual(spent[firstLabel], button)
 
         stage.engine.select.adopt([(element: AXUIElementCreateSystemWide(),
                                     frame: CGRect(x: 20, y: 15, width: 60, height: 20), text: "Share",
                                     settable: false, bounded: true, lineTier: false)])
         let owner = target(CGRect(x: 10, y: 900, width: 80, height: 30), viaAction: false)
         deliver(first + [owner])
-        wait(0.1)
+        settle("the owner joins") { stage.engine.select.entryTargets.count == capacity + 1 }
 
         XCTAssertEqual(chips, spent, "no chip moved")
         XCTAssertEqual(stage.engine.select.entryTargets.count, capacity + 1,

@@ -22,7 +22,7 @@ final class ConfigFileSchemaTests: XCTestCase {
             "app": .table([
                 "auto-update": .bool(true), "channel": .string("stable"), "daily-count": .bool(true),
                 "sounds": .bool(true), "start-at-login": .bool(true), "show-menu-bar": .bool(true),
-                "active-display": .string("pointer"), "units": .string(""),
+                "active-display": .string("pointer"), "units": .string(""), "reduce-loud-audio": .string("off"),
             ]),
             "graph": .table([:]),
             "web": .table([

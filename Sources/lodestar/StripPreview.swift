@@ -187,6 +187,12 @@ enum StripPreview {
             })
             app.run()
         }
+        // 150: Reduce loud audio's note, the first time a hold stops the volume.
+        if variant == 150 {
+            let hud = HUD()
+            hud.showVoice(sentence: LoudAudio.noticeSentence, detail: LoudAudio.noticeDetail(.strong), rows: [], owner: .flash)
+            app.run()
+        }
         // 19: the pill in its three states — PILL=standing|listening|typing.
         if variant == 19 {
             let pill = ModePill()

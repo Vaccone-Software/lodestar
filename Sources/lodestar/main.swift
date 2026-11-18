@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// `mice.reversed-wheels`: turns the wheel of each mouse ticked apart
     /// from the trackpad.
     private let reversedWheels = ReversedWheels()
+    private let loudAudio = LoudAudioGuard()
     /// Which road each focus change took — stamped by the summon path,
     /// the main tap (⌘⇥), and the mouse tap (clicks); read by the focus
     /// observer. See `FocusRoads`.
@@ -209,6 +210,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ActivePolicy.mode = loaded.activeDisplayMode
         reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
+        // The first time a hold stops the volume, the note says why and where
+        // it is set, so a key that does nothing never looks broken. Only on
+        // a clear glass: a guide or the coach standing is not taken over.
+        loudAudio.onHeld { level in
+            DispatchQueue.main.async { [weak self] in
+                guard let hud = self?.hud, hud.owner == .none || hud.owner == .flash else { return }
+                hud.showVoice(sentence: LoudAudio.noticeSentence, detail: LoudAudio.noticeDetail(level), rows: [],
+                              owner: .flash, seconds: Readability.flashSeconds(for: LoudAudio.noticeSentence))
+            }
+        }
+        loudAudio.configure(level: loaded.reduceLoudAudio)
         // A layout switched at lunch renames the keys by the afternoon:
         // the overlay recomputes the moment the input source changes.
         NotificationCenter.default.addObserver(
@@ -2613,6 +2625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ActivePolicy.mode = loaded.activeDisplayMode
         reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
+        loudAudio.configure(level: loaded.reduceLoudAudio)
         engine.config = loaded
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate

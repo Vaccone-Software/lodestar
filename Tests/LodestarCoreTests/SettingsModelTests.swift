@@ -367,6 +367,33 @@ final class SettingsCoverageTests: XCTestCase {
         XCTAssertEqual(eye?.isDefault, true)
     }
 
+    /// Reduce loud audio is one menu, Off until the person picks a level, in
+    /// Sound and display right after Sounds, and found by what people type.
+    /// The levels are named for how much they reduce, with no figures.
+    func testReduceLoudAudioIsOneMenuOffBesideSounds() throws {
+        let general = try XCTUnwrap(SettingsModel.catalog(config: Config(), machine: .init()).first { $0.name == "General" })
+        let titles = general.rows.filter { $0.group == "Sound and display" }.map(\.title)
+        XCTAssertEqual(Array(titles.prefix(2)), ["Sounds", "Reduce loud audio"])
+        let row = try XCTUnwrap(general.rows.first { $0.path == "app.reduce-loud-audio" })
+        guard case .choice(let options, let labels, let current) = row.control else { return XCTFail("one menu, no slider") }
+        XCTAssertEqual(options, ["off", "light", "standard", "strong"])
+        XCTAssertEqual(labels, ["Off", "Light", "Standard", "Strong"])
+        XCTAssertEqual(current, "off", "off by default")
+        XCTAssertEqual(row.isDefault, true)
+        XCTAssertNotNil(row.letter)
+
+        var on = Config()
+        on.reduceLoudAudio = .standard
+        let held = try XCTUnwrap(SettingsModel.catalog(config: on, machine: .init())
+            .flatMap(\.rows).first { $0.path == "app.reduce-loud-audio" })
+        if case .choice(_, _, let value) = held.control { XCTAssertEqual(value, "standard") } else { XCTFail("one menu") }
+        XCTAssertEqual(held.isDefault, false)
+
+        for word in ["headphones", "volume", "hearing", "loud"] {
+            XCTAssertTrue(SettingsModel.aliases["General"]?.split(separator: " ").contains(Substring(word)) == true, word)
+        }
+    }
+
     func testTheRetiredInteractionSwitchesAreGone() {
         let sections = SettingsModel.catalog(config: Config(), machine: .init())
         let paths = sections.flatMap { $0.rows }.compactMap { $0.path }

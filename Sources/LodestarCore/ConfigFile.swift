@@ -54,6 +54,7 @@ public struct ConfigFile: Sendable, Equatable {
         public var autoUpdate = true
         public var channel = Updater.Channel.stable
         public var dailyCount = true
+        public var reduceLoudAudio = LoudAudio.Level.off
         public var showMenuBar = true
         public var sounds = true
         public var startAtLogin = true
@@ -307,6 +308,8 @@ extension ConfigFile {
               doc: "Which releases updates follow. Stable takes a build once it has run on preview Macs for a few days. Preview takes every build as it ships.")
         Field("daily-count", \.dailyCount, .bool,
               doc: "Once a day, tell the Lodestar site that this Mac used Lodestar: the version, the update channel and how long ago it was installed, with no ID and no tracker. Its own switch, apart from updates (installed app only).")
+        Field("reduce-loud-audio", \.reduceLoudAudio, .enumeration(LoudAudio.Level.self),
+              doc: "Keep headphone volume below a safe level: off, light (85 dBA at the ear), standard (80, safe for long listening every day) or strong (75, for children), assuming Bluetooth headphones reach 110 dBA at full volume and wired ones, which the Mac drives, 120. The volume keys stop there and other raises are put back. Speakers are never limited.")
         Field("show-menu-bar", \.showMenuBar, .bool,
               doc: "Show the status item permanently; false hides it until lodestar is picked in the launcher.")
         Field("sounds", \.sounds, .bool,

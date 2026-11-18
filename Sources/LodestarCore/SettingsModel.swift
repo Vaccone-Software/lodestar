@@ -439,6 +439,12 @@ public enum SettingsModel {
                 control: .toggle(config.sounds),
                 detail: "Lodestar's alert, and the draft's notes when the microphone is live and when the words land",
                 isDefault: config.sounds, group: "Sound and display"),
+            Row(title: "Reduce loud audio", path: "app.reduce-loud-audio",
+                control: .choice(options: LoudAudio.Level.allCases.map(\.rawValue),
+                                 labels: LoudAudio.Level.allCases.map(\.name),
+                                 current: config.reduceLoudAudio.rawValue),
+                detail: "Keeps headphone volume below a safe level. Light suits noisy places and quiet headphones, Standard is safe for long listening every day, and Strong is for children or the most protection. Speakers are never limited",
+                isDefault: config.reduceLoudAudio == .off, group: "Sound and display"),
             Row(title: "Active display", path: "app.active-display",
                 control: .choice(options: ["pointer", "focus"],
                                  labels: ["Under the pointer", "With the focused window"],
@@ -1066,7 +1072,7 @@ public enum SettingsModel {
 
     /// The words people type for a place that is named by what it does.
     static let aliases: [String: String] = [
-        "General": "login startup updates stable preview channel release daily count usage ping eye comfort sunset bedtime dim dark night sound menu bar display accessibility permission",
+        "General": "login startup updates stable preview channel release daily count usage ping eye comfort sunset bedtime dim dark night sound reduce loud audio headphones volume hearing ears menu bar display accessibility permission",
         "Write": "editor grammar spelling typos proofread",
         "Switch": "windows launcher apps graph letters breaths layout maximize",
         "Keep": "clipboard copy paste history clips",

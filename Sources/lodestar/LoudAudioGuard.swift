@@ -111,30 +111,41 @@ final class LoudAudioGuard: Sendable {
             return
         }
         let volume = elements.compactMap { Self.scalar(device, $0) }.max() ?? 0
-        let alreadyHeld = state.withLock { s -> Bool in
-            let same = s.held?.device == device
+        // The same headset changes its controls when it changes mode: in a
+        // call (the microphone open, 16 kHz) a Bluetooth headset's two
+        // channels become one main volume on another curve (−40…0 became
+        // −32…0 on 2026-11-18). Listeners on controls that are gone hear
+        // nothing, so the volume ones follow the controls there are now.
+        let (unchanged, stale) = state.withLock { s -> (Bool, [Listener]) in
+            let unchanged = s.held?.device == device && s.held?.elements == elements && s.held?.ceiling == ceiling
+            if s.held?.device != device { s.putBack = 0 }
             s.held = Held(device: device, elements: elements, ceiling: ceiling, volume: volume)
-            if !same { s.putBack = 0 }
-            return same
+            guard !unchanged else { return (true, []) }
+            let stale = s.deviceListeners.filter { $0.address.mSelector == kAudioDevicePropertyVolumeScalar }
+            s.deviceListeners.removeAll { $0.address.mSelector == kAudioDevicePropertyVolumeScalar }
+            return (false, stale)
         }
-        if !alreadyHeld {
+        if !unchanged {
+            stale.forEach(remove)
             for element in elements {
                 let address = Self.address(kAudioDevicePropertyVolumeScalar, Self.output, element)
                 if let listener = listen(device, address, { [weak self] in self?.volumeMoved() }) {
                     state.withLock { $0.deviceListeners.append(listener) }
                 }
             }
-            Log.info("loud-audio", ["held": "headphones",
+            Log.info("loud-audio", ["held": "headphones", "elements": elements.map(String.init).joined(separator: ","),
                                     "ceiling-db": String(format: "%.1f", LoudAudio.ceilingDecibels),
+                                    "ceiling": String(format: "%.3f", ceiling),
                                     "volume-db": String(format: "%.1f", Self.decibels(device, first, scalar: volume) ?? 0)])
         }
         putBackIfOver()
         startTap()
     }
 
-    /// Listen to `device`'s data source and streams, the two that change
-    /// when headphones go into the jack or a device changes what it is.
-    /// Moving to another device drops every listener on the last one.
+    /// Listen to what changes when headphones go into the jack, or a device
+    /// changes what it is or how its volume is controlled: its data source,
+    /// its streams, its sample rate (a headset going into a call) and its
+    /// controls. Moving to another device drops every listener on the last.
     private func watch(_ device: AudioObjectID) {
         let (old, listeners) = state.withLock { s -> (AudioObjectID, [Listener]) in
             guard s.device != device else { return (device, []) }
@@ -145,8 +156,13 @@ final class LoudAudioGuard: Sendable {
         listeners.forEach(remove)
         state.withLock { if $0.held?.device == old { $0.held = nil } }
         guard device != 0 else { return }
-        for selector in [kAudioDevicePropertyDataSource, kAudioDevicePropertyStreams] {
-            let address = Self.address(selector, Self.output)
+        let layout = [
+            Self.address(kAudioDevicePropertyDataSource, Self.output),
+            Self.address(kAudioDevicePropertyStreams, Self.output),
+            Self.address(kAudioDevicePropertyNominalSampleRate),
+            Self.address(kAudioObjectPropertyControlList),
+        ]
+        for address in layout {
             if let listener = listen(device, address, { [weak self] in self?.refresh() }) {
                 state.withLock { $0.deviceListeners.append(listener) }
             }

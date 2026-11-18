@@ -1,4 +1,5 @@
 import AppKit
+import Accelerate
 import AVFoundation
 import CoreAudio
 import Foundation
@@ -31,7 +32,12 @@ func runListening(_ args: inout [String]) {
         let seconds = Double(value(of: "--seconds", in: &args) ?? "") ?? 10
         let noise = value(of: "--noise", in: &args).flatMap(Double.init)
         let nudge = has("--nudge", in: &args)
-        ListeningProbe.tap(seconds: seconds, noiseDBFS: noise, nudge: nudge)
+        let lean = has("--lean", in: &args)
+        let frames = value(of: "--buffer", in: &args).flatMap(UInt32.init)
+        let onDevice = has("--device", in: &args)
+        let mono = has("--mono", in: &args)
+        ListeningProbe.tap(seconds: seconds, noiseDBFS: noise, nudge: nudge, lean: lean, bufferFrames: frames,
+                           onDevice: onDevice, mono: mono)
     case "clamp":
         let presses = Int(value(of: "--presses", in: &args) ?? "") ?? 5
         let mode = has("--swallow", in: &args) ? ListeningProbe.ClampMode.swallow : .scalar
@@ -44,7 +50,8 @@ private func listeningUsage() -> Never {
     print("""
     usage:
       probe listening devices
-      probe listening tap [--seconds N] [--noise DBFS] [--nudge]
+      probe listening tap [--seconds N] [--noise DBFS] [--nudge] [--lean] [--buffer FRAMES]
+                                [--device | --mono]
       probe listening clamp [--presses N] [--swallow]
     """)
     exit(2)
@@ -153,10 +160,23 @@ enum ListeningProbe {
 
     /// What the IO thread owns: the filter's memory and the block it fills.
     /// The main thread only swaps the block out once a second.
-    struct IOState { var weighting: AWeighting; var block = Block() }
+    struct IOState {
+        var weighting: AWeighting
+        var block = Block()
+        /// The lean path: one vDSP biquad cascade, a delay line per channel.
+        var setup: vDSP_biquad_Setup?
+        var delays: [[Float]] = []
+        var scratch: [Float] = []
+    }
 
-    static func tap(seconds: Double, noiseDBFS: Double?, nudge: Bool) {
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+    static func tap(seconds: Double, noiseDBFS: Double?, nudge: Bool, lean: Bool, bufferFrames: UInt32?,
+                    onDevice: Bool, mono: Bool) {
+        // Global stereo mixdown by default; --device taps the default output's
+        // own stream at its own rate, --mono a mono mixdown.
+        let description = onDevice
+            ? CATapDescription(excludingProcesses: [], deviceUID: string(defaultOutput(), kAudioDevicePropertyDeviceUID), stream: 0)
+            : mono ? CATapDescription(monoGlobalTapButExcludeProcesses: [])
+            : CATapDescription(stereoGlobalTapButExcludeProcesses: [])
         description.uuid = UUID()
         description.isPrivate = true
         description.muteBehavior = .unmuted
@@ -188,7 +208,22 @@ enum ListeningProbe {
         let rate = format.mSampleRate
         let channels = Int(format.mChannelsPerFrame)
         let interleaved = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
-        let io = Mutex(IOState(weighting: AWeighting(sampleRate: rate, channels: channels)))
+        var initial = IOState(weighting: AWeighting(sampleRate: rate, channels: channels))
+        if lean {
+            let coefficients = initial.weighting.biquadCoefficients
+            initial.setup = vDSP_biquad_CreateSetup(coefficients, vDSP_Length(coefficients.count / 5))
+            initial.delays = Array(repeating: Array(repeating: 0, count: 2 * coefficients.count / 5 + 2), count: channels)
+            initial.scratch = Array(repeating: 0, count: 16384)
+        }
+        let io = Mutex(initial)
+        if let bufferFrames {
+            let range = read(aggregate, address(kAudioDevicePropertyBufferFrameSizeRange), AudioValueRange())
+            var frames = bufferFrames
+            var sizeAddress = address(kAudioDevicePropertyBufferFrameSize)
+            let set = AudioObjectSetPropertyData(aggregate, &sizeAddress, 0, nil, 4, &frames)
+            let now = read(aggregate, address(kAudioDevicePropertyBufferFrameSize), UInt32(0)) ?? 0
+            print("buffer: asked \(bufferFrames) frames, status \(set), now \(now), range \(range.map { "\($0.mMinimum)…\($0.mMaximum)" } ?? "-")")
+        }
         let timebase = ListeningProbe.timebase
 
         var procID: AudioDeviceIOProcID?
@@ -197,6 +232,32 @@ enum ListeningProbe {
             let start = mach_absolute_time()
             let list = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
             io.withLock { state in
+            if lean, let setup = state.setup {
+                var raw = 0.0, weighted = 0.0, frames = 0
+                for buffer in list {
+                    guard let data = buffer.mData?.assumingMemoryBound(to: Float32.self) else { continue }
+                    let stride = Int(buffer.mNumberChannels)
+                    let count = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size / max(stride, 1)
+                    let n = min(count, state.scratch.count)
+                    for channel in 0..<min(stride, state.delays.count) {
+                        var energy: Float = 0
+                        vDSP_svesq(data + channel, vDSP_Stride(stride), &energy, vDSP_Length(n))
+                        raw += Double(energy)
+                        state.scratch.withUnsafeMutableBufferPointer { out in
+                            state.delays[channel].withUnsafeMutableBufferPointer { delay in
+                                vDSP_biquad(setup, delay.baseAddress!, data + channel, vDSP_Stride(stride),
+                                            out.baseAddress!, 1, vDSP_Length(n))
+                                vDSP_svesq(out.baseAddress!, 1, &energy, vDSP_Length(n))
+                            }
+                        }
+                        weighted += Double(energy)
+                    }
+                    frames = n
+                }
+                state.block.raw += raw; state.block.weighted += weighted; state.block.frames += frames
+                state.block.callbacks += 1; state.block.busy += mach_absolute_time() - start
+                return
+            }
             var raw = 0.0, weighted = 0.0, frames = 0
             for (index, buffer) in list.enumerated() {
                 guard let data = buffer.mData?.assumingMemoryBound(to: Float32.self) else { continue }
@@ -249,6 +310,9 @@ enum ListeningProbe {
             }
         }
 
+        let running = read(device, address(kAudioDevicePropertyDeviceIsRunningSomewhere), UInt32(0))
+        print("output running somewhere: \(running.map(String.init) ?? "-")")
+        let cpuBefore = ListeningProbe.processCPU()
         player?.start()
         let started = AudioDeviceStart(aggregate, procID)
         guard started == noErr else { print("tap: start failed \(started)"); exit(1) }
@@ -277,7 +341,10 @@ enum ListeningProbe {
                          seconds_, raw, a, vol, 110 + a + vol, block.callbacks, busyMS))
         }
         AudioDeviceStop(aggregate, procID)
+        let cpu = ListeningProbe.processCPU() - cpuBefore
         player?.stop()
+        print(String(format: "result: the whole process used %.1f ms of CPU per second (%.2f%% of a core)%@",
+                     cpu * 1000 / seconds, cpu * 100 / seconds, noiseDBFS == nil ? "" : ", the noise player included"))
         restore()
 
         let silent = levels.allSatisfy { $0.raw < -110 }
@@ -321,6 +388,15 @@ enum ListeningProbe {
     }
 
     static let soundUp = 0 // NX_KEYTYPE_SOUND_UP
+
+    /// User and system CPU seconds this process has used.
+    static func processCPU() -> Double {
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        let user = Double(usage.ru_utime.tv_sec) + Double(usage.ru_utime.tv_usec) / 1e6
+        let system = Double(usage.ru_stime.tv_sec) + Double(usage.ru_stime.tv_usec) / 1e6
+        return user + system
+    }
 
     static let timebase: mach_timebase_info = {
         var info = mach_timebase_info()
@@ -484,6 +560,15 @@ struct AWeighting: Sendable {
             magnitude *= sqrt((numRe * numRe + numIm * numIm) / (denRe * denRe + denIm * denIm))
         }
         gain = 1 / magnitude
+    }
+
+    /// The same cascade as vDSP biquads (b0 b1 b2 a1 a2 per section), the
+    /// 1 kHz normalization folded into the first.
+    var biquadCoefficients: [Double] {
+        sections.enumerated().flatMap { index, s in
+            let g = index == 0 ? gain : 1
+            return [s.b0 * g, s.b1 * g, 0, s.a1, 0]
+        }
     }
 
     mutating func process(_ input: Double, channel: Int) -> Double {

@@ -887,19 +887,16 @@ final class RoomButton: NSButton, CeramicDepth {
     convenience init(glyph: Glyph, named name: String, target: AnyObject?, action: Selector?) {
         self.init(title: "", target: target, action: action)
         self.glyph = glyph
+        // Drawn each time it is shown, so the ink is always the key's own.
+        image = NSImage.glyph(glyph, size: BarTheme.glyph) { [weak self] in self?.ink ?? BarTheme.ink }
+        imagePosition = .imageOnly
         toolTip = name
         setAccessibilityLabel(name)
     }
 
     required init?(coder: NSCoder) { nil }
 
-    private(set) var glyph: Glyph? {
-        didSet {
-            // Drawn each time it is shown, so the ink is always the key's own.
-            image = glyph.map { NSImage.glyph($0, size: BarTheme.glyph) { [weak self] in self?.ink ?? BarTheme.ink } }
-            imagePosition = .imageOnly
-        }
-    }
+    private(set) var glyph: Glyph?
 
     /// A button that cannot be undone says so in its words, never in an
     /// alarm colour: one light, no paint.

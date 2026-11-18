@@ -47,6 +47,14 @@ final class SettingsLightTests: XCTestCase {
                 XCTAssertEqual(key.intrinsicContentSize.width, key.intrinsicContentSize.height, "a square key")
             }
         }
+        // Drawn, not only named: the key with its glyph is not the bare key.
+        for glyph in [Glyph.remove, .undo, .add] {
+            let key = RoomButton(glyph: glyph, named: "", target: nil, action: nil)
+            let bare = RoomButton(title: "", target: nil, action: nil)
+            for button in [key, bare] { button.frame = NSRect(origin: .zero, size: key.intrinsicContentSize) }
+            XCTAssertNotEqual(GalleryRender.bitmap(of: key).tiffRepresentation, GalleryRender.bitmap(of: bare).tiffRepresentation,
+                              "\(glyph) is drawn on its key")
+        }
         XCTAssertTrue(keys.filter { ["Remove", "Reset", "Add", "Undo"].contains($0.title) }.isEmpty,
                       "no key spells out a verb its glyph says")
     }

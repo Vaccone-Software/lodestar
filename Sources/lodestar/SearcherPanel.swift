@@ -989,13 +989,14 @@ final class KeyablePanel: CeramicPanel {
 }
 
 #if DEBUG
-/// Visual harness for the searcher's rows. The controller needs the whole
-/// app standing behind it; a row needs nothing, and the row is where the
-/// shared chip lives.
+/// Visual harness for the searcher's rows and the glyph leading its field.
+/// The controller needs the whole app standing behind it; a row needs
+/// nothing, and the row is where the shared chip lives.
 enum SearcherRowPreview {
     static func show() -> NSPanel {
         let panel = Ceramic.makePanel(level: .statusBar)
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: BarTheme.panelWidth, height: 230))
+        let height = 230 + BarTheme.fieldArea
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: BarTheme.panelWidth, height: height))
         Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
         let stack = NSStackView()
@@ -1024,14 +1025,23 @@ enum SearcherRowPreview {
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
 
+        let glyph = GlyphView(.appsAndWindows, size: BarTheme.inputGlyph)
+        glyph.contentTintColor = BarTheme.secondaryColor
+        let placeholder = NSTextField(labelWithAttributedString: BarTheme.placeholder("Apps and windows", role: .field))
+        let field = NSStackView(views: [glyph, placeholder])
+        field.spacing = Grid.part
+        field.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(field)
         root.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 12),
+            field.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: BarTheme.fieldInset),
+            field.centerYAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.fieldArea / 2),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: BarTheme.fieldArea + 12),
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
         ])
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
-        panel.setFrame(SoftShadow.outset(NSRect(x: 400, y: 400, width: BarTheme.panelWidth, height: 230)),
+        panel.setFrame(SoftShadow.outset(NSRect(x: 400, y: 400, width: BarTheme.panelWidth, height: height)),
                        display: true)
         panel.orderFrontRegardless()
         return panel

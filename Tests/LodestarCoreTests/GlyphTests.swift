@@ -23,10 +23,10 @@ final class GlyphTests: XCTestCase {
 
     /// The accent lands only where the hand goes next (design/01-colour.md):
     /// the click, the caret, a correction, the way a thing moves or routes,
-    /// what is added, chosen or pinned, and what needs you.
+    /// what is added, chosen or pinned, what needs you, and the way back.
     func testTheAccentIsWhereTheHandGoesNext() {
         let lit: Set<Glyph> = [.click, .select, .rename, .editor, .needsYou, .moveHere, .addLink, .route,
-                               .profilePinned, .chosen]
+                               .profilePinned, .chosen, .undo]
         XCTAssertEqual(Set(Glyph.allCases.filter(\.hasAccent)), lit)
     }
 

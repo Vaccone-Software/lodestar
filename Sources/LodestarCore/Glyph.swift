@@ -26,7 +26,7 @@ public enum Glyph: String, CaseIterable, Sendable {
     // Keep's actions.
     case pin, unpin, rename, edit, expand, save, showInFinder, moveHere, delete, neverSave
     // The bars' fields and cards.
-    case web, addLink, route, remove, add, profilePinned, profileUnpinned, chosen, notChosen, appsAndWindows, menus
+    case web, addLink, route, remove, add, undo, profilePinned, profileUnpinned, chosen, notChosen, appsAndWindows, menus
     // A control: a value chosen from a list.
     case choose
 
@@ -156,8 +156,20 @@ extension Glyph {
                     stroke([P(28, 50), P(44, 34), P(74, 64)], 10, cut: true)]
         case .notChosen:
             return [stroke(closed([P(50, 94), P(94, 50), P(50, 6), P(6, 50)]), 8, start: false, end: false)]
+        case .undo:
+            // An arc turning back on itself, anticlockwise, its head one of
+            // the mark's points: the earlier value, put back.
+            let arc = circle(P(50, 48), 36, n: 24, from: 150, to: 422)
+            let end = arc[arc.count - 1], turn = CGFloat(422) * .pi / 180
+            return [stroke(arc, 9, end: false), point(end, end + P(-sin(turn), cos(turn)) * 30, 15, accent: true)]
         case .appsAndWindows:
-            return [ring(P(42, 58), 30, 9), stroke([P(64, 36), P(92, 8)], 13, start: false)]
+            // The lens holds the mark and its handle is one of the mark's
+            // points: what is looked for is Lodestar's. In ink, because the
+            // field's caret is its one orange.
+            let centre = P(42, 58)
+            return [ring(centre, 30, 9), point(P(62, 38), P(97, 3), 11),
+                    point(centre, P(42, 73), 5.5), point(centre, P(57, 58), 5.5, lean: -0.3),
+                    point(centre, P(42, 43), 5.5), point(centre, P(27, 58), 5.5, lean: -0.3)]
         case .menus:
             return [pane(6, 8, 94, 92, 7), slab(6, 72, 94, 92)]
         case .choose:

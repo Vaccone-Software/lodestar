@@ -14,6 +14,9 @@ func usage() -> Never {
       probe check [--prompt]           accessibility trust + window-server reach
       probe smoke [--seconds N] [--ceiling-ms N]  post inert events through the live taps, time them
       probe pointer [--seconds N]      which fields name the device on each pointer event (reads only)
+      probe listening devices|tap|clamp  headphone safety: outputs and curves, a process tap
+                                       (--noise DBFS, --nudge), a volume ceiling (--presses N,
+                                       --virtual or --swallow)
       probe displays                   display bounds, their union, the parking point
       probe cg [--all]                 raw window-server list (works without accessibility)
       probe list                       every app's windows with CGWindowIDs (the private-call bridge)
@@ -89,6 +92,7 @@ case "dictation": runDictation(&arguments)
 case "editor": runEditor(&arguments)
 case "smoke": runSmoke(&arguments)
 case "pointer": runPointer(&arguments)
+case "listening": runListening(&arguments)
 case "memory-seed": runMemory(&arguments, rollup: false)
 case "update-feed": runUpdateFeed()
 case "memory-rollup": runMemory(&arguments, rollup: true)

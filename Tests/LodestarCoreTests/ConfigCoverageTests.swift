@@ -35,6 +35,7 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["app", "channel"], value: .string("preview")) { $0.channel == .preview },
         Probe(path: ["app", "daily-count"], value: .bool(false)) { !$0.dailyCount },
         Probe(path: ["app", "sounds"], value: .bool(false)) { !$0.sounds },
+        Probe(path: ["app", "reduce-loud-audio"], value: .bool(true)) { $0.reduceLoudAudio },
         Probe(path: ["app", "show-menu-bar"], value: .bool(false)) { !$0.showMenuBar },
         Probe(path: ["app", "start-at-login"], value: .bool(false)) { !$0.startAtLogin },
 

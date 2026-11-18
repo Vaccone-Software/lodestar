@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// `mice.reversed-wheels`: turns the wheel of each mouse ticked apart
     /// from the trackpad.
     private let reversedWheels = ReversedWheels()
+    private let loudAudio = LoudAudioGuard()
     /// Which road each focus change took — stamped by the summon path,
     /// the main tap (⌘⇥), and the mouse tap (clicks); read by the focus
     /// observer. See `FocusRoads`.
@@ -209,6 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ActivePolicy.mode = loaded.activeDisplayMode
         reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
+        loudAudio.configure(enabled: loaded.reduceLoudAudio)
         // A layout switched at lunch renames the keys by the afternoon:
         // the overlay recomputes the moment the input source changes.
         NotificationCenter.default.addObserver(
@@ -2613,6 +2615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ActivePolicy.mode = loaded.activeDisplayMode
         reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
+        loudAudio.configure(enabled: loaded.reduceLoudAudio)
         engine.config = loaded
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate

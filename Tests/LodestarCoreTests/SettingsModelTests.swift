@@ -367,6 +367,29 @@ final class SettingsCoverageTests: XCTestCase {
         XCTAssertEqual(eye?.isDefault, true)
     }
 
+    /// Reduce loud audio is one switch, off until the person turns it on, in
+    /// Sound and display right after Sounds, and found by what people type.
+    func testReduceLoudAudioIsOneSwitchOffBesideSounds() throws {
+        let general = try XCTUnwrap(SettingsModel.catalog(config: Config(), machine: .init()).first { $0.name == "General" })
+        let titles = general.rows.filter { $0.group == "Sound and display" }.map(\.title)
+        XCTAssertEqual(Array(titles.prefix(2)), ["Sounds", "Reduce loud audio"])
+        let row = try XCTUnwrap(general.rows.first { $0.path == "app.reduce-loud-audio" })
+        if case .toggle(let on) = row.control { XCTAssertFalse(on, "off by default") } else { XCTFail("one switch, no slider") }
+        XCTAssertEqual(row.isDefault, true)
+        XCTAssertNotNil(row.letter)
+
+        var on = Config()
+        on.reduceLoudAudio = true
+        let held = try XCTUnwrap(SettingsModel.catalog(config: on, machine: .init())
+            .flatMap(\.rows).first { $0.path == "app.reduce-loud-audio" })
+        if case .toggle(let value) = held.control { XCTAssertTrue(value) } else { XCTFail("one switch") }
+        XCTAssertEqual(held.isDefault, false)
+
+        for word in ["headphones", "volume", "hearing", "loud"] {
+            XCTAssertTrue(SettingsModel.aliases["General"]?.split(separator: " ").contains(Substring(word)) == true, word)
+        }
+    }
+
     func testTheRetiredInteractionSwitchesAreGone() {
         let sections = SettingsModel.catalog(config: Config(), machine: .init())
         let paths = sections.flatMap { $0.rows }.compactMap { $0.path }

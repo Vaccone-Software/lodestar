@@ -147,7 +147,7 @@ final class ScrollScenarioTests: XCTestCase {
         XCTAssertEqual(state?.mode, .scroll)
         XCTAssertEqual(state?.listening, false)
         XCTAssertNil(state?.text)
-        XCTAssertEqual(ModePill.layout(for: state!).first, .symbol("arrow.up.and.down"))
+        XCTAssertEqual(ModePill.layout(for: state!).first, .symbol(.scroll))
         XCTAssertFalse(ModePill.layout(for: state!).contains(.caret), "scroll is not listening")
     }
 
@@ -162,7 +162,7 @@ final class ScrollScenarioTests: XCTestCase {
         let state = stage.engine.pill.state
         XCTAssertEqual(state?.text, "Threads")
         XCTAssertEqual(ModePill.layout(for: state!),
-                       [.symbol("arrow.up.and.down"), .text("Threads"), state?.icon == nil ? .appWord(state!.app) : .appIcon])
+                       [.symbol(.scroll), .text("Threads"), state?.icon == nil ? .appWord(state!.app) : .appIcon])
     }
 
     /// Leaving the mode takes the pill down.

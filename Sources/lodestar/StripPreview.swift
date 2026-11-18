@@ -231,7 +231,7 @@ enum StripPreview {
         if variant == 7 {
             // A guide with no icons at all, as the scroll guide is.
             let hud = HUD()
-            hud.showGuide(mark: "arrow.up.and.down", keys: ["lode", "`"], rows: [
+            hud.showGuide(mark: .scroll, keys: ["lode", "`"], rows: [
                 GuideRow(key: "J K", label: "Down · up"),
                 GuideRow(key: "D U", label: "Half-page down · up"),
                 GuideRow(key: "/", label: "Aim at a word"),

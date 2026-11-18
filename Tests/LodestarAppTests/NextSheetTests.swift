@@ -106,7 +106,7 @@ final class NextSheetTests: XCTestCase {
     func testOpeningIsAModeOfThePill() {
         let state = ModePill.State(mode: .opening, app: "Slack", icon: nil, listening: false, text: nil)
         let pieces = ModePill.layout(for: state)
-        XCTAssertEqual(pieces.first, .symbol("arrow.up.forward.app"))
+        XCTAssertEqual(pieces.first, .symbol(.open))
         XCTAssertTrue(pieces.contains(.modeWord("Opening")))
         XCTAssertTrue(pieces.contains(.appWord("Slack")))
         XCTAssertLessThan(Actions.openingPatience, 0.5, "a running app's summon is instant and never shows it")

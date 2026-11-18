@@ -1154,8 +1154,7 @@ final class DraftPanel {
         if let card = view.card {
             // The card being edited, where the destination would stand:
             // there is no destination, since nothing here pastes.
-            registerIcon.image = card.icon ?? NSImage(systemSymbolName: "doc.on.clipboard",
-                                                      accessibilityDescription: "clipboard")
+            registerIcon.image = card.icon ?? NSImage.glyph(.copied, size: BarTheme.glyph, description: "clipboard") { BarTheme.secondaryColor }
             registerIcon.contentTintColor = card.icon == nil ? BarTheme.secondaryColor : nil
             registerName.stringValue = card.name
         } else if let destination = view.destination {
@@ -1163,8 +1162,7 @@ final class DraftPanel {
             registerIcon.contentTintColor = nil
             registerName.stringValue = destination.name
         } else {
-            registerIcon.image = NSImage(systemSymbolName: "doc.on.clipboard",
-                                         accessibilityDescription: "clipboard")
+            registerIcon.image = NSImage.glyph(.copied, size: BarTheme.glyph, description: "clipboard") { BarTheme.secondaryColor }
             registerIcon.contentTintColor = BarTheme.secondaryColor
             registerName.stringValue = "Clipboard"
         }

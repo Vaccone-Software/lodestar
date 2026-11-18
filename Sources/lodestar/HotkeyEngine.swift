@@ -2058,7 +2058,7 @@ final class HotkeyEngine {
             // The header is every key pressed so far, ⌫ included: a delete
             // armed is a key that was typed, and reads as one.
             let keys = ["lode", "'"] + (deleting ? ["⌫"] : []) + typed
-            hud.showGuide(mark: BarTheme.breathSymbol, keys: keys, rows: rows, footer: note)
+            hud.showGuide(mark: BarTheme.breathGlyph, keys: keys, rows: rows, footer: note)
         }
     }
 
@@ -2641,46 +2641,46 @@ extension HotkeyEngine: EngineWorld {
         var actions = [ClipboardStrip.Action(
             key: "k",
             label: clip.isPinned ? "Let go" : "Keep",
-            symbol: clip.isPinned ? "pin.slash" : "pin"
+            symbol: clip.isPinned ? .unpin : .pin
         )]
         if clip.isPinned {
-            actions.append(.init(key: "r", label: "Rename", symbol: "character.cursor.ibeam"))
+            actions.append(.init(key: "r", label: "Rename", symbol: .rename))
         }
         // Text cards open in the draft; a copy of files carries paths as
         // its text, and an image has none — it opens large instead, and
         // can be written to disk under a name.
         if clip.isEditable {
-            actions.append(.init(key: "e", label: "Edit", symbol: "square.and.pencil"))
+            actions.append(.init(key: "e", label: "Edit", symbol: .edit))
         }
         if clip.kind == .image {
             actions.append(.init(key: "e", label: "View",
-                                 symbol: "arrow.up.left.and.arrow.down.right"))
+                                 symbol: .expand))
             actions.append(.init(key: "s", label: "Save as",
-                                 symbol: "square.and.arrow.down"))
+                                 symbol: .save))
         }
         // One file is viewed large on the image door's glass; a group is not,
         // for the reason it does not open.
         if clip.pastesAsFiles, clip.itemCount == 1 {
             actions.append(.init(key: "e", label: "View",
-                                 symbol: "arrow.up.left.and.arrow.down.right"))
+                                 symbol: .expand))
         }
         // Files: where they are, what one opens in (a group does not open),
         // and, with the Finder in front, a move into the folder it shows,
         // which is the Finder's own Move Item Here, undone with ⌘Z there.
         if clip.pastesAsFiles {
-            actions.append(.init(key: "f", label: "Show in Finder", symbol: "folder"))
+            actions.append(.init(key: "f", label: "Show in Finder", symbol: .showInFinder))
             if clip.itemCount == 1 {
-                actions.append(.init(key: "o", label: "Open", symbol: "arrow.up.forward.app"))
+                actions.append(.init(key: "o", label: "Open", symbol: .open))
             }
             if finderInFront {
-                actions.append(.init(key: "m", label: "Move here", symbol: "arrow.right.doc.on.clipboard"))
+                actions.append(.init(key: "m", label: "Move here", symbol: .moveHere))
             }
         }
-        actions.append(.init(key: "d", label: "Delete", symbol: "trash",
+        actions.append(.init(key: "d", label: "Delete", symbol: .delete,
                              isDestructive: true))
         if clip.sourceAppName != nil {
             actions.append(.init(key: "x", label: "Never save from this app",
-                                 symbol: "hand.raised", isDestructive: true))
+                                 symbol: .neverSave, isDestructive: true))
         }
         return actions
     }

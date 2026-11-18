@@ -85,7 +85,7 @@ final class HUD {
     /// The mark the standing voice note carries, if it carries one.
     private(set) var voiceMark: LitMark?
     /// The last flash or guide title as drawn: its mark and its words.
-    private(set) var titleSymbol: String?
+    private(set) var titleSymbol: Glyph?
     private(set) var titleText: String?
 
     private let panel: NSPanel
@@ -126,7 +126,7 @@ final class HUD {
     /// only ever a note about the last press; the keys live on the sheet.
     /// The coach passes `.coach`; everything else is the guide, which is
     /// what makes a guide drawn over a chip a recorded takeover.
-    func showGuide(mark: String? = nil, keys: [String], rows: [GuideRow], footer: String? = nil,
+    func showGuide(mark: Glyph? = nil, keys: [String], rows: [GuideRow], footer: String? = nil,
                    owner: SurfaceOwner = .guide) {
         handOver(to: owner)
         hideWork?.cancel()
@@ -267,7 +267,7 @@ final class HUD {
         content = stack
     }
 
-    private func build(mark: String?, keys: [String], text: String?, way: String? = nil, titleIcon: NSImage?,
+    private func build(mark: Glyph?, keys: [String], text: String?, way: String? = nil, titleIcon: NSImage?,
                        rows: [GuideRow], footer: String?) {
         content?.removeFromSuperview()
         voiceSentence = nil
@@ -288,9 +288,8 @@ final class HUD {
         // The mark, in the pill's configuration: what kind of line this
         // is, drawn the way the pill draws its mode.
         var markView: NSView?
-        if let mark, let image = NSImage(systemSymbolName: mark, accessibilityDescription: nil)?
-            .withSymbolConfiguration(BarTheme.symbol) {
-            let view = NSImageView(image: image)
+        if let mark {
+            let view = GlyphView(mark)
             view.contentTintColor = BarTheme.ink
             view.setContentHuggingPriority(.required, for: .horizontal)
             titleRow.addArrangedSubview(view)

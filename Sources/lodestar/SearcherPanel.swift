@@ -63,7 +63,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private let panel: KeyablePanel
     private let root = NSView()
     private let field = InputField()
-    private let magnifier = NSImageView()
+    private let magnifier = GlyphView(.appsAndWindows, size: BarTheme.inputGlyph, description: "apps and windows")
     /// The field is a place you put something, so it sinks: a well one pane-inset
     /// inside the pane, rounded as every input is, at the control's radius.
     private let well = WellView()
@@ -145,11 +145,6 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
         Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
-        magnifier.image = NSImage(
-            systemSymbolName: "macwindow.on.rectangle",
-            accessibilityDescription: "apps and windows"
-        )
-        magnifier.symbolConfiguration = BarTheme.inputSymbol
         magnifier.contentTintColor = BarTheme.secondaryColor
         magnifier.translatesAutoresizingMaskIntoConstraints = false
 
@@ -775,13 +770,13 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 switch action {
                 case .add:
                     return OptionsCard.Item(keycap: keycap, title: "Add to graph",
-                                            symbol: "plus.circle")
+                                            symbol: .add)
                 case .remove(let binding):
                     // Several bindings: the chain is what tells the rows
                     // apart, and on a browser the profile says which one
                     // a remove would take.
                     return OptionsCard.Item(keycap: keycap, title: "Remove from graph",
-                                            symbol: "minus.circle", isDestructive: true,
+                                            symbol: .remove, isDestructive: true,
                                             chain: bindings.count > 1 ? binding.chain : [],
                                             detail: isBrowser
                                                 ? (binding.profile?.display ?? "Inherit") : nil)
@@ -841,7 +836,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                 control = OptionsCard.Item(
                     keycap: "⇥", title: "Profile",
                     symbol: profile == nil
-                        ? "person.crop.circle.dashed" : "person.crop.circle.fill",
+                        ? .profileUnpinned : .profilePinned,
                     detail: profile?.display ?? "Inherit")
             }
         }
@@ -861,12 +856,12 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         }
         var items = [OptionsCard.Item(
             keycap: "0", title: "Inherit",
-            symbol: profile == nil ? "checkmark.circle.fill" : "circle")]
+            symbol: profile == nil ? .chosen : .notChosen)]
         for (index, choice) in choices.enumerated() {
             items.append(OptionsCard.Item(
                 keycap: "\(index + 1)", title: choice.display,
                 symbol: profile?.canonical == choice.canonical
-                    ? "checkmark.circle.fill" : "circle"))
+                    ? .chosen : .notChosen))
         }
         profilesCard.present(.items(OptionsCard.Menu(
             header: "Opens in", items: items, footer: "⇥ back    esc cancel"

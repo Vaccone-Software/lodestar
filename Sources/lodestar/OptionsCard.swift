@@ -13,7 +13,7 @@ final class OptionsCard {
         let keycap: String
         let title: String
         /// Recognised before it is read, as in the clipboard's menu.
-        let symbol: String
+        let symbol: Glyph
         /// Drawn in red, for the same reason the clipboard's Delete is.
         var isDestructive = false
         /// The chain a remove targets, drawn as keycaps beside the key.
@@ -324,11 +324,11 @@ extension OptionsCard {
         switch which {
         case 1:
             card.present(.items(Menu(items: [Item(keycap: "d", title: "Remove from graph",
-                                                  symbol: "minus.circle", isDestructive: true)])),
+                                                  symbol: .remove, isDestructive: true)])),
                          anchor: anchor)
         case 2:
             card.present(.items(Menu(items: [Item(keycap: "a", title: "Add to graph",
-                                                  symbol: "plus.circle")])), anchor: anchor)
+                                                  symbol: .add)])), anchor: anchor)
         case 4:
             card.present(.typing(Typing(header: "Add Microsoft Outlook to graph",
                                         body: .keys(["e", "o"]),
@@ -341,7 +341,7 @@ extension OptionsCard {
                                         body: .text("yt", placeholder: "type a name"),
                                         verdict: "add lode ⏎ yt → https://youtube.com",
                                         control: Item(keycap: "⇥", title: "Profile",
-                                                      symbol: "person.crop.circle.dashed",
+                                                      symbol: .profileUnpinned,
                                                       detail: "Inherit"),
                                         detail: "opens in Google · route · youtube",
                                         footer: "⌫ back up    esc back")),
@@ -350,10 +350,10 @@ extension OptionsCard {
             profiles.present(.items(Menu(
                 header: "Opens in",
                 items: [
-                    Item(keycap: "0", title: "Inherit", symbol: "checkmark.circle.fill",
+                    Item(keycap: "0", title: "Inherit", symbol: .chosen,
                          detail: "Google · route"),
-                    Item(keycap: "1", title: "google", symbol: "circle", detail: "Brave"),
-                    Item(keycap: "2", title: "work", symbol: "circle", detail: "Chrome"),
+                    Item(keycap: "1", title: "google", symbol: .notChosen, detail: "Brave"),
+                    Item(keycap: "2", title: "work", symbol: .notChosen, detail: "Chrome"),
                 ],
                 footer: "⇥ back    esc cancel"
             )), anchor: .card(card.frame, panel: panel))
@@ -363,7 +363,7 @@ extension OptionsCard {
             // away — beside the route it composes.
             card.present(.items(Menu(
                 items: [Item(keycap: "r", title: "Route this search",
-                             symbol: "arrow.triangle.branch")],
+                             symbol: .route)],
                 note: "routes match what you type, so there is nothing to name"
             )), anchor: anchor)
             let route = OptionsCard()
@@ -371,7 +371,7 @@ extension OptionsCard {
                                          body: .text("acme", placeholder: "type a pattern"),
                                          verdict: "anything matching acme opens in work",
                                          control: Item(keycap: "⇥", title: "Profile",
-                                                       symbol: "person.crop.circle.fill",
+                                                       symbol: .profilePinned,
                                                        detail: "work"),
                                          detail: "Work · Chrome",
                                          footer: "⌫ back up    esc back")),
@@ -379,9 +379,9 @@ extension OptionsCard {
             return [card, route]
         default:
             card.present(.items(Menu(items: [
-                Item(keycap: "1", title: "Remove from graph", symbol: "minus.circle",
+                Item(keycap: "1", title: "Remove from graph", symbol: .remove,
                      isDestructive: true, chain: ["e", "o"]),
-                Item(keycap: "2", title: "Remove from graph", symbol: "minus.circle",
+                Item(keycap: "2", title: "Remove from graph", symbol: .remove,
                      isDestructive: true, chain: ["m"]),
             ])), anchor: anchor)
         }

@@ -55,9 +55,7 @@ enum GalleryWell {
             field.setPlaceholder("Where to?")
             if let text { field.stringValue = text }
             field.translatesAutoresizingMaskIntoConstraints = false
-            let symbol = NSImageView(image: NSImage(systemSymbolName: "macwindow.on.rectangle",
-                                                    accessibilityDescription: nil) ?? NSImage())
-            symbol.symbolConfiguration = BarTheme.inputSymbol
+            let symbol = GlyphView(.appsAndWindows, size: BarTheme.inputGlyph)
             symbol.contentTintColor = BarTheme.secondaryColor
             symbol.translatesAutoresizingMaskIntoConstraints = false
             well.hold(field)

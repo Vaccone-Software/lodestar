@@ -322,7 +322,7 @@ final class ClipDoorScenarioTests: XCTestCase {
                        ["k", "f", "m", "d"], "a group shows and moves, and neither opens nor views")
         let view = HotkeyEngine.panelActions(for: card(.file, natives: [Clipboard.fileURLType])).first { $0.key == "e" }
         XCTAssertEqual(view?.label, "View", "one file is viewed, as a picture is")
-        XCTAssertEqual(view?.symbol, "arrow.up.left.and.arrow.down.right")
+        XCTAssertEqual(view?.symbol, .expand)
         var kept = card(.text)
         kept.pinnedSlot = 4
         XCTAssertEqual(HotkeyEngine.panelActions(for: kept).map(\.label), ["Let go", "Rename", "Edit", "Delete"],

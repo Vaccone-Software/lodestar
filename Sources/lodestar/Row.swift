@@ -538,10 +538,8 @@ class ListLine: SlabRow {
     }
 
     /// A symbol as a line leads with it: 16, in the ink.
-    static func symbol(_ name: String, tint: NSColor = BarTheme.ink) -> NSImageView {
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(BarTheme.symbol) ?? NSImage()
-        let view = NSImageView(image: image)
+    static func symbol(_ glyph: Glyph, tint: NSColor = BarTheme.ink) -> NSImageView {
+        let view = GlyphView(glyph)
         view.contentTintColor = tint
         view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

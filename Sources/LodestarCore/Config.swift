@@ -43,8 +43,9 @@ public struct Config {
     /// Lodestar's own sounds, together. The alert sound is the Mac's.
     public var sounds = true
     /// Reduce loud audio (`LoudAudio`): headphone volume held under the
-    /// level that is safe all day. Off unless the person turns it on.
-    public var reduceLoudAudio = false
+    /// level that is safe all day, at Light, Standard or Strong. Off unless
+    /// the person turns it on.
+    public var reduceLoudAudio = LoudAudio.Level.off
     /// Eye comfort: Lodestar's own surfaces ease through the day (dimmer and
     /// softer after sunset, dimmer still late at night) and the ones that stay
     /// on screen quiet down when unused. Never content. One switch.

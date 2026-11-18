@@ -25,7 +25,7 @@ final class LoudAudioGuardTests: XCTestCase {
 
     func testATestRunNeverHoldsTheVolume() {
         let guardian = LoudAudioGuard()
-        guardian.configure(enabled: true)
+        guardian.configure(level: .standard)
         XCTAssertFalse(guardian.isTapping)
     }
 
@@ -59,6 +59,6 @@ final class LoudAudioGuardTests: XCTestCase {
     func testNothingHeldSwallowsNothing() throws {
         let guardian = LoudAudioGuard(live: false)
         guardian.pretendHeld(ceiling: nil, volume: 1)
-        XCTAssertFalse(swallowed(guardian, try key(LoudAudio.soundUpKey)), "speakers, or the switch off")
+        XCTAssertFalse(swallowed(guardian, try key(LoudAudio.soundUpKey)), "speakers, or off")
     }
 }

@@ -7,10 +7,15 @@
 /// The level at the ear is the headphones' level at full volume, plus the
 /// content's level, plus the volume setting. With the loudest sustained
 /// music (about −8 dB under full scale) on headphones that reach 110 dBA,
-/// the setting that keeps the ear at 75 dBA (the level ITU-T H.870 gives for
-/// sensitive ears, 40 hours a week) is 75 − 110 + 8 = −27 dB. Quieter content
-/// is quieter still; louder headphones than assumed are the error that
-/// remains, the same one iPhone accepts.
+/// the setting that keeps the ear at a level is that level − 110 + 8. There
+/// are three levels, named for how much they reduce, never by a figure: the
+/// figure is a worst case that real headphones and loudness-matched
+/// streaming land 5 to 15 dB under, so printing it would claim a precision
+/// nothing measured. Standard keeps the ear at 80 dBA (ITU-T H.870's adult
+/// level, 40 hours a week), Strong at 75 (its level for children and
+/// sensitive ears), Light at 85 (eight hours a day by the workplace rule).
+/// Louder headphones than assumed are the error that remains, the same one
+/// iPhone accepts.
 ///
 /// This is the rules. The app's `LoudAudioGuard` holds them: it swallows
 /// volume-up at the keys (putting the volume back after a key press lets the
@@ -18,14 +23,32 @@
 /// the slider's, an app's or the headset's own buttons, which the keys then
 /// step from without drifting (`probe listening drift`).
 public enum LoudAudio {
-    /// The level at the ear the ceiling keeps under, in dBA.
-    public static let limitDBA = 75.0
+    /// How much loud audio is reduced: off, or one of three levels, each
+    /// 5 dB from the next on every pair of headphones.
+    public enum Level: String, CaseIterable, Equatable, Sendable {
+        case off, light, standard, strong
+
+        /// The level at the ear the ceiling keeps under, in dBA, if any.
+        public var limitDBA: Double? {
+            switch self {
+            case .off: nil
+            case .light: 85
+            case .standard: 80
+            case .strong: 75
+            }
+        }
+
+        /// The volume setting, in the device's own dB, that the ceiling is:
+        /// −17, −22 or −27.
+        public var ceilingDecibels: Float? {
+            limitDBA.map { Float($0 - fullScaleDBA - loudestContentDBFS) }
+        }
+    }
+
     /// What headphones are assumed to reach at full volume, in dBA.
     public static let fullScaleDBA = 110.0
     /// The loudest sustained content, in dB under full scale.
     public static let loudestContentDBFS = -8.0
-    /// The volume setting, in the device's own dB, that the ceiling is: −27.
-    public static let ceilingDecibels = Float(limitDBA - fullScaleDBA - loudestContentDBFS)
 
     /// How far over the ceiling a volume may read before it is put back: the
     /// device rounds what it is given, and a raise is never this small.
@@ -44,11 +67,11 @@ public enum LoudAudio {
     }
 
     /// The largest volume, in the device's own 0…1 scale, whose dB is at or
-    /// under the ceiling, found through the device's own curve (`decibels`
+    /// under `ceilingDecibels`, found through the device's own curve (`decibels`
     /// answers a scalar's dB, nil if the device has no curve). Nil when it has
     /// none, and then nothing is held: a ceiling that cannot be placed is no
     /// ceiling. A device that never gets as loud as the ceiling is held at 1.
-    public static func ceilingScalar(decibels: (Float) -> Float?) -> Float? {
+    public static func ceilingScalar(_ ceilingDecibels: Float, decibels: (Float) -> Float?) -> Float? {
         guard let top = decibels(1), let bottom = decibels(0) else { return nil }
         if top <= ceilingDecibels { return 1 }
         if bottom > ceilingDecibels { return 0 }

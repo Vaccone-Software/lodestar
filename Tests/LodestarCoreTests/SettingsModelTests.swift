@@ -367,22 +367,26 @@ final class SettingsCoverageTests: XCTestCase {
         XCTAssertEqual(eye?.isDefault, true)
     }
 
-    /// Reduce loud audio is one switch, off until the person turns it on, in
+    /// Reduce loud audio is one menu, Off until the person picks a level, in
     /// Sound and display right after Sounds, and found by what people type.
-    func testReduceLoudAudioIsOneSwitchOffBesideSounds() throws {
+    /// The levels are named for how much they reduce, with no figures.
+    func testReduceLoudAudioIsOneMenuOffBesideSounds() throws {
         let general = try XCTUnwrap(SettingsModel.catalog(config: Config(), machine: .init()).first { $0.name == "General" })
         let titles = general.rows.filter { $0.group == "Sound and display" }.map(\.title)
         XCTAssertEqual(Array(titles.prefix(2)), ["Sounds", "Reduce loud audio"])
         let row = try XCTUnwrap(general.rows.first { $0.path == "app.reduce-loud-audio" })
-        if case .toggle(let on) = row.control { XCTAssertFalse(on, "off by default") } else { XCTFail("one switch, no slider") }
+        guard case .choice(let options, let labels, let current) = row.control else { return XCTFail("one menu, no slider") }
+        XCTAssertEqual(options, ["off", "light", "standard", "strong"])
+        XCTAssertEqual(labels, ["Off", "Light", "Standard", "Strong"])
+        XCTAssertEqual(current, "off", "off by default")
         XCTAssertEqual(row.isDefault, true)
         XCTAssertNotNil(row.letter)
 
         var on = Config()
-        on.reduceLoudAudio = true
+        on.reduceLoudAudio = .standard
         let held = try XCTUnwrap(SettingsModel.catalog(config: on, machine: .init())
             .flatMap(\.rows).first { $0.path == "app.reduce-loud-audio" })
-        if case .toggle(let value) = held.control { XCTAssertTrue(value) } else { XCTFail("one switch") }
+        if case .choice(_, _, let value) = held.control { XCTAssertEqual(value, "standard") } else { XCTFail("one menu") }
         XCTAssertEqual(held.isDefault, false)
 
         for word in ["headphones", "volume", "hearing", "loud"] {

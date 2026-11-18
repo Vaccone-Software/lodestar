@@ -8,30 +8,40 @@ final class LoudAudioTests: XCTestCase {
         { bottom + (top - bottom) * $0 }
     }
 
-    func testTheCeilingIsSeventyFiveAtTheEarFromTheLoudestMusicOnHundredTenHeadphones() {
-        XCTAssertEqual(LoudAudio.ceilingDecibels, -27, accuracy: 0.001)
+    /// The loudest music on headphones that reach 110 dBA lands at the ear
+    /// at 85, 80 or 75: each level 5 dB from the next, and off holds nothing.
+    func testEachLevelKeepsTheLoudestMusicOnHundredTenHeadphonesAtItsOwnLimit() {
+        XCTAssertEqual(LoudAudio.Level.allCases, [.off, .light, .standard, .strong], "the menu's order")
+        XCTAssertNil(LoudAudio.Level.off.ceilingDecibels)
+        XCTAssertEqual(LoudAudio.Level.light.ceilingDecibels ?? 0, -17, accuracy: 0.001)
+        XCTAssertEqual(LoudAudio.Level.standard.ceilingDecibels ?? 0, -22, accuracy: 0.001)
+        XCTAssertEqual(LoudAudio.Level.strong.ceilingDecibels ?? 0, -27, accuracy: 0.001)
+        XCTAssertEqual(LoudAudio.Level.standard.limitDBA, 80, "the adult level, 40 hours a week")
+        XCTAssertEqual(LoudAudio.Level.strong.limitDBA, 75, "the level for children")
     }
 
-    func testABluetoothHeadsetIsHeldAtMinusTwentySeven() throws {
-        let ceiling = try XCTUnwrap(LoudAudio.ceilingScalar(decibels: linear(-40, 0)))
-        XCTAssertEqual(ceiling, 13.0 / 40, accuracy: 0.0001, "−27 on a −40…0 scale")
+    func testABluetoothHeadsetIsHeldWhereEachLevelSays() throws {
+        let headset = linear(-40, 0)
+        XCTAssertEqual(try XCTUnwrap(LoudAudio.ceilingScalar(-17, decibels: headset)), 23.0 / 40, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(LoudAudio.ceilingScalar(-22, decibels: headset)), 18.0 / 40, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(LoudAudio.ceilingScalar(-27, decibels: headset)), 13.0 / 40, accuracy: 0.0001)
     }
 
     func testEachDeviceIsHeldThroughItsOwnCurve() throws {
-        let ceiling = try XCTUnwrap(LoudAudio.ceilingScalar(decibels: linear(-63.5, 0)))
-        XCTAssertEqual(ceiling, 36.5 / 63.5, accuracy: 0.0001)
+        let ceiling = try XCTUnwrap(LoudAudio.ceilingScalar(-22, decibels: linear(-63.5, 0)))
+        XCTAssertEqual(ceiling, 41.5 / 63.5, accuracy: 0.0001)
     }
 
     func testADeviceThatNeverReachesTheCeilingIsNotHeldBelowFull() {
-        XCTAssertEqual(LoudAudio.ceilingScalar(decibels: linear(-80, -30)), 1)
+        XCTAssertEqual(LoudAudio.ceilingScalar(-22, decibels: linear(-80, -30)), 1)
     }
 
     func testADeviceWhoseQuietestIsOverTheCeilingIsHeldAtSilence() {
-        XCTAssertEqual(LoudAudio.ceilingScalar(decibels: linear(-20, 0)), 0)
+        XCTAssertEqual(LoudAudio.ceilingScalar(-22, decibels: linear(-20, 0)), 0)
     }
 
     func testADeviceWithNoCurveIsNotHeld() {
-        XCTAssertNil(LoudAudio.ceilingScalar(decibels: { _ in nil }))
+        XCTAssertNil(LoudAudio.ceilingScalar(-22, decibels: { _ in nil }))
     }
 
     func testOnlyWhatSaysHeadphonesIsLimited() {

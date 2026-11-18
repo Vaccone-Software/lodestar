@@ -210,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ActivePolicy.mode = loaded.activeDisplayMode
         reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
-        loudAudio.configure(enabled: loaded.reduceLoudAudio)
+        loudAudio.configure(level: loaded.reduceLoudAudio)
         // A layout switched at lunch renames the keys by the afternoon:
         // the overlay recomputes the moment the input source changes.
         NotificationCenter.default.addObserver(
@@ -2615,7 +2615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ActivePolicy.mode = loaded.activeDisplayMode
         reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
-        loudAudio.configure(enabled: loaded.reduceLoudAudio)
+        loudAudio.configure(level: loaded.reduceLoudAudio)
         engine.config = loaded
         webBar.config = loaded
         updater.enabled = loaded.autoUpdate

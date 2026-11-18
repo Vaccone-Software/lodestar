@@ -3,8 +3,8 @@ import CoreAudio
 import LodestarCore
 import Synchronization
 
-/// Reduce loud audio's hands (`LoudAudio` holds the rules). While the switch
-/// is on and the default output says it is headphones, two things hold the
+/// Reduce loud audio's hands (`LoudAudio` holds the rules). While a level
+/// is chosen and the default output says it is headphones, two things hold the
 /// volume at the ceiling:
 ///
 /// - A session tap on system-defined events alone, on a thread of its own,
@@ -17,7 +17,7 @@ import Synchronization
 ///   each plays for 15 to 45 ms before it is put back, and the keys then step
 ///   from the ceiling with no drift (`probe listening drift`).
 ///
-/// With the switch off, or speakers out, there is no tap and no volume
+/// With it off, or speakers out, there is no tap and no volume
 /// listener: nothing runs but a listener on which output is the default.
 ///
 /// CoreAudio is touched only on `queue`. The tap's callback reads the volume
@@ -40,7 +40,7 @@ final class LoudAudioGuard: Sendable {
     }
 
     private struct State {
-        var enabled = false
+        var level = LoudAudio.Level.off
         /// The default output being watched, and what is listened to on it.
         var device: AudioObjectID = 0
         var system: Listener?
@@ -64,21 +64,26 @@ final class LoudAudioGuard: Sendable {
         self.live = live
     }
 
-    /// Main. The switch, from the config.
-    func configure(enabled: Bool) {
+    /// Main. The level, from the config.
+    func configure(level: LoudAudio.Level) {
         guard live else { return }
-        queue.async { self.apply(enabled) }
+        queue.async { self.apply(level) }
     }
 
     // MARK: on the queue
 
-    private func apply(_ enabled: Bool) {
+    private func apply(_ level: LoudAudio.Level) {
         let was = state.withLock { s in
-            defer { s.enabled = enabled }
-            return s.enabled
+            defer { s.level = level }
+            return s.level
         }
-        guard was != enabled else { return }
-        if enabled {
+        guard was != level else { return }
+        Log.info("loud-audio", ["level": level.rawValue])
+        if was != .off, level != .off {
+            // Another level on the same hold: the ceiling moves, and refresh
+            // moves the listeners with it.
+            refresh()
+        } else if level != .off {
             let address = Self.address(kAudioHardwarePropertyDefaultOutputDevice)
             if let listener = listen(Self.system, address, { [weak self] in self?.refresh() }) {
                 state.withLock { $0.system = listener }
@@ -90,14 +95,13 @@ final class LoudAudioGuard: Sendable {
             }
             release(reason: "off")
             watch(0)
-            Log.info("loud-audio", ["switch": "off"])
         }
     }
 
     /// The default output, or what it is, changed: hold it if it is
     /// headphones, let it go if not.
     private func refresh() {
-        guard state.withLock({ $0.enabled }) else { return }
+        guard let ceilingDecibels = state.withLock({ $0.level.ceilingDecibels }) else { return }
         let device = Self.read(Self.system, Self.address(kAudioHardwarePropertyDefaultOutputDevice), AudioObjectID(0)) ?? 0
         watch(device)
         guard device != 0, Self.isHeadphones(device) else {
@@ -106,7 +110,7 @@ final class LoudAudioGuard: Sendable {
         }
         let elements = Self.volumeElements(device)
         guard let first = elements.first,
-              let ceiling = LoudAudio.ceilingScalar(decibels: { Self.decibels(device, first, scalar: $0) }) else {
+              let ceiling = LoudAudio.ceilingScalar(ceilingDecibels, decibels: { Self.decibels(device, first, scalar: $0) }) else {
             release(reason: "no volume curve")
             return
         }
@@ -134,7 +138,7 @@ final class LoudAudioGuard: Sendable {
                 }
             }
             Log.info("loud-audio", ["held": "headphones", "elements": elements.map(String.init).joined(separator: ","),
-                                    "ceiling-db": String(format: "%.1f", LoudAudio.ceilingDecibels),
+                                    "ceiling-db": String(format: "%.1f", ceilingDecibels),
                                     "ceiling": String(format: "%.3f", ceiling),
                                     "volume-db": String(format: "%.1f", Self.decibels(device, first, scalar: volume) ?? 0)])
         }

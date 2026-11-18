@@ -86,6 +86,28 @@ final class DesignDriftTests: XCTestCase {
         XCTAssertEqual(hits, [], "a symbol wears the theme's configuration, never its own")
     }
 
+    /// Lodestar draws its own glyphs (GlyphArt.swift) and no symbol set:
+    /// nothing in the app asks the system for a symbol by name.
+    private static let systemSymbolPattern = #"systemSymbolName|\bsystemName:|[sS]ymbolConfiguration|NSImage\(named:\s*NSImage\."#
+
+    func testNothingDrawsASystemSymbol() throws {
+        let hits = try offenders(Self.systemSymbolPattern, in: Self.swiftFiles(under: Self.appSources))
+        XCTAssertEqual(hits, [], "draw a Glyph (GlyphView, NSImage.glyph), never a system symbol")
+    }
+
+    func testTheSymbolGuardBites() throws {
+        let regex = try NSRegularExpression(pattern: Self.systemSymbolPattern)
+        for sample in ["NSImage(systemSymbolName: \"pin\", accessibilityDescription: nil)", "Image(systemName: \"pin\")",
+                       "view.symbolConfiguration = config", "NSImage(named: NSImage.addTemplateName)"] {
+            XCTAssertNotNil(regex.firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)),
+                            "the guard misses: \(sample)")
+        }
+        for sample in ["GlyphView(.pin)", "NSImage.glyph(.choose, size: BarTheme.glyph)", "NSImage(named: \"AppIcon\")"] {
+            XCTAssertNil(regex.firstMatch(in: sample, range: NSRange(location: 0, length: (sample as NSString).length)),
+                         "the guard flags a glyph: \(sample)")
+        }
+    }
+
     func testNoFieldTakesABarePlaceholder() throws {
         let hits = try offenders(#"placeholderString\s*="#, in: surfaces())
         XCTAssertEqual(hits, [], "a placeholder is set through the theme, in the interface's face")
@@ -106,7 +128,7 @@ final class DesignDriftTests: XCTestCase {
     }
 
     func testTheThemeHoldsWhatTheGuardExpects() {
-        XCTAssertEqual(BarTheme.symbol.value(forKey: "pointSize") as? CGFloat, BarTheme.Scale.meta)
+        XCTAssertEqual(BarTheme.glyph, BarTheme.Scale.meta)
     }
 
     /// What builds a font, and so belongs to the theme alone: the system's

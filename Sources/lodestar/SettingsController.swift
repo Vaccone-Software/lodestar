@@ -1093,9 +1093,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         /// The popup's chevron is drawn here, so its words can stand 12 from
         /// the border and the chevron 8 from the words.
         private let chevron = NSImageView()
-        private static let chevronImage = NSImage(systemSymbolName: "chevron.up.chevron.down",
-                                                  accessibilityDescription: nil)?
-            .withSymbolConfiguration(BarTheme.symbol)
+        private static let chevronImage: NSImage? = NSImage.glyph(.choose, size: BarTheme.glyph) { BarTheme.secondaryColor }
 
         override class var cellClass: AnyClass? {
             get { KeyPopUpCell.self }
@@ -1210,8 +1208,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private final class KeyPopUpCell: NSPopUpButtonCell {
         override func titleRect(forBounds rect: NSRect) -> NSRect {
             var title = super.titleRect(forBounds: rect)
-            let chevron = NSImage(systemSymbolName: "chevron.up.chevron.down", accessibilityDescription: nil)?
-                .withSymbolConfiguration(BarTheme.symbol)?.size.width ?? 0
+            let chevron = NSImage.glyph(.choose, size: BarTheme.glyph).size.width
             title.origin.x = rect.minX + BarTheme.wordPadding
             title.size.width = max(0, rect.width - BarTheme.wordPadding * 2 - BarTheme.chevronGap - chevron)
             return title
@@ -1550,9 +1547,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             flagged.setRole(.meta)
             flagged.textColor = BarTheme.ink
             flagged.isSelectable = false
-            let mark = NSImageView(image: NSImage(systemSymbolName: "exclamationmark.triangle",
-                                                  accessibilityDescription: "Problem") ?? NSImage())
-            mark.symbolConfiguration = BarTheme.symbol
+            let mark = GlyphView(.needsYou, description: "Problem")
             mark.contentTintColor = BarTheme.ink
             let flaggedRow = NSStackView(views: [mark, flagged])
             flaggedRow.orientation = .horizontal

@@ -128,7 +128,7 @@ enum GalleryChrome {
                     GuideRow(key: "d", label: "→ a b"),
                 ])
             } else {
-                hud.showGuide(mark: "arrow.up.and.down", keys: ["lode", "`"], rows: [
+                hud.showGuide(mark: .scroll, keys: ["lode", "`"], rows: [
                     GuideRow(key: "j k", label: "Down · up"), GuideRow(key: "d u", label: "Half-page down · up"),
                     GuideRow(key: "/", label: "Aim at a word"), GuideRow(keys: ["esc"], label: "Leave", lit: true),
                 ])

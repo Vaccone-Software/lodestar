@@ -40,7 +40,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let panel: KeyablePanel
     private let root = NSView()
     private let field = InputField()
-    private let globe = NSImageView()
+    private let globe = GlyphView(.web, size: BarTheme.inputGlyph, description: "links and the web")
     /// The field is a place you put something, so it sinks: a well one pane-inset
     /// inside the pane, rounded as every input is, at the control's radius.
     private let well = WellView()
@@ -98,9 +98,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
         Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
-        globe.image = NSImage(systemSymbolName: "network", accessibilityDescription: "links and the web")
-        globe.symbolConfiguration = BarTheme.inputSymbol
-        globe.contentTintColor = BarTheme.secondaryColor
+                globe.contentTintColor = BarTheme.secondaryColor
         globe.translatesAutoresizingMaskIntoConstraints = false
 
         field.isBordered = false
@@ -491,15 +489,15 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// machine names what a row *is*, and only this end knows what that looks
     /// like.
     private static func item(_ item: WebMenu.Item) -> OptionsCard.Item {
-        let symbol: String
+        let symbol: Glyph
         switch item.role {
-        case .addLink: symbol = "link.badge.plus"
-        case .route: symbol = "arrow.triangle.branch"
-        case .removeLink, .removeRoute: symbol = "minus.circle"
+        case .addLink: symbol = .addLink
+        case .route: symbol = .route
+        case .removeLink, .removeRoute: symbol = .remove
         case .profile(let pinned):
-            symbol = pinned ? "person.crop.circle.fill" : "person.crop.circle.dashed"
+            symbol = pinned ? .profilePinned : .profileUnpinned
         case .choice(let selected):
-            symbol = selected ? "checkmark.circle.fill" : "circle"
+            symbol = selected ? .chosen : .notChosen
         }
         return OptionsCard.Item(keycap: item.key, title: item.title, symbol: symbol,
                                 isDestructive: item.role.isDestructive, detail: item.detail)

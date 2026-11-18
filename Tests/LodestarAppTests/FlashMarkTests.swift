@@ -2,23 +2,23 @@ import XCTest
 @testable import lodestar
 
 /// Every flash is one family with the pill: the glyph it opened with
-/// becomes a symbol in the pill's configuration, and the line opens with
-/// a capital. Breaths wear wind.
+/// becomes a glyph at the pill's size, and the line opens with a capital.
+/// Breaths wear their panes.
 final class FlashMarkTests: XCTestCase {
     func testTheGlyphBecomesTheMarkAndTheLineOpensWithACapital() {
         let refused = FlashMark.parse("✕ no focused window")
-        XCTAssertEqual(refused.symbol, "xmark")
+        XCTAssertEqual(refused.symbol, .refused)
         XCTAssertEqual(refused.text, "No focused window")
         let breath = FlashMark.parse("◎ Breath W saved with 2 windows")
-        XCTAssertEqual(breath.symbol, BarTheme.breathSymbol)
-        XCTAssertEqual(BarTheme.breathSymbol, "wind")
+        XCTAssertEqual(breath.symbol, BarTheme.breathGlyph)
+        XCTAssertEqual(BarTheme.breathGlyph, .breath)
         XCTAssertEqual(breath.text, "Breath W saved with 2 windows")
-        XCTAssertEqual(FlashMark.parse("⌂ pinned").symbol, "doc.on.clipboard")
-        XCTAssertEqual(FlashMark.parse("⚠ Lodestar lost its keyboard access").symbol, "exclamationmark.triangle")
+        XCTAssertEqual(FlashMark.parse("⌂ pinned").symbol, .copied)
+        XCTAssertEqual(FlashMark.parse("⚠ Lodestar lost its keyboard access").symbol, .needsYou)
         XCTAssertNil(FlashMark.parse("… launching Slack").symbol,
                      "no flash trails off any more: a launch is the pill's opening mode")
-        XCTAssertEqual(FlashMark.parse("⟲ layout").symbol, "rectangle.3.group")
-        XCTAssertEqual(FlashMark.parse("⌖ gestures restored").symbol, "checkmark")
+        XCTAssertEqual(FlashMark.parse("⟲ layout").symbol, .layout)
+        XCTAssertEqual(FlashMark.parse("⌖ gestures restored").symbol, .done)
     }
 
     func testALineWithoutAGlyphKeepsItsWordsAndTakesNoMark() {
@@ -30,11 +30,11 @@ final class FlashMarkTests: XCTestCase {
     func testTheGuideAndTheFlashDrawTheMark() {
         let hud = HUD()
         hud.flash("◎ Breath W saved with 2 windows")
-        XCTAssertEqual(hud.titleSymbol, "wind")
+        XCTAssertEqual(hud.titleSymbol, .breath)
         XCTAssertEqual(hud.titleText, "Breath W saved with 2 windows")
-        hud.showGuide(mark: BarTheme.breathSymbol, keys: ["lode", "'", "W"],
+        hud.showGuide(mark: BarTheme.breathGlyph, keys: ["lode", "'", "W"],
                       rows: [GuideRow(key: "A", label: "Slack")])
-        XCTAssertEqual(hud.titleSymbol, "wind")
+        XCTAssertEqual(hud.titleSymbol, .breath)
         XCTAssertEqual(hud.titleText, "lode ' W", "the header is the chain so far, as keys")
         hud.showGuide(keys: ["lode"], rows: [])
         XCTAssertNil(hud.titleSymbol, "the graph's guide has no mark; its header is the keys alone")
@@ -46,7 +46,7 @@ final class FlashMarkTests: XCTestCase {
     func testAFlashCarriesItsWayOnASecondLine() {
         let hud = HUD()
         hud.flash("⌂ This field only takes a paste you press\n[⌘][V] pastes it")
-        XCTAssertEqual(hud.titleSymbol, "doc.on.clipboard")
+        XCTAssertEqual(hud.titleSymbol, .copied)
         XCTAssertEqual(hud.titleText, "This field only takes a paste you press")
         XCTAssertEqual(hud.titleWay, "[⌘][V] pastes it")
         hud.flash("⟲ Layout redone")

@@ -44,7 +44,7 @@ final class ClipboardStrip {
     struct Action {
         let key: String
         let label: String
-        let symbol: String
+        let symbol: Glyph
         var isDestructive = false
     }
 
@@ -1592,10 +1592,7 @@ final class ClipboardStrip {
         shownBand = (plate, well)
         let width = well.bounds.width, height = well.bounds.height
 
-        let symbol = NSImageView(image: NSImage(
-            systemSymbolName: "square.and.arrow.down",
-            accessibilityDescription: nil)?
-            .withSymbolConfiguration(BarTheme.symbolBand) ?? NSImage())
+        let symbol = GlyphView(.save, size: BarTheme.glyphBand)
         symbol.contentTintColor = BarTheme.secondaryColor
         symbol.frame = NSRect(x: BarTheme.wordPadding, y: (height - BarTheme.symbolSize) / 2,
                               width: BarTheme.symbolSize, height: BarTheme.symbolSize)

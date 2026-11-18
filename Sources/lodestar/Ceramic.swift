@@ -298,11 +298,12 @@ enum BarTheme {
     static func placeholder(_ text: String, role: Role) -> NSAttributedString {
         NSAttributedString(string: text, attributes: attributes(role, color: secondaryColor))
     }
-    static let inputSymbol = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
-    /// The one configuration a symbol beside text wears, and its larger
-    /// cousin for the strip's own controls. Weight matched to the text.
-    static let symbol = NSImage.SymbolConfiguration(pointSize: Scale.meta, weight: .medium)
-    static let symbolBand = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+    /// The size a glyph leading a bar's field is drawn at.
+    static let inputGlyph: CGFloat = 19
+    /// The one size a glyph beside text wears, the text's own, and its larger
+    /// cousin for the strip's own controls (GlyphArt.swift).
+    static let glyph: CGFloat = Scale.meta
+    static let glyphBand: CGFloat = 15
     /// The mark at the centre of the settings overview.
     static let settingsMarkSize: CGFloat = 132
     /// The dot that says "yours" beside a value, and "needs you" beside a
@@ -310,11 +311,10 @@ enum BarTheme {
     static let dotDiameter: CGFloat = 7
     static let dotRadius: CGFloat = dotDiameter / 2
     /// The pin inside a chip whose profile was chosen, and its gap to the name.
-    /// A symbol leading a bar's row, a size above the text's.
-    static let symbolRow = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-    /// The breath's mark: air moving. A breath is taken and released,
-    /// not filed, so it wears wind rather than a window.
-    static let breathSymbol = "wind"
+    /// A glyph leading a bar's row, a size above the text's.
+    static let glyphRow: CGFloat = 16
+    /// The breath's mark: a saved layout, its panes standing.
+    static let breathGlyph: Glyph = .breath
     /// The palette of the look an appearance is: espresso in dark, clay in
     /// light, at the Eye comfort level in force (design/06-eye-comfort.md).
     /// Every colour below resolves through this, in the look of the view that
@@ -1199,23 +1199,23 @@ final class AccentSwitch: NSControl, CeramicDepth {
 /// the pane is one family with the pill and nothing is retyped at
 /// sixty sites.
 enum FlashMark {
-    static let symbols: [Character: String] = [
-        "✕": "xmark",
-        "⚠": "exclamationmark.triangle",
-        "◎": BarTheme.breathSymbol,
-        "⌂": "doc.on.clipboard",
-        "✓": "checkmark",
-        "⌖": "checkmark",
-        "↺": "rectangle.3.group",
-        "⟲": "rectangle.3.group",
-        "⤺": "rectangle.3.group",
-        "☰": "line.3.horizontal",
+    static let symbols: [Character: Glyph] = [
+        "✕": .refused,
+        "⚠": .needsYou,
+        "◎": BarTheme.breathGlyph,
+        "⌂": .copied,
+        "✓": .done,
+        "⌖": .done,
+        "↺": .layout,
+        "⟲": .layout,
+        "⤺": .layout,
+        "☰": .menuBarShown,
     ]
 
     /// The symbol the line's glyph names, and the line without it, its
     /// first letter raised. A line with no glyph keeps its words and
     /// takes no symbol.
-    static func parse(_ text: String) -> (symbol: String?, text: String) {
+    static func parse(_ text: String) -> (symbol: Glyph?, text: String) {
         guard let first = text.first, let symbol = symbols[first] else { return (nil, text) }
         let rest = text.dropFirst().trimmingCharacters(in: .whitespaces)
         return (symbol, Coach.sentenceCase(rest))

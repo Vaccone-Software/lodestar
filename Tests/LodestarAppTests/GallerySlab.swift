@@ -17,8 +17,7 @@ enum GallerySlab {
                     width: CGFloat = 640) -> (SlabRow, [AnyObject]) {
         let row = ListRow(height: BarTheme.rowHeight)
         row.choose(chosen)
-        let icon = NSImageView(image: NSImage(systemSymbolName: "envelope", accessibilityDescription: nil)?
-            .withSymbolConfiguration(BarTheme.symbolRow) ?? NSImage())
+        let icon = GlyphView(.copied, size: BarTheme.glyphRow)
         icon.contentTintColor = BarTheme.ink
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

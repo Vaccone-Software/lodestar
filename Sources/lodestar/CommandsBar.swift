@@ -8,7 +8,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     private let panel: KeyablePanel
     private let root = NSView()
     private let field = InputField()
-    private let symbol = NSImageView()
+    private let symbol = GlyphView(.menus, size: BarTheme.inputGlyph, description: "menus")
     /// The field is a place you put something, so it sinks: a well one pane-inset
     /// inside the pane, rounded as every input is, at the control's radius.
     private let well = WellView()
@@ -41,8 +41,6 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
         Ceramic.installPane(in: root, cornerRadius: BarTheme.surfaceRadius)
 
-        symbol.image = NSImage(systemSymbolName: "menubar.rectangle", accessibilityDescription: "menus")
-        symbol.symbolConfiguration = BarTheme.inputSymbol
         symbol.contentTintColor = BarTheme.secondaryColor
         symbol.translatesAutoresizingMaskIntoConstraints = false
 

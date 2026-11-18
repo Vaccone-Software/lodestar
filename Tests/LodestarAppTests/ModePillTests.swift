@@ -10,19 +10,19 @@ final class ModePillTests: XCTestCase {
     func testStandingIsTwoWingsAndNothingBetween() {
         let state = ModePill.State(mode: .scroll, app: "Slack", icon: icon, listening: false, text: nil)
         XCTAssertEqual(ModePill.layout(for: state),
-                       [.symbol("arrow.up.and.down"), .modeWord("Scroll"), .appWord("Slack"), .appIcon])
+                       [.symbol(.scroll), .modeWord("Scroll"), .appWord("Slack"), .appIcon])
     }
 
     func testAListeningLensStandsACaretInTheCenter() {
         let state = ModePill.State(mode: .click, app: "Brave", icon: icon, listening: true, text: nil)
         XCTAssertEqual(ModePill.layout(for: state),
-                       [.symbol("cursorarrow.click.2"), .modeWord("Click"), .caret, .appWord("Brave"), .appIcon])
+                       [.symbol(.click), .modeWord("Click"), .caret, .appWord("Brave"), .appIcon])
     }
 
     func testAnyTextFoldsBothWingsToTheirGlyphs() {
         let state = ModePill.State(mode: .select, app: "Ghostty", icon: icon, listening: true, text: "thr")
         XCTAssertEqual(ModePill.layout(for: state),
-                       [.symbol("character.cursor.ibeam"), .text("thr"), .appIcon])
+                       [.symbol(.select), .text("thr"), .appIcon])
     }
 
     func testTheGlyphsNeverMoveBetweenStates() {
@@ -35,11 +35,11 @@ final class ModePillTests: XCTestCase {
     func testAnAnchoredWordRidesAheadOfTheFarEnd() {
         let waiting = ModePill.State(mode: .select, app: "Ghostty", icon: icon, listening: true, text: nil, anchored: "Threads")
         XCTAssertEqual(ModePill.layout(for: waiting),
-                       [.symbol("character.cursor.ibeam"), .anchored("Threads"), .caret, .appIcon],
+                       [.symbol(.select), .anchored("Threads"), .caret, .appIcon],
                        "the wings fold and the caret waits after the word already taken")
         let typing = ModePill.State(mode: .select, app: "Ghostty", icon: icon, listening: true, text: "fo", anchored: "Threads")
         XCTAssertEqual(ModePill.layout(for: typing),
-                       [.symbol("character.cursor.ibeam"), .anchored("Threads"), .text("fo"), .appIcon])
+                       [.symbol(.select), .anchored("Threads"), .text("fo"), .appIcon])
     }
 
     func testADraggedPillComesBackWhereItWasLeft() {

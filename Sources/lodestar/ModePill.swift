@@ -23,13 +23,13 @@ final class ModePill {
         /// A launch that is taking time: stands while the window is awaited.
         case opening
 
-        var symbol: String {
+        var symbol: Glyph {
             switch self {
-            case .opening: return "arrow.up.forward.app"
-            case .scroll: return "arrow.up.and.down"
-            case .click: return "cursorarrow.click.2"
-            case .select: return "character.cursor.ibeam"
-            case .editor: return "text.badge.checkmark"
+            case .opening: return .open
+            case .scroll: return .scroll
+            case .click: return .click
+            case .select: return .select
+            case .editor: return .editor
             }
         }
 
@@ -77,7 +77,7 @@ final class ModePill {
     /// What the pill draws, pure, so a stage can read the composition
     /// instead of pixels.
     enum Piece: Equatable {
-        case symbol(String), modeWord(String), caret, text(String), anchored(String), appWord(String), appIcon
+        case symbol(Glyph), modeWord(String), caret, text(String), anchored(String), appWord(String), appIcon
         case offer(Offer)
     }
 
@@ -312,9 +312,7 @@ final class ModePill {
     private func view(for piece: Piece, state: State) -> NSView {
         switch piece {
         case .symbol(let name):
-            let image = NSImage(systemSymbolName: name, accessibilityDescription: state.mode.word)?
-                .withSymbolConfiguration(BarTheme.symbol)
-            let view = NSImageView(image: image ?? NSImage())
+            let view = GlyphView(name, description: state.mode.word)
             view.contentTintColor = recess.ink
             view.setContentHuggingPriority(.required, for: .horizontal)
             return view

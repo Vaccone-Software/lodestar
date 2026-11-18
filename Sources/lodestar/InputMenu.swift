@@ -186,8 +186,7 @@ final class InputButton: NSView {
         label.setRole(.meta)
         label.textColor = BarTheme.secondaryColor
         label.lineBreakMode = .byTruncatingTail
-        chevron.image = NSImage(systemSymbolName: "chevron.up.chevron.down", accessibilityDescription: nil)?
-            .withSymbolConfiguration(BarTheme.symbol)
+        chevron.image = NSImage.glyph(.choose, size: BarTheme.glyph) { BarTheme.secondaryColor }
         chevron.contentTintColor = BarTheme.secondaryColor
         addSubview(label)
         addSubview(chevron)

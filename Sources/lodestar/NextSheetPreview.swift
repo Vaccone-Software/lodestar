@@ -82,7 +82,7 @@ enum NextSheet {
                 GuideRow(key: "X", label: "Xcode", icon: icon("/Applications/Xcode.app")),
                 GuideRow(key: "F", label: "Figma", icon: icon("/Applications/Figma.app"))])
         case "breath":
-            hud.showGuide(mark: BarTheme.breathSymbol, keys: ["lode", "'"], rows: [
+            hud.showGuide(mark: BarTheme.breathGlyph, keys: ["lode", "'"], rows: [
                 GuideRow(key: "'", label: "Update the latest breath"),
                 GuideRow(key: "W", label: "Ghostty · Brave"),
                 GuideRow(key: "R", label: "Xcode · Ghostty · Slack")])

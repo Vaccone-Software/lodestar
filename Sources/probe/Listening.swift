@@ -8,7 +8,7 @@ import Synchronization
 /// `probe listening` — the questions headphone safety depends on, asked
 /// before any of it is built (reports/Headphone safety plan 2026-11-18.md):
 ///
-///   devices  every output: transport, Bluetooth class, volume elements and
+///   devices  every output: transport, terminal type, volume elements and
 ///            the scalar-to-dB curve (reads only)
 ///   tap      a private, unmuted global process tap: does it hear what
 ///            plays, at the level it was played (`--noise D` plays pink
@@ -19,6 +19,13 @@ import Synchronization
 ///   clamp    a ceiling held by a property listener against the volume-up
 ///            key pressed N times: how far the volume gets before the
 ///            listener brings it back, and whether it stays there
+///   drift    the backstop against raises that are not the key: something
+///            sets the volume over the ceiling, the listener puts it back,
+///            and then do the keys step from the ceiling or from the raise?
+///            Once outside a key session and once inside one. `--watch N`
+///            instead holds the current volume as the ceiling for N seconds
+///            while a person moves the slider or presses the headset's own
+///            buttons, then asks the keys the same question
 ///
 /// Everything it changes it puts back when it ends: the volume, the tap and
 /// its aggregate device (an interrupted run leaves the volume where it was
@@ -38,6 +45,8 @@ func runListening(_ args: inout [String]) {
         let mono = has("--mono", in: &args)
         ListeningProbe.tap(seconds: seconds, noiseDBFS: noise, nudge: nudge, lean: lean, bufferFrames: frames,
                            onDevice: onDevice, mono: mono)
+    case "drift":
+        ListeningProbe.drift(watch: value(of: "--watch", in: &args).flatMap(Double.init))
     case "clamp":
         let presses = Int(value(of: "--presses", in: &args) ?? "") ?? 5
         let mode = has("--swallow", in: &args) ? ListeningProbe.ClampMode.swallow : .scalar
@@ -53,6 +62,7 @@ private func listeningUsage() -> Never {
       probe listening tap [--seconds N] [--noise DBFS] [--nudge] [--lean] [--buffer FRAMES]
                                 [--device | --mono]
       probe listening clamp [--presses N] [--swallow]
+      probe listening drift [--watch SECONDS]
     """)
     exit(2)
 }
@@ -141,7 +151,12 @@ enum ListeningProbe {
             let transport = read(id, address(kAudioDevicePropertyTransportType), UInt32(0)) ?? 0
             let source = read(id, address(kAudioDevicePropertyDataSource, output), UInt32(0))
             print("\(id == current ? "* " : "  ")\(string(id, kAudioObjectPropertyName))")
-            print("    transport \(fourCC(transport))  data source \(source.map(fourCC) ?? "-")  uid \(string(id, kAudioDevicePropertyDeviceUID))")
+            // The output stream's terminal type says headphones ('hdph') with
+            // no Bluetooth permission; the Bluetooth class of device needs
+            // one (CBManager.authorization was notDetermined on 2026-11-18).
+            let stream = read(id, address(kAudioDevicePropertyStreams, output), AudioObjectID(0))
+            let terminal = stream.flatMap { read($0, address(kAudioStreamPropertyTerminalType), UInt32(0)) }
+            print("    transport \(fourCC(transport))  data source \(source.map(fourCC) ?? "-")  terminal \(terminal.map { $0 < 0x10000 ? String(format: "0x%x", $0) : fourCC($0) } ?? "-")  uid \(string(id, kAudioDevicePropertyDeviceUID))")
             for element in volumeElements(id) {
                 let now = scalar(id, element) ?? -1
                 let curve = stride(from: Float32(0), through: 1, by: 0.25)
@@ -377,17 +392,20 @@ enum ListeningProbe {
     /// 2026-11-18 and climbed the same way, +10 dB in four presses.)
     enum ClampMode: String { case scalar, swallow }
 
-    static func pressVolumeUp() {
+    static func pressVolumeUp() { pressVolume(soundUp) }
+
+    static func pressVolume(_ key: Int) {
         for state in [0xa, 0xb] {
             let event = NSEvent.otherEvent(with: .systemDefined, location: .zero,
                                            modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state << 8)),
                                            timestamp: 0, windowNumber: 0, context: nil, subtype: 8,
-                                           data1: (soundUp << 16) | (state << 8), data2: -1)
+                                           data1: (key << 16) | (state << 8), data2: -1)
             event?.cgEvent?.post(tap: .cghidEventTap)
         }
     }
 
     static let soundUp = 0 // NX_KEYTYPE_SOUND_UP
+    static let soundDown = 1 // NX_KEYTYPE_SOUND_DOWN
 
     /// User and system CPU seconds this process has used.
     static func processCPU() -> Double {
@@ -477,6 +495,114 @@ enum ListeningProbe {
                      settled.map { String(format: "%.3f", $0) }.joined(separator: "/")))
         print(String(format: "result: the next unclamped press went to %.3f (%+.1f dB over the ceiling; one step is %+.1f)",
                      after, db(after) - db(ceiling), db(min(1, ceiling + 0.0625)) - db(ceiling)))
+    }
+}
+
+extension ListeningProbe {
+    static let step: Float32 = 1.0 / 16 // one volume key press
+
+    static func drift(watch: Double?) {
+        let device = defaultOutput()
+        let elements = volumeElements(device)
+        guard let first = elements.first else { print("drift: the default output has no settable volume"); exit(1) }
+        let original = elements.map { scalar(device, $0) ?? 0 }
+        let ceiling = original[0]
+        let restore = { for (element, value) in zip(elements, original) { setScalar(device, element, value) } }
+        defer { restore() }
+        let setAll = { (value: Float32) in for element in elements { setScalar(device, element, value) } }
+        let now = { scalar(device, first) ?? -1 }
+        let db = { (s: Float32) in Double(decibels(device, first, scalar: s) ?? 0) }
+        let rel = { (s: Float32) in String(format: "%.3f (%+.1f dB from the ceiling)", s, db(s) - db(ceiling)) }
+
+        let timebase = ListeningProbe.timebase
+        let begin = mach_absolute_time()
+        let ms: @Sendable () -> Double = { Double((mach_absolute_time() - begin) * UInt64(timebase.numer) / UInt64(timebase.denom)) / 1e6 }
+        let log = Mutex<[String]>([])
+        let note: @Sendable (String) -> Void = { line in log.withLock { $0.append(String(format: "  %8.1f ms  %@", ms(), line)) } }
+        let peak = Mutex<Float32>(ceiling)
+        let armed = Mutex(true)
+        let queue = DispatchQueue(label: "listening.drift", qos: .userInteractive)
+        for element in elements {
+            var address = address(kAudioDevicePropertyVolumeScalar, output, element)
+            AudioObjectAddPropertyListenerBlock(device, &address, queue) { _, _ in
+                guard let value = scalar(device, element) else { return }
+                guard armed.withLock({ $0 }) else {
+                    note(String(format: "element %u at %.3f (unheld)", element, value))
+                    return
+                }
+                peak.withLock { $0 = max($0, value) }
+                if value > ceiling + 0.0005 {
+                    setScalar(device, element, ceiling)
+                    note(String(format: "element %u rose to %.3f, backstop put it at %.3f", element, value, ceiling))
+                } else {
+                    note(String(format: "element %u at %.3f", element, value))
+                }
+            }
+        }
+        guard SwallowTap.start(atCeiling: { (scalar(device, first) ?? 0) >= ceiling - 0.0005 }, note: note) else {
+            print("drift: could not create the event tap (Accessibility?)"); exit(1)
+        }
+        defer { SwallowTap.stop() }
+
+        print("drift: \(string(device, kAudioObjectPropertyName)), ceiling = current \(rel(ceiling)), one key step = \(String(format: "%.1f", db(min(1, ceiling + step)) - db(ceiling))) dB")
+        var results: [String] = []
+        func press(_ key: Int, _ label: String) {
+            note("press \(label)")
+            pressVolume(key)
+            Thread.sleep(forTimeInterval: 0.6)
+            results.append("\(label) went to \(rel(now()))")
+        }
+
+        if let watch {
+            print("drift: watching for \(Int(watch)) s. Raise the volume with the slider, then with the headset's own button")
+            Thread.sleep(forTimeInterval: watch)
+            results.append("after watching, settled at \(rel(now())), highest seen \(rel(peak.withLock { $0 }))")
+            Thread.sleep(forTimeInterval: 1)
+            press(soundDown, "volume down")
+            Thread.sleep(forTimeInterval: 4)
+            press(soundUp, "volume up")
+        } else {
+            // Outside a key session: no key for four seconds before the raise.
+            Thread.sleep(forTimeInterval: 4)
+            note("app raise to ceiling + 2 steps")
+            setAll(min(1, ceiling + 2 * step))
+            Thread.sleep(forTimeInterval: 1)
+            results.append("outside a session: app raise settled at \(rel(now()))")
+            press(soundDown, "outside a session: volume down")
+            Thread.sleep(forTimeInterval: 4)
+            press(soundUp, "outside a session: volume up")
+
+            // Inside a key session: the raise lands between two presses.
+            Thread.sleep(forTimeInterval: 4)
+            press(soundDown, "inside a session: volume down")
+            note("app raise to ceiling + 2 steps")
+            setAll(min(1, ceiling + 2 * step))
+            Thread.sleep(forTimeInterval: 0.4)
+            results.append("inside a session: app raise settled at \(rel(now()))")
+            press(soundDown, "inside a session: volume down again")
+            press(soundUp, "inside a session: volume up")
+            press(soundUp, "inside a session: volume up at the ceiling")
+        }
+        SwallowTap.stop()
+        restore()
+        // Where the keys' own count stands after it is all put back: one
+        // press down and one up, outside a session, with nothing holding.
+        Thread.sleep(forTimeInterval: 4)
+        armed.withLock { $0 = false }
+        note("count check: volume down")
+        pressVolume(soundDown)
+        Thread.sleep(forTimeInterval: 0.6)
+        let down = now()
+        Thread.sleep(forTimeInterval: 4)
+        note("count check: volume up")
+        pressVolume(soundUp)
+        Thread.sleep(forTimeInterval: 0.6)
+        let up = now()
+
+        for line in log.withLock({ $0 }) { print(line) }
+        for line in results { print("result: \(line)") }
+        print("result: highest seen \(rel(peak.withLock { $0 }))")
+        print("result: count check after restoring, down went to \(rel(down)), up to \(rel(up)) (aligned = one step below, then the ceiling)")
     }
 }
 

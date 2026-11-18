@@ -550,7 +550,9 @@ final class SelectController {
                 let expected = generation
                 editor?.undoLastFix { [weak self] done in
                     guard done, let self, self.generation == expected else { return }
+                    // The text moved back: what the lens moved is no longer so.
                     self.answered = []
+                    self.shiftedFrom = [:]
                     self.relabelEditor(after: 0.35)
                 }
             }
@@ -754,7 +756,12 @@ final class SelectController {
             guard let self else { return }
             self.pendingRelabels -= 1
             guard self.generation == expected, self.door == .editor, let editor = self.editor else { return }
-            let marks = editor.lensMarks.filter { !self.answered.contains($0.issue) }
+            // The editor reads the field again only at its beat; until then
+            // it holds its marks where they stood before the fixes picked
+            // since, and the lens's own moved marks are the true ones.
+            let moved = Dictionary(self.editorMarks.map { (self.shiftedFrom[$0.issue] ?? $0.issue, $0) },
+                                   uniquingKeysWith: { first, _ in first })
+            let marks = editor.lensMarks.filter { !self.answered.contains($0.issue) }.map { moved[$0.issue] ?? $0 }
             if marks.isEmpty {
                 // Nothing to letter: the lens waits on ⌫ or hands the next
                 // key back.
@@ -762,7 +769,9 @@ final class SelectController {
                 self.overlay.hide()
                 return
             }
+            let kept = self.shiftedFrom.filter { shifted, _ in marks.contains { $0.issue == shifted } }
             self.labelEditor(marks)
+            self.shiftedFrom = kept
         }
     }
 

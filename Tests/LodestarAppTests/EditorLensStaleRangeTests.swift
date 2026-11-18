@@ -111,6 +111,25 @@ final class EditorLensStaleRangeTests: XCTestCase {
         }
     }
 
+    /// A hand that reads each tag before it strikes: the lens letters
+    /// again after every pick, before the editor's beat has read the field,
+    /// and the marks it letters are still where the fixes moved them. On CI
+    /// at c751173 a loaded runner took longer than that relabel between
+    /// presses and the third fix met a stale range.
+    func testALetterStruckAfterThePauseLandsBeforeTheEditorReadsAgain() throws {
+        let lens = TextLens("I alot dont recieve it", [("alot", "a lot"), ("dont", "don't"), ("recieve", "receive")])
+        let stage = stage(lens)
+        try withExtendedLifetime(lens) {
+            stage.lode("tab")
+            for fix in ["a lot", "don't", "receive"] {
+                stage.press(letter(for: fix, in: stage))
+                RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            }
+            XCTAssertTrue(lens.refused.isEmpty, "\(lens.refused.map(\.original)) met a stale range")
+            XCTAssertEqual(lens.text, "I a lot don't receive it")
+        }
+    }
+
     func testTheLaterWordFirstNeedsNoShift() {
         let lens = TextLens("I alot dont recieve it", [("alot", "a lot"), ("dont", "don't"), ("recieve", "receive")])
         let stage = stage(lens)

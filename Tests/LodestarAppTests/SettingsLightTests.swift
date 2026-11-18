@@ -27,6 +27,39 @@ final class SettingsLightTests: XCTestCase {
         XCTAssertFalse(texts.contains("com.apple.TextEdit"), "the identifier is not drawn")
     }
 
+    /// The verbs that stand on every line (Remove, Reset, Add) are glyphs on
+    /// square keys, so a page reads as its entries; each still says its
+    /// word on hover and to VoiceOver, and no key spells it out.
+    func testTheRepeatedVerbsAreGlyphsThatStillSayTheirNames() {
+        let settings = settings(excluding: ["com.apple.TextEdit"])
+        settings.config.scrollSpeed = 1200
+        var keys: [RoomButton] = []
+        for place in 0..<10 {
+            settings.renderForTesting(place: place)
+            keys += settings.viewsForTesting(of: RoomButton.self)
+        }
+        for (glyph, name) in [(Glyph.remove, "Remove"), (.undo, "Reset"), (.add, "Add")] {
+            let wearing = keys.filter { $0.glyph == glyph }
+            XCTAssertFalse(wearing.isEmpty, "\(name) is drawn as its glyph")
+            for key in wearing {
+                XCTAssertEqual(key.toolTip, name, "named on hover")
+                XCTAssertEqual(key.accessibilityLabel(), name, "named to VoiceOver")
+                XCTAssertEqual(key.intrinsicContentSize.width, key.intrinsicContentSize.height, "a square key")
+            }
+        }
+        XCTAssertTrue(keys.filter { ["Remove", "Reset", "Add", "Undo"].contains($0.title) }.isEmpty,
+                      "no key spells out a verb its glyph says")
+    }
+
+    /// History's way back is the same arc as Reset's: both put an earlier
+    /// value back.
+    func testHistoryUndoWearsTheArcBack() {
+        let item = SettingsModel.HistoryItem(id: "1", title: "Scroll speed", detail: "1800 → 1200", today: true)
+        let action = SettingsModel.historySection([item]).rows.first?.action
+        XCTAssertEqual(action?.label, "Undo")
+        XCTAssertEqual(action?.glyph, .undo)
+    }
+
     /// An app no longer on this Mac has no name to show; its identifier is
     /// all there is to recognise it by.
     func testAnAppThatIsGoneFallsBackToItsIdentifier() {

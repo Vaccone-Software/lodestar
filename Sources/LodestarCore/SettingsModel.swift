@@ -94,12 +94,16 @@ public enum SettingsModel {
         public let destructive: Bool
         /// What the second press is asked for with, in words.
         public let confirm: String?
+        /// Drawn in place of the label when the verb repeats down a page
+        /// (History's Undo); the label is then its name on hover.
+        public let glyph: Glyph?
 
-        public init(id: String, label: String, destructive: Bool = false, confirm: String? = nil) {
+        public init(id: String, label: String, destructive: Bool = false, confirm: String? = nil, glyph: Glyph? = nil) {
             self.id = id
             self.label = label
             self.destructive = destructive
             self.confirm = confirm
+            self.glyph = glyph
         }
     }
 
@@ -971,7 +975,7 @@ public enum SettingsModel {
         var rows: [Row] = items.prefix(labelAlphabet.count).map { item in
             Row(title: item.title, control: .readout("", sub: nil), detail: item.detail,
                 group: item.today ? "Today" : "Earlier")
-                .doing(Action(id: "undo:\(item.id)", label: "Undo"))
+                .doing(Action(id: "undo:\(item.id)", label: "Undo", glyph: .undo))
         }
         if rows.isEmpty {
             rows = [Row(title: "Nothing has changed yet", control: .readout("", sub: nil),

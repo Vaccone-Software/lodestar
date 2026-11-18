@@ -881,7 +881,19 @@ final class RoomButton: NSButton, CeramicDepth {
         standing.fit(bounds, radius: BarTheme.controlRadius, flipped: isFlipped)
     }
 
+    /// A verb that stands on every line of a list (Remove, Reset, Add,
+    /// Undo) is its glyph on a square key, so the list reads as its entries;
+    /// the word is said on hover and to VoiceOver.
+    convenience init(glyph: Glyph, named name: String, target: AnyObject?, action: Selector?) {
+        self.init(title: "", target: target, action: action)
+        self.glyph = glyph
+        toolTip = name
+        setAccessibilityLabel(name)
+    }
+
     required init?(coder: NSCoder) { nil }
+
+    private(set) var glyph: Glyph? { didSet { restyle() } }
 
     override var title: String {
         didSet { restyle() }
@@ -891,6 +903,7 @@ final class RoomButton: NSButton, CeramicDepth {
     var drawnSide: CGFloat { standing.visibleSide }
 
     override var intrinsicContentSize: NSSize {
+        if glyph != nil { return NSSize(width: BarTheme.minTarget, height: BarTheme.minTarget) }
         let text = attributedTitle.size()
         return answer
             ? NSSize(width: (text.width + BarTheme.wordPadding * 2).rounded(.up), height: BarTheme.fieldHeight)
@@ -921,7 +934,7 @@ final class RoomButton: NSButton, CeramicDepth {
         restyle()
     }
 
-    /// The word is drawn on the face, wherever the face stands.
+    /// The word or glyph is drawn on the face, wherever the face stands.
     override func draw(_ dirtyRect: NSRect) {
         standing.drawBody()
         let lift = standing.lift
@@ -935,10 +948,15 @@ final class RoomButton: NSButton, CeramicDepth {
         // A button that cannot be undone says so in its words, never in
         // an alarm colour: one light, no paint.
         let color: NSColor = primary ? BarTheme.onAccent : (isEnabled ? BarTheme.ink : BarTheme.secondaryColor)
-        let words = super.title
-        super.attributedTitle = NSAttributedString(
-            string: words,
-            attributes: BarTheme.attributes(.control, color: color, in: effectiveAppearance))
+        if let glyph {
+            image = NSImage.glyph(glyph, size: BarTheme.glyph) { color }
+            imagePosition = .imageOnly
+        } else {
+            let words = super.title
+            super.attributedTitle = NSAttributedString(
+                string: words,
+                attributes: BarTheme.attributes(.control, color: color, in: effectiveAppearance))
+        }
         standing.pressed = pressing
         let state: Keycaps.CapState = pressing ? .pressed : (hovering ? .hovered : .resting)
         standing.paint(in: self, face: BarTheme.face(lit: primary, state: state),

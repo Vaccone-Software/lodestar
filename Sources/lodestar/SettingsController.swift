@@ -1582,7 +1582,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             case .choice, .number, .text:
                 // An action is a key, never a word in grey that happens
                 // to be clickable.
-                let reset = RoomButton(title: "Reset", target: self, action: #selector(resetPressed(_:)))
+                let reset = RoomButton(glyph: .undo, named: "Reset", target: self, action: #selector(resetPressed(_:)))
                 reset.identifier = NSUserInterfaceItemIdentifier(row.path)
                 trailing.append(reset)
             default:
@@ -1592,8 +1592,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         }
         var readout: (column: NSView, first: NSView)?
         if let action = row.action {
-            let button = RoomButton(title: armed ? "Confirm" : action.label, target: self,
-                                    action: #selector(actionPressed(_:)))
+            let button = if !armed, let glyph = action.glyph {
+                RoomButton(glyph: glyph, named: action.label, target: self, action: #selector(actionPressed(_:)))
+            } else {
+                RoomButton(title: armed ? "Confirm" : action.label, target: self, action: #selector(actionPressed(_:)))
+            }
             button.destructive = armed
             if case .readout(let value, _) = row.control, !value.isEmpty {
                 let control = buildControl(row, index: index)
@@ -1828,7 +1831,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                         "\(addKey(kind))|\(entry.key)")
                 }
             }
-            let button = RoomButton(title: "Remove", target: self,
+            let button = RoomButton(glyph: .remove, named: "Remove", target: self,
                                     action: #selector(removePressed(_:)))
             button.identifier = NSUserInterfaceItemIdentifier("\(addKey(kind))|\(entry.key)")
             row.addArrangedSubview(button)
@@ -2013,8 +2016,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             addInputs[addKey(kind)] = code
             addInputs["keys.name"] = name
         }
-        let commit = RoomButton(title: inline ? "Save" : "Add", target: self,
-                                action: #selector(addPressed(_:)))
+        let commit = inline
+            ? RoomButton(title: "Save", target: self, action: #selector(addPressed(_:)))
+            : RoomButton(glyph: .add, named: "Add", target: self, action: #selector(addPressed(_:)))
         commit.identifier = NSUserInterfaceItemIdentifier(addKey(kind))
         guard inline else {
             bar.addArrangedSubview(commit)

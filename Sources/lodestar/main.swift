@@ -1472,7 +1472,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var state = SettingsModel.MachineState()
             state.breaths = self?.store.state.breaths.count ?? 0
             state.person = self?.personKeeper.person
-            state.history = SettingsModel.historyItems(Array(ConfigHistory.read().suffix(26)))
             state.healthWarning = Retention.healthWarning(in: Paths.data,
                                                           bound: self?.config.healthBytes ?? Retention.healthBytes)
             switch self?.vault.ring(.health).availability {
@@ -1787,10 +1786,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "delete-logbook":
             observationStore?.clearLogbook()
             hud.flash("✓ Logbook deleted")
-        case let undo where undo.hasPrefix("undo:"):
-            let id = String(undo.dropFirst(5))
-            guard let entry = ConfigHistory.read().first(where: { $0.id == id }) else { return }
-            _ = revertConfig([entry], to: \.old, flash: "↺ \(SettingsModel.historyTitle(entry.path)) undone", source: "Undo")
         case "start-new-health":
             // The person's explicit choice after the key was lost: the sealed
             // files that nothing can open are moved (never deleted) into a

@@ -61,7 +61,7 @@ enum GallerySettings {
                 $0.renderForTesting(place: index)
             })
         }
-        for page in [SettingsModel.keyboardsPage, SettingsModel.wordsPage, SettingsModel.historyPage] {
+        for page in [SettingsModel.keyboardsPage, SettingsModel.wordsPage] {
             all.append(settings("page-" + page.lowercased()) {
                 $0.renderForTesting(place: SettingsModel.placeIndex(page == SettingsModel.wordsPage ? "Write" : "General"))
                 $0.openForTesting(page: page)

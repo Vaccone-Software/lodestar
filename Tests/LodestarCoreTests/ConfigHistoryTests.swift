@@ -93,21 +93,19 @@ final class ConfigHistoryTests: XCTestCase {
         XCTAssertLessThanOrEqual(ConfigHistory.read(from: file).count, ConfigHistory.keep * 2)
     }
 
-    func testTheHistoryPageSaysWhatChangedInWords() {
-        let now = Date(timeIntervalSince1970: 1_790_000_000)
-        let items = SettingsModel.historyItems([
-            ConfigHistory.Entry(group: 1, index: 0, at: now, path: ["scroll", "speed"], old: .int(1800), new: .int(1200), source: "Settings"),
-            ConfigHistory.Entry(group: 2, index: 0, at: now, path: ["draft", "words", "Kindora"], old: nil, new: .bool(true), source: "The editor"),
-            ConfigHistory.Entry(group: 3, index: 0, at: now, path: ["graph", "s"], old: nil, new: .string("Slack"), source: "The coach"),
-        ], now: now)
-        XCTAssertEqual(items.map(\.title), ["Letters", "Words", "Scroll speed"], "newest first")
-        XCTAssertTrue(items[0].detail.hasPrefix("Added lode s · The coach"))
-        XCTAssertTrue(items[1].detail.hasPrefix("Added Kindora · The editor"))
-        XCTAssertTrue(items[2].detail.hasPrefix("1800 → 1200 · Settings"))
-        XCTAssertTrue(items.allSatisfy(\.today))
-        let page = SettingsModel.pages(config: Config(), machine: { var m = SettingsModel.MachineState(); m.history = items; return m }())
-            .first { $0.name == SettingsModel.historyPage }!
-        XCTAssertEqual(page.rows.compactMap(\.action?.id), items.map { "undo:\($0.id)" })
+    /// ⌘Z's flash names a change by its row: Letters for the graph, a
+    /// list's own row for an entry in it, the row itself for a value.
+    func testAChangeIsNamedByItsRow() {
+        XCTAssertEqual(SettingsModel.historyTitle(["graph", "s"]), "Letters")
+        XCTAssertEqual(SettingsModel.historyTitle(["draft", "words", "Kindora"]), "Words")
+        XCTAssertEqual(SettingsModel.historyTitle(["scroll", "speed"]), "Scroll speed")
+    }
+
+    /// General keeps no page of past changes: ⌘Z is the way back.
+    func testGeneralHasNoHistoryPage() {
+        let general = SettingsModel.catalog(config: Config(), machine: .init()).first { $0.name == "General" }
+        XCTAssertFalse(general?.rows.contains { $0.title == "History" } ?? true)
+        XCTAssertFalse(SettingsModel.pages(config: Config(), machine: .init()).contains { $0.name == "History" })
     }
 
     func testAModelAnswerIsHeldToRowsThatExist() {

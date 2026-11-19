@@ -1,6 +1,7 @@
 import Foundation
 import LodestarCore
 import LodestarEars
+import Stoic
 
 /// The draft's settling ears, sized by the Mac (`EarTier`), kept in memory
 /// only while wanted: Parakeet in front, which ⏎ waits for, and on a Mac
@@ -377,7 +378,7 @@ final class EarHost {
         guard mine else {
             while await MainActor.run(body: { loading }) {
                 // Cancellation only ends the wait sooner: the ear is asked anyway.
-                try? await Task.sleep(nanoseconds: 50_000_000)
+                do { try await Ambient.sleep(for: .milliseconds(50)) } catch { break }
             }
             return
         }

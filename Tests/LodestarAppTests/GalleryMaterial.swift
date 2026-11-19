@@ -106,7 +106,7 @@ enum GalleryMaterial {
         let field = WellField(frame: .zero)
         field.setRole(.body)
         field.textColor = BarTheme.ink
-        field.setPlaceholder("Where to?")
+        field.setPlaceholder("Search apps and windows")
         field.widthAnchor.constraint(equalToConstant: 250).isActive = true
         let note = WellView(cornerRadius: BarTheme.controlRadius)
         note.widthAnchor.constraint(equalToConstant: 250).isActive = true

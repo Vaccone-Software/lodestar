@@ -1339,8 +1339,9 @@ final class ClipboardStrip {
     /// The field of a band or a menu, drawn: a well of a field's height, the
     /// caret in it, so its edge is the deeper one. Its words and its caret
     /// are laid in it by the caller, in its own coordinates.
-    private func addFieldWell(to plate: NSView, in rect: NSRect, holdsCaret: Bool = true) -> WellView {
-        let well = WellView()
+    private func addFieldWell(to plate: NSView, in rect: NSRect, holdsCaret: Bool = true,
+                              cornerRadius: CGFloat = BarTheme.controlRadius) -> WellView {
+        let well = WellView(cornerRadius: cornerRadius)
         well.translatesAutoresizingMaskIntoConstraints = true
         well.frame = rect
         well.caretIsHere = holdsCaret
@@ -1445,9 +1446,12 @@ final class ClipboardStrip {
 
         var top = height - inset
         // Its own field, a well like every field: a line of words 12 inside it.
+        // It stands 8 inside the menu's corners, so it rounds as the lines
+        // under it do, at the menu's radius less 8.
         let fieldY = top - fieldHeight
         let well = addFieldWell(to: plate, in: NSRect(x: inset, y: fieldY,
-                                                       width: width - inset * 2, height: fieldHeight))
+                                                       width: width - inset * 2, height: fieldHeight),
+                                cornerRadius: BarTheme.lineRadius)
         shownSourceField = well
         let typed = menu.typed.isEmpty
             ? NSTextField(labelWithAttributedString: BarTheme.placeholder("Search apps", role: .body))

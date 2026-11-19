@@ -116,12 +116,12 @@ final class DesignDriftTests: XCTestCase {
     /// A placeholder is set in its field's own role, so it is the field's size
     /// and weight, quiet, and it follows the look like the typed text.
     func testAPlaceholderIsTheFieldsRoleInTheQuietTone() {
-        let placeholder = BarTheme.placeholder("Where to?", role: .field)
+        let placeholder = BarTheme.placeholder("Search apps and windows", role: .field)
         let font = placeholder.attribute(.font, at: 0, effectiveRange: nil) as! NSFont
         XCTAssertEqual(font.pointSize, BarTheme.Role.field.size, "at the field's size")
         let field = NSTextField()
         field.setRole(.field)
-        field.setPlaceholder("Where to?")
+        field.setPlaceholder("Search apps and windows")
         let set = field.placeholderAttributedString?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
         XCTAssertEqual(set?.pointSize, BarTheme.Role.field.size)
         XCTAssertEqual(set, field.font, "the placeholder wears the weight the field does")

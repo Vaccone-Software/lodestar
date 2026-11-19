@@ -30,7 +30,7 @@ A keyboard app is mostly places you type into, and the eye should find the place
 
 | Well            | Height                | Corners                         | Words inset | Words in      |
 | --------------- | --------------------- | ------------------------------- | ----------- | ------------- |
-| a bar's field   | 60                    | 8.4                             | 12          | field (23)    |
+| a bar's field   | 60                    | 10, nested 12 inside the pane's 22 | 12       | field (23)    |
 | a field         | 32                    | 8.4, the control rung           | 12          | body (16)     |
 | a note          | at least 4 lines, 150 in Feedback | 8.4                  | 12          | body (16)     |
 | a band's field  | 32, 4 inside its band | 8.4; the band rounds at 12.4    | 12          | the band's role |
@@ -75,7 +75,7 @@ Every height is on the size table; Keep's source list's 40-tall field becomes a 
 3. **One caret, one selection.** The readable accent at 1.5, never blinking; ink at 30%; in every well.
 4. **Focus is the edge, and the caret holds still.** The focused well's edge deepens; no ring, glow or accent outline, and no system bezel or focus ring is ever drawn.
 5. **The placeholder is quiet ink at the words' size**, holding 4.5 : 1 at every level.
-6. **One radius for every input.** A field, a note and a bar's field round at 8.4, wherever they sit. A band that holds only a field takes its corners from the field (8.4 + its 4-point inset = 12.4), so the gap stays even; an empty slot keeps its thing's radius.
+6. **One radius for every input, unless it stands in a corner.** A field and a note round at 8.4. A well that stands one inset inside a rounded surface's corners nests in them at the outer radius less the inset, as the chosen row or line beside it does: a bar's field at 10 (22 less 12), Keep's list of sources' field at 14 (22 less 8). A band that holds only a field takes its corners from the field (8.4 + its 4-point inset = 12.4), so the gap stays even; an empty slot keeps its thing's radius.
 
 ## Enforcement
 
@@ -101,7 +101,7 @@ Measured by drawing every gallery surface and reading the pixels back (`WellTest
 - **The caret** in every real field of the well sheet is 3 device pixels of the accent at 2x (1.5 points), at the insertion point, and no other saturated pixel stands in the field's row (the system's caret is gone); held for two blink periods (four samples 0.45 s apart) it is whole every time and nothing animates it.
 - **The edge** is the ink at 14% (day) and 12% (night) at rest, and 28% and 24% with the caret in it, read off the one row of pixels the half-point edge is.
 - **Every editable text view** on every gallery surface (the launcher, Ask, Commands, Settings' fields and search, Feedback's note and reply) sits in a well, draws no bezel, border or focus ring, is edited in the one editor and holds the one caret; the draft's text view is not editable and is not a field.
-- **Every input well** rounds at 8.4, every field band at 12.4, every field is 32 tall and every band 40, with its field 4 inside it.
+- **Every input well** rounds at 8.4, every field band at 12.4, every field is 32 tall and every band 40, with its field 4 inside it. Since 18 November 2026 the bars' wells round at 10 and the list of sources' field at 14 (below).
 
 | Placeholder, quiet ink on the well | full | evening (88%) | bedtime (80%) |
 | ---------------------------------- | ---- | ------------- | ------------- |
@@ -138,3 +138,4 @@ The caret's accent on the well: 3.99, 3.88 and 3.88 by day, 5.77, 5.19 and 4.89 
 - The caret does not blink (23 October 2026).
 - Focus is the edge doubling, not the caret alone (23 October 2026).
 - One radius for every input, 8.4, over nesting each in what holds it: nesting made the launcher's field 10, Keep's a capsule and Settings' 8.4, three shapes for one act. Keep's search and save bands round at 12.4 instead of as capsules (23 October 2026).
+- Nesting wins in a corner (18 November 2026). The bars' wells at 8.4 sat 12 inside a pane of 22, over a chosen row that nests at 10: the gap to the pane widened round each corner and the field read as a box laid on the pane, not one inside it. A well in a surface's corners now rounds at the outer radius less its inset (geometry, rule 2): the launcher's, Ask's and Commands' at 10, Keep's list of sources' field at 14 beside its lines. Fields that stand among other things (Settings, Feedback, Keep's bands) keep 8.4. The scroll guide's lines carry the menu's 14 at an inset of 16, but nothing in a guide is chosen, so no slab shows it. The bars' placeholders say what they search: Search apps and windows, Search *app* windows, Search or enter an address, Search *app* menus.

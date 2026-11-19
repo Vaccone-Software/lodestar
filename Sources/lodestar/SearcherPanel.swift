@@ -65,8 +65,9 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     private let field = InputField()
     private let magnifier = GlyphView(.appsAndWindows, size: BarTheme.inputGlyph, description: "apps and windows")
     /// The field is a place you put something, so it sinks: a well one pane-inset
-    /// inside the pane, rounded as every input is, at the control's radius.
-    private let well = WellView()
+    /// inside the pane, rounded at the pane's radius less that inset (as the
+    /// chosen row under it is), so the gap round its corners stays even.
+    private let well = WellView(cornerRadius: BarTheme.paneRowRadius)
     private let rowsStack = NSStackView()
     /// The footer: a note in the band under the rows, its keys drawn.
     private let footer = NSStackView()
@@ -154,7 +155,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         field.focusRingType = .none
         field.setRole(.field)
         field.textColor = BarTheme.ink
-        field.setPlaceholder("Where to?")
+        field.setPlaceholder("Search apps and windows")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
@@ -225,7 +226,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         appIndex.refreshIfStale()
         closeMenu()
         mode = .apps
-        field.setPlaceholder("Where to?")
+        field.setPlaceholder("Search apps and windows")
         field.stringValue = ""
         openedAt = ContinuousClock.now
         firstKeyAt = nil
@@ -238,7 +239,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// The window chooser: this app's windows, most recently focused first.
     func showWindowChooser(pid: pid_t, appName: String) {
         mode = .windows(pid: pid, appName: appName, cameFromApps: false)
-        field.setPlaceholder("\(appName) windows")
+        field.setPlaceholder("Search \(appName) windows")
         field.stringValue = ""
         requery()
         present()
@@ -394,7 +395,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         case #selector(NSResponder.cancelOperation(_:)):
             if case .windows(_, _, true) = mode {
                 mode = .apps
-                field.setPlaceholder("Where to?")
+                field.setPlaceholder("Search apps and windows")
                 field.stringValue = ""
                 requery()
             } else {
@@ -417,7 +418,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
                case .app(let entry) = rows[selected],
                entry.isRunning, let pid = entry.pid {
                 mode = .windows(pid: pid, appName: entry.name, cameFromApps: true)
-                field.setPlaceholder("\(entry.name) windows")
+                field.setPlaceholder("Search \(entry.name) windows")
                 field.stringValue = ""
                 requery()
             } else {

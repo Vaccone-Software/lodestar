@@ -58,7 +58,7 @@ final class WellTests: XCTestCase {
                 // What is drawn: the placeholder a field wears, resolved where it is drawn.
                 let field = InputField()
                 field.setRole(.field)
-                field.setPlaceholder("Where to?")
+                field.setPlaceholder("Search apps and windows")
                 let drawn = rgb(field.placeholderAttributedString?.attribute(.foregroundColor, at: 0, effectiveRange: nil)
                                     as? NSColor ?? .clear, in: look)
                 let well = rgb(BarTheme.wellFill, in: look)
@@ -310,9 +310,12 @@ final class WellTests: XCTestCase {
 
     /// Every input well rounds at 8.4 (the control's rung) and every field
     /// band at 12.4 (8.4 and the field's 4-point inset in it): Keep's search
-    /// and save bands and Bring's, the list of sources' field, Settings' fields
-    /// and search, the bars' wells, Feedback's note and reply.
-    func testEveryInputWellRoundsAtEightPointFourAndEveryFieldBandAtTwelvePointFour() throws {
+    /// and save bands and Bring's, Settings' fields and search, Feedback's
+    /// note and reply. A well that stands in a rounded surface's corners
+    /// nests in them instead, at the outer radius less its inset, as the
+    /// chosen line beside it does: the bars' wells, 12 inside a pane of 22,
+    /// at 10, and the list of sources' field, 8 inside its menu, at 14.
+    func testEveryInputWellRoundsAtEightPointFourOrNestsInTheCornersItStandsIn() throws {
         XCTAssertEqual(BarTheme.controlRadius, 8.4, accuracy: 0.01)
         XCTAssertEqual(BarTheme.bandRadius, BarTheme.controlRadius + 4, accuracy: 0.0001)
         XCTAssertEqual(BarTheme.bandRadius, 12.4, accuracy: 0.01)
@@ -324,8 +327,18 @@ final class WellTests: XCTestCase {
             walk(root) { view in
                 if let well = view as? WellView, well.holdsField {
                     wells += 1
-                    XCTAssertEqual(well.cornerRadius, BarTheme.controlRadius, accuracy: 0.0001,
-                                   "\(name): an input well rounds at 8.4, not \(well.cornerRadius)")
+                    if ["launcher", "ask", "commands"].contains(shot.surface) {
+                        let inset = try? XCTUnwrap(well.superview).bounds.width - well.frame.maxX
+                        XCTAssertEqual(well.frame.minX, BarTheme.paneInset, "\(name): the bar's well is one pane inset in")
+                        XCTAssertEqual(inset ?? 0, BarTheme.paneInset, "\(name): on both sides")
+                        XCTAssertEqual(well.cornerRadius,
+                                       BarTheme.nested(outer: BarTheme.surfaceRadius, inset: BarTheme.paneInset,
+                                                       rung: BarTheme.controlRadius), accuracy: 0.0001,
+                                       "\(name): the bar's well nests in the pane's corners at 10, not \(well.cornerRadius)")
+                    } else if well !== keep.compactMap({ ($0 as? ClipboardStrip)?.shownSourceField }).first {
+                        XCTAssertEqual(well.cornerRadius, BarTheme.controlRadius, accuracy: 0.0001,
+                                       "\(name): an input well rounds at 8.4, not \(well.cornerRadius)")
+                    }
                 }
                 if view is WellField {
                     wells += 1
@@ -347,7 +360,12 @@ final class WellTests: XCTestCase {
                 }
                 if let list = strip.shownSourceField {
                     XCTAssertEqual(list.frame.height, BarTheme.fieldHeight, "\(name): the sources' filter is a field, 32 tall")
-                    XCTAssertEqual(list.cornerRadius, BarTheme.controlRadius, accuracy: 0.0001)
+                    XCTAssertEqual(list.frame.minX, BarTheme.lineInset, "\(name): the sources' filter is 8 inside its menu")
+                    XCTAssertEqual(list.cornerRadius,
+                                   BarTheme.nested(outer: BarTheme.surfaceRadius, inset: BarTheme.lineInset,
+                                                   rung: BarTheme.controlRadius), accuracy: 0.0001,
+                                   "\(name): the sources' filter nests in its menu's corners, as its lines do")
+                    XCTAssertEqual(list.cornerRadius, BarTheme.lineRadius, accuracy: 0.0001)
                 }
             }
         }

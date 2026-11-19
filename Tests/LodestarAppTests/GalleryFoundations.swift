@@ -259,7 +259,7 @@ enum GalleryFoundations {
 
     /// What each role says, set in it: the sample is what the role is for.
     static let samples: [BarTheme.Role: String] = [
-        .field: "Where to?", .voice: "Notes could be one key away", .title: "Switch to a window",
+        .field: "Search apps and windows", .voice: "Notes could be one key away", .title: "Switch to a window",
         .roomTitle: "Send feedback", .body: "Safari  Slack  Ghostty", .quietVoice: "Product sync",
         .typed: "swift build", .emphasis: "Now", .figure: "3:59  12", .largeFigure: "37",
         .meta: "Zoom · 6 people · just now", .name: "Annual report.pdf",

@@ -126,6 +126,9 @@ final class EditorController: EditorLens {
     private var inFlight: Set<String> = []
     private var queue: [String] = []
     private var working = false
+    /// A sentence is with the model. Once this is false again its answer
+    /// is already on the session's queue, behind whatever was there.
+    var asking: Bool { working }
     private var lastGeometry = Date.distantPast
     private var geometryGeneration = 0
     private var fixes: [Fix] = []

@@ -333,6 +333,83 @@ final class EarHost {
         if let draftModel { Task(priority: .medium) { await draftModel.load() } } else if sharesEditor(model) { prepareShared() }
     }
 
+    /// Phrases being heard outside the draft (`lodestar transcribe`).
+    private var hearing = 0
+
+    /// A phrase heard outside the draft (`lodestar transcribe`), by the ear
+    /// whose words dictation keeps: the one behind when this Mac's setup
+    /// has one, the quick one otherwise. A cold ear loads as it would for a
+    /// draft, through the same `loading` (one load at a time, never two of
+    /// one ear), and is let go on the same thirty minutes when no draft
+    /// holds it. `done` runs on main.
+    func hear(_ samples: [Float], context: [String],
+              done: @escaping (Result<(heard: Heard, ear: String), Error>) -> Void) {
+        guard let chosen = backgroundEar ?? ear else { return done(.failure(Transcribe.Failure.noEar)) }
+        idle?.cancel()
+        hearing += 1
+        Task(priority: .medium) { [weak self] in
+            let result: Result<(heard: Heard, ear: String), Error>
+            do {
+                if !chosen.isLoaded { try await self?.load(chosen) }
+                result = .success((try await chosen.transcribe(samples, context: context), chosen.name))
+            } catch {
+                result = .failure(error)
+            }
+            await MainActor.run { [weak self] in
+                if let self {
+                    self.hearing -= 1
+                    if !self.inUse, self.hearing == 0 { self.restEars() }
+                }
+                done(result)
+            }
+        }
+    }
+
+    /// Loads one ear for a phrase: waits out a load already on its way (a
+    /// draft's), or takes `loading` for its own, so a draft starting
+    /// meanwhile waits for it as it would for its own.
+    private func load(_ chosen: SettlingEar) async throws {
+        let mine = await MainActor.run { () -> Bool in
+            guard !loading else { return false }
+            loading = true
+            return true
+        }
+        guard mine else {
+            while await MainActor.run(body: { loading }) {
+                // Cancellation only ends the wait sooner: the ear is asked anyway.
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            return
+        }
+        let began = ContinuousClock.now
+        do {
+            try await chosen.load()
+            Log.info("draft", ["ear": chosen.name, "loaded ms": Int(began.secondsElapsed * 1000), "for": "transcribe"])
+        } catch {
+            await MainActor.run { loading = false }
+            throw error
+        }
+        await MainActor.run { [weak self] in
+            guard let self else { return }
+            self.loading = false
+            self.loaded()
+            // A draft that opened while this loaded asked for its models.
+            if self.inUse { self.loadModels() }
+        }
+    }
+
+    /// The ears go after their idle time, as when a draft closes; the
+    /// language model's own timer is not touched.
+    private func restEars() {
+        if pressed { letGo(); return }
+        let ears = DispatchWorkItem { [weak self] in
+            self?.ear?.unload()
+            self?.backgroundEar?.unload()
+        }
+        idle = ears
+        clock.after(Self.idleSeconds, ears)
+    }
+
     /// The draft closed: the ear lets its memory go after a while, and the
     /// language model, which is far larger, sooner.
     func rest() {

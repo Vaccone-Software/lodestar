@@ -45,6 +45,10 @@ struct ControlVerbs {
             return ["ok": true, "result": worldState()]
         case .draft(let which):
             return runDraft(which)
+        case .transcribe:
+            // Answered when the ear has heard it, through the socket's
+            // `handleLater` (main.swift): never here, at once.
+            return ["ok": false, "error": "transcribe is answered when it has been heard"]
         }
     }
 

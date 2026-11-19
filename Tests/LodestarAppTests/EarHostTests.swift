@@ -48,6 +48,28 @@ final class SlowEar: SettlingEar, @unchecked Sendable {
     func transcribe(_ samples: [Float], context: [String]) async throws -> Heard { Heard("") }
 }
 
+/// An ear that hears every phrase as `words`, and counts its loads.
+final class WordsEar: SettlingEar, @unchecked Sendable {
+    let name: String
+    private let words: String
+    private let lock = NSLock()
+    private var _loaded: Bool
+    private var _loads = 0
+    private var _context: [String] = []
+    init(_ name: String, hears words: String, loaded: Bool = true) {
+        self.name = name; self.words = words; _loaded = loaded
+    }
+    var isLoaded: Bool { lock.withLock { _loaded } }
+    var loads: Int { lock.withLock { _loads } }
+    var context: [String] { lock.withLock { _context } }
+    func load() async throws { lock.withLock { _loaded = true; _loads += 1 } }
+    func unload() { lock.withLock { _loaded = false } }
+    func transcribe(_ samples: [Float], context: [String]) async throws -> Heard {
+        lock.withLock { _context = context }
+        return Heard(words)
+    }
+}
+
 /// A language model backend that is loaded on the test's say-so, and
 /// remembers that it was asked to.
 private final class Loads: @unchecked Sendable {
@@ -358,5 +380,86 @@ final class EarHostTests: XCTestCase {
         withAmbient({ $0.instrumentation = events }) { host.warm() }
         pump(until: { events.names.contains("test.model_loading") })
         XCTAssertEqual(loaded.count, 1)
+    }
+
+    // MARK: - Heard outside the draft (lodestar transcribe)
+
+    private func heard(_ host: EarHost, context: [String] = []) -> (text: String, ear: String)? {
+        var answer: (text: String, ear: String)?
+        var finished = false
+        host.hear([Float](repeating: 0, count: 16_000), context: context) { result in
+            if case .success(let heard) = result { answer = (heard.heard.text, heard.ear) }
+            finished = true
+        }
+        pump(until: { finished })
+        return answer
+    }
+
+    /// The words dictation keeps come from the ear behind when the setup
+    /// has one: so do a file's.
+    func testAFileIsHeardByTheEarDictationKeeps() {
+        let quick = WordsEar("parakeet", hears: "private link")
+        let behind = WordsEar("qwen", hears: "PrivateLink")
+        let host = EarHost(clock: clock.clock)
+        host.install(ear: quick, behind: behind, tier: .full)
+        let answer = heard(host, context: ["PrivateLink"])
+        XCTAssertEqual(answer?.text, "PrivateLink")
+        XCTAssertEqual(answer?.ear, "qwen")
+        XCTAssertEqual(behind.context, ["PrivateLink"], "the names reach the ear")
+
+        let alone = EarHost(clock: clock.clock)
+        alone.install(ear: quick, tier: .small)
+        XCTAssertEqual(heard(alone)?.ear, "parakeet", "the quick ear, on a setup without one behind")
+    }
+
+    /// A cold ear loads once, then rests on the draft's thirty minutes.
+    func testAColdEarLoadsAndRestsAsForADraft() {
+        let ear = WordsEar("parakeet", hears: "hello", loaded: false)
+        let host = EarHost(clock: clock.clock)
+        host.install(ear: ear, tier: .small)
+        XCTAssertEqual(heard(host)?.text, "hello")
+        XCTAssertEqual(ear.loads, 1)
+        XCTAssertEqual(heard(host)?.text, "hello")
+        XCTAssertEqual(ear.loads, 1, "warm the second time")
+        clock.advance(by: 29 * 60)
+        XCTAssertTrue(ear.isLoaded)
+        clock.advance(by: 2 * 60)
+        XCTAssertFalse(ear.isLoaded, "let go after thirty minutes")
+    }
+
+    /// A file heard during a draft leaves the draft's ear alone.
+    func testAFileHeardDuringADraftDoesNotRestItsEar() {
+        let ear = WordsEar("parakeet", hears: "hello")
+        let host = EarHost(clock: clock.clock)
+        host.install(ear: ear, tier: .small)
+        host.warm()
+        _ = heard(host)
+        clock.advance(by: 40 * 60)
+        XCTAssertTrue(ear.isLoaded, "the draft is still open")
+    }
+
+    /// A draft's load on its way is waited for, never doubled.
+    func testAFileWaitsForTheDraftsLoad() {
+        let ear = SlowEar()
+        let host = EarHost(clock: clock.clock)
+        host.install(ear: ear, tier: .small)
+        host.warm()
+        var finished = false
+        host.hear([0], context: []) { _ in finished = true }
+        pump(until: { true })
+        XCTAssertFalse(finished, "waits for the load")
+        ear.finishLoading()
+        pump(until: { finished })
+        XCTAssertTrue(ear.isLoaded)
+    }
+
+    func testWithNoEarItSaysSo() {
+        let host = EarHost(clock: clock.clock)
+        host.install(ear: nil, tier: .apple)
+        var problem: String?
+        host.hear([0], context: []) { result in
+            if case .failure(let error) = result { problem = "\(error)" }
+        }
+        XCTAssertEqual(problem, "dictation has no ear on this Mac yet (Settings › Dictation)")
     }
 }

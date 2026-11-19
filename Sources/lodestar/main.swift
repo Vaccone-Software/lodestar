@@ -814,6 +814,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                 presenting: { self.presenting.isOn },
                                 draft: { self.draftController }).run(arguments)
         }
+        // `lodestar transcribe`: answered once dictation's ear has heard
+        // the file, with dictation's list of names.
+        control.handleLater = { [weak self] arguments, reply in
+            guard case .success(.transcribe(let path, let names)) = ControlParse.parse(arguments) else { return false }
+            guard let self else { reply(["ok": false, "error": "lodestar is still starting up"]); return true }
+            let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            let samples: [Float]
+            do { samples = try Transcribe.samples(of: url) } catch {
+                reply(["ok": false, "error": "\(error)"])
+                return true
+            }
+            let context = Transcribe.names(names, dictation: self.toldWords(self.config))
+            let began = ContinuousClock.now
+            self.earHost.hear(samples, context: context) { result in
+                switch result {
+                case .success(let heard):
+                    reply(Transcribe.answer(heard.heard, ear: heard.ear, seconds: began.secondsElapsed))
+                case .failure(let error):
+                    reply(["ok": false, "error": "\(error)"])
+                }
+            }
+            return true
+        }
         launchStages.enter("control and windows")
         control.start()
         model.start()
@@ -3183,6 +3206,9 @@ func printUsage() {
       draft speak|edit|close|commit|state
       draft type <text> · key <name> [--shift] · audio <file>
                                   drive the draft; audio feeds a file in place of the mic
+      transcribe <file> [--name <term>]…
+                                  hear a file with dictation's ear and print the words;
+                                  each --name is a term to lean toward
 
     Add --json to any of them for the whole answer rather than a line.
 

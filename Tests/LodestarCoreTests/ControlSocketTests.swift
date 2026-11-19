@@ -46,6 +46,24 @@ final class ControlSocketTests: XCTestCase {
         XCTAssertEqual(reply?["message"] as? String, "go+g")
     }
 
+    /// A verb answered when its work is done: the reply waits for it, and
+    /// a verb it doesn't take is answered by `handle` as ever.
+    func testAVerbCanAnswerLater() {
+        socket.handle = { _ in ["ok": true, "message": "at once"] }
+        socket.handleLater = { args, reply in
+            guard args.first == "transcribe" else { return false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                reply(["ok": true, "message": "heard"])
+                // A second reply is dropped, not written to a closed socket.
+                reply(["ok": true, "message": "again"])
+            }
+            return true
+        }
+        socket.start()
+        XCTAssertEqual(ask(["transcribe", "a.wav"])?["message"] as? String, "heard")
+        XCTAssertEqual(ask(["go", "g"])?["message"] as? String, "at once")
+    }
+
     /// The handler decides failure; the transport carries it either way.
     func testFailureIsCarriedNotThrown() {
         socket.handle = { _ in ["ok": false, "error": "no such thing"] }

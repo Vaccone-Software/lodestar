@@ -59,15 +59,6 @@ final class SettingsLightTests: XCTestCase {
                       "no key spells out a verb its glyph says")
     }
 
-    /// History's way back is the same arc as Reset's: both put an earlier
-    /// value back.
-    func testHistoryUndoWearsTheArcBack() {
-        let item = SettingsModel.HistoryItem(id: "1", title: "Scroll speed", detail: "1800 → 1200", today: true)
-        let action = SettingsModel.historySection([item]).rows.first?.action
-        XCTAssertEqual(action?.label, "Undo")
-        XCTAssertEqual(action?.glyph, .undo)
-    }
-
     /// An app no longer on this Mac has no name to show; its identifier is
     /// all there is to recognise it by.
     func testAnAppThatIsGoneFallsBackToItsIdentifier() {

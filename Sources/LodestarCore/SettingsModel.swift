@@ -95,7 +95,7 @@ public enum SettingsModel {
         /// What the second press is asked for with, in words.
         public let confirm: String?
         /// Drawn in place of the label when the verb repeats down a page
-        /// (History's Undo); the label is then its name on hover.
+        /// (Remove, Reset, Add); the label is then its name on hover.
         public let glyph: Glyph?
 
         public init(id: String, label: String, destructive: Bool = false, confirm: String? = nil, glyph: Glyph? = nil) {
@@ -304,8 +304,6 @@ public enum SettingsModel {
         public var isDark = true
         /// How many breaths are saved, for Switch's line on the overview.
         public var breaths = 0
-        /// The config's recent changes, newest first, for the History page.
-        public var history: [HistoryItem] = []
 
         public init(accessibility: String = "unknown", screenRecording: String = "unknown",
                     calendars: String = "unknown", browserRole: String = "unknown",
@@ -319,21 +317,6 @@ public enum SettingsModel {
             self.savedBrowser = savedBrowser
             self.savedBrowserID = savedBrowserID
             self.detectedProfiles = detectedProfiles
-        }
-    }
-
-    /// One change, as the History page shows it.
-    public struct HistoryItem: Equatable {
-        public let id: String
-        public let title: String
-        public let detail: String
-        public let today: Bool
-
-        public init(id: String, title: String, detail: String, today: Bool) {
-            self.id = id
-            self.title = title
-            self.detail = detail
-            self.today = today
         }
     }
 
@@ -462,9 +445,6 @@ public enum SettingsModel {
             permission("Accessibility", state: machine.accessibility,
                        detail: "Seeing windows, moving them and reading menus. Lodestar cannot work without it",
                        pane: "accessibility", group: "Permission"),
-            Row(title: "History", control: .page(historyPage),
-                detail: "Every change, from here, the file, the coach or the editor, and the way back. ⌘Z undoes the last one made here",
-                group: "History"),
         ], picture: "place-general",
            sentence: "Lodestar starts with your Mac and keeps itself up to date",
            status: "Startup and updates",
@@ -872,7 +852,6 @@ public enum SettingsModel {
 
     public static let keyboardsPage = "Keyboards"
     public static let wordsPage = "Words"
-    public static let historyPage = "History"
 
     /// The Health row's one line: which boards differ, and by how much.
     static func keyboardsSummary(config: Config, machine: MachineState) -> String {
@@ -901,8 +880,7 @@ public enum SettingsModel {
                 isDefault: config.draftWords.isEmpty, group: "Words"),
          ], parent: "Write", picture: "door-write",
             sentence: "The words you use, written the way you write them",
-            note: "Shared by Write and Speak. A word the editor learns when you keep it lands here"),
-         historySection(machine.history)]
+            note: "Shared by Write and Speak. A word the editor learns when you keep it lands here")]
     }
 
     /// The name a changed path goes by: its row's title in the catalog
@@ -918,72 +896,6 @@ public enum SettingsModel {
         let best = rows.filter { dotted == $0.path || dotted.hasPrefix($0.path + ".") }
             .max { $0.path.count < $1.path.count }
         return best?.title ?? dotted
-    }
-
-    /// The History page's lines, newest first: what changed, in words,
-    /// who changed it, and when.
-    public static func historyItems(_ entries: [ConfigHistory.Entry], now: Date = Moment.now.date,
-                                    calendar: Calendar = .current) -> [HistoryItem] {
-        let time = DateFormatter()
-        time.dateFormat = "HH:mm"
-        let day = DateFormatter()
-        day.dateFormat = "d MMM"
-        func shown(_ value: ConfigValue?) -> String {
-            switch value {
-            case nil: return "Default"
-            case .bool(let on)?: return on ? "On" : "Off"
-            case .string(let text)?: return text.isEmpty ? "Automatic" : String(text.prefix(28))
-            case .int(let n)?: return "\(n)"
-            case .double(let n)?: return n.rounded() == n ? "\(Int(n))" : "\(n)"
-            case .table?: return "a list"
-            }
-        }
-        return entries.reversed().map { entry in
-            let title = historyTitle(entry.path)
-            let rowDepth = entry.path.first == "graph" ? 1 : (title == entry.path.joined(separator: ".") ? entry.path.count
-                : rowPathDepth(entry.path))
-            var what: String
-            if entry.path.count > rowDepth {
-                let key = entry.path.first == "graph"
-                    ? "lode " + entry.path.dropFirst().joined(separator: " ")
-                    : entry.path.dropFirst(rowDepth).joined(separator: ".")
-                if entry.old == nil { what = "Added \(key)" }
-                else if entry.new == nil { what = "Removed \(key)" }
-                else { what = "\(key) changed" }
-            } else {
-                what = "\(shown(entry.old)) → \(shown(entry.new))"
-            }
-            let today = calendar.isDate(entry.at, inSameDayAs: now)
-            let when = today ? time.string(from: entry.at) : day.string(from: entry.at)
-            return HistoryItem(id: entry.id, title: title,
-                               detail: "\(what) · \(entry.source) · \(when)", today: today)
-        }
-    }
-
-    private static func rowPathDepth(_ path: [String]) -> Int {
-        let dotted = path.joined(separator: ".")
-        let rows = (catalog(config: Config(), machine: .init()) + pages(config: Config(), machine: .init()))
-            .flatMap(\.rows).filter { !$0.path.isEmpty }
-        let best = rows.filter { dotted == $0.path || dotted.hasPrefix($0.path + ".") }
-            .max { $0.path.count < $1.path.count }
-        return best.map { $0.path.split(separator: ".").count } ?? path.count
-    }
-
-    /// The recent changes, newest first, each with the way back. Twenty-six
-    /// at most: one letter each.
-    static func historySection(_ items: [HistoryItem]) -> Section {
-        var rows: [Row] = items.prefix(labelAlphabet.count).map { item in
-            Row(title: item.title, control: .readout("", sub: nil), detail: item.detail,
-                group: item.today ? "Today" : "Earlier")
-                .doing(Action(id: "undo:\(item.id)", label: "Undo", glyph: .undo))
-        }
-        if rows.isEmpty {
-            rows = [Row(title: "Nothing has changed yet", control: .readout("", sub: nil),
-                        detail: "Changes from here, the file, the coach and the editor will be listed", group: "Today")]
-        }
-        return Section(name: historyPage, rows: rows, parent: "General", picture: "place-general",
-                       sentence: "Every change, and the way back",
-                       note: "Undo writes the old value back. A change undone is listed too")
     }
 
     /// One keyboard's fourteen keys and where each sits. The board is

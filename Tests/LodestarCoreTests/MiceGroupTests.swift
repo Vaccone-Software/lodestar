@@ -47,7 +47,7 @@ final class MiceGroupTests: XCTestCase {
     /// The group is a place's own, with no page behind it.
     func testThereIsNoReversedWheelsPage() {
         XCTAssertEqual(SettingsModel.pages(config: Config(), machine: machine([protoarc])).map(\.name),
-                       [SettingsModel.keyboardsPage, SettingsModel.wordsPage, SettingsModel.historyPage])
+                       [SettingsModel.keyboardsPage, SettingsModel.wordsPage])
         XCTAssertFalse(SettingsModel.catalog(config: Config(), machine: machine([protoarc]))
             .flatMap(\.rows).contains { $0.title == "Reversed wheels" })
     }

@@ -24,6 +24,12 @@ public enum ControlVerb: Equatable {
     /// the last is how a machine with no live mic tests dictation end to
     /// end against the shipped binary.
     case draft(DraftVerb)
+    /// Hear an audio file with dictation's own ears and say what was
+    /// said: the words dictation would keep, from the ear it would keep
+    /// them from, leaning toward its list of names and `names` besides.
+    /// Nothing opens and nothing is typed. For another program that needs
+    /// a phrase written out (Woodsmoke's walks), and for a test.
+    case transcribe(path: String, names: [String])
 }
 
 public enum DraftVerb: Equatable {
@@ -161,6 +167,24 @@ public enum ControlParse {
             default:
                 return .failure(ControlError("unknown draft verb '\(head)'"))
             }
+
+        case "transcribe":
+            // `--name <term>`, as many as wanted, each one term: a name may
+            // hold spaces and commas, so none is split.
+            var names: [String] = []
+            while let flag = args.firstIndex(of: "--name") {
+                guard flag + 1 < args.count, !args[flag + 1].hasPrefix("--") else {
+                    return .failure(ControlError("--name needs a term"))
+                }
+                names.append(args[flag + 1])
+                args.removeSubrange(flag...(flag + 1))
+            }
+            if let unknown = args.first(where: { $0.hasPrefix("--") }) {
+                return .failure(ControlError("unknown option \(unknown)"))
+            }
+            guard let path = args.first else { return .failure(ControlError("transcribe needs an audio file")) }
+            guard args.count == 1 else { return .failure(ControlError("transcribe takes one file")) }
+            return .success(.transcribe(path: path, names: names))
 
         default:
             return .failure(ControlError("unknown verb '\(verb)'"))

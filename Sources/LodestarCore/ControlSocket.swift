@@ -55,6 +55,7 @@ public final class ControlSocket: Sendable {
     /// main and called only on main.
     private struct Shared {
         var verb: MainQueueOnly<([String]) -> [String: Any]>?
+        var later: MainQueueOnly<Later>?
         var listener: Int32 = -1
         var source: DispatchSourceRead?
     }
@@ -64,6 +65,16 @@ public final class ControlSocket: Sendable {
     public var handle: (([String]) -> [String: Any])? {
         get { shared.withLock { $0.verb }?.value }
         set { shared.withLock { $0.verb = newValue.map { MainQueueOnly(value: $0) } } }
+    }
+
+    /// A verb that answers when its work is done rather than at once
+    /// (hearing a file): given the arguments and the reply, to be called
+    /// once, on main. It returns false for a verb it does not take, which
+    /// `handle` then answers. The client waits as long as it asked to.
+    public typealias Later = ([String], @escaping ([String: Any]) -> Void) -> Bool
+    public var handleLater: Later? {
+        get { shared.withLock { $0.later }?.value }
+        set { shared.withLock { $0.later = newValue.map { MainQueueOnly(value: $0) } } }
     }
 
     private var listener: Int32 {
@@ -255,6 +266,15 @@ public final class ControlSocket: Sendable {
         // that what crosses to the queue is data and not the verb's objects.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            // Written down as bytes on main, where the answer is made, as
+            // below; replied to once, however often it is called.
+            let once = Mutex(false)
+            let taken = self.handleLater?(arguments) { [weak self] answer in
+                guard let self, once.withLock({ done in defer { done = true }; return !done }) else { return }
+                let bytes = Self.encode(answer)
+                self.queue.async { self.reply(bytes, to: client) }
+            } ?? false
+            if taken { return }
             let answer = self.handle?(arguments)
                 ?? ["ok": false, "error": "lodestar is still starting up"]
             let bytes = Self.encode(answer)

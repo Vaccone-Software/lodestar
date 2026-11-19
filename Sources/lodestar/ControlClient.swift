@@ -11,16 +11,15 @@ enum ControlClient {
     /// The words that mean "hand this to the running app". Kept here rather
     /// than inferred, so a typo becomes usage rather than a socket round
     /// trip that fails with something less helpful.
-    static let verbs: Set<String> = ["go", "web", "layout", "breath", "state", "draft"]
-
-    /// Long enough for a breath restoring several windows, short enough
-    /// that a script never hangs on a wedged app.
-    private static let timeout: Int = 15
+    static let verbs: Set<String> = ["go", "web", "layout", "breath", "state", "draft", "transcribe"]
 
     static func run(_ arguments: [String]) -> Never {
         let wantsJSON = arguments.contains("--json")
         let verb = arguments.filter { $0 != "--json" }
-        guard let reply = ControlSocket.ask(verb) else {
+        // Hearing a file may first load dictation's ear (seconds; Parakeet's
+        // first load on a Mac compiles it, about thirty): it is given longer.
+        let timeout = verb.first == "transcribe" ? 90 : 15
+        guard let reply = ControlSocket.ask(verb, timeout: timeout) else {
             FileHandle.standardError.write(Data(
                 "✕ lodestar is not running — start it and try again\n".utf8))
             exit(69) // EX_UNAVAILABLE

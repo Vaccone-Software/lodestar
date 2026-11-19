@@ -15,6 +15,19 @@ final class ControlVerbTests: XCTestCase {
         return nil
     }
 
+    /// A file and the names to lean toward, each `--name` one term however
+    /// many words it holds, in any order around the file.
+    func testTranscribeTakesAFileAndItsNames() {
+        XCTAssertEqual(verb("transcribe", "/tmp/a.wav"), .transcribe(path: "/tmp/a.wav", names: []))
+        XCTAssertEqual(verb("transcribe", "--name", "PrivateLink Setup Plan", "/tmp/a.wav", "--name", "tsnet, Go"),
+                       .transcribe(path: "/tmp/a.wav", names: ["PrivateLink Setup Plan", "tsnet, Go"]))
+        XCTAssertEqual(failure("transcribe"), "transcribe needs an audio file")
+        XCTAssertEqual(failure("transcribe", "a.wav", "--name"), "--name needs a term")
+        XCTAssertEqual(failure("transcribe", "a.wav", "--name", "--json"), "--name needs a term")
+        XCTAssertEqual(failure("transcribe", "a.wav", "b.wav"), "transcribe takes one file")
+        XCTAssertEqual(failure("transcribe", "a.wav", "--loud"), "unknown option --loud")
+    }
+
     func testGoCarriesBothReadings() {
         XCTAssertEqual(verb("go", "g"), .go(query: ["g"], beside: false))
         XCTAssertEqual(verb("go", "e", "p"), .go(query: ["e", "p"], beside: false))

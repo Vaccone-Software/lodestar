@@ -52,7 +52,7 @@ enum GalleryWell {
             let field = InputField()
             field.setRole(.field)
             field.textColor = BarTheme.ink
-            field.setPlaceholder("Where to?")
+            field.setPlaceholder("Search apps and windows")
             if let text { field.stringValue = text }
             field.translatesAutoresizingMaskIntoConstraints = false
             let symbol = GlyphView(.appsAndWindows, size: BarTheme.inputGlyph)

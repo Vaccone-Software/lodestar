@@ -42,8 +42,9 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let field = InputField()
     private let globe = GlyphView(.web, size: BarTheme.inputGlyph, description: "links and the web")
     /// The field is a place you put something, so it sinks: a well one pane-inset
-    /// inside the pane, rounded as every input is, at the control's radius.
-    private let well = WellView()
+    /// inside the pane, rounded at the pane's radius less that inset (as the
+    /// chosen row under it is), so the gap round its corners stays even.
+    private let well = WellView(cornerRadius: BarTheme.paneRowRadius)
     private let rowsStack = NSStackView()
 
     /// Wired by the app delegate; refreshed on config reload.
@@ -107,7 +108,7 @@ final class WebBarController: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         field.focusRingType = .none
         field.setRole(.field)
         field.textColor = BarTheme.ink
-        field.setPlaceholder("Where on the web?")
+        field.setPlaceholder("Search or enter an address")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 

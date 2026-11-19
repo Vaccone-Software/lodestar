@@ -10,8 +10,9 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
     private let field = InputField()
     private let symbol = GlyphView(.menus, size: BarTheme.inputGlyph, description: "menus")
     /// The field is a place you put something, so it sinks: a well one pane-inset
-    /// inside the pane, rounded as every input is, at the control's radius.
-    private let well = WellView()
+    /// inside the pane, rounded at the pane's radius less that inset (as the
+    /// chosen row under it is), so the gap round its corners stays even.
+    private let well = WellView(cornerRadius: BarTheme.paneRowRadius)
     private let rowsStack = NSStackView()
 
     private var items: [Commands.Row] = []
@@ -50,7 +51,7 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         field.focusRingType = .none
         field.setRole(.field)
         field.textColor = BarTheme.ink
-        field.setPlaceholder("Do what?")
+        field.setPlaceholder("Search menus")
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
 
@@ -119,7 +120,8 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
         let name = app.localizedName ?? "App"
         let pid = app.processIdentifier
         items = []
-        field.setPlaceholder("Do what?")
+        // The menus searched are the front app's, so the field names it.
+        field.setPlaceholder("Search \(name) menus")
         field.stringValue = ""
         requery()
         panel.makeKeyAndOrderFront(nil)

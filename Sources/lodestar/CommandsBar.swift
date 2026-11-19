@@ -290,7 +290,8 @@ final class CommandsBarController: NSObject, NSTextFieldDelegate, NSWindowDelega
 
 /// One reusable commands row: title over breadcrumb, a source chip when the
 /// list mixes feeds, and the native-shortcut chip at the edge. A row of the
-/// row contract (`ListRow`) with a line beneath its title, so 52 tall.
+/// row contract (`ListRow`) with a line beneath its title, so 52 tall. Its
+/// keys stand on the row's centre, one column down the list.
 private final class CommandsRowView: ListRow {
     /// The app's own shortcut for the command, a real key, at rest: ⏎ is the
     /// key that acts.
@@ -302,7 +303,7 @@ private final class CommandsRowView: ListRow {
     private var selectedState = false
 
     init(height: CGFloat) {
-        super.init(height: height)
+        super.init(height: height, trailingCentredOnRow: true)
         enter.lit = true
         enter.isHidden = true
 

@@ -312,6 +312,9 @@ final class LegendRow: NSView {
 /// Words and icons stand 12 inside the row's edge, and the lead, the title
 /// and the trailing parts are centred on the title's first line, however many
 /// lines of detail follow, so a key stands with its face on the title's line.
+/// A row whose keys stand in a column down a list (the commands bar's
+/// shortcuts) centres them on the row instead, so the column holds whether a
+/// row has a detail line or not.
 /// A row is 48 tall, or 52 with a line beneath, and is the slab when chosen
 /// (design/11-slab.md): its content is the other look's.
 class ListRow: SlabRow {
@@ -329,10 +332,13 @@ class ListRow: SlabRow {
     private var toTrailing: NSLayoutConstraint!
     private var toEdge: NSLayoutConstraint!
     private(set) var lead: NSView?
+    /// The trailing parts stand on the row's centre, not the title's line.
+    let trailingCentredOnRow: Bool
 
     /// `titleRole` is the title (18) in a bar and the label (16 medium) in a
     /// room or a card.
-    init(height: CGFloat, titleRole: BarTheme.Role = .title) {
+    init(height: CGFloat, titleRole: BarTheme.Role = .title, trailingCentredOnRow: Bool = false) {
+        self.trailingCentredOnRow = trailingCentredOnRow
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         setupSlab()
@@ -377,7 +383,7 @@ class ListRow: SlabRow {
             leading,
             block.centerYAnchor.constraint(equalTo: centerYAnchor),
             trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Grid.part),
-            trailing.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+            trailing.centerYAnchor.constraint(equalTo: trailingCentredOnRow ? centerYAnchor : title.centerYAnchor),
         ])
         refreshTrailing()
     }

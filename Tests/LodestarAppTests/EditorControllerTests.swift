@@ -397,6 +397,11 @@ final class EditorControllerTests: XCTestCase {
         rig.controller.apply(enabled: false, engine: .standard, language: "en_US", vocabulary: [], skipApps: [])
         rig.controller.apply(enabled: true, engine: .standard, language: "en_US", vocabulary: [], skipApps: [])
         rig.reader.letGo()
+        // The answer comes home on its own time: until it is recorded the
+        // sentence is unanswered, and typing now asks it again. Once the
+        // controller has it, the record is on the session's queue, and the
+        // drain waits that out.
+        rig.settle("the held answer home") { !rig.controller.asking }
         rig.drain()
         rig.type("One two three. Four five six. Seven eight nine. Ten.")
         rig.settle("the waiting sentences asked") { rig.reader.asked.count == 3 }

@@ -33,8 +33,8 @@ final class RowTests: XCTestCase {
 
     /// A row, a line, a setting and a legend, wherever a surface draws one:
     /// at its height, words and icons 12 inside, detail 2 under its title,
-    /// trailing parts 8 apart and centred on the title's first line with the
-    /// acting key last; lines touching, a chosen line's slab rounded at 14;
+    /// trailing parts 8 apart and centred on the title's first line (or on the
+    /// row, for a row that asks) with the acting key last; lines touching, a chosen line's slab rounded at 14;
     /// settings at least 48 with their letters in one column; legends 24, 8 apart.
     func testEveryListLineOnEverySurfaceIsOneOfTheFourRows() throws {
         var wrong: [String] = []
@@ -89,7 +89,9 @@ final class RowTests: XCTestCase {
                     }
                     for part in parts {
                         let mid = rect(of: part, in: root).midY
-                        if abs(mid - title.midY) > 0.5 { wrong.append("\(name): a row's \(type(of: part)) \(mid) is off the title's first line \(title.midY)") }
+                        if row.trailingCentredOnRow {
+                            if abs(mid - frame.midY) > 0.5 { wrong.append("\(name): a row's \(type(of: part)) \(mid) is off the row's centre \(frame.midY)") }
+                        } else if abs(mid - title.midY) > 0.5 { wrong.append("\(name): a row's \(type(of: part)) \(mid) is off the title's first line \(title.midY)") }
                     }
                     // The acting key is last.
                     if let litAt = parts.firstIndex(where: lit), litAt != parts.count - 1 {

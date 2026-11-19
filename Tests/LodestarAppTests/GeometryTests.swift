@@ -346,7 +346,8 @@ final class GeometryTests: XCTestCase {
             }
 
             // A row's leading key or icon, its title and its trailing
-            // control share the centre of the title's first line.
+            // control share the centre of the title's first line (or the
+            // row's centre, for trailing keys of a row that asks).
             walk(root) { view in
                 if view.identifier?.rawValue == "settings.row", let line = view.subviews.first {
                     var title: NSTextField?
@@ -369,11 +370,17 @@ final class GeometryTests: XCTestCase {
                     guard let title else { return }
                     counts["raised rows", default: 0] += 1
                     let centre = frame(of: title, in: root).midY
+                    // A row that centres its trailing keys on itself holds
+                    // them on the row's centre, so they form one column.
+                    let onRow = (view as? ListRow).flatMap { $0.trailingCentredOnRow ? $0.trailing : nil }
+                    let rowCentre = frame(of: view, in: root).midY
                     walk(view) { part in
                         guard !part.isHidden, part is Key || (part is NSImageView && !(part.superview is NSTextField)) else { return }
                         if part is NSImageView, part.superview?.superview is Key { return }
                         let mid = lineCentre(of: part, in: root)
-                        if abs(mid - centre) > 0.5 {
+                        if let onRow, part.isDescendant(of: onRow) {
+                            if abs(mid - rowCentre) > 0.5 { rows.append("\(name): \(type(of: part)) \(mid) is off the row's \(rowCentre)") }
+                        } else if abs(mid - centre) > 0.5 {
                             rows.append("\(name): \(type(of: part)) \(mid) is off the title's \(centre)")
                         }
                     }

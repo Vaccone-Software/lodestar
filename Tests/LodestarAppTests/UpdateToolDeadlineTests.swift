@@ -20,10 +20,24 @@ final class UpdateToolDeadlineTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 2, "returned at the deadline, not when sleep ended")
     }
 
-    /// A tool that hangs is abandoned, and Stoic says so (`abandoned.started`,
-    /// a warning). It is said from a detached task started on the worker
-    /// queue, neither of which carries the ambient context the launch bound on
-    /// the main thread, so the event went to the unified log alone and never
+    /// The tool's own children go with it: a tool that hangs in something
+    /// it started (a shell waiting on a sleep) leaves nothing running.
+    func testAToolThatHangsInAChildLeavesNothingRunning() throws {
+        let marker = FileManager.default.temporaryDirectory.appendingPathComponent("grandchild-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let outcome = UpdateController.run("/bin/sh", ["-c", "/bin/sleep 30 & echo $! > \(marker.path); wait"],
+                                           within: .milliseconds(300))
+        XCTAssertEqual(outcome, .timedOut)
+        let pid = try XCTUnwrap(Int32(String(contentsOf: marker, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertNotEqual(kill(pid, 0), 0, "the sleep the shell started was stopped with it")
+    }
+
+    /// A tool that hangs is stopped at the deadline, and Stoic says so
+    /// (`deadline.expired`, then `process.exited` for the signal that ended
+    /// it). It is said from a task started on the worker queue, which
+    /// carries none of the ambient context the launch bound on the main
+    /// thread, so the events went to the unified log alone and never
     /// reached Lodestar's own through `StoicLog`. The controller keeps the
     /// context it was made in and the tool runs in it.
     func testAnAbandonedToolIsReportedToTheInstrumentationTheControllerWasMadeUnder() {
@@ -39,9 +53,10 @@ final class UpdateToolDeadlineTests: XCTestCase {
         }
         wait(for: [ran], timeout: 10)
         XCTAssertEqual(outcome.value, .timedOut)
-        let started = events.events(named: "abandoned.started")
-        XCTAssertEqual(started.count, 1, "events: \(events.names)")
-        XCTAssertEqual(started.first?.label, "update.sleep")
+        XCTAssertEqual(events.events(named: "deadline.expired").count, 1, "events: \(events.names)")
+        let exited = events.events(named: "process.exited")
+        XCTAssertEqual(exited.count, 1, "events: \(events.names)")
+        XCTAssertEqual(exited.first?.label, "update.sleep")
     }
 
     func testAToolRunInAnotherContextReportsThere() {
@@ -53,8 +68,8 @@ final class UpdateToolDeadlineTests: XCTestCase {
             return UpdateController.run("/bin/sleep", ["30"], within: .milliseconds(80), ambient: captured)
         }
         XCTAssertEqual(outcome, .timedOut)
-        XCTAssertEqual(other.events(named: "abandoned.started").count, 1, "the context it was given")
-        XCTAssertTrue(mine.events(named: "abandoned.started").isEmpty, "not the caller's")
+        XCTAssertEqual(other.events(named: "process.exited").count, 1, "the context it was given")
+        XCTAssertTrue(mine.events(named: "process.exited").isEmpty, "not the caller's")
     }
 
     func testTheDeadlineIsGenerousForARealUnpack() {

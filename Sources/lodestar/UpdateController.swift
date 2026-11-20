@@ -1,9 +1,9 @@
 import AppKit
 import LodestarCore
+import StoicProcess
 import Stoic
 import StoicStore
 import StoicTime
-import Synchronization
 
 /// Silent self-update for the installed app. The cycle: check the releases
 /// feed daily, download and unpack the zip in the background, verify it,
@@ -718,54 +718,26 @@ final class UpdateController {
 
     enum RunOutcome: Equatable { case succeeded, failed, timedOut }
 
-    /// A tool that never exits is stopped waiting for. The wait is
-    /// Stoic's `abandoningAfter` (the call blocks a thread, so it runs on
-    /// Dispatch and holds a slot until it returns); at the deadline the
-    /// process is also terminated, which is what lets that thread come
-    /// back, killed outright if it ignores the first ask. The calling
-    /// thread is the update's worker queue, which blocks here by design.
-    /// `ambient` is the Stoic context the work reports in: the caller's own
-    /// when none is named, which a dispatch queue has none of (see `runTool`).
+    /// A tool that never exits is stopped at the deadline, with whatever
+    /// it started (`ChildProcess.run`, design/33). The calling thread is
+    /// the update's worker queue, which blocks here by design.
+    /// `ambient` is the Stoic context the run reports in (`process.*`,
+    /// `deadline.expired`): the caller's own when none is named, which a
+    /// dispatch queue has none of (see `runTool`).
     static func run(_ launchPath: String, _ arguments: [String],
                     within deadline: Duration = toolDeadline,
                     ambient: Ambient = .current) -> RunOutcome {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: launchPath)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        let held = HeldProcess(process)
-        let outcome = OutcomeBox()
-        let finished = DispatchSemaphore(value: 0)
         let name = URL(fileURLWithPath: launchPath).lastPathComponent
-        // A task keeps the wait off the calling thread, which is a dispatch
-        // queue's and so hands the task no context of its own: what it says
-        // (`abandoned.started` for a tool given up on) would reach the unified
-        // log alone. The context handed in is bound inside it. The priority
-        // is the one a detached task had, named because a task started from
-        // a queue otherwise takes the queue's.
-        Task(priority: .medium) {
-            await withAmbient({ $0 = ambient }) {
-                do throws(PolicyError<any Error>) {
-                    let status = try await abandoningAfter(deadline, label: "update.\(name)", limit: 2) { () throws -> Int32 in
-                        try held.process.run()
-                        held.process.waitUntilExit()
-                        return held.process.terminationStatus
-                    }
-                    outcome.set(status == 0 ? .succeeded : .failed)
-                } catch {
-                    if case .rejected = error {
-                        held.stop()
-                        outcome.set(.timedOut)
-                    } else {
-                        outcome.set(.failed)
-                    }
-                }
-            }
-            finished.signal()
+        switch Programs.runBlocking(Programs.quiet(launchPath, arguments), timeout: deadline,
+                                    label: "update.\(name)", ambient: ambient) {
+        case .success(let result) where result.timedOut:
+            return .timedOut
+        case .success(let result):
+            return result.succeeded ? .succeeded : .failed
+        case .failure(let error):
+            Log.error("update: \(name) could not be run: \(error)")
+            return .failed
         }
-        finished.wait()
-        return outcome.value
     }
 
     /// `run` in the context this controller was made in, which is what the
@@ -773,27 +745,6 @@ final class UpdateController {
     func runTool(_ launchPath: String, _ arguments: [String],
                  within deadline: Duration = toolDeadline) -> RunOutcome {
         Self.run(launchPath, arguments, within: deadline, ambient: ambient)
-    }
-
-    // stoic:allow(unchecked-sendable): an immutable box around one Process: `run()` and `waitUntilExit()` happen on the one task that started it, and the only call made from another thread is `stop()` (`isRunning`, `terminate()`, then a kill by pid), made only once the deadline has given up on that wait, which is how a Process is ended from outside a thread blocked in `waitUntilExit`
-    private final class HeldProcess: @unchecked Sendable {
-        let process: Process
-        init(_ process: Process) { self.process = process }
-        /// Ask it to stop, and make sure a few seconds on.
-        func stop() {
-            guard process.isRunning else { return }
-            process.terminate()
-            let pid = process.processIdentifier
-            after(.seconds(5), on: .global()) { [self] in
-                if process.isRunning { kill(pid, SIGKILL) }
-            }
-        }
-    }
-
-    private final class OutcomeBox: Sendable {
-        private let stored = Mutex(RunOutcome.failed)
-        var value: RunOutcome { stored.withLock { $0 } }
-        func set(_ outcome: RunOutcome) { stored.withLock { $0 = outcome } }
     }
 
     // MARK: - The swap
@@ -894,13 +845,9 @@ final class UpdateController {
         // A refusal comes back as an exit status; the restart itself ends
         // this process. Refused, the new build starts the other way, and
         // the watchdog still judges whichever comes up.
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            var status: Int32 = 0
-            guard waitpid(helper, &status, 0) == helper, status != 0 else { return }
-            DispatchQueue.main.async {
-                Log.error("update", ["successor": "launchd refused the restart, so a new instance starts", "status": status])
-                self?.openSuccessor(installURL)
-            }
+        DetachedProcess.onFailure(of: helper) { [weak self] exit in
+            Log.error("update", ["successor": "launchd refused the restart, so a new instance starts", "exit": "\(exit)"])
+            self?.openSuccessor(installURL)
         }
     }
 

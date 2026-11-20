@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LodestarCore
+import StoicProcess
 
 /// Removing Lodestar from the machine: one plan of named steps, run by
 /// the CLI verb, by the menu item under Quit, and shown before either
@@ -266,14 +267,20 @@ struct UninstallPlan {
         SingleInstance.awaitNoRunningCopy(files: files, processes: processes)
     }
 
+    /// A step of the uninstall, waited for. launchctl answers in well under
+    /// a second; one that does not answer in ten is not answering.
     private static func run(_ executable: String, _ arguments: [String]) {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: executable)
-        task.arguments = arguments
-        task.standardOutput = Pipe()
-        task.standardError = Pipe()
-        guard (try? SystemEvents.run(task)) != nil else { return }
-        task.waitUntilExit()
+        do {
+            let result = try SystemEvents.run(Programs.quiet(executable, arguments), timeout: .seconds(10))
+            if !result.succeeded {
+                Log.error("uninstall", ["step": URL(fileURLWithPath: executable).lastPathComponent,
+                                        "exit": result.timedOut ? "timed out" : "\(result.exit.map(String.init(describing:)) ?? "unknown")"])
+            }
+        } catch is SystemEvents.Held {
+            return
+        } catch {
+            Log.error("uninstall", ["step": URL(fileURLWithPath: executable).lastPathComponent, "error": "\(error)"])
+        }
     }
 
     /// The sentence after the steps, for the terminal and the sheet.
@@ -508,26 +515,45 @@ enum CLILink {
     }
 }
 
-/// A process that outlives this one: `posix_spawn` with SETSID, so it
-/// leads its own session, immune to the process-group teardown launchd
-/// performs when this job exits.
+/// A process that outlives this one: a `ChildProcess` started detached, so
+/// it leads a session of its own, out of reach of the process-group
+/// teardown launchd performs when this job exits. Measured 2026-11-19: a
+/// SETSID child of an agent job, with SIGTERM at its default, outlives
+/// both `kickstart -k` and `bootout` of that job.
+///
+/// It inherits none of this process's descriptors and none of its ignored
+/// signals (the app ignores SIGTERM to handle it on a queue; a raw
+/// `posix_spawn` handed that on to every helper). Its output goes where
+/// this process's does. Dropping the handle leaves it running; Stoic still
+/// reaps it, so `waitForExit` is how to hear how it ended.
 enum DetachedProcess {
-    /// The child's pid, or nil when it could not be started.
+    /// The child, or nil when it could not be started.
     @discardableResult
-    static func spawn(_ arguments: [String]) -> pid_t? {
-        var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
-        var pid: pid_t = 0
-        var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) }
-        argv.append(nil)
-        let result = posix_spawn(&pid, arguments[0], nil, &attributes, &argv, environ)
-        argv.forEach { free($0) }
-        posix_spawnattr_destroy(&attributes)
-        guard result == 0 else {
-            Log.error("detached spawn failed", ["program": arguments[0], "errno": result])
+    static func spawn(_ arguments: [String]) -> ChildProcess? {
+        guard let program = arguments.first else { return nil }
+        let command = Command(program, Array(arguments.dropFirst()), environment: Programs.environment,
+                              output: .inherit, errors: .inherit, lifetime: .detached)
+        do {
+            return try ChildProcess.start(command)
+        } catch {
+            Log.error("detached spawn failed", ["program": program, "error": "\(error)"])
             return nil
         }
-        return pid
+    }
+
+    /// Tells `ended` on the main queue when the child ends other than with
+    /// status 0. A refusal is the only answer worth hearing: success
+    /// usually ends this process.
+    static func onFailure(of child: ChildProcess, _ ended: @escaping @MainActor (ProcessExit) -> Void) {
+        Task(priority: .utility) {
+            let exit: ProcessExit
+            do {
+                exit = try await child.waitForExit()
+            } catch {
+                return
+            }
+            guard !exit.succeeded else { return }
+            await MainActor.run { ended(exit) }
+        }
     }
 }

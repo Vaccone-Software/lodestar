@@ -1,4 +1,5 @@
 import Foundation
+import StoicProcess
 
 extension CodeNames {
     public static let sourceExtensions: Set<String> = ["swift", "ts", "tsx", "js", "jsx", "mjs", "py", "go", "rs", "kt",
@@ -33,16 +34,22 @@ extension CodeNames {
         return names
     }
 
+    /// What git printed, or nothing when it failed or ran past the
+    /// deadline. A repository with a stuck lock or a hook, or a vast one on
+    /// a slow disk, is given up on rather than waited for: the names are a
+    /// hint to dictation, and a draft never waits on them.
     static func git(_ root: URL, _ arguments: [String]) -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["-C", root.path] + arguments
-        let out = Pipe()
-        process.standardOutput = out
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return "" }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return String(data: data, encoding: .utf8) ?? ""
+        let command = Command("/usr/bin/git", ["-C", root.path] + arguments,
+                              environment: Programs.environment, errors: .discard)
+        guard case .success(let result) = Programs.runBlocking(command, timeout: gitDeadline, keepingLast: gitOutputLimit),
+              result.succeeded, !result.outputTruncated else { return "" }
+        return result.outputText
     }
+
+    /// Long past `ls-files` on any repository a person works in.
+    static let gitDeadline: Duration = .seconds(20)
+    /// What git may print before the list is given up as too large to be
+    /// worth reading: a 64 MiB file list is a repository far past the
+    /// 15,000 names kept.
+    static let gitOutputLimit = 64 * 1024 * 1024
 }

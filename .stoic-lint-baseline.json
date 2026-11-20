@@ -172,11 +172,6 @@
       "file" : "Sources/lodestar/UpdateController.swift",
       "hash" : "1a68bd3a60fbaada",
       "rule" : "stoic.unchecked-sendable"
-    },
-    {
-      "file" : "Sources/lodestar/UpdateController.swift",
-      "hash" : "513f4b4a6175bb91",
-      "rule" : "stoic.unchecked-sendable"
     }
   ],
   "version" : 1

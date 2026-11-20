@@ -1,5 +1,7 @@
 import AppKit
 import LodestarCore
+import Stoic
+import StoicProcess
 
 /// The one way out of the process: an event posted to the system or to an
 /// app, the pointer warped, a URL or an app opened, the general
@@ -66,17 +68,37 @@ enum SystemEvents {
     /// browser opened, launchctl, an uninstall step) is not started.
     struct Held: Error {}
 
-    /// Start a process that acts on the Mac. Throws `Held` under a test
-    /// run, so a caller's "could not start" path is the one taken.
-    static func run(_ process: Process) throws {
+    /// Run a program that acts on the Mac to its end, or until `timeout`,
+    /// blocking the calling thread (`Programs.runBlocking`). Throws `Held`
+    /// under a test run, so a caller's "could not run" path is the one
+    /// taken, and whatever kept it from starting otherwise.
+    static func run(_ command: Command, timeout: Duration) throws -> ProcessResult {
         if held() { throw Held() }
-        try process.run()
+        return try Programs.runBlocking(command, timeout: timeout).get()
+    }
+
+    /// Start a program that acts on the Mac and is not waited for here;
+    /// what it comes to is logged under `what`, and it is stopped, with
+    /// whatever it started, if it is still running at `timeout`. Throws
+    /// `Held` under a test run.
+    static func start(_ command: Command, timeout: Duration, what: String) throws {
+        if held() { throw Held() }
+        let child = try ChildProcess.start(command)
+        Task(priority: .utility) {
+            do {
+                let exit = try await withTimeout(timeout, label: what) { try await child.waitForExit() }
+                if !exit.succeeded { Log.error("\(what): \(exit)") }
+            } catch {
+                await child.stop()
+                Log.error("\(what): still running after \(timeout), stopped")
+            }
+        }
     }
 
     /// Start a process that acts on the Mac and outlives this one
     /// (`DetachedProcess`). Nil under a test run, as when it could not be
     /// started, so the caller's fallback is the path taken.
-    static func spawnDetached(_ arguments: [String]) -> pid_t? {
+    static func spawnDetached(_ arguments: [String]) -> ChildProcess? {
         if held() { return nil }
         return DetachedProcess.spawn(arguments)
     }

@@ -1,6 +1,7 @@
 import AppKit
 import Vision
 import LodestarCore
+import StoicProcess
 import Stoic
 import StoicTime
 import Synchronization
@@ -883,16 +884,18 @@ private func typeText(_ text: String, to pid: pid_t) {
 /// from the background it is declined.
 private func bringForward(_ app: NSRunningApplication?) {
     guard let id = app?.bundleIdentifier else { return }
-    let task = Process()
-    task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    task.arguments = ["-e", "tell application id \"\(id)\" to activate"]
-    do {
-        try task.run()
-    } catch {
+    // osascript waits on an Automation prompt nobody may be there to
+    // answer; ten seconds is long past a granted activate.
+    let command = Command("/usr/bin/osascript", ["-e", "tell application id \"\(id)\" to activate"],
+                          environment: Programs.environment, output: .discard, errors: .inherit)
+    switch Programs.runBlocking(command, timeout: .seconds(10)) {
+    case .failure(let error):
         FileHandle.standardError.write(Data("probe: could not bring \(id) forward: \(error)\n".utf8))
-        return
+    case .success(let result) where result.timedOut:
+        FileHandle.standardError.write(Data("probe: bringing \(id) forward did not finish in 10 s\n".utf8))
+    case .success:
+        break
     }
-    task.waitUntilExit()
 }
 
 private func postKey(_ code: CGKeyCode, flags: CGEventFlags, to pid: pid_t) {

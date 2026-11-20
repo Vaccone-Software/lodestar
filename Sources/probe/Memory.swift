@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import LodestarCore
+import StoicProcess
 import StoicSealed
 import Stoic
 import StoicTime
@@ -72,14 +73,18 @@ func runMemory(_ args: inout [String], rollup: Bool, coach: Bool = false) {
     // A year and a month for the roll, which has months to roll; eighty days
     // for the seed, which reads a ninety-day window. Both rotated, as the app
     // leaves a ring at launch: closed months in shards, the open month live.
-    let child = Process()
-    child.executableURL = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
-    child.arguments = ["memory-prepare", "--dir", directory.path, "--events", "\(events)",
-                       "--span-days", rollup ? "395" : "80", "--rotate"] + (rollup ? ["--health"] : [])
-    do { try child.run() } catch { fail("could not start the writer: \(error)") }
-    child.waitUntilExit()
-    guard child.terminationStatus == 0, let key = MemoryProbe.readKey(in: directory) else {
-        fail("the writer did not finish")
+    let writer = Command((Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])).path,
+                         ["memory-prepare", "--dir", directory.path, "--events", "\(events)",
+                          "--span-days", rollup ? "395" : "80", "--rotate"] + (rollup ? ["--health"] : []),
+                         environment: Programs.environment, output: .inherit, errors: .inherit)
+    // A writer that has not finished in half an hour never will.
+    let written: ProcessResult
+    switch Programs.runBlocking(writer, timeout: .seconds(1800)) {
+    case .success(let result): written = result
+    case .failure(let error): fail("could not start the writer: \(error)")
+    }
+    guard written.succeeded, let key = MemoryProbe.readKey(in: directory) else {
+        fail(written.timedOut ? "the writer did not finish in half an hour" : "the writer did not finish")
     }
     let vault = Vault(custody: InMemoryKeyCustody(key), directory: directory)
     let store = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: vault)

@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import StoicProcess
 import Stoic
 import StoicFoundation
 import StoicStore
@@ -2908,22 +2909,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// launchd's view of the agent job: loaded (with the pid it runs, 0 when
     /// idle), not loaded, or unknown when launchctl could not be asked.
+    ///
+    /// Asked on the main thread, so it has a deadline: launchd under load
+    /// can keep launchctl waiting, and a launchctl that never answers would
+    /// otherwise hold the main thread until the watchdog ends the app.
     private func agentJobState() -> LoginAgent.State {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        task.arguments = ["list", "com.vaccone.lodestar"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
-        do {
-            try task.run()
-        } catch {
+        let command = Command("/bin/launchctl", ["list", UninstallPlan.agentLabel],
+                              environment: Programs.environment, errors: .discard)
+        switch Programs.runBlocking(command, timeout: Self.launchctlDeadline) {
+        case .failure(let error):
             return .unknown("launchctl could not be run: \(error)")
+        case .success(let result) where result.timedOut:
+            return .unknown("launchctl did not answer in \(Self.launchctlDeadline)")
+        case .success(let result):
+            guard let exit = result.exit else { return .unknown("launchctl could not be stopped") }
+            return LoginAgent.state(exitStatus: exit.status, output: result.outputText)
         }
-        task.waitUntilExit()
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
-        return LoginAgent.state(exitStatus: task.terminationStatus, output: output)
     }
+
+    /// How long launchctl is waited for. It answers in milliseconds; five
+    /// seconds is launchd too busy to be believed either way.
+    static let launchctlDeadline: Duration = .seconds(5)
 
     /// A lodestar launched by the updater, Finder, or a rollback runs as
     /// an application job with no supervisor, so a crash removes the
@@ -2983,15 +2989,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         handingOverToLaunchd = true
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            var status: Int32 = 0
-            guard waitpid(helper, &status, 0) == helper, status != 0 else { return }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                Log.error("login-item", ["handover": "failed, staying resident", "status": status])
-                self.handingOverToLaunchd = false
-                self.updater.acknowledgeBoot()
-            }
+        DetachedProcess.onFailure(of: helper) { [weak self] exit in
+            guard let self else { return }
+            Log.error("login-item", ["handover": "failed, staying resident", "exit": "\(exit)"])
+            self.handingOverToLaunchd = false
+            self.updater.acknowledgeBoot()
         }
     }
 
@@ -3054,18 +3056,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Whether launchctl did what it was asked.
     @discardableResult
     private func runLaunchctl(_ arguments: [String]) -> Bool {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        task.arguments = arguments
-        task.standardOutput = Pipe()
-        task.standardError = Pipe()
-        guard (try? SystemEvents.run(task)) != nil else {
+        let result: ProcessResult
+        do {
+            result = try SystemEvents.run(Programs.quiet("/bin/launchctl", arguments), timeout: Self.launchctlDeadline)
+        } catch {
             Log.error("login-item", ["launchctl": "could not run"])
             return false
         }
-        task.waitUntilExit()
-        if task.terminationStatus != 0 {
-            Log.error("login-item", ["launchctl \(arguments.first ?? "")": "exit \(task.terminationStatus)"])
+        guard result.succeeded else {
+            let why = result.timedOut ? "no answer in \(Self.launchctlDeadline)" : "\(result.exit.map(String.init(describing:)) ?? "not stopped")"
+            Log.error("login-item", ["launchctl \(arguments.first ?? "")": why])
             return false
         }
         return true

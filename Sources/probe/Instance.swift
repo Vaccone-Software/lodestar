@@ -1,5 +1,6 @@
 import Foundation
 import LodestarCore
+import StoicProcess
 
 // The one-copy rule, with real processes. `copy` is a stand-in for a running
 // Lodestar: it takes over the way the app does on launch, says so on its
@@ -50,17 +51,18 @@ func runCopy(_ arguments: inout [String]) {
     }
     if arguments.contains("--spawn-child") {
         // A child that outlives this process, started the way the app starts
-        // its helpers: it must not keep the lock this process dies holding.
-        let child = Process()
-        child.executableURL = URL(fileURLWithPath: "/bin/sleep")
-        child.arguments = ["300"]
+        // its helpers (`DetachedProcess`): it must not keep the lock this
+        // process dies holding.
+        let command = Command("/bin/sleep", ["300"], environment: Programs.environment,
+                              output: .discard, errors: .discard, lifetime: .detached)
+        let child: ChildProcess
         do {
-            try child.run()
+            child = try ChildProcess.start(command)
         } catch {
             fputs("probe copy: could not start the child: \(error)\n", stderr)
             exit(1)
         }
-        say("CHILD \(child.processIdentifier)")
+        say("CHILD \(child.pid)")
     }
 
     // The app installs its handler well after the takeover; a signal before

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LodestarCore
+import StoicProcess
 
 /// Chromium profile handling, per browser. Windows are matched by the
 /// title suffix Chromium stamps ("… - <Browser> - <ProfileName>"),
@@ -87,13 +88,13 @@ enum ChromiumProfiles {
             Log.error("\(profile.browser.rawValue): app is not installed")
             return false
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         var arguments = ["-na", profile.browser.appName, "--args", "--profile-directory=\(dir)"]
         if let url { arguments.append(url) }
-        process.arguments = arguments
         do {
-            try SystemEvents.run(process)
+            // `open` hands the launch to LaunchServices and returns; the
+            // browser is not its child, so nothing here can stop it.
+            try SystemEvents.start(Programs.quiet("/usr/bin/open", arguments), timeout: .seconds(30),
+                                   what: "\(profile.browser.rawValue): open")
             return true
         } catch {
             Log.error("\(profile.browser.rawValue): open failed: \(error)")

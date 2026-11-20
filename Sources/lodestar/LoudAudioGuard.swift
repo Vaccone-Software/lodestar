@@ -20,10 +20,13 @@ import Synchronization
 ///   each plays for 15 to 45 ms before it is put back, and the keys then step
 ///   from the ceiling with no drift (`probe listening drift`).
 ///
-/// The ceiling is placed through the device's own volume curve, which a
-/// headset answers wrongly in the instant it connects or changes mode (0 dB
-/// at every volume). Such a curve holds nothing, and the guard reads it again
-/// as the device settles (`settleDelays`) and whenever its range changes.
+/// Bluetooth headphones are held through one assumed curve
+/// (`LoudAudio.bluetoothCurve`), since the curve each reports is a guess that
+/// differs by maker and by mode. Wired ones are held through the device's own
+/// curve, which can read wrongly while the device changes (a flat 0 dB, as
+/// AirPods did on connecting). Such a curve holds nothing, and the guard reads
+/// it again as the device settles (`settleDelays`) and whenever its range
+/// changes.
 ///
 /// With it off, or speakers out, there is no tap and no volume
 /// listener: nothing runs but a listener on which output is the default.
@@ -148,11 +151,20 @@ final class LoudAudioGuard: Sendable {
         }
         // Wired headphones are driven by the Mac, which gets them louder
         // than Bluetooth ones drive themselves: their ceiling is lower.
-        let fullScale = LoudAudio.fullScaleDBA(transport: Self.read(device, Self.address(kAudioDevicePropertyTransportType), UInt32(0)))
+        let transport = Self.read(device, Self.address(kAudioDevicePropertyTransportType), UInt32(0))
+        let fullScale = LoudAudio.fullScaleDBA(transport: transport)
         guard let ceilingDecibels = level.ceilingDecibels(fullScaleDBA: fullScale) else { return }
         let elements = Self.volumeElements(device)
+        // Bluetooth headphones are held through one curve, whatever they
+        // report (`LoudAudio.bluetoothCurve`); wired ones through their own,
+        // which is the Mac's own gain.
+        let bluetooth = LoudAudio.isBluetooth(transport: transport)
+        let decibels: (Float) -> Float? = { scalar in
+            guard let first = elements.first else { return nil }
+            return bluetooth ? LoudAudio.bluetoothDecibels(scalar) : Self.decibels(device, first, scalar: scalar)
+        }
         guard let first = elements.first,
-              let ceiling = LoudAudio.ceilingScalar(ceilingDecibels, decibels: { Self.decibels(device, first, scalar: $0) }) else {
+              let ceiling = LoudAudio.ceilingScalar(ceilingDecibels, decibels: decibels) else {
             release(reason: "no volume curve")
             settleLater(curve: elements.first.map { Self.curveText(device, $0) } ?? "none")
             return
@@ -191,10 +203,11 @@ final class LoudAudioGuard: Sendable {
             }
             Log.info("loud-audio", ["held": "headphones", "elements": elements.map(String.init).joined(separator: ","),
                                     "full-scale-dba": Int(fullScale),
-                                    "curve-db": Self.curveText(device, first),
+                                    "curve-db": bluetooth ? "bluetooth" : Self.curveText(device, first),
+                                    "reported-curve-db": Self.curveText(device, first),
                                     "ceiling-db": String(format: "%.1f", ceilingDecibels),
                                     "ceiling": String(format: "%.3f", ceiling),
-                                    "volume-db": String(format: "%.1f", Self.decibels(device, first, scalar: volume) ?? 0)])
+                                    "volume-db": String(format: "%.1f", decibels(volume) ?? 0)])
             refreshLater(after: Self.confirmDelay)
         }
         putBackIfOver()

@@ -128,6 +128,24 @@ final class LoudAudioTests: XCTestCase {
         XCTAssertTrue(LoudAudio.isOver(ceiling + 1.0 / 64, ceiling: ceiling))
     }
 
+    /// Every Bluetooth headset is held at the same place on the slider,
+    /// whatever curve it reports: AirPods Pro (−100…0) and a Bose headset
+    /// (−40…0) both at 0.325 on Strong, in a call as out of one.
+    func testEveryBluetoothHeadsetIsHeldAtTheSamePlaceOnTheSlider() throws {
+        XCTAssertTrue(LoudAudio.isBluetooth(transport: 0x626C_7565))
+        XCTAssertTrue(LoudAudio.isBluetooth(transport: 0x626C_6561))
+        XCTAssertFalse(LoudAudio.isBluetooth(transport: 0x626C_746E), "the built-in jack")
+        XCTAssertFalse(LoudAudio.isBluetooth(transport: nil))
+        let expected: [LoudAudio.Level: Float] = [.light: 23.0 / 40, .standard: 18.0 / 40, .strong: 13.0 / 40]
+        for (level, scalar) in expected {
+            let ceiling = try XCTUnwrap(level.ceilingDecibels(fullScaleDBA: LoudAudio.bluetoothFullScaleDBA))
+            XCTAssertEqual(try XCTUnwrap(LoudAudio.ceilingScalar(ceiling, decibels: LoudAudio.bluetoothDecibels)),
+                           scalar, accuracy: 0.0001, level.name)
+        }
+        XCTAssertEqual(LoudAudio.bluetoothDecibels(0), -40)
+        XCTAssertEqual(LoudAudio.bluetoothDecibels(1), 0)
+    }
+
     func testAPressIsToldFromItsRelease() {
         XCTAssertTrue(LoudAudio.isPress(data1: (0 << 16) | (0xA << 8)))
         XCTAssertTrue(LoudAudio.isPress(data1: (0 << 16) | (0xA << 8) | 1), "a repeat")

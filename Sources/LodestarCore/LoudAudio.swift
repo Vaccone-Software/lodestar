@@ -43,9 +43,9 @@ public enum LoudAudio {
             }
         }
 
-        /// The volume setting, in the device's own dB, that the ceiling is,
-        /// on headphones that reach `fullScaleDBA` at full volume: −17, −22
-        /// or −27 on Bluetooth, 10 dB under on wired.
+        /// The ceiling, in dB on the curve the volume is held through, on
+        /// headphones that reach `fullScaleDBA` at full volume: −17, −22 or
+        /// −27 on Bluetooth, 10 dB under on wired.
         public func ceilingDecibels(fullScaleDBA: Double) -> Float? {
             limitDBA.map { Float($0 - fullScaleDBA - loudestContentDBFS) }
         }
@@ -69,10 +69,31 @@ public enum LoudAudio {
     /// themselves ('blue', 'blea').
     public static let bluetoothTransports: Set<UInt32> = [0x626C_7565, 0x626C_6561]
 
+    /// Whether an output is connected by Bluetooth or Bluetooth LE.
+    public static func isBluetooth(transport: UInt32?) -> Bool {
+        transport.map(bluetoothTransports.contains) == true
+    }
+
     /// What an output's headphones are assumed to reach at full volume, by
     /// how they are connected: anything not Bluetooth is driven by the Mac.
     public static func fullScaleDBA(transport: UInt32?) -> Double {
-        transport.map(bluetoothTransports.contains) == true ? bluetoothFullScaleDBA : wiredFullScaleDBA
+        isBluetooth(transport: transport) ? bluetoothFullScaleDBA : wiredFullScaleDBA
+    }
+
+    /// The curve every Bluetooth headphone is held through, whatever it
+    /// reports: linear in dB from −40 at silent to 0 at full, as measured on
+    /// a Bose headset (2026-11-18). Bluetooth volume is the headphones' own,
+    /// sent to them as a step, and the curve macOS reports for it is a guess
+    /// that differs by maker and by mode: AirPods Pro say −100…0 and the Bose
+    /// −40…0, so Strong let AirPods reach 73 percent of the slider and the
+    /// Bose 33; in a call the same headsets say −52…0 and −32…0, so the
+    /// ceiling moved every time a call began or ended. One curve keeps each
+    /// level at the same place on the slider on every headset, in every mode.
+    public static let bluetoothCurve: (bottom: Float, top: Float) = (-40, 0)
+
+    /// The dB of a Bluetooth headphone's volume, on `bluetoothCurve`.
+    public static func bluetoothDecibels(_ scalar: Float) -> Float {
+        bluetoothCurve.bottom + (bluetoothCurve.top - bluetoothCurve.bottom) * scalar
     }
 
     /// What the note says the first time a hold stops the volume.
@@ -108,7 +129,7 @@ public enum LoudAudio {
     static let curveSamples = 16
 
     /// The largest volume, in the device's own 0…1 scale, whose dB is at or
-    /// under `ceilingDecibels`, found through the device's own curve (`decibels`
+    /// under `ceilingDecibels`, found through a curve (`decibels`
     /// answers a scalar's dB, nil if the device has no curve). A device that
     /// never gets as loud as the ceiling is held at 1.
     ///

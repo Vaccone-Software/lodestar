@@ -33,7 +33,7 @@ let package = Package(
         // Ours (Vaccone Software).
         // The sealed records, clipboard and downloads need its Crypto trait
         // (swift-crypto, which is CryptoKit on Apple platforms).
-        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.9.0"), traits: ["Crypto"]),
+        .package(url: "https://github.com/Vaccone-Software/stoic", .upToNextMinor(from: "0.9.1"), traits: ["Crypto"]),
     ],
     targets: [
         // The AX layer every slice builds on. Its one dependency is Stoic,

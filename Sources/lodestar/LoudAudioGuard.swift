@@ -1,6 +1,7 @@
 import AppKit
 import CoreAudio
 import LodestarCore
+import Stoic
 import Synchronization
 
 /// Reduce loud audio's hands (`LoudAudio` holds the rules). While a level
@@ -8,14 +9,21 @@ import Synchronization
 /// volume at the ceiling:
 ///
 /// - A session tap on system-defined events alone, on a thread of its own,
-///   swallows volume-up when the step would cross the ceiling. Putting the
-///   volume back after the key has moved it is not enough: the keys step from
-///   the system's own count, which a set volume does not move, so each press
-///   climbed from the last (`probe listening clamp`).
+///   swallows volume-up when the step would cross the ceiling, and sets the
+///   volume to the ceiling itself (and unmutes), so a stopped press still
+///   lands where the slider could. Letting the key through and putting the
+///   volume back after is not enough: the keys step from the system's own
+///   count, which a set volume does not move, so each press climbed from the
+///   last (`probe listening clamp`).
 /// - A listener on the volume puts back any other raise: the slider, an app,
 ///   the headset's own buttons. These cannot be stopped before they land, so
 ///   each plays for 15 to 45 ms before it is put back, and the keys then step
 ///   from the ceiling with no drift (`probe listening drift`).
+///
+/// The ceiling is placed through the device's own volume curve, which a
+/// headset answers wrongly in the instant it connects or changes mode (0 dB
+/// at every volume). Such a curve holds nothing, and the guard reads it again
+/// as the device settles (`settleDelays`) and whenever its range changes.
 ///
 /// With it off, or speakers out, there is no tap and no volume
 /// listener: nothing runs but a listener on which output is the default.
@@ -55,11 +63,26 @@ final class LoudAudioGuard: Sendable {
         var tap: CFMachPort?
         var loop: CFRunLoop?
         var generation = 0
+        /// Reads again since the curve last failed to place a ceiling.
+        var settling = 0
+        /// The one read to come, a settle or a confirm: a newer one, or
+        /// turning the setting off, cancels it.
+        var later: Task<Void, Never>?
     }
 
     private let state = Mutex(State())
     private let notice = Mutex<(@Sendable (LoudAudio.Level) -> Void)?>(nil)
     private let queue = DispatchQueue(label: "lodestar.loud-audio", qos: .userInteractive)
+
+    /// When the curve is read again after it failed to place a ceiling, in
+    /// seconds after each failure: a headset settles within a second or two
+    /// of connecting or changing mode, and a device that never does is left
+    /// alone after a minute, until it changes again.
+    static let settleDelays: [Duration] = [.milliseconds(250), .milliseconds(500), .seconds(1), .seconds(2),
+                                           .seconds(4), .seconds(8), .seconds(15), .seconds(30)]
+    /// When a new hold reads its curve once more, in case the device moved it
+    /// without saying so.
+    static let confirmDelay = Duration.seconds(2)
 
     /// Whether anything real may run. A test run never holds the volume of
     /// the person at the desk.
@@ -104,7 +127,7 @@ final class LoudAudioGuard: Sendable {
             }
             refresh()
         } else {
-            if let listener = state.withLock({ s in defer { s.system = nil }; return s.system }) {
+            if let listener = state.withLock({ s in defer { s.system = nil; s.later?.cancel(); s.later = nil }; return s.system }) {
                 remove(listener)
             }
             release(reason: "off")
@@ -131,8 +154,10 @@ final class LoudAudioGuard: Sendable {
         guard let first = elements.first,
               let ceiling = LoudAudio.ceilingScalar(ceilingDecibels, decibels: { Self.decibels(device, first, scalar: $0) }) else {
             release(reason: "no volume curve")
+            settleLater(curve: elements.first.map { Self.curveText(device, $0) } ?? "none")
             return
         }
+        state.withLock { $0.settling = 0 }
         let volume = elements.compactMap { Self.scalar(device, $0) }.max() ?? 0
         // The same headset changes its controls when it changes mode: in a
         // call (the microphone open, 16 kHz) a Bluetooth headset's two
@@ -147,26 +172,63 @@ final class LoudAudioGuard: Sendable {
             }
             s.held = Held(device: device, elements: elements, ceiling: ceiling, volume: volume)
             guard !unchanged else { return (true, []) }
-            let stale = s.deviceListeners.filter { $0.address.mSelector == kAudioDevicePropertyVolumeScalar }
-            s.deviceListeners.removeAll { $0.address.mSelector == kAudioDevicePropertyVolumeScalar }
+            let stale = s.deviceListeners.filter { Self.isHoldListener($0) }
+            s.deviceListeners.removeAll { Self.isHoldListener($0) }
             return (false, stale)
         }
         if !unchanged {
             stale.forEach(remove)
             for element in elements {
-                let address = Self.address(kAudioDevicePropertyVolumeScalar, Self.output, element)
-                if let listener = listen(device, address, { [weak self] in self?.volumeMoved() }) {
+                let volume = Self.address(kAudioDevicePropertyVolumeScalar, Self.output, element)
+                if let listener = listen(device, volume, { [weak self] in self?.volumeMoved() }) {
+                    state.withLock { $0.deviceListeners.append(listener) }
+                }
+                // The curve moving under the same controls moves the ceiling.
+                let range = Self.address(kAudioDevicePropertyVolumeRangeDecibels, Self.output, element)
+                if let listener = listen(device, range, { [weak self] in self?.refresh() }) {
                     state.withLock { $0.deviceListeners.append(listener) }
                 }
             }
             Log.info("loud-audio", ["held": "headphones", "elements": elements.map(String.init).joined(separator: ","),
                                     "full-scale-dba": Int(fullScale),
+                                    "curve-db": Self.curveText(device, first),
                                     "ceiling-db": String(format: "%.1f", ceilingDecibels),
                                     "ceiling": String(format: "%.3f", ceiling),
                                     "volume-db": String(format: "%.1f", Self.decibels(device, first, scalar: volume) ?? 0)])
+            refreshLater(after: Self.confirmDelay)
         }
         putBackIfOver()
         startTap()
+    }
+
+    /// The curve placed no ceiling: read it again once the device has had a
+    /// moment, a little later each time, and give up after `settleDelays`.
+    private func settleLater(curve: String) {
+        let attempt = state.withLock { s -> Int? in
+            guard s.settling < Self.settleDelays.count else { return nil }
+            defer { s.settling += 1 }
+            return s.settling
+        }
+        guard let attempt else {
+            Log.info("loud-audio", ["unsettled": "gave up", "curve-db": curve])
+            return
+        }
+        if attempt == 0 { Log.info("loud-audio", ["unsettled": "volume curve", "curve-db": curve]) }
+        refreshLater(after: Self.settleDelays[attempt])
+    }
+
+    /// Read the device again after `delay`, on the queue, in place of any
+    /// read already waiting. The ambient clock, so a test can advance it.
+    private func refreshLater(after delay: Duration) {
+        let task = Task { [weak self] in
+            // The sleep throws only CancellationError: a newer read, or the setting off, took its place.
+            do { try await Ambient.sleep(for: delay) } catch { return }
+            self?.queue.async { self?.refresh() }
+        }
+        state.withLock { s in
+            s.later?.cancel()
+            s.later = task
+        }
     }
 
     /// Listen to what changes when headphones go into the jack, or a device
@@ -180,6 +242,7 @@ final class LoudAudioGuard: Sendable {
             return (s.device, s.deviceListeners)
         }
         guard old != device else { return }
+        state.withLock { $0.settling = 0 }
         listeners.forEach(remove)
         state.withLock { if $0.held?.device == old { $0.held = nil } }
         guard device != 0 else { return }
@@ -234,13 +297,43 @@ final class LoudAudioGuard: Sendable {
                 s.putBack = 0
                 s.noticed = false
             }
-            let volumeListeners = s.deviceListeners.filter { $0.address.mSelector == kAudioDevicePropertyVolumeScalar }
-            s.deviceListeners.removeAll { $0.address.mSelector == kAudioDevicePropertyVolumeScalar }
+            let volumeListeners = s.deviceListeners.filter { Self.isHoldListener($0) }
+            s.deviceListeners.removeAll { Self.isHoldListener($0) }
             return (s.held, s.putBack, volumeListeners)
         }
         listeners.forEach(remove)
         stopTap()
         if held != nil { Log.info("loud-audio", ["released": reason, "put-back": putBack]) }
+    }
+
+    /// The listeners a hold makes on its volume elements, which go when it
+    /// does; the device's layout listeners stay while it is the default.
+    private static func isHoldListener(_ listener: Listener) -> Bool {
+        [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyVolumeRangeDecibels].contains(listener.address.mSelector)
+    }
+
+    /// A press the tap stopped short of the ceiling: the volume goes to the
+    /// ceiling and sound comes back on, which is what the press asked for, as
+    /// far as the hold allows.
+    private func raiseToCeiling() {
+        guard let held = state.withLock({ $0.held }) else { return }
+        var raised = false
+        for element in held.elements {
+            guard let volume = Self.scalar(held.device, element), volume < held.ceiling - LoudAudio.tolerance else { continue }
+            var value = held.ceiling
+            var address = Self.address(kAudioDevicePropertyVolumeScalar, Self.output, element)
+            let status = AudioObjectSetPropertyData(held.device, &address, 0, nil, UInt32(MemoryLayout<Float32>.size), &value)
+            if status == noErr { raised = true } else { Log.error("loud-audio", ["raise": "failed", "status": status]) }
+        }
+        if raised { state.withLock { $0.held?.volume = held.ceiling } }
+        // Mute is on the main element, or on each channel, as the device has it.
+        for element in Set([kAudioObjectPropertyElementMain] + held.elements) {
+            var address = Self.address(kAudioDevicePropertyMute, Self.output, element)
+            guard Self.read(held.device, address, UInt32(0)) == 1 else { continue }
+            var off: UInt32 = 0
+            AudioObjectSetPropertyData(held.device, &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &off)
+        }
+        putBackIfOver()
     }
 
     private func listen(_ object: AudioObjectID, _ address: AudioObjectPropertyAddress,
@@ -274,6 +367,9 @@ final class LoudAudioGuard: Sendable {
                 ?? false
         }
         guard swallow else { return Unmanaged.passUnretained(event) }
+        if live, LoudAudio.isPress(data1: key.data1) {
+            queue.async { [weak self] in self?.raiseToCeiling() }
+        }
         noticeOnce()
         return nil
     }
@@ -409,6 +505,12 @@ final class LoudAudioGuard: Sendable {
 
     private static func scalar(_ device: AudioObjectID, _ element: UInt32) -> Float32? {
         read(device, address(kAudioDevicePropertyVolumeScalar, output, element), Float32(0))
+    }
+
+    /// The curve's silent and full dB, for the log: "-40.0…0.0".
+    private static func curveText(_ device: AudioObjectID, _ element: UInt32) -> String {
+        let ends = [Float32(0), 1].map { decibels(device, element, scalar: $0).map { String(format: "%.1f", $0) } ?? "?" }
+        return ends.joined(separator: "…")
     }
 
     /// The device's own translation, not kAudioDevicePropertyVolumeDecibels,

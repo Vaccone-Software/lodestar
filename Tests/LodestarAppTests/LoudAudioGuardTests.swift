@@ -72,6 +72,18 @@ final class LoudAudioGuardTests: XCTestCase {
         XCTAssertEqual(heard.withLock { $0 }, [.strong], "once")
     }
 
+    /// A ceiling less than a step from silence (wired headphones on Strong
+    /// sit near it): the key is still stopped, so the count stays true, and
+    /// the guard lifts the volume to the ceiling itself, which a test run
+    /// never does to the person at the desk.
+    func testAPressShortOfACeilingUnderOneStepIsStillStopped() throws {
+        let guardian = LoudAudioGuard(live: false)
+        guardian.pretendHeld(ceiling: 0.04, volume: 0)
+        XCTAssertTrue(swallowed(guardian, try key(LoudAudio.soundUpKey)), "pressed")
+        XCTAssertTrue(swallowed(guardian, try key(LoudAudio.soundUpKey, down: false)), "and let go")
+        XCTAssertFalse(guardian.isTapping)
+    }
+
     func testNothingHeldSwallowsNothing() throws {
         let guardian = LoudAudioGuard(live: false)
         guardian.pretendHeld(ceiling: nil, volume: 1)

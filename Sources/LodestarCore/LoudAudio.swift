@@ -99,15 +99,32 @@ public enum LoudAudio {
         terminal == headphonesTerminal || dataSource == headphonesDataSource
     }
 
+    /// How far a volume curve must fall from full to silent before it is
+    /// believed: every real one measured falls 32 dB or more (a headset in a
+    /// call −32…0, a Bluetooth headset −40…0, the built-in output −63.5…0,
+    /// AirPods Pro −100…0).
+    public static let minimumCurveSpan: Float = 20
+    /// The points a curve is read at to see that it rises: a seventeenth each.
+    static let curveSamples = 16
+
     /// The largest volume, in the device's own 0…1 scale, whose dB is at or
     /// under `ceilingDecibels`, found through the device's own curve (`decibels`
-    /// answers a scalar's dB, nil if the device has no curve). Nil when it has
-    /// none, and then nothing is held: a ceiling that cannot be placed is no
-    /// ceiling. A device that never gets as loud as the ceiling is held at 1.
+    /// answers a scalar's dB, nil if the device has no curve). A device that
+    /// never gets as loud as the ceiling is held at 1.
+    ///
+    /// Nil when no ceiling can be placed, and then nothing is held: a curve
+    /// that is missing, does not rise from silent to full, spans under
+    /// `minimumCurveSpan`, or never gets as quiet as the ceiling. That last is
+    /// what a headset answers in the instant it changes mode or connects (0 dB
+    /// at every volume, 2026-11-19): read as a curve, it held the volume at
+    /// silence and nothing read it again, so the keys and the slider did
+    /// nothing until the level was chosen again. The guard reads again when
+    /// the device settles.
     public static func ceilingScalar(_ ceilingDecibels: Float, decibels: (Float) -> Float?) -> Float? {
-        guard let top = decibels(1), let bottom = decibels(0) else { return nil }
+        guard let curve = plausibleCurve(decibels) else { return nil }
+        let (bottom, top) = curve
         if top <= ceilingDecibels { return 1 }
-        if bottom > ceilingDecibels { return 0 }
+        guard bottom <= ceilingDecibels else { return nil }
         var low: Float = 0
         var high: Float = 1
         for _ in 0..<32 {
@@ -116,6 +133,20 @@ public enum LoudAudio {
             if db <= ceilingDecibels { low = middle } else { high = middle }
         }
         return low
+    }
+
+    /// A curve's silent and full dB, if it reads at every point, never falls
+    /// as the volume rises, and spans at least `minimumCurveSpan`.
+    public static func plausibleCurve(_ decibels: (Float) -> Float?) -> (bottom: Float, top: Float)? {
+        var points: [Float] = []
+        for index in 0...curveSamples {
+            guard let db = decibels(Float(index) / Float(curveSamples)), db.isFinite || db == -.infinity else { return nil }
+            points.append(db)
+        }
+        guard let bottom = points.first, let top = points.last, top.isFinite,
+              zip(points, points.dropFirst()).allSatisfy({ $0 <= $1 + 0.01 }),
+              top - bottom >= minimumCurveSpan else { return nil }
+        return (bottom, top)
     }
 
     /// Whether a volume is over the ceiling, and is to be put back.
@@ -128,8 +159,10 @@ public enum LoudAudio {
     public static func keyStep(fine: Bool) -> Float { fine ? 1.0 / 64 : 1.0 / 16 }
 
     /// Whether volume-up is swallowed: when the step it takes would cross
-    /// the ceiling. The volume stops at the last step under it, never over,
-    /// and the system's count of the keys stays true.
+    /// the ceiling. The system's count of the keys stays true, and the guard
+    /// sets the volume to the ceiling itself, so the keys reach the same most
+    /// as the slider does, even where the ceiling is less than a step from
+    /// silence.
     public static func swallowsVolumeUp(at volume: Float, step: Float, ceiling: Float) -> Bool {
         volume + step > ceiling + tolerance
     }
@@ -138,6 +171,12 @@ public enum LoudAudio {
     public static let soundUpKey = 0
     /// The subtype of a system-defined event that carries a media key.
     public static let mediaKeySubtype = 8
+
+    /// Whether a media key's data1 is its press (key state 0xA), not its
+    /// release (0xB).
+    public static func isPress(data1: Int) -> Bool {
+        (data1 & 0xFF00) >> 8 == 0xA
+    }
 
     /// Whether a system-defined event is the volume-up key, pressed or let go.
     public static func isVolumeUp(subtype: Int, data1: Int) -> Bool {

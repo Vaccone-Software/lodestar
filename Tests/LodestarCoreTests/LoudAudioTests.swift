@@ -57,8 +57,39 @@ final class LoudAudioTests: XCTestCase {
         XCTAssertEqual(LoudAudio.ceilingScalar(-22, decibels: linear(-80, -30)), 1)
     }
 
-    func testADeviceWhoseQuietestIsOverTheCeilingIsHeldAtSilence() {
-        XCTAssertEqual(LoudAudio.ceilingScalar(-22, decibels: linear(-20, 0)), 0)
+    /// Holding such a device at silence is what locked the volume at 0 on
+    /// 2026-11-19: no real headphone control stops short of the ceiling, so
+    /// a curve that does is not believed, and nothing is held.
+    func testADeviceWhoseQuietestIsOverTheCeilingIsNotHeld() {
+        XCTAssertNil(LoudAudio.ceilingScalar(-22, decibels: linear(-20, 0)))
+    }
+
+    /// What AirPods answered in the instant they connected or changed mode
+    /// (the log's "ceiling=0.000 volume-db=0.0", 2026-11-19): 0 dB at every
+    /// volume. It placed a ceiling of 0 that held the volume at silence.
+    func testAFlatCurveFromAHeadsetMidChangeHoldsNothing() {
+        XCTAssertNil(LoudAudio.ceilingScalar(-27, decibels: { _ in 0 }))
+        XCTAssertNil(LoudAudio.plausibleCurve { _ in 0 })
+    }
+
+    func testACurveThatFallsAsTheVolumeRisesHoldsNothing() {
+        XCTAssertNil(LoudAudio.ceilingScalar(-27, decibels: linear(0, -40)), "upside down")
+        XCTAssertNil(LoudAudio.ceilingScalar(-27, decibels: { $0 == 0.5 ? -60 : -40 + 40 * $0 }), "a dip")
+        XCTAssertNil(LoudAudio.ceilingScalar(-27, decibels: { $0 == 0.5 ? .nan : -40 + 40 * $0 }), "a hole")
+    }
+
+    func testACurveTooShortToBeAVolumeControlHoldsNothing() {
+        XCTAssertNil(LoudAudio.ceilingScalar(-10, decibels: linear(-12, 0)))
+        XCTAssertNotNil(LoudAudio.ceilingScalar(-10, decibels: linear(-32, 0)), "a headset in a call")
+    }
+
+    /// AirPods Pro report −100…0, and some outputs reach silence at −∞.
+    func testEveryCurveMeasuredPlacesACeiling() throws {
+        XCTAssertEqual(try XCTUnwrap(LoudAudio.ceilingScalar(-27, decibels: linear(-100, 0))), 0.73, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(LoudAudio.ceilingScalar(-27, decibels: linear(-40, 0))), 13.0 / 40, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(LoudAudio.ceilingScalar(-27, decibels: linear(-32, 0))), 5.0 / 32, accuracy: 0.0001)
+        let silentAtZero: (Float) -> Float? = { $0 == 0 ? -.infinity : -40 + 40 * $0 }
+        XCTAssertEqual(try XCTUnwrap(LoudAudio.ceilingScalar(-27, decibels: silentAtZero)), 13.0 / 40, accuracy: 0.0001)
     }
 
     func testADeviceWithNoCurveIsNotHeld() {
@@ -95,6 +126,30 @@ final class LoudAudioTests: XCTestCase {
         let ceiling: Float = 13.0 / 40
         XCTAssertFalse(LoudAudio.isOver(ceiling + 0.0003, ceiling: ceiling))
         XCTAssertTrue(LoudAudio.isOver(ceiling + 1.0 / 64, ceiling: ceiling))
+    }
+
+    /// Every Bluetooth headset is held at the same place on the slider,
+    /// whatever curve it reports: AirPods Pro (−100…0) and a Bose headset
+    /// (−40…0) both at 0.325 on Strong, in a call as out of one.
+    func testEveryBluetoothHeadsetIsHeldAtTheSamePlaceOnTheSlider() throws {
+        XCTAssertTrue(LoudAudio.isBluetooth(transport: 0x626C_7565))
+        XCTAssertTrue(LoudAudio.isBluetooth(transport: 0x626C_6561))
+        XCTAssertFalse(LoudAudio.isBluetooth(transport: 0x626C_746E), "the built-in jack")
+        XCTAssertFalse(LoudAudio.isBluetooth(transport: nil))
+        let expected: [LoudAudio.Level: Float] = [.light: 23.0 / 40, .standard: 18.0 / 40, .strong: 13.0 / 40]
+        for (level, scalar) in expected {
+            let ceiling = try XCTUnwrap(level.ceilingDecibels(fullScaleDBA: LoudAudio.bluetoothFullScaleDBA))
+            XCTAssertEqual(try XCTUnwrap(LoudAudio.ceilingScalar(ceiling, decibels: LoudAudio.bluetoothDecibels)),
+                           scalar, accuracy: 0.0001, level.name)
+        }
+        XCTAssertEqual(LoudAudio.bluetoothDecibels(0), -40)
+        XCTAssertEqual(LoudAudio.bluetoothDecibels(1), 0)
+    }
+
+    func testAPressIsToldFromItsRelease() {
+        XCTAssertTrue(LoudAudio.isPress(data1: (0 << 16) | (0xA << 8)))
+        XCTAssertTrue(LoudAudio.isPress(data1: (0 << 16) | (0xA << 8) | 1), "a repeat")
+        XCTAssertFalse(LoudAudio.isPress(data1: (0 << 16) | (0xB << 8)))
     }
 
     func testOnlyTheVolumeUpKeyIsRead() {

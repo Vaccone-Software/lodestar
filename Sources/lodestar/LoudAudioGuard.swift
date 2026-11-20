@@ -28,8 +28,15 @@ import Synchronization
 /// it again as the device settles (`settleDelays`) and whenever its range
 /// changes.
 ///
-/// With it off, or speakers out, there is no tap and no volume
-/// listener: nothing runs but a listener on which output is the default.
+/// On a call the ceiling sits `LoudAudio.callAllowance` higher, for as long
+/// as a call app holds a microphone (`LoudAudio.isCall`), whatever app is in
+/// front. CoreAudio names the processes that hold one, with no permission;
+/// the device alone cannot say, since an app can hold it all day. When the
+/// call ends the ceiling comes down and a volume over it is put back.
+///
+/// With it off there is no tap and no listener at all. With speakers out,
+/// nothing runs but listeners on which output is the default and on which
+/// apps hold a microphone.
 ///
 /// CoreAudio is touched only on `queue`. The tap's callback reads the volume
 /// the listener last saw, under a lock held for microseconds, and never asks
@@ -71,6 +78,13 @@ final class LoudAudioGuard: Sendable {
         /// The one read to come, a settle or a confirm: a newer one, or
         /// turning the setting off, cancels it.
         var later: Task<Void, Never>?
+        /// The call apps holding a microphone now, by bundle: a call while
+        /// any is.
+        var callers: [String] = []
+        /// What tells the guard a microphone opened or closed: the process
+        /// list, and each process's input.
+        var callListeners: [AudioObjectID: Listener] = [:]
+        var processList: Listener?
     }
 
     private let state = Mutex(State())
@@ -128,6 +142,7 @@ final class LoudAudioGuard: Sendable {
             if let listener = listen(Self.system, address, { [weak self] in self?.refresh() }) {
                 state.withLock { $0.system = listener }
             }
+            watchCalls()
             refresh()
         } else {
             if let listener = state.withLock({ s in defer { s.system = nil; s.later?.cancel(); s.later = nil }; return s.system }) {
@@ -135,7 +150,67 @@ final class LoudAudioGuard: Sendable {
             }
             release(reason: "off")
             watch(0)
+            unwatchCalls()
         }
+    }
+
+    // MARK: calls
+
+    /// Listen to the process list and to every process's input, so a call
+    /// beginning or ending is heard when it happens. Called again whenever
+    /// the list changes: new processes are listened to, gone ones dropped.
+    private func watchCalls() {
+        // A listener already queued when the setting went off finds nothing to do.
+        guard state.withLock({ $0.level != .off }) else { return }
+        if state.withLock({ $0.processList == nil }) {
+            let address = Self.address(kAudioHardwarePropertyProcessObjectList)
+            if let listener = listen(Self.system, address, { [weak self] in self?.watchCalls() }) {
+                state.withLock { $0.processList = listener }
+            }
+        }
+        let processes = Self.processes()
+        let (new, gone) = state.withLock { s -> ([AudioObjectID], [Listener]) in
+            let new = processes.filter { s.callListeners[$0] == nil }
+            let gone = s.callListeners.filter { !processes.contains($0.key) }
+            gone.keys.forEach { s.callListeners[$0] = nil }
+            return (new, Array(gone.values))
+        }
+        gone.forEach(remove)
+        for process in new {
+            let input = Self.address(kAudioProcessPropertyIsRunningInput)
+            if let listener = listen(process, input, { [weak self] in self?.callsChanged() }) {
+                state.withLock { $0.callListeners[process] = listener }
+            }
+        }
+        callsChanged()
+    }
+
+    private func unwatchCalls() {
+        let listeners = state.withLock { s -> [Listener] in
+            defer {
+                s.callListeners = [:]
+                s.processList = nil
+                s.callers = []
+            }
+            return Array(s.callListeners.values) + [s.processList].compactMap { $0 }
+        }
+        listeners.forEach(remove)
+    }
+
+    /// Who holds a microphone, read again: a call starting or ending moves
+    /// the ceiling.
+    private func callsChanged() {
+        guard state.withLock({ $0.level != .off }) else { return }
+        let callers = Self.processes().filter { process in
+            Self.read(process, Self.address(kAudioProcessPropertyIsRunningInput), UInt32(0)) == 1
+        }.compactMap(Self.bundle).filter(LoudAudio.isCall).sorted()
+        let was = state.withLock { s -> [String] in
+            defer { s.callers = callers }
+            return s.callers
+        }
+        guard was.isEmpty != callers.isEmpty else { return }
+        Log.info("loud-audio", ["call": callers.isEmpty ? "ended" : "began", "apps": (callers.isEmpty ? was : callers).joined(separator: ",")])
+        refresh()
     }
 
     /// The default output, or what it is, changed: hold it if it is
@@ -153,7 +228,8 @@ final class LoudAudioGuard: Sendable {
         // than Bluetooth ones drive themselves: their ceiling is lower.
         let transport = Self.read(device, Self.address(kAudioDevicePropertyTransportType), UInt32(0))
         let fullScale = LoudAudio.fullScaleDBA(transport: transport)
-        guard let ceilingDecibels = level.ceilingDecibels(fullScaleDBA: fullScale) else { return }
+        let call = state.withLock { !$0.callers.isEmpty }
+        guard let ceilingDecibels = level.ceilingDecibels(fullScaleDBA: fullScale, call: call) else { return }
         let elements = Self.volumeElements(device)
         // Bluetooth headphones are held through one curve, whatever they
         // report (`LoudAudio.bluetoothCurve`); wired ones through their own,
@@ -202,7 +278,7 @@ final class LoudAudioGuard: Sendable {
                 }
             }
             Log.info("loud-audio", ["held": "headphones", "elements": elements.map(String.init).joined(separator: ","),
-                                    "full-scale-dba": Int(fullScale),
+                                    "full-scale-dba": Int(fullScale), "call": call,
                                     "curve-db": bluetooth ? "bluetooth" : Self.curveText(device, first),
                                     "reported-curve-db": Self.curveText(device, first),
                                     "ceiling-db": String(format: "%.1f", ceilingDecibels),
@@ -514,6 +590,24 @@ final class LoudAudioGuard: Sendable {
             var channel = address(kAudioDevicePropertyVolumeScalar, output, element)
             return AudioObjectHasProperty(device, &channel)
         }
+    }
+
+    /// Every process CoreAudio knows of (macOS 14.2 and later).
+    private static func processes() -> [AudioObjectID] {
+        var address = address(kAudioHardwarePropertyProcessObjectList)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &ids) == noErr else { return [] }
+        return ids
+    }
+
+    private static func bundle(_ process: AudioObjectID) -> String? {
+        var address = address(kAudioProcessPropertyBundleID)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(process, &address, 0, nil, &size, &value) == noErr, let value else { return nil }
+        return value.takeRetainedValue() as String
     }
 
     private static func scalar(_ device: AudioObjectID, _ element: UInt32) -> Float32? {

@@ -159,4 +159,41 @@ final class LoudAudioTests: XCTestCase {
         XCTAssertFalse(LoudAudio.isVolumeUp(subtype: 8, data1: (7 << 16) | (0xA << 8)), "mute")
         XCTAssertFalse(LoudAudio.isVolumeUp(subtype: 7, data1: 0), "another kind of system event")
     }
+
+    /// A call plays speech, levelled by the call and well under the loudest
+    /// music, so each level's ceiling sits 12 dB higher on one: Strong on a
+    /// Bluetooth headset goes from a third of the slider to about five eighths.
+    func testACallRaisesEachCeilingByTheGapBetweenMusicAndSpeech() {
+        XCTAssertEqual(LoudAudio.callAllowance, 12, accuracy: 0.001)
+        for level in LoudAudio.Level.allCases {
+            guard let music = level.ceilingDecibels(fullScaleDBA: 110),
+                  let call = level.ceilingDecibels(fullScaleDBA: 110, call: true) else {
+                XCTAssertNil(level.ceilingDecibels(fullScaleDBA: 110, call: true), "off holds nothing, on a call too")
+                continue
+            }
+            XCTAssertEqual(call - music, 12, accuracy: 0.001, level.name)
+        }
+        let strong = LoudAudio.Level.strong.ceilingDecibels(fullScaleDBA: 110, call: true) ?? 0
+        let ceiling = LoudAudio.ceilingScalar(strong, decibels: LoudAudio.bluetoothDecibels) ?? 0
+        XCTAssertEqual(ceiling, 0.625, accuracy: 0.001)
+    }
+
+    /// Calls are told by who holds the microphone: meeting and chat apps,
+    /// browsers and the helpers they record from, and the system's calls.
+    func testACallIsAMeetingChatOrBrowserAppHoldingTheMicrophone() {
+        for id in ["us.zoom.xos", "us.zoom.caphost", "com.apple.FaceTime", "com.apple.avconferenced",
+                   "com.brave.Browser.helper", "com.google.Chrome.helper", "com.apple.WebKit.GPU",
+                   "com.tinyspeck.slackmacgap", "com.microsoft.teams2", "org.mozilla.firefox"] {
+            XCTAssertTrue(LoudAudio.isCall(bundleID: id), id)
+        }
+    }
+
+    /// Anything else with a microphone is not a call: Lodestar's dictation,
+    /// Siri, and a notch app that holds the microphone all day.
+    func testOtherAppsHoldingTheMicrophoneAreNotACall() {
+        for id in ["com.vaccone.lodestar", "com.henrikruscon.Alcove", "com.apple.CoreSpeech", "com.apple.Siri",
+                   "com.apple.VoiceMemos", "com.apple.Music", ""] {
+            XCTAssertFalse(LoudAudio.isCall(bundleID: id), id)
+        }
+    }
 }

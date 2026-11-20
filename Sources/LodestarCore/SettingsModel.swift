@@ -430,7 +430,7 @@ public enum SettingsModel {
                 control: .choice(options: LoudAudio.Level.allCases.map(\.rawValue),
                                  labels: LoudAudio.Level.allCases.map(\.name),
                                  current: config.reduceLoudAudio.rawValue),
-                detail: "Keeps headphone volume below a safe level. Light suits noisy places and quiet headphones, Standard is safe for long listening every day, and Strong is for children or the most protection. Speakers are never limited",
+                detail: "Keeps headphone volume below a safe level. Light suits noisy places and quiet headphones, Standard is safe for long listening every day, and Strong is for children or the most protection. On a call the limit is higher, since voices play quieter than music. Speakers are never limited",
                 isDefault: config.reduceLoudAudio == .off, group: "Sound and display"),
             Row(title: "Active display", path: "app.active-display",
                 control: .choice(options: ["pointer", "focus"],

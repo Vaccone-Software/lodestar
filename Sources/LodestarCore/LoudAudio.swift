@@ -45,9 +45,11 @@ public enum LoudAudio {
 
         /// The ceiling, in dB on the curve the volume is held through, on
         /// headphones that reach `fullScaleDBA` at full volume: −17, −22 or
-        /// −27 on Bluetooth, 10 dB under on wired.
-        public func ceilingDecibels(fullScaleDBA: Double) -> Float? {
-            limitDBA.map { Float($0 - fullScaleDBA - loudestContentDBFS) }
+        /// −27 on Bluetooth, 10 dB under on wired. On a call it is
+        /// `callAllowance` higher, since a call plays speech, not music.
+        public func ceilingDecibels(fullScaleDBA: Double, call: Bool = false) -> Float? {
+            let content = call ? loudestCallContentDBFS : loudestContentDBFS
+            return limitDBA.map { Float($0 - fullScaleDBA - content) }
         }
 
         /// The level's name, as the menu says it.
@@ -103,6 +105,35 @@ public enum LoudAudio {
     }
     /// The loudest sustained content, in dB under full scale.
     public static let loudestContentDBFS = -8.0
+    /// The loudest sustained content on a call. Zoom, FaceTime and the
+    /// browsers' calls level every voice to a target (the voice-call
+    /// pipelines' automatic gain), and speech peaks far over its average, so
+    /// a call plays well under the loudest music. Held at the music level, a
+    /// quiet voice on a narrowband headset could not be turned up enough to
+    /// follow: on 2026-11-20 Strong stopped the keys twice in a Zoom standup
+    /// and was turned off 40 s in. An estimate until a real call is measured
+    /// (`probe listening tap` during one).
+    public static let loudestCallContentDBFS = -20.0
+    /// How much higher the ceiling sits on a call, in dB.
+    public static var callAllowance: Double { loudestContentDBFS - loudestCallContentDBFS }
+
+    /// Whether an app holding a microphone is on a call: a meeting or chat
+    /// app, a browser (a page with the microphone is a call), or the
+    /// system's own calls (FaceTime's and Continuity's run in
+    /// avconferenced). Anything else with a microphone is not: Lodestar's
+    /// own dictation, Siri, a notch app that holds it all day (Alcove,
+    /// measured 2026-11-20). Audio comes from helpers as often as from the
+    /// app: Chromium browsers play and record from `<app>.helper`, Safari
+    /// from WebKit's GPU process, Zoom from `us.zoom.caphost`.
+    public static func isCall(bundleID: String) -> Bool {
+        var id = bundleID.lowercased()
+        if callBundles.contains(id) || id.hasPrefix("us.zoom.") { return true }
+        if id.hasSuffix(".helper") { id.removeLast(".helper".count) }
+        return ["meeting", "chat", "browser"].contains(AppCategory.of(bundleID: id, declared: nil).kind)
+    }
+
+    /// Calls that run outside the app the person sees.
+    static let callBundles: Set<String> = ["com.apple.webkit.gpu", "com.apple.avconferenced"]
 
     /// How far over the ceiling a volume may read before it is put back: the
     /// device rounds what it is given, and a raise is never this small.

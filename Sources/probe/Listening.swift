@@ -10,6 +10,7 @@ import Synchronization
 ///
 ///   devices  every output: transport, terminal type, volume elements and
 ///            the scalar-to-dB curve (reads only)
+///   mics     which apps have a microphone open (ListeningMics.swift)
 ///   tap      a private, unmuted global process tap: does it hear what
 ///            plays, at the level it was played (`--noise D` plays pink
 ///            noise at D dBFS from this process), is it ahead of the device
@@ -35,6 +36,7 @@ func runListening(_ args: inout [String]) {
     let sub = args.removeFirst()
     switch sub {
     case "devices": ListeningProbe.devices()
+    case "mics": ListeningProbe.mics(watch: value(of: "--watch", in: &args).flatMap(Double.init))
     case "tap":
         let seconds = Double(value(of: "--seconds", in: &args) ?? "") ?? 10
         let noise = value(of: "--noise", in: &args).flatMap(Double.init)
@@ -59,6 +61,7 @@ private func listeningUsage() -> Never {
     print("""
     usage:
       probe listening devices
+      probe listening mics [--watch SECONDS]
       probe listening tap [--seconds N] [--noise DBFS] [--nudge] [--lean] [--buffer FRAMES]
                                 [--device | --mono]
       probe listening clamp [--presses N] [--swallow]

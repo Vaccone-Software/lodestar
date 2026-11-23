@@ -1,14 +1,17 @@
 import XCTest
 import LodestarCore
+import Stoic
+import StoicTesting
+import StoicTime
 @testable import lodestar
 
 /// The walk's controller on a clock the test turns: input from the tap's
 /// clock and the draft, stopping points from app switches, the cue shown
 /// only when due and quiet, and taken down off the tap.
-final class StandCueControllerTests: XCTestCase {
-    private var time = Date(timeIntervalSinceReferenceDate: 800_000_000)
+@MainActor final class StandCueControllerTests: XCTestCase {
+    private let clock = TestClock()
+    private var time: Date { clock.wallClockNow.date }
     private var lastKey = Date.distantPast
-    private var settles: [DispatchWorkItem] = []
     private var shown: [(sentence: String, share: Double)] = []
     private var hidden: [String] = []
     private var quiet = true
@@ -16,9 +19,7 @@ final class StandCueControllerTests: XCTestCase {
     private var enabled = true
 
     private func controller() -> StandCueController {
-        let stand = StandCueController(clock: Clock(
-            now: { [unowned self] in self.time },
-            after: { [unowned self] _, work in self.settles.append(work) }))
+        let stand = StandCueController()
         stand.lastKeyAt = { [unowned self] in self.lastKey }
         stand.quiet = { [unowned self] in self.quiet }
         stand.draftOpen = { [unowned self] in self.draftOpen }
@@ -28,140 +29,171 @@ final class StandCueControllerTests: XCTestCase {
         return stand
     }
 
+    /// The controller, on the test's time.
+    private func held(_ body: (StandCueController) async -> Void) async {
+        await withAmbient({ $0.clock = clock.erased; $0.wallClock = clock.wallClock }) {
+            await body(controller())
+        }
+    }
+
+    private func pass(_ seconds: Double) async { await clock.advance(by: .seconds(seconds)) }
+
+    /// The settle that was scheduled is asleep, so the time that passes next
+    /// is the time it waits; and once that has passed, it has run.
+    private func settle(after mark: Int) async {
+        await clock.waitForSleepers(newerThan: mark)
+        await pass(3)
+        for _ in 0..<10 { try? await Task.sleep(for: .milliseconds(1)) }
+        XCTAssertEqual(clock.sleeperCount, 0, "the settle is still waiting")
+    }
+
     /// Typing every ten seconds for `minutes`, as the tap's clock reports it.
-    private func type(_ stand: StandCueController, minutes: Double) {
+    private func type(_ stand: StandCueController, minutes: Double) async {
         let end = time.addingTimeInterval(minutes * 60)
         while time < end {
-            time = time.addingTimeInterval(10)
+            await pass(10)
             lastKey = time
             stand.tick()
         }
     }
 
     /// The hand stops, another app comes to the front, and the settle the
-    /// controller scheduled runs once the hand has proved it stopped.
-    private func switchApps(_ stand: StandCueController, to pid: pid_t) {
-        time = time.addingTimeInterval(1)
+    /// controller scheduled, if it scheduled one, runs once the hand has
+    /// proved it stopped.
+    private func switchApps(_ stand: StandCueController, to pid: pid_t, settles: Bool = true) async {
+        await pass(1)
+        let mark = clock.totalSleeps
         stand.activated(pid: pid)
-        time = time.addingTimeInterval(3)
-        let pending = settles
-        settles = []
-        for work in pending { work.perform() }
+        if settles {
+            await settle(after: mark)
+        } else {
+            for _ in 0..<10 { try? await Task.sleep(for: .milliseconds(1)) }
+            XCTAssertEqual(clock.totalSleeps, mark, "nothing was due, and a settle was scheduled")
+            await pass(3)
+        }
     }
 
-    func testAnAppSwitchAfterThirtyMinutesShowsTheCue() {
-        let stand = controller()
-        stand.activated(pid: 101)
-        type(stand, minutes: 31)
-        XCTAssertTrue(shown.isEmpty, "typing alone is not a stopping point")
-        switchApps(stand, to: 202)
-        XCTAssertEqual(shown.map(\.sentence), ["Thirty minutes without a break"])
-        XCTAssertEqual(shown.first?.share, 0.5)
+    func testAnAppSwitchAfterThirtyMinutesShowsTheCue() async {
+        await held { stand in
+            stand.activated(pid: 101)
+            await type(stand, minutes: 31)
+            XCTAssertTrue(shown.isEmpty, "typing alone is not a stopping point")
+            await switchApps(stand, to: 202)
+            XCTAssertEqual(shown.map(\.sentence), ["Thirty minutes without a break"])
+            XCTAssertEqual(shown.first?.share, 0.5)
+        }
     }
 
-    func testTheNextKeyTakesTheCueDownOnlyAfterTheTapHasReturned() {
-        let stand = controller()
-        stand.activated(pid: 101)
-        type(stand, minutes: 31)
-        switchApps(stand, to: 202)
-        XCTAssertEqual(shown.count, 1)
-        time = time.addingTimeInterval(5)
-        stand.keyPressed()
-        XCTAssertEqual(hidden, [], "hiding is window work and must not run inside the tap")
-        Stage.pump()
-        XCTAssertEqual(hidden, ["Thirty minutes without a break"])
+    func testTheNextKeyTakesTheCueDownOnlyAfterTheTapHasReturned() async {
+        await held { stand in
+            stand.activated(pid: 101)
+            await type(stand, minutes: 31)
+            await switchApps(stand, to: 202)
+            XCTAssertEqual(shown.count, 1)
+            await pass(5)
+            stand.keyPressed()
+            XCTAssertEqual(hidden, [], "hiding is window work and must not run inside the tap")
+            let until = Date().addingTimeInterval(EditorRig.patience)
+            while hidden.isEmpty, Date() < until { try? await Task.sleep(for: .milliseconds(2)) }
+            XCTAssertEqual(hidden, ["Thirty minutes without a break"])
+        }
     }
 
-    func testNothingBeforeThirtyMinutes() {
-        let stand = controller()
-        stand.activated(pid: 101)
-        type(stand, minutes: 25)
-        switchApps(stand, to: 202)
-        XCTAssertTrue(shown.isEmpty)
+    func testNothingBeforeThirtyMinutes() async {
+        await held { stand in
+            stand.activated(pid: 101)
+            await type(stand, minutes: 25)
+            await switchApps(stand, to: 202, settles: false)
+            XCTAssertTrue(shown.isEmpty)
+        }
     }
 
-    func testABreakStartsTheStretchOver() {
-        let stand = controller()
-        stand.activated(pid: 101)
-        type(stand, minutes: 25)
-        time = time.addingTimeInterval(180)
-        type(stand, minutes: 10)
-        switchApps(stand, to: 202)
-        XCTAssertTrue(shown.isEmpty, "a three minute gap was the break")
+    func testABreakStartsTheStretchOver() async {
+        await held { stand in
+            stand.activated(pid: 101)
+            await type(stand, minutes: 25)
+            await pass(180)
+            await type(stand, minutes: 10)
+            await switchApps(stand, to: 202, settles: false)
+            XCTAssertTrue(shown.isEmpty, "a three minute gap was the break")
+        }
     }
 
-    func testNoCueWhileTheMomentIsNotQuiet() {
-        let stand = controller()
-        stand.activated(pid: 101)
-        type(stand, minutes: 31)
-        quiet = false
-        switchApps(stand, to: 202)
-        XCTAssertTrue(shown.isEmpty)
+    func testNoCueWhileTheMomentIsNotQuiet() async {
+        await held { stand in
+            stand.activated(pid: 101)
+            await type(stand, minutes: 31)
+            quiet = false
+            await switchApps(stand, to: 202)
+            XCTAssertTrue(shown.isEmpty)
+        }
     }
 
-    func testNoCueWhileTheDraftIsOpen() {
-        let stand = controller()
-        stand.activated(pid: 101)
-        type(stand, minutes: 31)
-        draftOpen = true
-        switchApps(stand, to: 202)
-        XCTAssertTrue(shown.isEmpty)
+    func testNoCueWhileTheDraftIsOpen() async {
+        await held { stand in
+            stand.activated(pid: 101)
+            await type(stand, minutes: 31)
+            draftOpen = true
+            await switchApps(stand, to: 202)
+            XCTAssertTrue(shown.isEmpty)
+        }
     }
 
-    func testTheDraftClosingIsAStoppingPoint() {
-        let stand = controller()
-        type(stand, minutes: 31)
-        draftOpen = true
-        time = time.addingTimeInterval(5)
-        stand.tick()
-        draftOpen = false
-        time = time.addingTimeInterval(5)
-        stand.tick()
-        let pending = settles
-        settles = []
-        time = time.addingTimeInterval(3)
-        for work in pending { work.perform() }
-        XCTAssertEqual(shown.map(\.sentence), ["Thirty minutes without a break"])
+    func testTheDraftClosingIsAStoppingPoint() async {
+        await held { stand in
+            await type(stand, minutes: 31)
+            draftOpen = true
+            await pass(5)
+            stand.tick()
+            draftOpen = false
+            await pass(5)
+            let mark = clock.totalSleeps
+            stand.tick()
+            await settle(after: mark)
+            XCTAssertEqual(shown.map(\.sentence), ["Thirty minutes without a break"])
+        }
     }
 
-    func testTwoCuesAStretchAndNoMore() {
-        let stand = controller()
-        stand.activated(pid: 101)
-        type(stand, minutes: 31)
-        switchApps(stand, to: 202)
-        type(stand, minutes: 30)
-        switchApps(stand, to: 101)
-        type(stand, minutes: 30)
-        switchApps(stand, to: 202)
-        XCTAssertEqual(shown.map(\.sentence), ["Thirty minutes without a break", "Sixty minutes without a break"])
-        XCTAssertEqual(shown.map(\.share), [0.5, 1])
+    func testTwoCuesAStretchAndNoMore() async {
+        await held { stand in
+            stand.activated(pid: 101)
+            await type(stand, minutes: 31)
+            await switchApps(stand, to: 202)
+            await type(stand, minutes: 30)
+            await switchApps(stand, to: 101)
+            await type(stand, minutes: 30)
+            await switchApps(stand, to: 202, settles: false)
+            XCTAssertEqual(shown.map(\.sentence), ["Thirty minutes without a break", "Sixty minutes without a break"])
+            XCTAssertEqual(shown.map(\.share), [0.5, 1])
+        }
     }
 
-    func testOffMeansSilent() {
-        let stand = controller()
-        enabled = false
-        stand.activated(pid: 101)
-        type(stand, minutes: 31)
-        switchApps(stand, to: 202)
-        XCTAssertTrue(shown.isEmpty)
+    func testOffMeansSilent() async {
+        await held { stand in
+            enabled = false
+            stand.activated(pid: 101)
+            await type(stand, minutes: 31)
+            await switchApps(stand, to: 202, settles: false)
+            XCTAssertTrue(shown.isEmpty)
+        }
     }
 
-    func testAQuickSwitchIsNotAStoppingPoint() {
-        let stand = controller()
-        stand.activated(pid: 101)
-        type(stand, minutes: 31)
-        // Over to another app and straight on typing: the settle finds the
-        // hand busy and lets it pass.
-        stand.activated(pid: 202)
-        time = time.addingTimeInterval(1)
-        lastKey = time
-        time = time.addingTimeInterval(2)
-        settles.forEach { $0.perform() }
-        settles = []
-        type(stand, minutes: 0.5)
-        // Back within the dwell: a glance at 202, not leaving work.
-        switchApps(stand, to: 101)
-        XCTAssertTrue(shown.isEmpty)
-        XCTAssertTrue(settles.isEmpty)
+    func testAQuickSwitchIsNotAStoppingPoint() async {
+        await held { stand in
+            stand.activated(pid: 101)
+            await type(stand, minutes: 31)
+            // Over to another app and straight on typing: the settle finds the
+            // hand busy and lets it pass.
+            let mark = clock.totalSleeps
+            stand.activated(pid: 202)
+            await clock.waitForSleepers(newerThan: mark)
+            await pass(1)
+            lastKey = time
+            await pass(2)
+            await type(stand, minutes: 0.5)
+            // Back within the dwell: a glance at 202, not leaving work.
+            await switchApps(stand, to: 101, settles: false)
+            XCTAssertTrue(shown.isEmpty)
+        }
     }
 }

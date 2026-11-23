@@ -140,15 +140,10 @@ public enum DailyCount {
     /// A minute, five, then half an hour, each drawn between its half and
     /// its whole; after that the day goes uncounted. Bounded on purpose: a
     /// count that cannot reach the site is not worth a Mac's attention.
-    public static func retryDelay(afterFailures failures: Int, random: RandomSource = .system) -> TimeInterval? {
-        let delays: [TimeInterval] = [60, 300, 1800]
-        guard failures >= 1, failures <= delays.count else { return nil }
-        let delay = delays[failures - 1]
-        var stepper = Schedule.fixed(.seconds(delay)).jittered(.equal)
-            .makeStepper(random: random.generator(discriminator: UInt64(failures)))
-        guard let jittered = stepper.next(elapsed: .zero) else { return delay }
-        return TimeInterval(jittered.components.seconds) + TimeInterval(jittered.components.attoseconds) / 1e18
-    }
+    /// Stepped one failed send at a time by `DailyCountController`, from the
+    /// start again once a send settles or the walk is spent.
+    public static let retrySchedule: BoundedSchedule =
+        Schedule.delays([.seconds(60), .seconds(300), .seconds(1800)]).jittered(.equal)
 
     // MARK: - Who may count
 

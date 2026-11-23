@@ -50,7 +50,7 @@ final class Actions {
     private var sessionClaimed: Set<CGWindowID> = []
     /// Destinations already waiting on a window, and until when. Keyed by
     /// target label; entries expire by their own clock rather than a timer.
-    private var pendingLinks: [String: ContinuousClock.Instant] = [:]
+    private var pendingLinks: [String: AnyClock.Instant] = [:]
 
     init(model: WindowModel, parking: ParkingLot, layout: LayoutController,
          appIndex: AppIndex, store: StateStore, hud: HUD) {
@@ -125,14 +125,14 @@ final class Actions {
     /// restores the whole stage, and the split it makes is counted until
     /// a replace collapses it — the number that says whether composing
     /// became a habit or a churn.
-    private var joiningUntil: ContinuousClock.Instant?
-    private var chordAt: ContinuousClock.Instant?
+    private var joiningUntil: AnyClock.Instant?
+    private var chordAt: AnyClock.Instant?
     private var chordSummons: Int?
 
     /// Good for a few seconds: a summon that launches places when the
     /// window appears, and one that fails must not fold the next
     /// unrelated gesture's undo into a phrase that never happened.
-    func joinNextPlacement() { joiningUntil = ContinuousClock.now + .seconds(3) }
+    func joinNextPlacement() { joiningUntil = Ambient.current.clock.now.advanced(by: .seconds(3)) }
 
     func summon(_ target: GraphTarget, beside: Bool, via route: Observations.Route = .graph) {
         roads?.summoned(via: route)
@@ -206,10 +206,10 @@ final class Actions {
         // twelve seconds, each waiting to place the next Brave window the
         // person opened themselves.
         let key = target.label
-        let now = ContinuousClock.now
+        let now = Ambient.current.clock.now
         pendingLinks = pendingLinks.filter { $0.value > now }
         if pendingLinks[key] != nil { return }
-        pendingLinks[key] = now + .seconds(Self.linkIntentSeconds)
+        pendingLinks[key] = now.advanced(by: .seconds(Self.linkIntentSeconds))
         expect(seconds: Self.linkIntentSeconds,
                matches: { window in Self.window(window, matches: target) },
                action: { [weak self] window in
@@ -489,7 +489,7 @@ final class Actions {
     func undoLayout() {
         // A chord undone at once is a correction under one hold — the
         // habit that argues against the chord, if it turns out common.
-        if let at = chordAt, at.secondsElapsed < 2 {
+        if let at = chordAt, at.duration(to: Ambient.current.clock.now) < .seconds(2) {
             Log.info("chord", ["undoneWithin": 2])
         }
         // Whatever the timing, an undo takes the split down; the next
@@ -984,12 +984,13 @@ final class Actions {
                                       activeDisplay: active.id)
         Log.info("place", ["window": window.id, "app": window.appName,
                            "action": "\(action)", "display": active.id])
-        let joining = joiningUntil.map { ContinuousClock.now < $0 } ?? false
+        let now = Ambient.current.clock.now
+        let joining = joiningUntil.map { now < $0 } ?? false
         joiningUntil = nil
         layout.beginPlacement(joining: joining)
         defer { layout.endPlacement() }
         if joining {
-            chordAt = ContinuousClock.now
+            chordAt = now
             chordSummons = 0
         } else if let since = chordSummons {
             if action == .replace {

@@ -490,8 +490,8 @@ final class EarHost {
     #if DEBUG
     /// Every load and release asked so far is over.
     func settled() async {
-        await modelLane.run {}.value
-        await liveLane.run {}.value
+        await modelLane.settled()
+        await liveLane.settled()
     }
 
     /// A stage's ear and model, in place of what a tier's files would make.

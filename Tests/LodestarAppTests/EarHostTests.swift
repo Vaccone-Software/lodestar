@@ -508,7 +508,7 @@ final class EarHostTests: XCTestCase {
                 ran.leave(piece)
             }
         }
-        await lane.run {}.value
+        await lane.settled()
         XCTAssertEqual(ran.order, Array(0..<200))
         XCTAssertEqual(ran.mostInside, 1)
     }

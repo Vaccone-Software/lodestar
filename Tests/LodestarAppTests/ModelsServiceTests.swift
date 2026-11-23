@@ -151,6 +151,14 @@ final class ModelsServiceTests: XCTestCase {
         func check() throws -> String { "sum of squares 30 on fake" }
     }
 
+    /// Said once, by a task, that something is over.
+    private final class Over: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _said = false
+        var said: Bool { lock.withLock { _said } }
+        func say() { lock.withLock { _said = true } }
+    }
+
     // MARK: - The rig
 
     /// A client over a simulated service, on a test clock.
@@ -184,9 +192,9 @@ final class ModelsServiceTests: XCTestCase {
         /// the handler as wedged, and the host's watchdog ends the service
         /// (seen in the VM: `deadline_exceeded` on the release, then exit 1).
         func released(file: StaticString = #filePath, line: UInt = #line) async {
-            await ModelsServiceTests.eventually("a release was still on its way", file: file, line: line) {
-                client.releasesInFlight == 0
-            }
+            let over = Over()
+            Task { await client.released(); over.say() }
+            await ModelsServiceTests.eventually("a release was still on its way", file: file, line: line) { over.said }
         }
 
         /// Waits until the peer is watching a request its caller left, which
@@ -797,6 +805,38 @@ final class ModelsServiceTests: XCTestCase {
             XCTAssertEqual(rig.service.exits, [])
             XCTAssertEqual(rig.service.runs, 1)
             XCTAssertNotNil(model)
+        }
+    }
+
+    /// A model is released before the next is loaded, whatever order the
+    /// tasks that say so run in: the service never holds the old one and the
+    /// new one at once.
+    func testALoadFollowsTheReleaseAskedBeforeIt() async throws {
+        try await withRig { rig in
+            let spec = LanguageModelSpec(directory: "/m", label: "s")
+            var model: ServiceLanguageModel? = try await rig.client.loadLanguageModel(spec)
+            for _ in 0..<100 {
+                model = nil
+                model = try await rig.client.loadLanguageModel(spec)
+                let held = try await rig.client.stats().languageModels
+                guard held == 1 else { return XCTFail("the service held \(held) models") }
+            }
+            withExtendedLifetime(model) {}
+        }
+    }
+
+    /// And an ear's unload before its next load: one that came after it let
+    /// go the ear just loaded, and the next phrase was lost to it.
+    func testAnEarsLoadFollowsTheUnloadAskedBeforeIt() async throws {
+        try await withRig { rig in
+            let spec = EarSpec(name: "qwen3-asr-1.7b", directory: "/q")
+            _ = try await rig.client.loadEar(spec)
+            for time in 0..<100 {
+                rig.client.unloadEar()
+                _ = try await rig.client.loadEar(spec)
+                _ = try await rig.client.transcribe([0], context: [])
+                XCTAssertEqual(rig.gauge.count("unload ear"), time + 1)
+            }
         }
     }
 

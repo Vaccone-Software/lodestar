@@ -13,16 +13,18 @@ import Synchronization
 final class ResidencyLane: Sendable {
     private let tail = Mutex<Task<Void, Never>?>(nil)
 
-    @discardableResult
-    func run(priority: TaskPriority? = nil, _ work: @escaping @Sendable () async -> Void) -> Task<Void, Never> {
+    func run(priority: TaskPriority? = nil, _ work: @escaping @Sendable () async -> Void) {
         tail.withLock { tail in
             let previous = tail
-            let next = Task(priority: priority) {
+            tail = Task(priority: priority) {
                 await previous?.value
                 await work()
             }
-            tail = next
-            return next
         }
+    }
+
+    /// Returns once every piece asked so far has ended.
+    func settled() async {
+        await tail.withLock { $0 }?.value
     }
 }

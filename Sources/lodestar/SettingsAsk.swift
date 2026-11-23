@@ -1,4 +1,6 @@
 import Foundation
+import LodestarCore
+import Stoic
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
@@ -13,6 +15,12 @@ import FoundationModels
 enum SettingsAsk {
     static var available: Bool { EditorEngine.appleIntelligence }
 
+    /// How long the model may take to answer. Measured on 2026-11-23: about
+    /// a second when it is loaded, 2.8 s when macOS had to load it. Past
+    /// this "Reading the question" gives way to the rows the words matched,
+    /// which are already listed.
+    static let deadline: Duration = .seconds(5)
+
     static let instructions = """
         You help a person find one setting in the Mac app Lodestar. The list is grouped by \
         place, each place named with what it is about, and each setting is its place and \
@@ -21,6 +29,20 @@ enum SettingsAsk {
         password manager" is Excluded apps. "which microphone does dictation use" is \
         Microphone. "turn off the grammar checker" is Editor. If nothing fits, choose none.
         """
+
+    /// `ask`'s answer, or nil when it failed or did not come by the deadline.
+    /// `withTimeout` is cooperative, and is enough here: the session was
+    /// measured to return within 20 ms of its task being cancelled. The
+    /// question is never logged, nor the error's text, which can quote it.
+    static func bounded(clock: AnyClock? = nil,
+                        _ ask: @escaping @Sendable () async throws -> String?) async -> String? {
+        do {
+            return try await withTimeout(deadline, clock: clock, label: "settings.ask") { try await ask() }
+        } catch {
+            Log.info("settings", ["ask": "no answer", "error": "\(type(of: error))"])
+            return nil
+        }
+    }
 
     static func answer(_ question: String, catalog: String, choices: [String],
                        completion: @escaping (String?) -> Void) {
@@ -31,8 +53,10 @@ enum SettingsAsk {
             // function is not isolated to an actor, and the priority is the one a
             // detached task had (a Task takes its creator's, which on the main
             // thread is higher than a question about a setting wants).
+            // Under a deadline: the model is the system's, and a system that
+            // is busy or still loading it must not leave the question open.
             Task(priority: .medium) {
-                let reply = try? await pick(question, catalog: catalog, choices: choices)
+                let reply = await bounded { try await pick(question, catalog: catalog, choices: choices) }
                 await MainActor.run { completion(reply == "none" ? nil : reply) }
             }
             return

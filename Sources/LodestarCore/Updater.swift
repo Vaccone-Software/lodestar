@@ -123,32 +123,20 @@ public enum Updater {
         }
     }
 
-    /// When to ask again after a check that failed, by how many have failed
-    /// in a row: a quarter of an hour, then an hour, then back to the daily
-    /// check. A failed check used to wait for the next day or the next
-    /// boot — on 2026-09-28 two timed out on a flaky network and 0.39.4
-    /// was only picked up by a check forced by hand.
-    public static func retryDelay(afterFailures failures: Int) -> TimeInterval? {
-        switch failures {
-        case 1: return 15 * 60
-        case 2: return 60 * 60
-        default: return nil
-        }
-    }
-
-    /// `retryDelay`, spread so that Macs whose checks failed in the same
-    /// outage do not all come back to the feed in the same minute. Equal
-    /// jitter (half to all of the delay): the schedule keeps its shape, a
-    /// quarter of an hour and then an hour at the most, and never waits
-    /// longer than it used to.
-    public static func jitteredRetryDelay(afterFailures failures: Int,
-                                          random: RandomSource = .system) -> TimeInterval? {
-        guard let delay = retryDelay(afterFailures: failures) else { return nil }
-        var stepper = Schedule.fixed(.seconds(delay)).jittered(.equal)
-            .makeStepper(random: random.generator(discriminator: UInt64(failures)))
-        guard let jittered = stepper.next(elapsed: .zero) else { return delay }
-        return TimeInterval(jittered.components.seconds) + TimeInterval(jittered.components.attoseconds) / 1e18
-    }
+    /// When to ask again after checks that failed in a row: a quarter of
+    /// an hour, then an hour, then back to the daily check. A failed check
+    /// used to wait for the next day or the next boot — on 2026-09-28 two
+    /// timed out on a flaky network and 0.39.4 was only picked up by a
+    /// check forced by hand.
+    ///
+    /// Each wait is drawn between its half and its whole (equal jitter), so
+    /// that Macs whose checks failed in the same outage do not all come back
+    /// to the feed in the same minute: the schedule keeps its shape, and
+    /// never waits longer than it says. Stepped one failure at a time by
+    /// `UpdateController`, from the start again after a check that read the
+    /// feed.
+    public static let retrySchedule: BoundedSchedule =
+        Schedule.delays([.seconds(15 * 60), .seconds(60 * 60)]).jittered(.equal)
 
     /// Write a marker the updater, the watchdog script or the next boot
     /// reads: the same bytes `write(atomically:)` left, but through

@@ -1,3 +1,4 @@
+import Stoic
 import XCTest
 @testable import LodestarCore
 
@@ -21,10 +22,9 @@ final class UpdaterResilienceTests: XCTestCase {
     }
 
     func testAFailedCheckIsTriedAgainSoonThenDaily() {
-        XCTAssertEqual(Updater.retryDelay(afterFailures: 1), 15 * 60)
-        XCTAssertEqual(Updater.retryDelay(afterFailures: 2), 60 * 60)
-        XCTAssertNil(Updater.retryDelay(afterFailures: 3), "then the daily check again")
-        XCTAssertNil(Updater.retryDelay(afterFailures: 0))
+        XCTAssertEqual(Updater.retrySchedule.schedule.maximalDelays(limit: 10), [.seconds(15 * 60), .seconds(60 * 60)],
+                       "a quarter of an hour, an hour, then the daily check again")
+        XCTAssertEqual(Updater.retrySchedule.maximumAttempts, 3)
     }
 
     func testAnErrorPageIsNotReadAsARelease() {
@@ -63,17 +63,19 @@ final class UpdaterStoicTests: XCTestCase {
     /// then nothing — and the jitter only ever shortens a wait, by at most
     /// half, so no Mac waits longer than before and a fleet spreads out.
     func testTheRetryDelayIsJitteredWithinTheScheduleShape() {
+        var firsts: Set<Duration> = []
         for seed in UInt64(0)..<40 {
-            let first = Updater.jitteredRetryDelay(afterFailures: 1, random: .seeded(seed))
-            let second = Updater.jitteredRetryDelay(afterFailures: 2, random: .seeded(seed))
+            var retries = Updater.retrySchedule.makeStepper(random: RandomSource.seeded(seed).generator())
+            let first = retries.next(elapsed: .zero)
+            let second = retries.next(elapsed: .zero)
             XCTAssertNotNil(first)
-            XCTAssertTrue((7.5 * 60)...(15 * 60) ~= first ?? 0, "\(String(describing: first))")
-            XCTAssertTrue((30 * 60)...(60 * 60) ~= second ?? 0, "\(String(describing: second))")
+            XCTAssertTrue(.seconds(7.5 * 60) ... .seconds(15 * 60) ~= first ?? .zero, "\(String(describing: first))")
+            XCTAssertTrue(.seconds(30 * 60) ... .seconds(60 * 60) ~= second ?? .zero, "\(String(describing: second))")
+            XCTAssertNil(retries.next(elapsed: .zero), "then the daily check again")
+            XCTAssertNil(retries.next(elapsed: .zero), "and it stays spent until a check reads the feed")
+            if let first { firsts.insert(first) }
         }
-        let spread = Set((0..<40).compactMap { Updater.jitteredRetryDelay(afterFailures: 1, random: .seeded($0)) })
-        XCTAssertGreaterThan(spread.count, 10, "the waits differ from Mac to Mac")
-        XCTAssertNil(Updater.jitteredRetryDelay(afterFailures: 3), "then the daily check again")
-        XCTAssertNil(Updater.jitteredRetryDelay(afterFailures: 0))
+        XCTAssertGreaterThan(firsts.count, 10, "the waits differ from Mac to Mac")
     }
 
     func testAMarkerIsExactlyItsBytesAndReplacesTheLast() throws {

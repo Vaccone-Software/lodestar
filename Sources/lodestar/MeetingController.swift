@@ -60,7 +60,7 @@ final class MeetingController: NSObject {
     /// One fetch in flight at a time; a storm of change notifications
     /// coalesces into the trailing edge of a one-second debounce.
     private var refreshing = false
-    private var pendingRefresh: Task<Void, Never>?
+    private let pendingRefresh = TaskSlot<Void, any Error>(label: "meetings.refresh")
     /// While enabled and unauthorized, watches for the grant to land in
     /// System Settings — the same no-relaunch-dance promise Accessibility
     /// keeps, kept here too.
@@ -231,8 +231,7 @@ final class MeetingController: NSObject {
         storeObserver = NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.pendingRefresh?.cancel()
-            self.pendingRefresh = onMain(after: .seconds(1)) { [weak self] in self?.refresh() }
+            self.pendingRefresh.settle(for: self, after: .seconds(1)) { $0.refresh() }
         }
         tick = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.refresh()
@@ -264,7 +263,7 @@ final class MeetingController: NSObject {
         storeObserver = nil
         tick?.invalidate(); tick = nil
         countdown?.invalidate(); countdown = nil
-        pendingRefresh?.cancel(); pendingRefresh = nil
+        pendingRefresh.cancel()
         grantPoll?.cancel(); grantPoll = nil
         occurrences = []
         current = nil

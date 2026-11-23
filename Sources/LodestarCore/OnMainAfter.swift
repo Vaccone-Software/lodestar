@@ -85,6 +85,37 @@ public func onMain(
     }
 }
 
+extension TaskSlot where Success == Void, Failure == any Error {
+    /// Runs `work` on the main actor once `delay` has passed with no newer
+    /// call to this slot: the last of a burst, after it has settled. A newer
+    /// call takes the place of the one waiting, `cancel()` withdraws it, and
+    /// either holds even when the wait is already over and `work` is queued
+    /// behind the turn that called it: the slot looks, on the main actor, at
+    /// whether it is still the newest just before it runs.
+    ///
+    /// Stoic's `Debouncer` is for a caller that waits for the answer; nobody
+    /// waits here, the delay may differ from call to call, and a call that
+    /// was due but has not run is replaced rather than run as well.
+    ///
+    /// Call it on the main thread, as `work`'s state is: it traps anywhere
+    /// else. `owner` is held weakly.
+    public func settle<Owner: AnyObject>(
+        for owner: Owner,
+        after delay: Duration,
+        _ work: @escaping @MainActor @Sendable (Owner) -> Void
+    ) {
+        let owner = MainQueueOnly(value: owner)
+        MainActor.assumeIsolated {
+            run(for: owner.value) {
+                try await Ambient.sleep(for: delay)
+            } deliver: { @MainActor owner, settled in
+                // The wait fails only by being cancelled.
+                if case .success = settled { work(owner) }
+            }
+        }
+    }
+}
+
 /// Runs `work` on `queue` once `delay` has passed on the ambient clock, and
 /// returns the task that owns the wait.
 ///

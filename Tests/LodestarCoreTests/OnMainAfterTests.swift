@@ -174,4 +174,98 @@ final class OnMainAfterTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - The settling
+
+    private final class Owner {}
+    private let owner = Owner()
+
+    func testOnlyTheLastOfABurstRunsItsDelayAfterItself() async {
+        let clock = TestClock()
+        await withTestAmbient(clock: clock) {
+            let slot = TaskSlot<Void, any Error>(label: "test.settle")
+            let ran = Mutex<[Int]>([])
+            for call in 1...3 {
+                let mark = clock.totalSleeps
+                slot.settle(for: owner, after: .seconds(1)) { _ in ran.withLock { $0.append(call) } }
+                await clock.waitForSleepers(newerThan: mark, timeout: .seconds(60))
+                await clock.advance(by: .milliseconds(900))
+            }
+            XCTAssertEqual(ran.withLock { $0 }, [], "ran before the burst had settled")
+            await clock.advance(by: .milliseconds(100))
+            await finished(slot)
+            XCTAssertEqual(ran.withLock { $0 }, [3])
+            XCTAssertFalse(slot.isRunning)
+        }
+    }
+
+    /// The delay is each call's own: a longer one put off and a shorter one
+    /// put in its place runs at the shorter.
+    func testEachCallBringsItsOwnDelay() async {
+        let clock = TestClock()
+        await withTestAmbient(clock: clock) {
+            let slot = TaskSlot<Void, any Error>(label: "test.settle")
+            let ran = Mutex<[String]>([])
+            slot.settle(for: owner, after: .seconds(60)) { _ in ran.withLock { $0.append("long") } }
+            await clock.waitForSleepers(timeout: .seconds(60))
+            let mark = clock.totalSleeps
+            slot.settle(for: owner, after: .seconds(1)) { _ in ran.withLock { $0.append("short") } }
+            await clock.waitForSleepers(newerThan: mark, timeout: .seconds(60))
+            await clock.advance(by: .seconds(1))
+            await finished(slot)
+            await clock.advance(by: .seconds(120))
+            XCTAssertEqual(ran.withLock { $0 }, ["short"])
+        }
+    }
+
+    /// The wait is over and the work is queued behind the turn that cancels
+    /// or supersedes it: it must not run, as with a cancelled `onMain`.
+    func testACancelOrANewerCallAfterTheWaitEndedRunsNothing() async {
+        let slot = TaskSlot<Void, any Error>(label: "test.settle")
+        let ran = Mutex<[String]>([])
+        slot.settle(for: owner, after: .milliseconds(200)) { _ in ran.withLock { $0.append("cancelled") } }
+        XCTAssertTrue(slot.isRunning, "waiting is owed")
+        await startedWaiting()
+        usleep(400_000)
+        slot.cancel()
+        XCTAssertFalse(slot.isRunning, "a cancelled call is not owed")
+        await finished(slot)
+        XCTAssertEqual(ran.withLock { $0 }, [])
+
+        slot.settle(for: owner, after: .milliseconds(200)) { _ in ran.withLock { $0.append("superseded") } }
+        await startedWaiting()
+        usleep(400_000)
+        slot.settle(for: owner, after: .milliseconds(1)) { _ in ran.withLock { $0.append("newer") } }
+        await finished(slot)
+        XCTAssertEqual(ran.withLock { $0 }, ["newer"])
+    }
+
+    /// Runs on main, and may ask for the next from inside its own run, as a
+    /// fold that failed does.
+    func testTheWorkMayAskForTheNextFromItsOwnRun() async {
+        let slot = TaskSlot<Void, any Error>(label: "test.settle")
+        let ran = Mutex(0)
+        slot.settle(for: owner, after: .milliseconds(1)) { owner in
+            dispatchPrecondition(condition: .onQueue(.main))
+            ran.withLock { $0 += 1 }
+            slot.settle(for: owner, after: .milliseconds(1)) { _ in ran.withLock { $0 += 1 } }
+        }
+        await finished(slot)
+        XCTAssertEqual(ran.withLock { $0 }, 2)
+    }
+
+    func testNothingRunsForAnOwnerThatIsGone() async {
+        let slot = TaskSlot<Void, any Error>(label: "test.settle")
+        let ran = Mutex(false)
+        var owner: Owner? = Owner()
+        slot.settle(for: owner!, after: .milliseconds(20)) { _ in ran.withLock { $0 = true } }
+        owner = nil
+        await finished(slot)
+        XCTAssertFalse(ran.withLock { $0 })
+    }
+
+    /// Until every piece of the slot's work has ended.
+    private func finished(_ slot: TaskSlot<Void, any Error>) async {
+        while slot.unfinishedCount > 0 { await Task.yield() }
+    }
 }

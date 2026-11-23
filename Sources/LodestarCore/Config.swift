@@ -246,6 +246,9 @@ public struct Config {
         /// Another process (the app, the CLI) held the config's lock for
         /// the whole wait.
         case busy(String)
+        /// A newer Lodestar wrote the file, in a format this one does not
+        /// know; nothing was written. The detail is the file's name.
+        case newer(String)
         /// The file was fine and the write failed (disk full, read-only
         /// volume): nothing changed.
         case storage(String)
@@ -256,6 +259,7 @@ public struct Config {
             case .unparsed(let detail): return "the config does not parse — \(detail)"
             case .invalid(let detail): return "that would make the config invalid — \(detail)"
             case .busy(let detail): return "the config is being written by another process — \(detail)"
+            case .newer(let file): return "\(file) was written by a newer Lodestar"
             case .storage(let detail): return "could not write the config — \(detail)"
             }
         }

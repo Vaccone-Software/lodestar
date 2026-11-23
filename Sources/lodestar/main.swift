@@ -2434,14 +2434,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         configSource = nil
         do {
             try Config.edit(source: writer, edit)
-        } catch let error as GraphJsonEditor.EditError {
-            return error.description
-        } catch let error as WebJsonEditor.EditError {
-            return error.description
-        } catch let error as Config.EditError {
-            return error.description
         } catch {
-            return FailureWords.sentence(for: ConfigWriteFailure(underlying: error), doing: "config-edit: could not write the config")
+            return FailureWords.sentence(forEdit: error, doing: "config-edit: could not write the config")
         }
         Log.info("config-edit", ["edit": logged ?? flash])
         applyConfigReload(successFlash: flash)

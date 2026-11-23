@@ -137,6 +137,100 @@ final class FailureWordsTests: XCTestCase {
         XCTAssertTrue(sentence.hasPrefix("There isn't enough space on this device."), sentence)
     }
 
+    // MARK: An edit of the config that did not happen
+
+    private func shown(_ error: any Error) -> String {
+        FailureWords.sentence(forEdit: error, doing: "unit: config-edit")
+    }
+
+    func testAStorageFailureIsSaidInLodestarsWordsAndItsTextGoesOnlyToTheLog() throws {
+        let raw = "write(2) failed: No space left on device at /Users/someone/.config/lodestar/lodestar.json.tmp"
+        let sentence = shown(Config.EditError.storage(raw))
+        XCTAssertEqual(sentence, "Lodestar could not save the config. Try again.")
+        let logged = try XCTUnwrap(lines.first { $0.contains("unit: config-edit") })
+        XCTAssertTrue(logged.contains("reference="), logged)
+        XCTAssertTrue(logged.contains("/Users/someone"), "the store's own text is in the log: \(logged)")
+    }
+
+    func testAConfigAnotherProcessIsWritingSaysToWaitAndNotHowLongTheLockWasWaitedFor() {
+        let sentence = shown(Config.EditError.busy("waited 2 s for the lock on lodestar.json"))
+        XCTAssertEqual(sentence, "Another copy of Lodestar is saving the config. Try again in a little while.")
+    }
+
+    func testAParseProblemKeepsItsLineAndColumn() {
+        let sentence = shown(Config.EditError.unparsed("lodestar.json:3:5: unexpected end of input"))
+        XCTAssertEqual(sentence, "The config has a problem at lodestar.json:3:5: unexpected end of input. "
+                       + "Fix it, then try again.")
+    }
+
+    func testAValueTheSchemaRefusesKeepsWhatIsWrongWithIt() {
+        let sentence = shown(Config.EditError.invalid("lode.trigger: must be one of hold, tap"))
+        XCTAssertEqual(sentence, "That would make the config invalid: lode.trigger: must be one of hold, tap. "
+                       + "Check what you entered.")
+    }
+
+    func testAConfigFromANewerLodestarSaysToUpdate() {
+        XCTAssertEqual(shown(Config.EditError.newer("lodestar.json")),
+                       "A newer Lodestar wrote the config. Update Lodestar.")
+    }
+
+    func testAPathTheHandTypedIsSaidAsTyped() {
+        XCTAssertEqual(shown(GraphJsonEditor.EditError.taken("g")), "lode g is already bound.")
+        XCTAssertEqual(shown(GraphJsonEditor.EditError.blockedByLeaf("g s")), "lode g s is already a destination.")
+        XCTAssertEqual(shown(WebJsonEditor.EditError.taken(name: "gh", target: "github.com")),
+                       "gh is already github.com.")
+        XCTAssertEqual(shown(WebJsonEditor.EditError.noProfile), "Pick a profile. A route has to name one.")
+    }
+
+    /// The log is made to be pasted, so it never becomes a list of where
+    /// someone goes: a refused link or route is shown with what they typed,
+    /// and logged as which refusal it was.
+    func testARefusedLinkOrRouteIsShownWithItsDestinationAndLoggedWithoutIt() throws {
+        let refused: [any Error] = [
+            WebJsonEditor.EditError.taken(name: "diary", target: "https://secret.example/me"),
+            WebJsonEditor.EditError.missing("secret.example"),
+            Config.EditError.invalid("web.routes.secret.example: expected a string"),
+            Config.EditError.unparsed("lodestar.json:3:5: unexpected 'secret.example'"),
+        ]
+        for error in refused {
+            lines = []
+            XCTAssertTrue(shown(error).contains("secret.example"), "the person is told what it was")
+            let logged = try XCTUnwrap(lines.first { $0.contains("unit: config-edit") })
+            XCTAssertTrue(logged.contains("reference=") && logged.contains("refused=lodestar."), logged)
+            XCTAssertFalse(lines.joined().contains("secret.example"), lines.joined())
+        }
+    }
+
+    func testAnEditThatFailedSomeOtherWayIsAConfigWriteFailure() {
+        XCTAssertEqual(shown(CocoaError(.fileWriteNoPermission)), "Lodestar could not save the config. Try again.")
+    }
+
+    /// Two problems in one edit, as the store words them.
+    func testTwoRefusedValuesReadWithoutASemicolon() throws {
+        XCTAssertThrowsError(try ConfigStore.file(from: ["scroll": .table(["smooth": .int(3)]),
+                                                         "lode": .table(["trigger": .string("nonsense")])])) {
+            let sentence = shown($0)
+            XCTAssertTrue(sentence.contains("scroll.smooth") && sentence.contains("lode.trigger"), sentence)
+            XCTAssertFalse(sentence.contains("—") || sentence.contains(";"), sentence)
+        }
+    }
+
+    func testNoEditFailureIsShownWithADashOrASemicolon() {
+        let all: [any Error] = [
+            Config.EditError.unreadable("lodestar.json"), Config.EditError.unparsed("draft.input"),
+            Config.EditError.invalid("scroll.speed: too fast"), Config.EditError.newer("lodestar.json"),
+            Config.EditError.busy("waited"), Config.EditError.storage("disk"),
+            GraphJsonEditor.EditError.missing("q"), WebJsonEditor.EditError.emptyName,
+            WebJsonEditor.EditError.emptyPattern, WebJsonEditor.EditError.missing("nope"),
+            WebJsonEditor.EditError.blocked("web"), WebJsonEditor.EditError.noProfile,
+        ]
+        for error in all {
+            let sentence = shown(error)
+            XCTAssertFalse(sentence.contains("—") || sentence.contains(";") || sentence.contains(" - "), sentence)
+            XCTAssertTrue(sentence.hasSuffix("."), sentence)
+        }
+    }
+
     func testEveryRecoveryReadsAsPlainWords() {
         let all: [Recovery] = [.tryAgain, .wait(until: nil), .signInAgain, .changeInput(fields: []), .checkFirst,
                                .updateApp, .contactSupport, .nothing]

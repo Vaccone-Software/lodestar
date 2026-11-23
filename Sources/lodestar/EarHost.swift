@@ -50,6 +50,10 @@ final class EarHost {
     private var modelPressed = false
     private var pressure: DispatchSourceMemoryPressure?
     private let clock: Clock
+    /// The language model's loads and releases, and the live recognizer's,
+    /// each in the order they were asked.
+    private let modelLane = ResidencyLane()
+    private let liveLane = ResidencyLane()
 
     /// Fetches a setup's ears, one engine at a time; `ready` runs when one
     /// is whole.
@@ -209,7 +213,7 @@ final class EarHost {
     private func adoptCleanup() {
         let wanted = cleanup.flatMap { sharesEditor($0) ? nil : $0 }
         guard wanted != draftModel?.model else { return }
-        if let old = draftModel { Task { await old.release() } }
+        if let old = draftModel { modelLane.run { await old.release() } }
         draftModel = wanted.map { DraftModel(model: $0) }
     }
 
@@ -218,7 +222,7 @@ final class EarHost {
     /// go when the setup has none.
     private func adoptLive() {
         guard let engine = suited.liveEngine, Self.hasEngine(engine) else {
-            if let old = live { Task { await old.unload() } }
+            if let old = live { liveLane.run { await old.unload() } }
             live = nil
             liveWarm = false
             return
@@ -231,7 +235,7 @@ final class EarHost {
     private func prepareLive() {
         guard let live, !liveWarm else { return }
         liveWarm = true
-        Task(priority: .utility) { [weak self] in
+        liveLane.run(priority: .utility) { [weak self] in
             await live.prepare()
             let warm = await live.isWarm
             await MainActor.run { [weak self] in if !warm { self?.liveWarm = false } }
@@ -330,8 +334,13 @@ final class EarHost {
     /// copy of the same weights prepared.
     private func loadModels() {
         guard let model = cleanup else { return }
-        // As in `warm`: an ordinary Task, at the priority a detached one had.
-        if let draftModel { Task(priority: .medium) { await draftModel.load() } } else if sharesEditor(model) { prepareShared() }
+        // As in `warm`: an ordinary Task's context, at the priority a detached
+        // one had.
+        if let draftModel {
+            modelLane.run(priority: .medium) { await draftModel.load() }
+        } else if sharesEditor(model) {
+            prepareShared()
+        }
     }
 
     /// Phrases being heard outside the draft (`lodestar transcribe`).
@@ -418,7 +427,7 @@ final class EarHost {
         modelIdle?.cancel()
         inUse = false
         let models = DispatchWorkItem { [weak self] in
-            if let model = self?.draftModel { Task { await model.release() } }
+            if let self, let model = self.draftModel { self.modelLane.run { await model.release() } }
         }
         modelIdle = models
         clock.after(Self.modelIdleSeconds, models)
@@ -454,14 +463,14 @@ final class EarHost {
         if inUse || loading { modelPressed = true } else { letModelGo() }
     }
 
-    /// The idle timer is left to run: it finds nothing to do, unless a load
-    /// was still on its way when this asked, and then it is what lets go.
+    /// The idle timer is left to run: it finds nothing to do. A load still
+    /// on its way when this asked is waited out, and what it brought let go.
     private func letModelGo() {
         modelPressed = false
         // The ear behind goes with it: it is a gigabyte or more, and the
         // quick ear still hears.
         if !loading { backgroundEar?.unload() }
-        if let model = draftModel { Task { await model.release() } }
+        if let model = draftModel { modelLane.run { await model.release() } }
     }
 
     private func letGo() {
@@ -474,11 +483,17 @@ final class EarHost {
         // Apple's while it warms again.
         if let live {
             liveWarm = false
-            Task { await live.unload() }
+            liveLane.run { await live.unload() }
         }
     }
 
     #if DEBUG
+    /// Every load and release asked so far is over.
+    func settled() async {
+        await modelLane.run {}.value
+        await liveLane.run {}.value
+    }
+
     /// A stage's ear and model, in place of what a tier's files would make.
     func install(ear: SettlingEar?, behind: SettlingEar? = nil, tier: EarTier, model: DraftModel? = nil) {
         self.ear = ear

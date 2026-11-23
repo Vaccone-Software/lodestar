@@ -79,6 +79,65 @@ private final class Loads: @unchecked Sendable {
     func note() { lock.withLock { _count += 1 } }
 }
 
+/// Holds whoever reaches it until it is opened.
+private final class Door: @unchecked Sendable {
+    private let lock = NSLock()
+    private var opened: Bool
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    init(opened: Bool = false) { self.opened = opened }
+    /// How many wait at it now.
+    var held: Int { lock.withLock { waiting.count } }
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let through = lock.withLock { () -> Bool in
+                if !opened { waiting.append(continuation) }
+                return opened
+            }
+            if through { continuation.resume() }
+        }
+    }
+    func open() {
+        let all = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            opened = true
+            defer { waiting = [] }
+            return waiting
+        }
+        all.forEach { $0.resume() }
+    }
+}
+
+/// Which pieces ran, in what order, and the most inside at one moment.
+private final class Ledger: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _order: [Int] = []
+    private var inside = 0
+    private var _mostInside = 0
+    var order: [Int] { lock.withLock { _order } }
+    var mostInside: Int { lock.withLock { _mostInside } }
+    func enter() { lock.withLock { inside += 1; _mostInside = max(_mostInside, inside) } }
+    func leave(_ piece: Int) { lock.withLock { inside -= 1; _order.append(piece) } }
+}
+
+/// Language model weights that say how many are in memory.
+private final class Weights: @unchecked Sendable {
+    private final class Loaded: EditorBackend, @unchecked Sendable {
+        private let ledger: Weights
+        init(_ ledger: Weights) { self.ledger = ledger }
+        deinit { ledger.lock.withLock { ledger._alive -= 1 } }
+        func respond(to sentence: String, instructions: String) async throws -> String { sentence }
+        func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String { text }
+    }
+    private let lock = NSLock()
+    private var _made = 0
+    private var _alive = 0
+    var made: Int { lock.withLock { _made } }
+    var alive: Int { lock.withLock { _alive } }
+    func make() -> any EditorBackend {
+        lock.withLock { _made += 1; _alive += 1 }
+        return Loaded(self)
+    }
+}
+
 private struct Quiet: EditorBackend {
     func respond(to sentence: String, instructions: String) async throws -> String { sentence }
     func rewrite(_ text: String, prompt: IntentPass.Prompt) async throws -> String { text }
@@ -341,6 +400,117 @@ final class EarHostTests: XCTestCase {
         let (host, _) = host(ear: SlowEar(loaded: true), loads: loads)
         host.warm()
         pump(until: { loads.count == 1 })
+    }
+
+    // MARK: - In the order they were asked
+
+    /// A model whose loads wait at the door, and its host with a warm ear.
+    private func doored(_ door: Door, weights: Weights) -> EarHost {
+        let host = EarHost(clock: clock.clock)
+        let model = DraftModel(model: .qwen36, loader: { _ in
+            await door.wait()
+            return weights.make()
+        }, clearCache: {})
+        host.hasCleanup = { _ in true }
+        host.install(ear: SlowEar(loaded: true), tier: .max, model: model)
+        return host
+    }
+
+    /// The load brought its weights in, and they were let go. Counted in the
+    /// weights themselves, so a release that came too soon to find any, and
+    /// left them, cannot pass for one that let them go.
+    private func settleLetGo(_ weights: Weights, file: StaticString = #filePath, line: UInt = #line) async {
+        let until = Date().addingTimeInterval(EditorRig.patience)
+        while weights.made == 0 || weights.alive > 0 {
+            guard Date() < until else {
+                XCTFail("made \(weights.made), still in memory \(weights.alive)", file: file, line: line)
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    /// A release asked while the model loads used to find nothing loaded and
+    /// let nothing go, and the load then brought the weights in after the
+    /// warning that asked for them back.
+    func testAReleaseAskedDuringTheLoadLetsGoWhatItBrings() async {
+        let door = Door()
+        let weights = Weights()
+        let host = doored(door, weights: weights)
+        host.warm()
+        pump(until: { door.held == 1 })
+        host.rest()
+        host.memoryWarning()
+        door.open()
+        await settleLetGo(weights)
+    }
+
+    /// The five minutes run out as a load is still on its way, and the same.
+    func testTheIdleReleaseAskedDuringTheLoadLetsGoWhatItBrings() async {
+        let door = Door()
+        let weights = Weights()
+        let host = doored(door, weights: weights)
+        host.warm()
+        pump(until: { door.held == 1 })
+        host.rest()
+        clock.advance(by: 5 * 60 + 1)
+        door.open()
+        await settleLetGo(weights)
+    }
+
+    /// The next draft's load comes after the release asked before it, however
+    /// the tasks are scheduled.
+    func testTheNextDraftsLoadFollowsTheReleaseBeforeIt() async {
+        let weights = Weights()
+        let host = doored(Door(opened: true), weights: weights)
+        for draft in 1...50 {
+            host.warm()
+            await host.settled()
+            host.rest()
+            host.memoryWarning()
+            host.warm()
+            await host.settled()
+            let loaded = await host.draftModel?.isLoaded
+            XCTAssertEqual(loaded, true, "draft \(draft) lost its model to the last one's release")
+            host.rest()
+            host.memoryWarning()
+            await host.settled()
+        }
+    }
+
+    /// The tier's model is replaced while it loads: what the load brings is
+    /// let go, not left in memory with nothing holding it.
+    func testAModelReplacedDuringItsLoadIsLetGo() async {
+        let door = Door()
+        let weights = Weights()
+        let host = doored(door, weights: weights)
+        // Held here too, so it is the release that lets the weights go and
+        // not the model's own end.
+        let model = host.draftModel
+        host.warm()
+        pump(until: { door.held == 1 })
+        host.sharesEditor = { _ in true }
+        host.editorChanged()
+        XCTAssertNil(host.draftModel, "the editor holds the same weights now")
+        door.open()
+        await settleLetGo(weights)
+        withExtendedLifetime(model) {}
+    }
+
+    /// The pieces of a lane never overlap and never change places.
+    func testALanesPiecesRunOneAtATimeInTheOrderAsked() async {
+        let lane = ResidencyLane()
+        let ran = Ledger()
+        for piece in 0..<200 {
+            lane.run(priority: piece.isMultiple(of: 2) ? .utility : .high) {
+                ran.enter()
+                await Task.yield()
+                ran.leave(piece)
+            }
+        }
+        await lane.run {}.value
+        XCTAssertEqual(ran.order, Array(0..<200))
+        XCTAssertEqual(ran.mostInside, 1)
     }
 
     // MARK: - The context the work starts in

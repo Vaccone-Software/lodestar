@@ -15,13 +15,20 @@ import Stoic
 ///
 /// What `work` touches must be carried to the main actor the way the
 /// main-queue observers carry it: `MainQueueOnly(value: WeakRef(self))`.
+///
+/// `clock` is what the delay is counted on, as `after(_:on:clock:_:)` has it:
+/// the ambient clock by default, which counts time the Mac spent asleep. What
+/// took the place of a `Timer` passes `Ambient.current.livenessClock`, which
+/// does not, as a run loop's timers do not.
 @discardableResult
 public func onMain(
     after delay: Duration,
+    clock: AnyClock? = nil,
     _ work: @escaping @MainActor @Sendable () -> Void
 ) -> Task<Void, Never> {
-    Task { @MainActor in
-        do { try await Ambient.sleep(for: delay) } catch { return }
+    let clock = clock ?? Ambient.current.clock
+    return Task { @MainActor in
+        do { try await clock.sleep(until: clock.now.advanced(by: delay)) } catch { return }
         // A wait that ended just before a cancel still has to wait for the
         // main actor, where the cancel ran: it is seen here.
         guard !Task.isCancelled else { return }
@@ -47,6 +54,33 @@ public func onMain(
             do { try await Ambient.sleep(until: began.advanced(by: interval * index)) } catch { return }
             guard !Task.isCancelled else { return }
             step()
+        }
+    }
+}
+
+/// Runs `check` on the main actor every `interval` until it answers true,
+/// and returns the task that owns the poll: cancelling it ends the poll, and
+/// a cancelled poll never runs `check` again.
+///
+/// The first look is one interval in, as a repeating timer's first fire was:
+/// the caller has just looked for itself. Each next one is `interval` after
+/// the last has run. Stoic's `recur` over an unbounded schedule, which is why
+/// the caller must hold the task and cancel it where it stops caring: a
+/// permission poll waits as long as the person takes to grant it.
+@discardableResult
+public func onMain(
+    every interval: Duration,
+    label: String,
+    until check: @escaping @MainActor () -> Bool
+) -> Task<Void, Never> {
+    // As a run loop's timer counts: not the time the Mac spent asleep.
+    let clock = Ambient.current.livenessClock
+    return Task { @MainActor in
+        await recur(Schedule.fixed(interval), clock: clock, label: label) { run in
+            // The first run only starts the clock: the first look is one
+            // interval in.
+            guard run.number > 1 else { return .continue }
+            return check() ? .stop : .continue
         }
     }
 }

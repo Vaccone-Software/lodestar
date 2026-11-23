@@ -2883,7 +2883,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var rewritten = false
             if (try? Data(contentsOf: agent)) != plist {
                 do {
-                    try plist.write(to: agent, options: .atomic)
+                    try DurableFile.write(plist, to: agent)
                     Log.info("login-item", ["action": exists ? "updated" : "installed"])
                     rewritten = exists
                 } catch {

@@ -43,7 +43,7 @@ enum AlertSound {
         let existed = fm.fileExists(atPath: target.path)
         do {
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-            try fresh.write(to: target, options: .atomic)
+            try DurableFile.write(fresh, to: target)
         } catch {
             return "failed: \(error)"
         }

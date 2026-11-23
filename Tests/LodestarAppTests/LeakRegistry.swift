@@ -8,7 +8,8 @@ import XCTest
 ///
 /// Not here, because a closure or a clock cannot be compared and these answer
 /// nothing a test could read off them: `Pointer.post`, `Sounds.play`,
-/// `FileSense.thumbnailer`, `FileSense.dataless` and `FileSense.clock`.
+/// `FileSense.thumbnailer`, `FileSense.dataless`, `FileSense.clock`,
+/// `Players.send` and `Players.clock`.
 /// LeakGuardTests reads the tests' sources instead and fails any that
 /// assigns one outside the stage.
 enum LeakRegistry {

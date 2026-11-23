@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var coachSuggestionItem: NSMenuItem?
     private var menuBarHideTimer: Timer?
     private var signalSource: DispatchSourceSignal?
-    private var trustPoll: Timer?
+    private var trustPoll: Task<Void, Never>?
     private var displayReconcile: Task<Void, Never>?
     private var clickHandler: ClickHandler?
     /// Links that arrived before the handler existed. A URL open can be the
@@ -936,9 +936,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                               rows: [], owner: .flash)
             }
             launchStages.finish()
-            trustPoll = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
-                guard let self, Permissions.isTrusted else { return }
-                self.trustPoll?.invalidate()
+            trustPoll = onMain(every: .seconds(2.5), label: "accessibility.trust") { [weak self] in
+                guard let self else { return true }
+                guard Permissions.isTrusted else { return false }
                 self.trustPoll = nil
                 Log.info("accessibility granted — waking up")
                 self.model.stop()
@@ -948,6 +948,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if self.engine.start() {
                     self.flashReady("\(self.model.windows.count) windows tracked")
                 }
+                return true
             }
             return
         }

@@ -89,7 +89,7 @@ final class WalkController: NSObject {
     private static let settingsBundleID = "com.apple.systempreferences"
     private var sawSettings = false
     private var waited: Double = 0
-    private var trustPoll: Timer?
+    private var trustPoll: Task<Void, Never>?
     private var noteCopied = false
 
     #if DEBUG
@@ -175,7 +175,7 @@ final class WalkController: NSObject {
     }
 
     private func hideAll() {
-        trustPoll?.invalidate(); trustPoll = nil
+        trustPoll?.cancel(); trustPoll = nil
         awaitingGrant = false
         settingsIsOurs = false
         door.orderOut(nil)
@@ -474,27 +474,28 @@ final class WalkController: NSObject {
     /// to the middle on its own when the answer is no.
     private func pollTrust() {
         guard !trusted else { return }
-        trustPoll?.invalidate()
+        trustPoll?.cancel()
         sawSettings = false
         waited = 0
-        trustPoll = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
-            guard let self else { return }
+        trustPoll = onMain(every: .milliseconds(800), label: "walk.trust") { [weak self] in
+            guard let self else { return true }
             if self.trusted {
-                self.trustPoll?.invalidate(); self.trustPoll = nil
+                self.trustPoll = nil
                 if self.awaitingGrant || self.page == .permission { self.stopWaiting(granted: true) }
-                return
+                return true
             }
-            guard self.awaitingGrant else { return }
+            guard self.awaitingGrant else { return false }
             self.waited += 0.8
             let settingsRunning = !NSRunningApplication.runningApplications(
                 withBundleIdentifier: Self.settingsBundleID).isEmpty
             if settingsRunning {
                 self.sawSettings = true
-                return
+                return false
             }
             // The pane was open and is gone, or the prompt was dismissed
             // without opening it. Either way the answer is not yet.
             if self.sawSettings || self.waited > 8 { self.stopWaiting(granted: false) }
+            return false
         }
     }
 

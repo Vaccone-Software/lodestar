@@ -64,7 +64,7 @@ final class MeetingController: NSObject {
     /// While enabled and unauthorized, watches for the grant to land in
     /// System Settings — the same no-relaunch-dance promise Accessibility
     /// keeps, kept here too.
-    private var grantPoll: Timer?
+    private var grantPoll: Task<Void, Never>?
     var flash: ((String) -> Void)?
     /// The chip took the screen. Meetings outrank the coach — that order is
     /// already enforced for chips not yet shown, through `coach.suppressed`
@@ -187,7 +187,7 @@ final class MeetingController: NSObject {
         switch authorization {
         case _ where authorized:
             reportedDenied = false
-            grantPoll?.invalidate(); grantPoll = nil
+            grantPoll?.cancel(); grantPoll = nil
             prime.orderOut(nil)
             start()
         case .notDetermined:
@@ -212,17 +212,17 @@ final class MeetingController: NSObject {
     /// meetings wake up on their own the moment access lands.
     private func pollForGrant() {
         guard grantPoll == nil else { return }
-        grantPoll = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
-            guard let self else { return }
+        grantPoll = onMain(every: .seconds(2.5), label: "meetings.calendar-grant") { [weak self] in
+            guard let self else { return true }
             guard self.config.meetingsEnabled else {
-                self.grantPoll?.invalidate(); self.grantPoll = nil
-                return
+                self.grantPoll = nil
+                return true
             }
-            if self.authorized {
-                self.grantPoll?.invalidate(); self.grantPoll = nil
-                Log.info("meetings", ["calendar-access": "granted"])
-                self.reconcile()
-            }
+            guard self.authorized else { return false }
+            self.grantPoll = nil
+            Log.info("meetings", ["calendar-access": "granted"])
+            self.reconcile()
+            return true
         }
     }
 
@@ -265,7 +265,7 @@ final class MeetingController: NSObject {
         tick?.invalidate(); tick = nil
         countdown?.invalidate(); countdown = nil
         pendingRefresh?.cancel(); pendingRefresh = nil
-        grantPoll?.invalidate(); grantPoll = nil
+        grantPoll?.cancel(); grantPoll = nil
         occurrences = []
         current = nil
         hideChip()

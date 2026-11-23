@@ -144,11 +144,12 @@ private struct Quiet: EditorBackend {
 }
 
 /// How long the ear and the model are kept, and the order they load in.
-final class EarHostTests: XCTestCase {
-    private let clock = VirtualClock()
+/// Time is the test's: a span of thirty minutes is one no test waits for.
+@MainActor final class EarHostTests: XCTestCase {
+    private let clock = TestClock()
 
     private func host(ear: SlowEar, loads: Loads) -> (EarHost, DraftModel) {
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         let model = DraftModel(model: .qwen36, loader: { _ in loads.note(); return Quiet() }, clearCache: {})
         host.hasCleanup = { _ in true }
         host.install(ear: ear, tier: .max, model: model)
@@ -161,46 +162,106 @@ final class EarHostTests: XCTestCase {
         XCTAssertTrue(condition(), "still waiting after 5 s")
     }
 
+    /// `pump`, for an async test: the main thread is not held while it waits.
+    private func eventually(_ what: String, file: StaticString = #filePath, line: UInt = #line,
+                            _ condition: () -> Bool) async {
+        let until = Date().addingTimeInterval(EditorRig.patience)
+        while !condition(), Date() < until { try? await Task.sleep(for: .milliseconds(2)) }
+        XCTAssertTrue(condition(), what, file: file, line: line)
+    }
+
+    /// Time passes, and whatever fell due in it is done: a span ends on a
+    /// task, and what it lets go is let go on the main thread after that.
+    private func pass(_ time: Duration) async {
+        await clock.advance(by: time)
+        for _ in 0..<10 { try? await Task.sleep(for: .milliseconds(1)) }
+    }
+
+    /// Time passes while the main thread does nothing else, so what falls due
+    /// is queued behind whatever the test does next.
+    private func passHoldingMain(_ time: Duration) {
+        let clock = clock
+        let passed = DispatchSemaphore(value: 0)
+        Task.detached {
+            await clock.advance(by: time)
+            passed.signal()
+        }
+        passed.wait()
+        Thread.sleep(forTimeInterval: 0.003)
+    }
+
     // MARK: - How long it stays
 
     func testTheEarStaysThirtyMinutesAndTheModelFive() async {
-        XCTAssertEqual(EarHost.idleSeconds, 30 * 60)
-        XCTAssertEqual(EarHost.modelIdleSeconds, 5 * 60)
+        XCTAssertEqual(EarHost.idle, .seconds(30 * 60))
+        XCTAssertEqual(EarHost.modelIdle, .seconds(5 * 60))
         let ear = SlowEar(loaded: true)
         let loads = Loads()
         let (host, model) = host(ear: ear, loads: loads)
         host.warm()
-        pump(until: { loads.count == 1 })
+        await eventually("the model loads") { loads.count == 1 }
         await model.load()
         host.rest()
-        clock.advance(by: 4 * 60)
+        await pass(.seconds(4 * 60))
         let early = await model.isLoaded
         XCTAssertTrue(early, "the model is held through its five minutes")
-        clock.advance(by: 90)
-        pump(until: { true })
-        try? await Task.sleep(nanoseconds: 50_000_000)
-        let later = await model.isLoaded
-        XCTAssertFalse(later, "and let go after them")
+        await pass(.seconds(90))
+        await settleReleased(model)
         XCTAssertTrue(ear.isLoaded, "the ear is still warm at six minutes")
-        clock.advance(by: 20 * 60)
+        await pass(.seconds(20 * 60))
         XCTAssertTrue(ear.isLoaded, "and at twenty-six")
-        clock.advance(by: 5 * 60)
-        XCTAssertFalse(ear.isLoaded, "gone after thirty")
+        await pass(.seconds(5 * 60))
+        await eventually("gone after thirty") { !ear.isLoaded }
         XCTAssertEqual(ear.unloads, 1)
     }
 
-    func testADraftOpeningAgainKeepsTheEar() {
+    func testADraftOpeningAgainKeepsTheEar() async {
         let ear = SlowEar(loaded: true)
         let (host, _) = host(ear: ear, loads: Loads())
         host.warm()
         host.rest()
-        clock.advance(by: 29 * 60)
+        await pass(.seconds(29 * 60))
         host.warm()
         host.rest()
-        clock.advance(by: 29 * 60)
+        await pass(.seconds(29 * 60))
         XCTAssertTrue(ear.isLoaded, "the clock starts again at each close")
-        clock.advance(by: 2 * 60)
-        XCTAssertFalse(ear.isLoaded)
+        await pass(.seconds(2 * 60))
+        await eventually("gone") { !ear.isLoaded }
+    }
+
+    /// Nothing but the spans waits on the clock, so the two are its only
+    /// sleepers; a use stops both, and leaves none behind.
+    func testAnOpenDraftLeavesNoTimerBehind() async {
+        let (host, _) = host(ear: SlowEar(loaded: true), loads: Loads())
+        for _ in 0..<5 {
+            host.warm()
+            host.rest()
+        }
+        await eventually("one span each, counted from the last close") { clock.sleeperCount == 2 }
+        host.warm()
+        await eventually("and none while a draft is open") { clock.sleeperCount == 0 }
+    }
+
+    /// The spans ran out at the moment a draft opened: what they would let
+    /// go is the draft's now. The main thread is held while they run out, so
+    /// their turn on it comes after the draft's, the order they have to lose.
+    func testASpanThatRunsOutAsADraftOpensTakesNothing() async {
+        let ear = SlowEar(loaded: true)
+        ear.finishLoading()
+        let (host, model) = host(ear: ear, loads: Loads())
+        host.warm()
+        await settleLoaded(model)
+        for draft in 1...30 {
+            host.rest()
+            await eventually("both count") { clock.sleeperCount == 2 }
+            passHoldingMain(.seconds(30 * 60))
+            host.warm()
+            XCTAssertTrue(ear.isLoaded, "draft \(draft) opened on a cold ear")
+            await pass(.zero)
+            await host.settled()
+            let loaded = await model.isLoaded
+            XCTAssertTrue(ear.isLoaded && loaded, "draft \(draft) lost what it hears with")
+        }
     }
 
     // MARK: - The ear behind
@@ -211,7 +272,7 @@ final class EarHostTests: XCTestCase {
         let quick = SlowEar()
         let behind = SlowEar()
         let loads = Loads()
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         host.hasCleanup = { _ in true }
         host.install(ear: quick, behind: behind, tier: .max,
                      model: DraftModel(model: .qwen36, loader: { _ in loads.note(); return Quiet() }, clearCache: {}))
@@ -228,31 +289,31 @@ final class EarHostTests: XCTestCase {
 
     /// A warning lets the ear behind go with the language model; the quick
     /// ear, which ⏎ waits for, stays.
-    func testAWarningLetsTheEarBehindGoAndKeepsTheQuickOne() {
+    func testAWarningLetsTheEarBehindGoAndKeepsTheQuickOne() async {
         let quick = SlowEar(loaded: true)
         let behind = SlowEar(loaded: true)
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         host.install(ear: quick, behind: behind, tier: .full)
         host.warm()
         host.rest()
         host.memoryWarning()
         XCTAssertFalse(behind.isLoaded)
         XCTAssertTrue(quick.isLoaded)
-        clock.advance(by: 31 * 60)
-        XCTAssertFalse(quick.isLoaded, "and both go after thirty minutes")
+        await pass(.seconds(31 * 60))
+        await eventually("and both go after thirty minutes") { !quick.isLoaded }
     }
 
     // MARK: - Memory pressure
 
-    func testMemoryPressureLetsAGoneRestingEarGoAtOnce() {
+    func testMemoryPressureLetsAGoneRestingEarGoAtOnce() async {
         let ear = SlowEar(loaded: true)
         let (host, _) = host(ear: ear, loads: Loads())
         host.warm()
         host.rest()
-        clock.advance(by: 60)
+        await pass(.seconds(60))
         host.memoryPressure()
         XCTAssertFalse(ear.isLoaded)
-        clock.advance(by: 40 * 60)
+        await pass(.seconds(40 * 60))
         XCTAssertEqual(ear.unloads, 1, "and the idle release finds nothing more to do")
     }
 
@@ -406,7 +467,7 @@ final class EarHostTests: XCTestCase {
 
     /// A model whose loads wait at the door, and its host with a warm ear.
     private func doored(_ door: Door, weights: Weights) -> EarHost {
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         let model = DraftModel(model: .qwen36, loader: { _ in
             await door.wait()
             return weights.make()
@@ -438,7 +499,7 @@ final class EarHostTests: XCTestCase {
         let weights = Weights()
         let host = doored(door, weights: weights)
         host.warm()
-        pump(until: { door.held == 1 })
+        await eventually("the load began") { door.held == 1 }
         host.rest()
         host.memoryWarning()
         door.open()
@@ -451,9 +512,9 @@ final class EarHostTests: XCTestCase {
         let weights = Weights()
         let host = doored(door, weights: weights)
         host.warm()
-        pump(until: { door.held == 1 })
+        await eventually("the load began") { door.held == 1 }
         host.rest()
-        clock.advance(by: 5 * 60 + 1)
+        await pass(.seconds(5 * 60 + 1))
         door.open()
         await settleLetGo(weights)
     }
@@ -488,7 +549,7 @@ final class EarHostTests: XCTestCase {
         // not the model's own end.
         let model = host.draftModel
         host.warm()
-        pump(until: { door.held == 1 })
+        await eventually("the load began") { door.held == 1 }
         host.sharesEditor = { _ in true }
         host.editorChanged()
         XCTAssertNil(host.draftModel, "the editor holds the same weights now")
@@ -538,7 +599,7 @@ final class EarHostTests: XCTestCase {
     /// from a task the ear's load started, it is in the same context.
     func testTheLanguageModelLoadsInTheAmbientContextThatWarmedTheEar() {
         let events = RecordingInstrumentation()
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         let loaded = Loads()
         let model = DraftModel(model: .qwen36, loader: { _ in
             loaded.note()
@@ -554,64 +615,67 @@ final class EarHostTests: XCTestCase {
 
     // MARK: - Heard outside the draft (lodestar transcribe)
 
-    private func heard(_ host: EarHost, context: [String] = []) -> (text: String, ear: String)? {
+    private func heard(_ host: EarHost, context: [String] = []) async -> (text: String, ear: String)? {
         var answer: (text: String, ear: String)?
         var finished = false
         host.hear([Float](repeating: 0, count: 16_000), context: context) { result in
             if case .success(let heard) = result { answer = (heard.heard.text, heard.ear) }
             finished = true
         }
-        pump(until: { finished })
+        await eventually("heard") { finished }
         return answer
     }
 
     /// The words dictation keeps come from the ear behind when the setup
     /// has one: so do a file's.
-    func testAFileIsHeardByTheEarDictationKeeps() {
+    func testAFileIsHeardByTheEarDictationKeeps() async {
         let quick = WordsEar("parakeet", hears: "private link")
         let behind = WordsEar("qwen", hears: "PrivateLink")
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         host.install(ear: quick, behind: behind, tier: .full)
-        let answer = heard(host, context: ["PrivateLink"])
+        let answer = await heard(host, context: ["PrivateLink"])
         XCTAssertEqual(answer?.text, "PrivateLink")
         XCTAssertEqual(answer?.ear, "qwen")
         XCTAssertEqual(behind.context, ["PrivateLink"], "the names reach the ear")
 
-        let alone = EarHost(clock: clock.clock)
+        let alone = EarHost(clock: clock.erased)
         alone.install(ear: quick, tier: .small)
-        XCTAssertEqual(heard(alone)?.ear, "parakeet", "the quick ear, on a setup without one behind")
+        let quickest = await heard(alone)
+        XCTAssertEqual(quickest?.ear, "parakeet", "the quick ear, on a setup without one behind")
     }
 
     /// A cold ear loads once, then rests on the draft's thirty minutes.
-    func testAColdEarLoadsAndRestsAsForADraft() {
+    func testAColdEarLoadsAndRestsAsForADraft() async {
         let ear = WordsEar("parakeet", hears: "hello", loaded: false)
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         host.install(ear: ear, tier: .small)
-        XCTAssertEqual(heard(host)?.text, "hello")
+        let first = await heard(host)
+        XCTAssertEqual(first?.text, "hello")
         XCTAssertEqual(ear.loads, 1)
-        XCTAssertEqual(heard(host)?.text, "hello")
+        let second = await heard(host)
+        XCTAssertEqual(second?.text, "hello")
         XCTAssertEqual(ear.loads, 1, "warm the second time")
-        clock.advance(by: 29 * 60)
+        await pass(.seconds(29 * 60))
         XCTAssertTrue(ear.isLoaded)
-        clock.advance(by: 2 * 60)
-        XCTAssertFalse(ear.isLoaded, "let go after thirty minutes")
+        await pass(.seconds(2 * 60))
+        await eventually("let go after thirty minutes") { !ear.isLoaded }
     }
 
     /// A file heard during a draft leaves the draft's ear alone.
-    func testAFileHeardDuringADraftDoesNotRestItsEar() {
+    func testAFileHeardDuringADraftDoesNotRestItsEar() async {
         let ear = WordsEar("parakeet", hears: "hello")
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         host.install(ear: ear, tier: .small)
         host.warm()
-        _ = heard(host)
-        clock.advance(by: 40 * 60)
+        _ = await heard(host)
+        await pass(.seconds(40 * 60))
         XCTAssertTrue(ear.isLoaded, "the draft is still open")
     }
 
     /// A draft's load on its way is waited for, never doubled.
     func testAFileWaitsForTheDraftsLoad() {
         let ear = SlowEar()
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         host.install(ear: ear, tier: .small)
         host.warm()
         var finished = false
@@ -623,8 +687,41 @@ final class EarHostTests: XCTestCase {
         XCTAssertTrue(ear.isLoaded)
     }
 
+    /// Two files at once are one load, which the second waits out.
+    func testTwoFilesHeardAtOnceShareOneLoad() async {
+        let ear = WordsEar("parakeet", hears: "hello", loaded: false)
+        let host = EarHost(clock: clock.erased)
+        host.install(ear: ear, tier: .small)
+        var heard: [String] = []
+        for _ in 0..<2 {
+            host.hear([0], context: []) { result in heard.append((try? result.get().heard.text) ?? "failed") }
+        }
+        await eventually("both are heard") { heard.count == 2 }
+        XCTAssertEqual(heard, ["hello", "hello"])
+        XCTAssertEqual(ear.loads, 1)
+    }
+
+    /// The load a file asked for failed: it is told that, and not whatever a
+    /// cold ear would have said, and the ear rests as if it had been heard.
+    func testAFileIsToldWhyItsEarDidNotLoad() async {
+        let ear = SlowEar()
+        ear.failTheLoad()
+        ear.finishLoading()
+        let host = EarHost(clock: clock.erased)
+        host.install(ear: ear, tier: .small)
+        var failure: NSError?
+        host.hear([0], context: []) { result in
+            if case .failure(let error) = result { failure = error as NSError }
+        }
+        await eventually("it says so") { failure != nil }
+        XCTAssertEqual(failure?.domain, "SlowEar")
+        await eventually("and rests") { clock.sleeperCount == 1 }
+        await pass(.seconds(30 * 60))
+        await eventually("for thirty minutes") { ear.unloads == 1 }
+    }
+
     func testWithNoEarItSaysSo() {
-        let host = EarHost(clock: clock.clock)
+        let host = EarHost(clock: clock.erased)
         host.install(ear: nil, tier: .apple)
         var problem: String?
         host.hear([0], context: []) { result in

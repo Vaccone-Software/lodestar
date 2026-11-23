@@ -20,13 +20,17 @@ import Stoic
 /// folder the editor uses: where the editor runs the same weights, the two
 /// share one copy on disk, and in memory the editor's is asked instead of
 /// loading a second.
+///
+/// What is held, and why, is `EarResidency`; this does what its steps owe,
+/// on the main thread. The idle spans are state timeouts on the ambient
+/// clock (`IdleSpan`).
 final class EarHost {
     static let folder = Paths.data.appendingPathComponent("ears", isDirectory: true)
     /// How long the ear stays after the draft closes.
-    static let idleSeconds: TimeInterval = 1800
+    static let idle: Duration = .seconds(1800)
     /// How long the draft's own copy of the language model stays: its own
     /// policy, shorter, since on Max it is 20 GB shared with the editor.
-    static let modelIdleSeconds: TimeInterval = 300
+    static let modelIdle: Duration = .seconds(300)
 
     private(set) var ear: SettlingEar?
     /// The ear behind the quick one, when the setup has one.
@@ -36,20 +40,30 @@ final class EarHost {
     private(set) var live: LiveEar?
     private var liveWarm = false
     private(set) var tier: EarTier = .apple
-    private var idle: DispatchWorkItem?
-    private var modelIdle: DispatchWorkItem?
-    private var loading = false
-    /// Between dictation starting and the draft closing: the ear is being
-    /// used, whatever the memory says.
-    private var inUse = false
-    /// macOS said memory was short while the ear was in use: it goes the
-    /// moment the draft closes, not thirty minutes on.
-    private var pressed = false
-    /// The same, for the language model and the ear behind, which go on a
-    /// warning too.
-    private var modelPressed = false
     private var pressure: DispatchSourceMemoryPressure?
-    private let clock: Clock
+    private let clock: AnyClock
+    /// What the ears and the language model are held for. Stepped on the
+    /// main thread only, so what a step owes is done before `send` returns.
+    private lazy var residency = StateMachine(EarResidency.self, initial: .init(), clock: clock) { [weak self] effect in
+        self?.perform(effect)
+    }
+    /// The spans end on a task of their own, and what they let go is let go
+    /// on the main thread, unless a use that came first has kept it.
+    private lazy var earSpan: Span = Span(IdleSpan.self, initial: .kept, label: "lodestar.ears.idle", clock: clock) { [weak self] _ in
+        Task { @MainActor [weak self] in
+            guard let self, self.earSpan.state == .over else { return }
+            self.unloadEars()
+        }
+    }
+    private lazy var modelSpan: Span = Span(IdleSpan.self, initial: .kept, label: "lodestar.draft-model.idle", clock: clock) { [weak self] _ in
+        Task { @MainActor [weak self] in
+            guard let self, self.modelSpan.state == .over else { return }
+            self.releaseModel()
+        }
+    }
+    private typealias Span = StateMachine<IdleSpan.State, IdleSpan.Event>
+    /// The load of the ear a phrase outside the draft is heard by.
+    private var phraseLoad: Task<Void, Error>?
     /// The language model's loads and releases, and the live recognizer's,
     /// each in the order they were asked.
     private let modelLane = ResidencyLane()
@@ -105,8 +119,8 @@ final class EarHost {
         cleanupDownload.fetch(.cleanup(model))
     }
 
-    init(clock: Clock = .live) {
-        self.clock = clock
+    init(clock: AnyClock? = nil) {
+        self.clock = clock ?? Ambient.current.clock
         // The language model goes on a warning, the editor's copy by the
         // editor's own handler and the draft's copy here, and on Max that is
         // the 20 GB the warning is about. It costs little, since it is cold
@@ -289,19 +303,90 @@ final class EarHost {
     /// disk and the same GPU, and the small one, the one that hears, took
     /// ten seconds. Listening itself waits for neither.
     func warm() {
-        idle?.cancel()
-        modelIdle?.cancel()
-        inUse = true
         fetchIfMissing()
-        // Let go under pressure: warm again, for the next draft.
-        prepareLive()
-        // A load already on its way starts the models when it is done.
-        guard !loading else { return }
-        // The quick ear first, then the one behind it: each starts hearing
-        // the moment it is in.
+        residency.send(.opened)
+    }
+
+    /// The draft closed: the ear lets its memory go after a while, and the
+    /// language model, which is far larger, sooner.
+    func rest() {
+        residency.send(.closed)
+    }
+
+    /// macOS says memory is critical: a resting ear and language model go
+    /// now. Ones in use go when their draft closes, so a dictation never loses
+    /// its ear mid-sentence to a signal that may have passed.
+    func memoryPressure() {
+        Log.info("draft", ["memory pressure": true, "ear in use": residency.state.busy])
+        residency.send(.critical)
+    }
+
+    /// macOS says memory is short: the draft's own language model and the
+    /// ear behind go now, not when their idle time is up, or when their
+    /// draft closes if one is open. The quick ear stays. See `init`.
+    func memoryWarning() {
+        Log.info("draft", ["memory warning": true, "in use": residency.state.busy])
+        residency.send(.warning)
+    }
+
+    /// A phrase heard outside the draft (`lodestar transcribe`), by the ear
+    /// whose words dictation keeps: the one behind when this Mac's setup
+    /// has one, the quick one otherwise. A cold ear loads as it would for a
+    /// draft, one load at a time (never two of one ear): one already on its
+    /// way is waited out, and a draft starting meanwhile waits for this one
+    /// as it would for its own. It is let go on the same thirty minutes when
+    /// no draft holds it. `done` runs on main.
+    func hear(_ samples: [Float], context: [String],
+              done: @escaping (Result<(heard: Heard, ear: String), Error>) -> Void) {
+        guard let chosen = backgroundEar ?? ear else { return done(.failure(Transcribe.Failure.noEar)) }
+        let cold = !chosen.isLoaded
+        let mine = cold && residency.state.loading == nil
+        residency.send(.phraseBegan(cold: cold))
+        let load = mine ? phraseLoad : nil
+        let residency = self.residency
+        Task(priority: .medium) { [weak self] in
+            let result: Result<(heard: Heard, ear: String), Error>
+            do {
+                if let load {
+                    try await load.value
+                } else if cold {
+                    for await state in residency.states() where state.loading == nil { break }
+                }
+                result = .success((try await chosen.transcribe(samples, context: context), chosen.name))
+            } catch {
+                result = .failure(error)
+            }
+            await MainActor.run { [weak self] in
+                self?.residency.send(.phraseEnded)
+                done(result)
+            }
+        }
+    }
+
+    // MARK: - What a step owes
+
+    private func perform(_ effect: EarResidency.Effect) {
+        switch effect {
+        case .load(.draft): loadEars()
+        case .load(.phrase): loadPhraseEar()
+        case .loadModel: loadModels()
+        case .prepareLive: prepareLive()
+        case .keepEars: earSpan.send(.keep)
+        case .restEars: earSpan.send(.count(Self.idle))
+        case .keepModel: modelSpan.send(.keep)
+        case .restModel: modelSpan.send(.count(Self.modelIdle))
+        case .unloadEars: unloadEars()
+        case .unloadBehind: backgroundEar?.unload()
+        case .unloadLive: unloadLive()
+        case .releaseModel: releaseModel()
+        }
+    }
+
+    /// The quick ear first, then the one behind it: each starts hearing
+    /// the moment it is in. The load is over at once when none is cold.
+    private func loadEars() {
         let cold = [ear, backgroundEar].compactMap { $0 }.filter { !$0.isLoaded }
-        guard !cold.isEmpty else { loadModels(); return }
-        loading = true
+        guard !cold.isEmpty else { return residency.send(.loadEnded(loaded: true)) }
         // An ordinary Task, not a detached one, so the ear's load runs with the
         // ambient context that started it (Stoic's events from it reach the
         // log). It is not isolated to an actor here, so it still runs off the
@@ -319,13 +404,25 @@ final class EarHost {
                     Log.info("draft", ["ear": ear.name, "load failed": "\(error)"])
                 }
             }
+            await MainActor.run { [weak self] in self?.residency.send(.loadEnded(loaded: true)) }
+        }
+    }
+
+    /// The ear a phrase is heard by; the phrase hears its failure.
+    private func loadPhraseEar() {
+        guard let chosen = backgroundEar ?? ear else { return residency.send(.loadEnded(loaded: false)) }
+        phraseLoad = Task(priority: .medium) { [weak self] in
+            let began = ContinuousClock.now
+            do {
+                try await chosen.load()
+                Log.info("draft", ["ear": chosen.name, "loaded ms": Int(began.secondsElapsed * 1000), "for": "transcribe"])
+            } catch {
+                await MainActor.run { [weak self] in self?.residency.send(.loadEnded(loaded: false)) }
+                throw error
+            }
             await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.loading = false
-                self.loadModels()
-                // Memory ran short while it loaded and nothing is using it.
-                if self.pressed, !self.inUse { self.letGo() }
-                if self.modelPressed, !self.inUse { self.letModelGo() }
+                self?.loaded()
+                self?.residency.send(.loadEnded(loaded: true))
             }
         }
     }
@@ -334,8 +431,8 @@ final class EarHost {
     /// copy of the same weights prepared.
     private func loadModels() {
         guard let model = cleanup else { return }
-        // As in `warm`: an ordinary Task's context, at the priority a detached
-        // one had.
+        // As in `loadEars`: an ordinary Task's context, at the priority a
+        // detached one had.
         if let draftModel {
             modelLane.run(priority: .medium) { await draftModel.load() }
         } else if sharesEditor(model) {
@@ -343,148 +440,23 @@ final class EarHost {
         }
     }
 
-    /// Phrases being heard outside the draft (`lodestar transcribe`).
-    private var hearing = 0
-
-    /// A phrase heard outside the draft (`lodestar transcribe`), by the ear
-    /// whose words dictation keeps: the one behind when this Mac's setup
-    /// has one, the quick one otherwise. A cold ear loads as it would for a
-    /// draft, through the same `loading` (one load at a time, never two of
-    /// one ear), and is let go on the same thirty minutes when no draft
-    /// holds it. `done` runs on main.
-    func hear(_ samples: [Float], context: [String],
-              done: @escaping (Result<(heard: Heard, ear: String), Error>) -> Void) {
-        guard let chosen = backgroundEar ?? ear else { return done(.failure(Transcribe.Failure.noEar)) }
-        idle?.cancel()
-        hearing += 1
-        Task(priority: .medium) { [weak self] in
-            let result: Result<(heard: Heard, ear: String), Error>
-            do {
-                if !chosen.isLoaded { try await self?.load(chosen) }
-                result = .success((try await chosen.transcribe(samples, context: context), chosen.name))
-            } catch {
-                result = .failure(error)
-            }
-            await MainActor.run { [weak self] in
-                if let self {
-                    self.hearing -= 1
-                    if !self.inUse, self.hearing == 0 { self.restEars() }
-                }
-                done(result)
-            }
-        }
-    }
-
-    /// Loads one ear for a phrase: waits out a load already on its way (a
-    /// draft's), or takes `loading` for its own, so a draft starting
-    /// meanwhile waits for it as it would for its own.
-    private func load(_ chosen: SettlingEar) async throws {
-        let mine = await MainActor.run { () -> Bool in
-            guard !loading else { return false }
-            loading = true
-            return true
-        }
-        guard mine else {
-            while await MainActor.run(body: { loading }) {
-                // Cancellation only ends the wait sooner: the ear is asked anyway.
-                do { try await Ambient.sleep(for: .milliseconds(50)) } catch { break }
-            }
-            return
-        }
-        let began = ContinuousClock.now
-        do {
-            try await chosen.load()
-            Log.info("draft", ["ear": chosen.name, "loaded ms": Int(began.secondsElapsed * 1000), "for": "transcribe"])
-        } catch {
-            await MainActor.run { loading = false }
-            throw error
-        }
-        await MainActor.run { [weak self] in
-            guard let self else { return }
-            self.loading = false
-            self.loaded()
-            // A draft that opened while this loaded asked for its models.
-            if self.inUse { self.loadModels() }
-        }
-    }
-
-    /// The ears go after their idle time, as when a draft closes; the
-    /// language model's own timer is not touched.
-    private func restEars() {
-        if pressed { letGo(); return }
-        let ears = DispatchWorkItem { [weak self] in
-            self?.ear?.unload()
-            self?.backgroundEar?.unload()
-        }
-        idle = ears
-        clock.after(Self.idleSeconds, ears)
-    }
-
-    /// The draft closed: the ear lets its memory go after a while, and the
-    /// language model, which is far larger, sooner.
-    func rest() {
-        idle?.cancel()
-        modelIdle?.cancel()
-        inUse = false
-        let models = DispatchWorkItem { [weak self] in
-            if let self, let model = self.draftModel { self.modelLane.run { await model.release() } }
-        }
-        modelIdle = models
-        clock.after(Self.modelIdleSeconds, models)
-        if modelPressed { letModelGo() }
-        if pressed { letGo(); return }
-        let ears = DispatchWorkItem { [weak self] in
-            self?.ear?.unload()
-            self?.backgroundEar?.unload()
-        }
-        idle = ears
-        clock.after(Self.idleSeconds, ears)
-    }
-
-    /// macOS says memory is critical: a resting ear and language model go
-    /// now. Ones in use go when their draft closes, so a dictation never loses
-    /// its ear mid-sentence to a signal that may have passed.
-    func memoryPressure() {
-        Log.info("draft", ["memory pressure": true, "ear in use": inUse || loading])
-        if inUse || loading {
-            pressed = true
-            modelPressed = true
-        } else {
-            letGo()
-            letModelGo()
-        }
-    }
-
-    /// macOS says memory is short: the draft's own language model and the
-    /// ear behind go now, not when their idle time is up, or when their
-    /// draft closes if one is open. The quick ear stays. See `init`.
-    func memoryWarning() {
-        Log.info("draft", ["memory warning": true, "in use": inUse || loading])
-        if inUse || loading { modelPressed = true } else { letModelGo() }
-    }
-
-    /// The idle timer is left to run: it finds nothing to do. A load still
-    /// on its way when this asked is waited out, and what it brought let go.
-    private func letModelGo() {
-        modelPressed = false
-        // The ear behind goes with it: it is a gigabyte or more, and the
-        // quick ear still hears.
-        if !loading { backgroundEar?.unload() }
-        if let model = draftModel { modelLane.run { await model.release() } }
-    }
-
-    private func letGo() {
-        pressed = false
-        idle?.cancel()
-        guard !loading else { return }
+    private func unloadEars() {
         ear?.unload()
         backgroundEar?.unload()
-        // Critical: the live recognizer too. The next draft hears with
-        // Apple's while it warms again.
-        if let live {
-            liveWarm = false
-            liveLane.run { await live.unload() }
-        }
+    }
+
+    /// The next draft hears with Apple's while it warms again.
+    private func unloadLive() {
+        guard let live else { return }
+        liveWarm = false
+        liveLane.run { await live.unload() }
+    }
+
+    /// A load still on its way when this asked is waited out, and what it
+    /// brought let go.
+    private func releaseModel() {
+        guard let model = draftModel else { return }
+        modelLane.run { await model.release() }
     }
 
     #if DEBUG

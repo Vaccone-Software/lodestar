@@ -1,0 +1,946 @@
+import AppKit
+import XCTest
+@testable import lodestar
+@testable import LodestarCore
+
+/// A clock the test owns.
+///
+/// Work scheduled through it runs when the test advances time — in
+/// order, each item at its own moment, with the main queue drained
+/// between steps so the engine's next-turn hops land as well. Nothing
+/// here waits on the wall: a minute passes when the test says it does.
+final class VirtualClock {
+    private(set) var now: Date
+    private var queue: [(at: Date, seq: Int, work: DispatchWorkItem)] = []
+    private var seq = 0
+
+    init(start: Date = Date()) { now = start }
+
+    /// Weak, not unowned: a controller can outlive the test that made it
+    /// (a hop it queued runs after the rig is gone), and reading an unowned
+    /// clock then ends the whole shard process, every test after it unrun
+    /// (seen with the editor's compute hop under scheduling jitter). Once its
+    /// owner is gone it answers the moment it was handed out and schedules
+    /// nothing.
+    var clock: Clock {
+        let start = now
+        return Clock(now: { [weak self] in self?.now ?? start },
+                     after: { [weak self] delay, work in self?.after(delay, work) })
+    }
+
+    private func after(_ delay: TimeInterval, _ work: DispatchWorkItem) {
+        seq += 1
+        queue.append((at: now.addingTimeInterval(delay), seq: seq, work: work))
+    }
+
+    func advance(by seconds: TimeInterval) {
+        let target = now.addingTimeInterval(seconds)
+        while true {
+            queue.removeAll { $0.work.isCancelled }
+            guard let next = queue.min(by: { ($0.at, $0.seq) < ($1.at, $1.seq) }),
+                  next.at <= target else { break }
+            queue.removeAll { $0.seq == next.seq }
+            now = next.at
+            next.work.perform()
+            Stage.pump()
+        }
+        now = target
+        Stage.pump()
+    }
+}
+
+/// The window world, as a ledger of what it was asked. It moves nothing.
+final class FakeActions: EngineActions {
+    var summoned: [(target: GraphTarget, beside: Bool)] = []
+    var indexJumps: [Int] = []
+    var maximized = 0
+    var focused: (pid: pid_t, name: String)? = (pid: 1, name: "Ghostty")
+    /// What `Actions` does once a summon has landed: tell the coach.
+    var coachBoundary: ((String?) -> Void)?
+
+    func focusedAppInfo() -> (pid: pid_t, name: String)? { focused }
+    private(set) var joins = 0
+    func joinNextPlacement() { joins += 1 }
+    func summon(_ target: GraphTarget, beside: Bool, via route: Observations.Route) {
+        summoned.append((target: target, beside: beside))
+        coachBoundary?(target.label.lowercased())
+    }
+    func maximizeFocused(beside: Bool) { maximized += 1 }
+    func flipOrientation() {}
+    func undoLayout() {}
+    func redoLayout() {}
+    func indexJump(_ digit: Int) { indexJumps.append(digit) }
+    func reorderFocused(toDigit digit: Int) {}
+    func moveFocusedDisplay(direction: Int, beside: Bool) {}
+    func graphGuideRows(_ node: GraphNode) -> [GuideRow] {
+        node.children.keys.sorted().map { GuideRow(key: $0.uppercased(), label: $0) }
+    }
+    func graphCheatRows(_ node: GraphNode, prefix: [String]) -> [GuideRow] { [] }
+    func breathGuide(prefix: String) -> [GuideRow] { [] }
+    func indexBadgeItems() -> [(index: Int, frame: CGRect)] { [] }
+    func breathChain(_ letters: [String]) -> ChainStep { .failed(flash: "✕ no breaths on this stage") }
+    func bindBreath(_ letters: [String]) -> ChainStep { .failed(flash: "✕ no breaths on this stage") }
+    func deleteBreathStep(_ letters: [String]) -> ChainStep { .failed(flash: "✕ no breaths on this stage") }
+    func updateLatestBreath() -> ChainStep { .failed(flash: "✕ no breaths on this stage") }
+}
+
+/// A recognizer the test drives by hand: `hear` is a volatile word,
+/// `settle` a final one. It never touches a microphone.
+final class FakeSpeech: SpeechSession {
+    var isAvailable = true
+    private(set) var listens = 0
+    private(set) var pauses = 0
+    private(set) var resumes = 0
+    private(set) var stops = 0
+    /// How many sessions were opened and never stopped: every listen
+    /// must be matched by a stop, or a microphone stays on.
+    var openSessions: Int { listens - stops }
+    private var onState: ((SpeechState) -> Void)?
+    private var onLevel: ((Float, Double) -> Void)?
+    private var onAlive: (() -> Void)?
+    private var onVolatile: ((String) -> Void)?
+    private var onSettled: ((Heard) -> Void)?
+    /// The session before this one, the way a real recognizer's late
+    /// results still reach the closures it was given.
+    private var previousSettled: ((Heard) -> Void)?
+    /// Whether `stop` settles the standing ghost before completing, the
+    /// way a real finalization does.
+    var settlesOnStop = true
+    /// Finals the recognizer still owes when it is stopped, delivered
+    /// after the ghost's and before the completion, the way the stop's
+    /// drain hands them over.
+    var finalsOnStop: [Heard] = []
+    /// Hold the listening state back, the way a model download or the
+    /// first-run microphone prompt does; `ready()` releases it.
+    var slowToListen = false
+    /// Hold `stop`'s completion back, the way finalization does; `finish()`
+    /// releases it.
+    var slowToStop = false
+    private var pendingStop: (() -> Void)?
+    private var ghost: String?
+
+    func warm(input: String?) {}
+    let held = HeldAudio()
+    private(set) var lastInput: String?
+    func listen(input: String?, onState: @escaping (SpeechState) -> Void,
+                onLevel: @escaping (Float, Double) -> Void, onAlive: @escaping () -> Void,
+                onVolatile: @escaping (String) -> Void, onSettled: @escaping (Heard) -> Void) {
+        listens += 1
+        lastInput = input
+        previousSettled = self.onSettled
+        self.onState = onState; self.onLevel = onLevel; self.onAlive = onAlive
+        self.onVolatile = onVolatile; self.onSettled = onSettled
+        if !slowToListen { onState(.listening(input: "Stage Microphone")) }
+    }
+    func ready() { onState?(.listening(input: "Stage Microphone")) }
+    /// The session says it failed, the way a microphone that would not
+    /// start, or stopped mid-take, does.
+    func fail(_ why: String = "the microphone could not start") { onState?(.failed(why)) }
+    /// The audio stack has stopped answering, the way a headset start that
+    /// never came back and the starts queued behind it say it.
+    func wedge() { onState?(.wedged) }
+    /// The grant was refused, the way a denied microphone prompt or a
+    /// switch turned off in Privacy & Security reports it.
+    func deny() { onState?(.denied) }
+    func pause() { pauses += 1 }
+    func resume() { resumes += 1 }
+    func stop(completion: @escaping () -> Void) {
+        stops += 1
+        if slowToStop {
+            // Finalization takes a moment: the ghost settles when it ends.
+            pendingStop = completion
+            return
+        }
+        if settlesOnStop, let ghost { onSettled?(Heard(ghost)) }
+        ghost = nil
+        drain()
+        completion()
+    }
+    private func drain() {
+        let owed = finalsOnStop
+        finalsOnStop = []
+        for heard in owed { onSettled?(heard) }
+    }
+    func finish() {
+        if settlesOnStop, let ghost { onSettled?(Heard(ghost)) }
+        ghost = nil
+        drain()
+        pendingStop?()
+        pendingStop = nil
+    }
+    func feed(file: URL) -> Bool { false }
+    /// The meter's reading; `db` defaults to what the level maps back
+    /// to on the meter's scale, so older scenarios need not name it.
+    func level(_ value: Float, db: Double? = nil) {
+        onLevel?(value, db ?? Double(value) * 45 - 55)
+    }
+    /// The first buffer with signal: the microphone is live.
+    func alive() { onAlive?() }
+    /// A final from the session before this one, arriving late.
+    func settleFromPreviousSession(_ text: String) { previousSettled?(Heard(text)) }
+    func hear(_ text: String) { ghost = text; onVolatile?(text) }
+    func settle(_ text: String) { ghost = nil; onSettled?(Heard(text)) }
+    /// A result with when each word was said, as the recognizer gives it.
+    func settle(_ heard: Heard) { ghost = nil; onSettled?(heard) }
+}
+
+/// A bar that knows only whether it is up.
+final class FakeBar: SearcherSurface, WebBarSurface {
+    private(set) var isVisible = false
+    var config = Config()
+    private(set) var shows = 0
+    func show() { isVisible = true; shows += 1 }
+    func hide() { isVisible = false }
+    func showWindowChooser(pid: pid_t, appName: String) { isVisible = true; shows += 1 }
+}
+
+/// The app's surfaces, wired the way the app wires them, on a world that
+/// never moves a window.
+///
+/// The engine, the glass, and the coach are the real classes — the ones
+/// that ship — and the wiring between them is `SurfaceWiring`, the same
+/// call the app delegate makes. Only the window world and the bars are
+/// stand-ins, and every wait runs on a clock the test advances by hand.
+/// Keystrokes go in as synthesized `CGEvent`s through the tap's own
+/// callback, so a scripted `lode s` walks exactly the path a hardware one
+/// does, verdict included.
+///
+/// The glass panel is real too, which means it briefly appears on screen
+/// while these run. That is the point: a test that stubbed the panel
+/// would be testing the stub.
+final class Stage {
+    let clock = VirtualClock()
+    let hud: HUD
+    let engine: HotkeyEngine
+    /// The health pulse, fed from the real engine, and every hold time
+    /// the tap measured on the way.
+    var pulse = HealthPulse()
+    private(set) var holds: [Double] = []
+    /// The raw record's view of every press, as the store would keep it.
+    private(set) var presses: [KeyPress] = []
+    /// The real health monitor, at the scratch directory.
+    let health: HealthMonitor
+    private(set) var pulses: [ObservationEvent] = []
+    let coach: CoachController
+    let actions = FakeActions()
+    let searcher = FakeBar()
+    let webBar = FakeBar()
+    let commandsBar = FakeBar()
+    let speech = FakeSpeech()
+    /// The window model the engine reads; `stand` puts a window in front.
+    let model: WindowModel
+    let draft: DraftController
+    /// Both editors, the real ones, wired by `SurfaceWiring.wireEditors`
+    /// as the app wires them: the one over every app reads the field
+    /// `editorSource` names, the one inside the draft reads the draft,
+    /// and both ask one proofreader. Off until a test turns one on. A
+    /// kept name reaches the engine's config the way the app's reload
+    /// sets it, so a keep that re-enters the engine is caught here.
+    let editorSource = FakeFieldSource()
+    let proofreader = FakeProofreader()
+    let appEditor: EditorController
+    let draftEditor: DraftEditor
+    /// The real clipboard history, on a store in the stage's own directory.
+    let clipboard: ClipboardController
+    /// Every paste the strip landed: the keystroke, never the system.
+    private(set) var stripPastes = 0
+    /// Every keystroke the draft posted to the system (⌘V, ⌘A).
+    var posted: [(key: String, flags: CGEventFlags)] = []
+    /// Every pasteboard write the draft made.
+    var pasteboard: [String] = []
+    /// What the stage's focused field holds, for the draft to pull.
+    var field: DraftController.Field?
+    /// What the app in front shows as focused when ⏎ asks, and whether it
+    /// answers at all: a text field, unless a test says otherwise.
+    var target: Draft.Target = .focus(role: "AXTextField", text: true)
+    var targetAnswers = true
+    private(set) var targetAsks = 0
+    /// Every input chosen on the register line (nil = system default).
+    var chosenInputs: [String?] = []
+    /// The playback world: which players say they are playing, whether
+    /// the route is a shared Bluetooth radio, the output's nominal
+    /// rate, and every pause and play the pauser sent. Pausing and
+    /// playing move the fake players' state the way the real ones obey.
+    var playing: Set<String> = []
+    var sharedRoute = false
+    private(set) var pausedPlayers: [String] = []
+    private(set) var playedPlayers: [String] = []
+    /// The browser: how many tabs are labelled as making sound, and what
+    /// the ⏯ does. By default it toggles one tab; a test that wants the
+    /// press to go elsewhere replaces it.
+    var audibleTabs = 0
+    private(set) var playPausePresses = 0
+    lazy var onPlayPause: () -> Void = { [unowned self] in
+        self.audibleTabs += self.audibleTabs > 0 ? -1 : 1
+    }
+    private var outputRate: Double = 44_100
+    private var rateWatcher: ((Double) -> Void)?
+    /// The profile flips: the rate changes and any watcher hears it.
+    func setOutputRate(_ rate: Double) {
+        outputRate = rate
+        rateWatcher?(rate)
+    }
+    let observations: ObservationStore
+    let scroller: ScrollController
+    /// Every pointer script a pick posted, caught before the screen.
+    var clicks: [[SyntheticPointer.Step]] = []
+    /// Every wheel delta scroll mode posted, caught before the window
+    /// server saw it.
+    var wheel: [(dx: Int32, dy: Int32)] = []
+    /// Every config line the coach asked the app to write.
+    private(set) var edits: [ConfigEdit] = []
+    let directory: URL
+
+    /// The graph on this stage: `lode s` is a leaf, `lode b` is a branch
+    /// with `x` and `g` under it, `q` is nowhere.
+    static func graph() -> GraphNode {
+        let graph = GraphNode()
+        let slack = GraphNode()
+        slack.target = .app("Slack")
+        graph.children["s"] = slack
+        let brave = GraphNode()
+        let work = GraphNode()
+        work.target = .app("Brave Browser")
+        let google = GraphNode()
+        google.target = .app("Google Chrome")
+        brave.children["x"] = work
+        brave.children["g"] = google
+        graph.children["b"] = brave
+        return graph
+    }
+
+    /// A suggestion with an edit behind it, so an assent has something to
+    /// write. `.bind` cues on its app, and the stage stands it with the
+    /// cue wait already over.
+    static let offer = Recommendation(
+        kind: .bind, target: "notes", detail: "bind Notes at lode N",
+        secondsPerWeek: 40, probability: 0.9,
+        evidence: ["reached 30 times through the launcher"],
+        edit: .bindTarget(chain: ["n"], target: "Notes"))
+
+    init(voices: [Voice] = []) {
+        _ = NSApplication.shared
+        // What the process had before the first stage stood on it, which the
+        // last one to go puts back (LeakGuard fails a test that leaves them).
+        if Self.live == nil { Self.before = (ActivePolicy.frameOverride, NSApplication.shared.appearance) }
+        // The screen every scenario is laid out on, whatever machine runs
+        // it: a runner's virtual display is narrower than a desk's. It sits
+        // far off every real display, so the suite's panels are laid out
+        // and drawn without crossing the screen of the person running it.
+        ActivePolicy.frameOverride = Self.screen
+        DisplayScale.pin()
+        // And the look: a card's words are measured before it is in a window
+        // and styled in the window's look, so a process whose own look and
+        // its windows' disagree (a runner's) sizes in one weight and draws
+        // in the other, and a label that fit is cut off. The suite's look is
+        // night's, as at the desk it was written at; the gallery tests set
+        // each look they mean themselves.
+        NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lodestar-stage-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        observations = ObservationStore(file: directory.appendingPathComponent("observations.json"), vault: SealedFixture.vault(directory.appendingPathComponent("observations.json").deletingLastPathComponent()),
+            log: SealedFixture.eventLog(directory.appendingPathComponent("events.jsonl")))
+        health = HealthMonitor(directory: directory, vault: SealedFixture.vault(directory))
+
+        var config = Config()
+        config.graph = Self.graph()
+
+        hud = HUD(clock: clock.clock)
+        let model = WindowModel()
+        self.model = model
+        // The world never moves a window, so a fresh ask for the focused
+        // one finds no app in front: the model knows only what a test told it.
+        model.frontmostApp = { nil }
+        // The run's own board, never the general one, and empty as each
+        // stage begins: the controller pastes onto the board it reads its
+        // copies from, so a board of the stage's own would have Keep, which
+        // looks at the board as it opens, compare one board's count with
+        // another's and take in whatever an earlier test left behind.
+        SystemEvents.pasteboard.clearContents()
+        let clipboard = ClipboardController(
+            store: SealedFixture.clipboardStore(directory.appendingPathComponent("clipboard")))
+        // Secure Keyboard Entry is the machine's: a locked screen turns it
+        // on (loginwindow holds it) and every paste scenario would read
+        // "secure". The stage answers for itself; a test that wants the
+        // secure ending sets it.
+        clipboard.secureInput = { false }
+        self.clipboard = clipboard
+        scroller = ScrollController(model: model)
+        draft = DraftController(speech: speech, clock: clock.clock)
+        // Most of what the stage's scenarios prove is the modal editor's;
+        // a scenario of Standard's says so.
+        draft.editingStyle = .vim
+        draft.secureInput = { false }
+        // The draft's matcher, built at once and from the repository's
+        // dictionary, so a scenario's names are put back as the app's are.
+        draft.buildMatcher = { build, done in done(build()) }
+        appEditor = EditorController(source: editorSource, queue: DispatchQueue(label: "stage-editor"),
+                                     proofreader: proofreader, drawing: FakeMarksDrawing(), hover: nil,
+                                     clock: clock.clock, polls: false, modelReady: { $0.usesModel })
+        appEditor.frontmostApp = { (4242, "com.apple.TextEdit", "TextEdit") }
+        draftEditor = DraftEditor(proofreader: proofreader, clock: clock.clock)
+        engine = HotkeyEngine(config: config, actions: actions, hud: hud,
+                              searcher: searcher, webBar: webBar, commandsBar: commandsBar,
+                              scroller: scroller,
+                              select: SelectController(model: model),
+                              clipboard: clipboard, draft: draft, clock: clock.clock)
+        engine.observations = observations
+        // The stage never asks the real machine where its caret is.
+        engine.caretCover = { _, _ in "unknown" }
+        engine.bringSecureInput = { false }
+        scroller.observations = observations
+
+        coach = CoachController(clock: clock.clock)
+        coach.observations = observations
+        coach.enabled = true
+        coach.cameraRunning = { false }
+        coach.present = { _ in true }
+        coach.applyEdit = { [unowned self] edit in
+            self.edits.append(edit)
+            return nil
+        }
+        actions.coachBoundary = { [unowned self] app in self.coach.noteBoundary(app: app) }
+        // The hands' pulse, fed the way the app feeds it. The monitor
+        // that sits between them in production is three lines of
+        // plumbing; the seam worth exercising is the tap's own press
+        // timing reaching a real accumulator.
+        engine.onHumanKey = { [unowned self] backspace, autorepeat, at in
+            if let flushed = self.pulse.key(at: self.clock.now, backspace: backspace,
+                                            autorepeat: autorepeat) {
+                self.pulses.append(flushed)
+            }
+            self.health.noteKey(backspace: backspace, autorepeat: autorepeat, at: at)
+        }
+        engine.onHumanPress = { [unowned self] press in
+            self.presses.append(press)
+            self.health.notePress(press)
+        }
+        engine.onHumanKeyHold = { [unowned self] seconds in
+            self.holds.append(seconds)
+            if let flushed = self.pulse.hold(seconds, at: self.clock.now) {
+                self.pulses.append(flushed)
+            }
+            self.health.noteHold(seconds)
+        }
+        engine.onStampJitter = { [unowned self] seconds in self.health.noteJitter(seconds) }
+        engine.onTapReset = { [unowned self] in self.health.noteTapReset() }
+        // The real monitor, on its real queue, writing to the scratch
+        // directory: every scenario drives the health path the app does,
+        // short of the mouse tap itself.
+        health.observations = observations
+        health.listensToTheMouse = false
+        health.context = { HealthMonitor.WindowContext(app: "Stage", dictation: false) }
+        health.setEnabled(true)
+        scroller.sink = { [unowned self] dx, dy in self.wheel.append((dx, dy)) }
+        Pointer.post = { [unowned self] steps in self.clicks.append(steps) }
+        Self.live = ObjectIdentifier(self)
+        clipboard.postPaste = { [unowned self] in self.stripPastes += 1 }
+        clipboard.flash = { [unowned self] text in self.hud.flash(text) }
+        draft.observations = observations
+        draft.flash = { [unowned self] text in self.hud.flash(text) }
+        draft.frontmost = { [unowned self] in
+            self.actions.focused.map { DraftController.Destination(pid: $0.pid, name: $0.name, bundleID: nil) }
+        }
+        draft.writePasteboard = { [unowned self] text in self.pasteboard.append(text) }
+        draft.postKey = { [unowned self] key, flags in self.posted.append((key, flags)) }
+        draft.readField = { [unowned self] _, _ in self.field }
+        draft.selectAll = { _ in true }
+        draft.probeTarget = { [unowned self] _, done in
+            self.targetAsks += 1
+            if self.targetAnswers { done(self.target) }
+        }
+        draft.readPasteboard = { [unowned self] in self.pasteboard.last }
+        draft.enumerateInputs = { done in done(["Stage Microphone", "Other Microphone"], "Stage Microphone") }
+        draft.chooseInput = { [unowned self] name in self.chosenInputs.append(name) }
+        draft.playback = PlaybackPause(world: PlaybackPause.World(
+            sharedRoute: { [unowned self] _, done in done(self.sharedRoute) },
+            pausePlaying: { [unowned self] done in
+                let playing = self.playing.sorted()
+                self.pausedPlayers.append(contentsOf: playing)
+                self.playing = []
+                done(playing)
+            },
+            resumePlayers: { [unowned self] owed, done in
+                let played = owed.filter { !self.playing.contains($0) }
+                for id in played {
+                    self.playedPlayers.append(id)
+                    self.playing.insert(id)
+                }
+                done(played)
+            },
+            audibleTabs: { [unowned self] done in done(self.audibleTabs) },
+            pressPlayPause: { [unowned self] in
+                self.playPausePresses += 1
+                self.onPlayPause()
+            },
+            outputRate: { [unowned self] done in done(self.outputRate) },
+            watchRate: { [unowned self] onChange in
+                self.rateWatcher = onChange
+                return { [weak self] in self?.rateWatcher = nil }
+            }), clock: clock.clock)
+
+        SurfaceWiring.wire(engine: engine, hud: hud, coach: coach,
+                           voices: voices, clock: clock.clock)
+        appEditor.observations = observations
+        draftEditor.observations = observations
+        SurfaceWiring.wireEditors(engine: engine, draft: draft, app: appEditor, inDraft: draftEditor) { [weak self] word in
+            // What the app's config reload does with a kept name: the
+            // engine takes the new config, the editors the new words.
+            guard let self else { return }
+            var config = self.engine.config
+            config.draftWords = Array(Set(config.draftWords + [word])).sorted()
+            self.engine.config = config
+        }
+    }
+
+    /// The stand-in screen: 1920 by 1050, off every real display. It is the
+    /// one `Screens` answers with under a test run, so a surface that asks no
+    /// override for its screen is laid out here too.
+    static let screen = Screens.standIn
+
+    /// A display `width` by `height` that starts where the stand-in does: off
+    /// every real display, for a test that wants a smaller or larger screen
+    /// than the stand-in's own.
+    static func screen(_ width: CGFloat, _ height: CGFloat) -> NSRect {
+        NSRect(x: screen.minX, y: screen.minY, width: width, height: height)
+    }
+
+    /// The stage that set the globals last. One stage can replace another
+    /// (`stage = Stage()`): the new one's init runs before the old one's
+    /// deinit, which must then leave the new one's settings alone.
+    private static var live: ObjectIdentifier?
+    private static var before: (frame: NSRect?, appearance: NSAppearance?)?
+
+    deinit {
+        // What this stage pointed at itself goes back: a later post through
+        // the pointer would otherwise reach a stage that is gone.
+        let last = Self.live == ObjectIdentifier(self)
+        if last {
+            Pointer.post = Pointer.postToSystem
+            ActivePolicy.frameOverride = Self.before?.frame
+            Self.live = nil
+        }
+        health.setEnabled(false)
+        clipboard.stop()
+        hud.hide()
+        // Every panel this stage ever ordered in is still in the
+        // application's window list — a panel that is not released when
+        // closed, and was only ever ordered out, stays there for the life
+        // of the process. Three hundred stages left a hundred of them,
+        // and every run-loop turn paid for all of them: the same suite
+        // ran in two seconds alone and twenty-seven late in the run.
+        // Tests run one at a time, so at this moment every live window is
+        // this stage's; close them all.
+        // Unless a newer stage has taken over (stage = Stage()): then the
+        // windows are its too, and it closes them all when it goes.
+        if Self.live == nil || Self.live == ObjectIdentifier(self) {
+            for window in NSApplication.shared.windows { window.close() }
+        }
+        // The look goes back after the windows are closed: a window that is
+        // gone does not answer a change of look.
+        if last, let before = Self.before {
+            NSApplication.shared.appearance = before.appearance
+            Self.before = nil
+        }
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    // MARK: - The keyboard
+
+    /// Right ⌘ as macOS reports it: the command mask plus the device bit
+    /// that says which one.
+    private static let lodeFlags: CGEventFlags =
+        [.maskCommand, CGEventFlags(rawValue: EngineCore.rightCommandBit)]
+    private static let rightCommandKeycode: CGKeyCode = 54
+
+    private var lodeHeld = false
+
+    static func keycode(_ name: String) -> CGKeyCode {
+        guard let code = Keys.ansi.first(where: { $0.value == name })?.key else {
+            preconditionFailure("no ANSI keycode is named \(name)")
+        }
+        return CGKeyCode(code)
+    }
+
+    /// One event, built the way the tap would see it. Hardware origin by
+    /// default — no posting process, HID system state — which is the one
+    /// thing the coach checks before trusting a navigation.
+    private func event(type: CGEventType, keycode: CGKeyCode, flags: CGEventFlags,
+                       posted: Bool) -> CGEvent {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let event = CGEvent(keyboardEventSource: source, virtualKey: keycode,
+                            keyDown: type != .keyUp)!
+        event.type = type
+        event.flags = flags
+        event.setIntegerValueField(.eventSourceStateID, value: Coach.hidSystemStateID)
+        event.setIntegerValueField(.eventSourceUnixProcessID,
+                                   value: posted ? Int64(getpid()) : 0)
+        return event
+    }
+
+    /// Feed one event through the tap's callback; true when it was
+    /// swallowed. The main queue is drained afterwards so a deferred
+    /// window effect has landed by the time the test looks.
+    @discardableResult
+    private func send(_ event: CGEvent) -> Bool {
+        let verdict = engine.handle(type: event.type, event: event)
+        Self.pump()
+        return verdict == nil
+    }
+
+    /// macOS switches the tap off (it took too long, or the person's input
+    /// interrupted it) and tells the callback so. Events that fell while it
+    /// was off never arrive, so the held lode is forgotten here too.
+    /// `lodeStillDown`: the finger stayed on lode through the outage, so
+    /// the next key arrives carrying its flags.
+    func tapDisabled(byTimeout: Bool = true, lodeStillDown: Bool = false) {
+        guard let event = CGEvent(source: nil) else { return }
+        event.type = byTimeout ? .tapDisabledByTimeout : .tapDisabledByUserInput
+        lodeHeld = lodeStillDown
+        send(event)
+    }
+
+    /// The lode key goes down (or, held already, shift joins it).
+    func hold(shift: Bool = false, posted: Bool = false) {
+        lodeHeld = true
+        var flags = Self.lodeFlags
+        if shift { flags.insert(.maskShift) }
+        send(event(type: .flagsChanged, keycode: Self.rightCommandKeycode,
+                   flags: flags, posted: posted))
+    }
+
+    /// The lode key comes up.
+    func release(posted: Bool = false) {
+        lodeHeld = false
+        send(event(type: .flagsChanged, keycode: Self.rightCommandKeycode,
+                   flags: [], posted: posted))
+    }
+
+    /// One key, down then up, under whatever lode is doing. Returns whether
+    /// the key-down was swallowed.
+    @discardableResult
+    func press(_ name: String, shift: Bool = false, option: Bool = false, command: Bool = false,
+               posted: Bool = false) -> Bool {
+        var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        if shift { flags.insert(.maskShift) }
+        if option { flags.insert(.maskAlternate) }
+        if command { flags.insert(.maskCommand) }
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: posted))
+        send(event(type: .keyUp, keycode: code, flags: flags, posted: posted))
+        return swallowed
+    }
+
+    /// One key, down then up, each event carrying the HID stamp a real
+    /// keyboard's would (monotonic nanoseconds), so the hold is timed from
+    /// the stamps and not from the virtual clock.
+    func pressStamped(_ name: String, down: CGEventTimestamp, up: CGEventTimestamp) {
+        let code = Self.keycode(name)
+        let flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        let downEvent = event(type: .keyDown, keycode: code, flags: flags, posted: false)
+        downEvent.timestamp = down
+        send(downEvent)
+        let upEvent = event(type: .keyUp, keycode: code, flags: flags, posted: false)
+        upEvent.timestamp = up
+        send(upEvent)
+    }
+
+    /// One key, down and up with time between them — the shape a hold
+    /// is measured from. The clock moves between the two events, which
+    /// is the whole difference from `press`.
+    @discardableResult
+    func pressHeld(_ name: String, for seconds: Double, shift: Bool = false,
+                   posted: Bool = false) -> Bool {
+        var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        if shift { flags.insert(.maskShift) }
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: posted))
+        clock.advance(by: seconds)
+        send(event(type: .keyUp, keycode: code, flags: flags, posted: posted))
+        return swallowed
+    }
+
+    /// A key held long enough for the OS to repeat it, then released:
+    /// the press whose hold time means nothing.
+    func pressRepeatedThenRelease(_ name: String, for seconds: Double) {
+        let code = Self.keycode(name)
+        send(event(type: .keyDown, keycode: code, flags: [], posted: false))
+        let repeated = event(type: .keyDown, keycode: code, flags: [], posted: false)
+        repeated.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        send(repeated)
+        clock.advance(by: seconds)
+        send(event(type: .keyUp, keycode: code, flags: [], posted: false))
+    }
+
+    /// A key-down repeating, the way a held key does, with lode already up.
+    @discardableResult
+    func pressRepeat(_ name: String) -> Bool {
+        let code = Self.keycode(name)
+        let ev = event(type: .keyDown, keycode: code, flags: [], posted: false)
+        ev.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        return send(ev)
+    }
+
+    /// A ⌃ chord with lode up: the field chords in the draft's insert mode.
+    @discardableResult
+    func controlPress(_ name: String) -> Bool {
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: .maskControl, posted: false))
+        send(event(type: .keyUp, keycode: code, flags: .maskControl, posted: false))
+        return swallowed
+    }
+
+    /// An ⌥ chord with lode up: ⌥⌫ in the draft.
+    @discardableResult
+    func optionPress(_ name: String) -> Bool {
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: .maskAlternate, posted: false))
+        send(event(type: .keyUp, keycode: code, flags: .maskAlternate, posted: false))
+        return swallowed
+    }
+
+    /// A key under any modifiers, lode up: ⌥⌘A addresses a card's
+    /// actions mid-search.
+    @discardableResult
+    func chord(_ name: String, _ flags: CGEventFlags, posted: Bool = false) -> Bool {
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: flags, posted: posted))
+        send(event(type: .keyUp, keycode: code, flags: flags, posted: posted))
+        return swallowed
+    }
+
+    /// ⇧⌘V: the strip's own trigger, the one that lives outside lode, with
+    /// the hand lifted from it as a hand does. Keep does not count a
+    /// modifier still down from the opening, so a scenario that goes on to
+    /// press ⌘ or ⇧ with a key means it fresh; the ones that mean the
+    /// opening's own still down open it with `chord("v", ...)` themselves.
+    @discardableResult
+    func openStrip() -> Bool {
+        let swallowed = chord("v", [.maskShift, .maskCommand])
+        modifiers([])
+        return swallowed
+    }
+
+    // MARK: - The clipboard
+
+    /// A text card in the history, its file on disk before the test goes
+    /// on: the door reads the file, and the store writes it off the main
+    /// thread. Newest first, as copies are.
+    @discardableResult
+    func seedClip(_ text: String, app: String? = "Example", bundle: String? = "com.example",
+                  host: String? = nil, counted: Bool = true) -> Clipboard.Clip {
+        let data = Data(text.utf8)
+        let id = ClipboardStore.identity(for: data)
+        let counts = counted ? Clipboard.counts(of: text) : nil
+        clipboard.history.record(id: id, kind: .text,
+                                 items: [.init(plain: data, natives: [])],
+                                 imageData: nil, preview: Clipboard.preview(of: text),
+                                 sourceBundleID: bundle, sourceAppName: app, sourceHost: host,
+                                 lines: counts?.lines, characters: counts?.characters)
+        clipboard.history.flushIO()
+        return clipboard.history.clips.first { $0.id == id }!
+    }
+
+    /// An image card: a small PNG nobody drew, recorded the way a copy
+    /// from the pasteboard is, with its pixels as the native form.
+    @discardableResult
+    func seedImageClip(width: Int = 320, height: Int = 200, app: String? = "Brave",
+                       bundle: String? = "com.brave.Browser", host: String? = nil) -> Clipboard.Clip {
+        let png = Stage.pngData(width: width, height: height)
+        let id = ClipboardStore.identity(for: png)
+        clipboard.history.record(id: id, kind: .image,
+                                 items: [.init(plain: nil, natives: [
+                                     (type: NSPasteboard.PasteboardType.png.rawValue, data: png),
+                                 ])],
+                                 imageData: png,
+                                 preview: Clipboard.imagePreview(width: width, height: height),
+                                 sourceBundleID: bundle, sourceAppName: app, sourceHost: host)
+        clipboard.history.flushIO()
+        return clipboard.history.clips.first { $0.id == id }!
+    }
+
+    static func pngData(width: Int, height: Int) -> Data {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                   isPlanar: false, colorSpaceName: .deviceRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        // A gradient written straight into the bitmap: a per-pixel
+        // setColor on a large seed took a minute of the suite.
+        if let bytes = rep.bitmapData {
+            let stride = rep.bytesPerRow
+            for y in 0..<height {
+                let row = bytes + y * stride
+                for x in 0..<width {
+                    let p = row + x * 4
+                    p[0] = UInt8((x * 255) / max(1, width - 1))
+                    p[1] = UInt8((y * 255) / max(1, height - 1))
+                    p[2] = 77
+                    p[3] = 255
+                }
+            }
+        }
+        return rep.representation(using: .png, properties: [:])!
+    }
+
+    /// The last strip record the store wrote.
+    var lastPaste: ObservationEvent? {
+        // A paste is written when the hand's next key has said what came
+        // after it; a scenario that reads the record at once means the
+        // opening as it ended.
+        engine.settleStripWatch()
+        observations.flush()
+        return observations.log.recent(days: 30, now: clock.now.addingTimeInterval(1))
+            .last { $0.kind == .paste }
+    }
+
+    /// A ⌘ chord with lode up — what the draft lets through or takes.
+    @discardableResult
+    func commandPress(_ name: String) -> Bool {
+        let code = Self.keycode(name)
+        let swallowed = send(event(type: .keyDown, keycode: code, flags: .maskCommand, posted: false))
+        send(event(type: .keyUp, keycode: code, flags: .maskCommand, posted: false))
+        return swallowed
+    }
+
+    /// A key goes down and stays down — a held direction in scroll mode.
+    @discardableResult
+    func keyDown(_ name: String, shift: Bool = false) -> Bool {
+        var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        if shift { flags.insert(.maskShift) }
+        return send(event(type: .keyDown, keycode: Self.keycode(name), flags: flags, posted: false))
+    }
+
+    func keyUp(_ name: String, shift: Bool = false) {
+        var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        if shift { flags.insert(.maskShift) }
+        send(event(type: .keyUp, keycode: Self.keycode(name), flags: flags, posted: false))
+    }
+
+    private static let leftShiftKeycode: CGKeyCode = 56
+
+    /// The modifiers the hand holds change to exactly these (flags only,
+    /// no lode): a release is the set without it.
+    func modifiers(_ flags: CGEventFlags) {
+        send(event(type: .flagsChanged, keycode: Self.leftShiftKeycode, flags: flags, posted: false))
+    }
+
+    /// Shift alone goes down or up, lode untouched.
+    func shift(_ down: Bool) {
+        var flags: CGEventFlags = lodeHeld ? Self.lodeFlags : []
+        if down { flags.insert(.maskShift) }
+        send(event(type: .flagsChanged, keycode: Self.leftShiftKeycode, flags: flags, posted: false))
+    }
+
+    /// Spin the main run loop until `condition` holds or a bounded number
+    /// of turns pass — for the real timers a surface owns (scroll's 120Hz
+    /// glide) that no virtual clock drives.
+    /// Turn the main queue until `condition` holds. Running out of turns
+    /// fails the test: a wait that gave up quietly let an assertion that
+    /// something did *not* happen pass on work that had not run yet. A
+    /// wait for nothing in particular (letting the queue settle) asks for
+    /// it with `settle(turns:)`.
+    ///
+    /// The wait is at least `turns` turns and at least `within` seconds: a
+    /// loaded machine stretches the fakes' real delays, and since running
+    /// out now fails, a long bound costs nothing until something is wrong.
+    func pump(until condition: () -> Bool, turns: Int = 200, within seconds: TimeInterval = 5,
+              file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(seconds)
+        var turned = 0
+        while !condition() {
+            if turned >= turns && Date() >= deadline {
+                XCTFail("still waiting after \(turned) turns and \(seconds) s of the main queue", file: file, line: line)
+                return
+            }
+            Self.pump()
+            turned += 1
+        }
+    }
+
+    /// Turn the main queue `turns` times, waiting for nothing in particular.
+    func settle(turns: Int) {
+        for _ in 0..<turns { Self.pump() }
+    }
+
+    /// `lode` + key as one gesture: down, letter, up.
+    @discardableResult
+    func lode(_ name: String, shift: Bool = false, posted: Bool = false) -> Bool {
+        hold(shift: shift, posted: posted)
+        let swallowed = press(name, shift: shift, posted: posted)
+        release(posted: posted)
+        return swallowed
+    }
+
+    /// Lode down and up with nothing between — shorter than a peek.
+    func tapLode(posted: Bool = false) {
+        hold(posted: posted)
+        clock.advance(by: 0.1)
+        release(posted: posted)
+    }
+
+    /// The assent gesture: two taps inside the detector's window.
+    func doubleTapLode(posted: Bool = false) {
+        tapLode(posted: posted)
+        clock.advance(by: 0.1)
+        tapLode(posted: posted)
+    }
+
+    // MARK: - The coach
+
+    /// Put the stage's offer in the slot with its cue wait already over.
+    func stand() { coach.stand(Self.offer, since: .distantPast) }
+
+    /// A navigation landed on `app`, exactly as `Actions` would report it.
+    func boundary(app: String = "slack") { coach.noteBoundary(app: app) }
+
+    /// Stand the offer, cross a boundary, and let the settle pass, so the
+    /// chip is on the glass when the test begins.
+    func raiseChip(file: StaticString = #filePath, line: UInt = #line) {
+        stand()
+        boundary()
+        clock.advance(by: Coach.settleSeconds + 0.1)
+        XCTAssertEqual(hud.owner, .coach, "the chip should be up", file: file, line: line)
+        XCTAssertTrue(coach.chipVisible, "the coach should know it is up", file: file, line: line)
+    }
+
+    /// The ledger's line for the stage's offer, once anything has been
+    /// written about it.
+    /// The last draft record the store wrote, read back off the disk the
+    /// way the analysis would read it.
+    var lastDraft: ObservationEvent? {
+        observations.flush()
+        return observations.log.recent(days: 30, now: clock.now.addingTimeInterval(1))
+            .last { $0.kind == .draft }
+    }
+
+    /// The last scroll session the store wrote.
+    var lastScroll: ObservationEvent? {
+        observations.flush()
+        return observations.log.recent(days: 30, now: clock.now.addingTimeInterval(1))
+            .last { $0.kind == .scroll }
+    }
+
+    var eventsFile: URL {
+        observations.flush()
+        return directory.appendingPathComponent("events.jsonl")
+    }
+
+    var ledger: Observations.LedgerEntry? {
+        observations.observations.ledger.first {
+            $0.id == "\(Self.offer.kind.rawValue):\(Self.offer.target)"
+        }
+    }
+
+    /// Drain the main queue: the engine hops window work to the next
+    /// turn. Everything queued before the marker runs, then one short
+    /// real turn so a timer already due fires too — a tenth of what a
+    /// fixed ten milliseconds cost, over the thousands of keystrokes a
+    /// suite sends.
+    static func pump() {
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        while !drained { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002)) }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.001))
+    }
+}

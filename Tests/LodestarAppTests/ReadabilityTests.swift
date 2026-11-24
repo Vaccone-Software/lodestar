@@ -1,0 +1,137 @@
+import AppKit
+import XCTest
+@testable import lodestar
+@testable import LodestarCore
+
+/// What the eye is given: a cursor it can find, a scale with a floor, and
+/// a card that says where it came from. Read from the rendered storage
+/// and layers, the way the find lights are, because a state test cannot
+/// see a wash that vibrancy ate.
+final class ReadabilityTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        // The panels are laid out on the stand-in screen, not on whichever
+        // display the Mac has or the last test left.
+        setOverride(\ActivePolicy.Type.frameOverride, to: Stage.screen)
+    }
+
+    private func view(_ text: String, cursor: Int, editor: Vim.Mode) -> DraftView {
+        DraftView(buffer: Draft.Buffer(text: text, cursor: cursor), mode: editor == .insert ? .insert : .normal,
+                  editor: editor, speech: nil, destination: ("Notes", nil), replacing: false, style: .vim)
+    }
+
+    private func color(_ panel: DraftPanel, at index: Int) -> NSColor? {
+        panel.textView.textStorage?.attribute(.foregroundColor, at: index, effectiveRange: nil) as? NSColor
+    }
+
+    func testTheBlockCursorIsASolidPlateWithTheGlyphInverted() {
+        let panel = DraftPanel()
+        defer { panel.hide() }
+        panel.show(view("hello", cursor: 1, editor: .normal))
+        // The plate is the text's own colour, the ink, solid: the same ink
+        // the glyphs are drawn in, not the 35 percent wash it used to be.
+        let plate = panel.caretColor?.usingColorSpace(.deviceRGB)
+        XCTAssertEqual(plate?.alphaComponent ?? 0, 1, accuracy: 0.01, "a plate, not a wash")
+        XCTAssertGreaterThan(plate?.alphaComponent ?? 0, 0.8)
+        XCTAssertEqual(color(panel, at: 1), DraftPanel.ground, "the glyph under it is cut out in the ground")
+        XCTAssertEqual(color(panel, at: 0), BarTheme.ink, "its neighbours are not")
+        XCTAssertGreaterThan(panel.caretFrame.width, 4, "the width of the glyph")
+    }
+
+    /// In mono every letter is one cell, so the block cursor is one cell on a
+    /// wide letter, on a narrow one, and past the end of a line.
+    func testTheBlockCursorIsOneCellInMono() {
+        let panel = DraftPanel()
+        defer { panel.hide() }
+        let cell = BarTheme.spaceWidth(in: .draft)
+        XCTAssertGreaterThan(cell, 4)
+        for (text, cursor) in [("Wi", 0), ("Wi", 1), ("ab\ncd", 2), ("ab", 2)] {
+            panel.show(view(text, cursor: cursor, editor: .normal))
+            XCTAssertEqual(panel.caretFrame.width, cell, accuracy: 0.6, "\(text) at \(cursor)")
+        }
+    }
+
+    /// The insert bar is the accent, three points wide. Pinned to
+    /// International Orange: the Mac's own accent may sit under the floor
+    /// on a night, where the bar rightly falls back to the text's colour.
+    func testTheInsertBarIsTheAccentAndThreePointsWide() {
+        let saved = BarTheme.accentColor
+        // The night, which the assertion is about: put in force, not read off the Mac.
+        GalleryLook.night.apply()
+        BarTheme.accentColor = { BarTheme.internationalOrange }
+        defer { BarTheme.accentColor = saved; GalleryLook.reset() }
+        let panel = DraftPanel()
+        defer { panel.hide() }
+        panel.show(view("hello", cursor: 1, editor: .insert))
+        XCTAssertEqual(panel.caretColor?.usingColorSpace(.deviceRGB),
+                       BarTheme.readableAccent.usingColorSpace(.deviceRGB))
+        XCTAssertEqual(BarTheme.readableAccent, BarTheme.accent, "orange clears the floor on the night")
+        XCTAssertEqual(panel.caretFrame.width, 3, accuracy: 0.01)
+        XCTAssertEqual(color(panel, at: 1), BarTheme.ink, "nothing is inverted under a bar")
+    }
+
+    func testNoInversionAtTheEndOfTheTextOrOnANewline() {
+        let panel = DraftPanel()
+        defer { panel.hide() }
+        panel.show(view("ab\ncd", cursor: 2, editor: .normal))
+        XCTAssertEqual(color(panel, at: 2), BarTheme.ink, "a newline has no glyph to invert")
+        panel.show(view("ab", cursor: 2, editor: .normal))
+        XCTAssertEqual(color(panel, at: 1), BarTheme.ink)
+    }
+
+    func testNoInversionWhileAGhostStands() {
+        let panel = DraftPanel()
+        defer { panel.hide() }
+        var buffer = Draft.Buffer(text: "ab", cursor: 0)
+        buffer.showGhost("more")
+        panel.show(DraftView(buffer: buffer, mode: .normal, editor: .normal, speech: nil,
+                             destination: nil, replacing: false))
+        let storage = panel.textView.textStorage!
+        for i in 0..<storage.length {
+            XCTAssertNotEqual(color(panel, at: i), DraftPanel.ground,
+                              "the ghost shifts every position after the cursor, so nothing is inverted")
+        }
+    }
+
+    func testTheScaleHasAFloorAndThreeSteps() {
+        XCTAssertGreaterThanOrEqual(BarTheme.Scale.meta, 13, "nothing on glass below the floor")
+        XCTAssertLessThan(BarTheme.Scale.meta, BarTheme.Scale.body)
+        XCTAssertLessThan(BarTheme.Scale.body, BarTheme.Scale.title)
+        XCTAssertLessThan(BarTheme.Scale.title, BarTheme.Scale.input)
+        for role in [BarTheme.Role.meta, .name, .key] {
+            XCTAssertEqual(role.size, BarTheme.Scale.meta, role.rawValue)
+        }
+        for role in [BarTheme.Role.body, .quietVoice, .emphasis, .typed] {
+            XCTAssertEqual(role.size, BarTheme.Scale.body, role.rawValue)
+        }
+        XCTAssertEqual(BarTheme.Role.title.size, BarTheme.Scale.title)
+        XCTAssertEqual(BarTheme.Role.draft.size, BarTheme.Scale.body, "the draft is body text")
+        XCTAssertEqual(BarTheme.Role.draftMarked.size, BarTheme.Role.draft.size,
+                       "a lit letter is a weight, never a size")
+    }
+
+    func testACardNamesThePageOrTheApp() {
+        let stage = Stage()
+        let page = stage.seedClip("from a page", app: "Brave Browser", bundle: "com.brave.Browser", host: "github.com")
+        let app = stage.seedClip("from an app", app: "Ghostty", bundle: "com.mitchellh.ghostty")
+        let nowhere = stage.seedClip("from nowhere", app: nil, bundle: nil)
+        stage.openStrip()
+        let sources = stage.engine.strip.shownSources
+        XCTAssertEqual(sources[page.id], "github.com", "the page beats the browser's name")
+        XCTAssertEqual(sources[app.id], "Ghostty")
+        XCTAssertNil(sources[nowhere.id])
+        stage.press("escape")
+    }
+
+    func testTheAgeSaysAgo() {
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        func aged(_ seconds: TimeInterval) -> Clipboard.Clip {
+            Clipboard.Clip(id: "x", kind: .text, created: base.addingTimeInterval(-seconds),
+                           sourceBundleID: nil, sourceAppName: nil, preview: "", bytes: 0)
+        }
+        XCTAssertEqual(Clipboard.age(of: aged(10), now: base), "just now")
+        XCTAssertEqual(Clipboard.age(of: aged(90), now: base), "1m ago")
+        XCTAssertEqual(Clipboard.age(of: aged(90_000), now: base), "1d ago")
+        XCTAssertTrue(Clipboard.age(of: aged(5000), now: base).hasSuffix(" ago"))
+    }
+}

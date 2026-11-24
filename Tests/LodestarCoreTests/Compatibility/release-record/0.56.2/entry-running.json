@@ -1,0 +1,1 @@
+{"at":"2026-01-01T00:41:00Z","because":"this build, 0.54.25, is the one the update applied","by":{"principal":{"successor":{"pid":4243}}},"effects":["4e88a240170ee70b779be0a9693a9a10"],"entered":true,"event":"confirm","from":"applying","record":"0123456789abcdef0123456789abcdef","sequence":3,"to":"running"}

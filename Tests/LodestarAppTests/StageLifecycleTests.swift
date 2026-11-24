@@ -1,0 +1,90 @@
+import AppKit
+import XCTest
+@testable import lodestar
+@testable import LodestarCore
+
+/// A dead Stage leaves nothing behind: no window, no controller, and no
+/// run-loop residue that makes the next suite's turns slower. The suite
+/// once lost a hundred seconds to exactly that — each scenario alone in
+/// two seconds, the same scenario twenty seconds in after the others.
+final class StageLifecycleTests: XCTestCase {
+    private func pumpCost() -> Double {
+        let start = Date()
+        for _ in 0..<200 { Stage.pump() }
+        return Date().timeIntervalSince(start)
+    }
+
+    /// Windows macOS makes for the text system, in no stage's name.
+    private static let systemWindows: Set<String> = ["TUINSWindow", "NSCampoLightweightUIHostWindow"]
+
+    func testADeadStageLeavesNothingAlive() {
+        let baseline = pumpCost()
+        // Only this test's stages are on trial: a window an earlier test in
+        // the same process left behind (ScrollScenarioTests' sheet case
+        // leaves one) would otherwise fail whichever suite runs after it.
+        let before = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
+        weak var clipboard: ClipboardController?
+        weak var engine: HotkeyEngine?
+        weak var hud: HUD?
+        weak var health: HealthMonitor?
+        weak var observations: ObservationStore?
+        for _ in 0..<30 {
+            autoreleasepool {
+                let stage = Stage()
+                stage.pressHeld("a", for: 0.05)
+                clipboard = stage.clipboard
+                engine = stage.engine
+                hud = stage.hud
+                health = stage.health
+                observations = stage.observations
+            }
+            Stage.pump()
+        }
+        Stage.pump()
+        XCTAssertNil(clipboard)
+        XCTAssertNil(engine)
+        XCTAssertNil(hud)
+        XCTAssertNil(health)
+        XCTAssertNil(observations)
+        // The text system's input indicator (TUINSWindow) is made for the
+        // whole process the first time any text view in it takes focus, and
+        // no close removes it: it is macOS's, not a stage's, and whether an
+        // earlier test in this process typed decides whether it is here.
+        // The same goes for the host of its lightweight UI (macOS 27's
+        // NSCampoLightweightUIHostWindow, zero by zero and never shown).
+        let ours = NSApplication.shared.windows.filter {
+            !Self.systemWindows.contains(String(describing: type(of: $0))) && !before.contains(ObjectIdentifier($0))
+        }
+        XCTAssertEqual(ours.count, 0, "no panel outlives its stage")
+        let after = pumpCost()
+        XCTAssertLessThan(after, max(0.5, baseline * 2), "thirty dead stages must not slow the run loop")
+    }
+
+    /// The suite runs while a person works: its panels are laid out on the
+    /// stand-in screen, off every real display, so none crosses theirs.
+    func testAStagesPanelsStayOffEveryRealDisplay() {
+        let stage = Stage()
+        var shown: [NSWindow] = []
+        func look() {
+            Stage.pump()
+            shown += NSApplication.shared.windows.filter {
+                $0.isVisible && !Self.systemWindows.contains(String(describing: type(of: $0))) && !shown.contains($0)
+            }
+        }
+        stage.lode("space")        // the launcher
+        stage.pump(until: { stage.searcher.isVisible })
+        look()
+        stage.press("escape")
+        _ = stage.openStrip()      // Keep's strip
+        look()
+        stage.press("escape")
+        stage.lode(".")            // the draft
+        look()
+        let screens = NSScreen.screens.map(\.frame)
+        XCTAssertFalse(shown.isEmpty, "something was shown to check")
+        for window in shown {
+            XCTAssertFalse(screens.contains { $0.intersects(window.frame) },
+                           "\(type(of: window)) at \(window.frame) is on a real display")
+        }
+    }
+}

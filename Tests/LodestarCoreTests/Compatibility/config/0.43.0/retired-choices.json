@@ -1,0 +1,10 @@
+{
+  "$schema": "lodestar-schema.json",
+  "version": "0.43.0",
+  "gestures": {
+    "tabs": false
+  },
+  "appearance": {
+    "background": "lodestone"
+  }
+}

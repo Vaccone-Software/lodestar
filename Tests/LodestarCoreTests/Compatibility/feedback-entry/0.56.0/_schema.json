@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "feedback",
+    "schema"
+  ],
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "feedback": {
+      "type": "object",
+      "required": [
+        "macos",
+        "message",
+        "replyTo",
+        "version"
+      ],
+      "properties": {
+        "diagnostics": {
+          "type": "string"
+        },
+        "macos": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "replyTo": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

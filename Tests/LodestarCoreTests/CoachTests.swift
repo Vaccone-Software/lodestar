@@ -1,0 +1,414 @@
+import XCTest
+@testable import LodestarCore
+
+/// The coach's policy: one habit at a time, paced by demonstrated
+/// capacity, every "no" remembered and none forever. These tests are the
+/// contract that keeps the coach a coach and not a nag.
+final class CoachTests: XCTestCase {
+    private let start = Date(timeIntervalSince1970: 1_700_000_000)
+    private func later(_ weeks: Int = 0, _ seconds: TimeInterval = 0) -> Date {
+        start.addingTimeInterval(Double(weeks) * 604_800 + seconds)
+    }
+
+    private func bindRec(_ app: String = "facetime", slot: String = "f",
+                         seconds: Double = 45, probability: Double = 0.95)
+        -> Recommendation {
+        Recommendation(kind: .bind, target: app,
+                       detail: "\(app) is searched often", secondsPerWeek: seconds,
+                       probability: probability, evidence: [],
+                       edit: .bindTarget(chain: [slot], target: app))
+    }
+
+    private func routeRec(seconds: Double = 12) -> Recommendation {
+        Recommendation(kind: .route, target: "github.com",
+                       detail: "always lands in work", secondsPerWeek: seconds,
+                       probability: 0.9, evidence: [],
+                       edit: .addRoute(pattern: "github.com", profileKey: "work"))
+    }
+
+    private func coachEvent(action: String, rec: Recommendation, at date: Date)
+        -> ObservationEvent {
+        var event = ObservationEvent(t: date, kind: .coach)
+        event.action = action
+        event.rec = rec.kind.rawValue
+        event.app = rec.target
+        event.seconds = rec.secondsPerWeek
+        if case .bindTarget(let chain, _)? = rec.edit {
+            event.address = Observations.key(chain)
+        }
+        return event
+    }
+
+    // MARK: - Selection
+
+    func testTheDebutWaitsForAClearlyStrongFinding() {
+        let o = Observations()
+        let weak = bindRec("music", slot: "m", seconds: 10)
+        XCTAssertNil(Coach.standingOffer(observations: o, recommendations: [weak],
+                                         now: start),
+                     "the first appearance sets the channel's reputation")
+        let strong = bindRec(seconds: 45)
+        XCTAssertEqual(Coach.standingOffer(observations: o,
+                                           recommendations: [weak, strong],
+                                           now: start)?.target, "facetime")
+    }
+
+    func testReportOnlyKindsNeverReachTheChip() {
+        let o = Observations()
+        let nudge = Recommendation(kind: .nudge, target: "slack",
+                                   detail: "use the address", secondsPerWeek: 100,
+                                   probability: 0.99, evidence: [])
+        XCTAssertNil(Coach.standingOffer(observations: o, recommendations: [nudge],
+                                         now: start),
+                     "the chip only offers what one config line can commit")
+    }
+
+    func testTheBestOfferWinsByValueTimesConfidence() {
+        var o = Observations()
+        // Past the debut: something was offered before.
+        o.apply(coachEvent(action: "offered", rec: routeRec(), at: later(-8)))
+        let small = routeRec(seconds: 12)
+        let big = bindRec(seconds: 60)
+        XCTAssertEqual(Coach.standingOffer(observations: o,
+                                           recommendations: [small, big],
+                                           now: start)?.target, "facetime")
+    }
+
+    // MARK: - One habit at a time
+
+    func testAnAcceptedBindOccupiesTheSlotUntilItsCurveBends() {
+        var o = Observations()
+        let rec = bindRec()
+        o.apply(coachEvent(action: "offered", rec: rec, at: start))
+        o.apply(coachEvent(action: "accepted", rec: rec, at: start))
+        XCTAssertTrue(Coach.slotBusy(observations: o, now: later(1)))
+        let next = bindRec("music", slot: "m", seconds: 50)
+        XCTAssertNil(Coach.standingOffer(observations: o, recommendations: [next],
+                                         now: later(1)),
+                     "one habit at a time — interference is real")
+        // The hand compiles the address: fifteen blind uses later the
+        // slot frees.
+        for _ in 0..<Coach.bentCompletions {
+            var chain = ObservationEvent(t: later(1), kind: .chain)
+            chain.chain = ["f"]
+            chain.gaps = [0.2]
+            o.apply(chain)
+        }
+        XCTAssertFalse(Coach.slotBusy(observations: o, now: later(1)))
+        XCTAssertEqual(Coach.standingOffer(observations: o, recommendations: [next],
+                                           now: later(1))?.target, "music",
+                       "pace is gated by demonstrated capacity, not a calendar")
+    }
+
+    func testAStalledHabitStopsBlockingTheQueue() {
+        var o = Observations()
+        let rec = bindRec()
+        o.apply(coachEvent(action: "offered", rec: rec, at: start))
+        o.apply(coachEvent(action: "accepted", rec: rec, at: start))
+        XCTAssertTrue(Coach.slotBusy(observations: o, now: later(1)))
+        XCTAssertFalse(Coach.slotBusy(observations: o, now: later(Coach.stallWeeks)),
+                       "an unlearned habit is a fact, not a dam")
+    }
+
+    func testARouteNeedsNoLearningAndFreesTheSlotInstantly() {
+        var o = Observations()
+        let rec = routeRec()
+        o.apply(coachEvent(action: "offered", rec: rec, at: start))
+        o.apply(coachEvent(action: "accepted", rec: rec, at: start))
+        XCTAssertFalse(Coach.slotBusy(observations: o, now: later(0, 60)))
+    }
+
+    // MARK: - Cooldowns and declines
+
+    func testAnUnansweredOfferKeepsStandingForTheMenu() {
+        var o = Observations()
+        let rec = bindRec()
+        o.apply(coachEvent(action: "offered", rec: rec, at: start))
+        XCTAssertEqual(Coach.standingOffer(observations: o, recommendations: [rec],
+                                           now: later(0, 3600))?.target, "facetime",
+                       "a missed chip parks in the menu; it does not evaporate")
+    }
+
+    func testTheMomentGatePacesShowingsNotTheSlot() {
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 3600)), .offerQuiet,
+                       "two chips never share a day")
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 90_000,
+                                               sinceThisOffered: 90_000,
+                                               channelOffers: 2, thisOffers: 1)),
+                       .retryCooldown,
+                       "the same suggestion waits out its own cooldown")
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 3 * 86_400,
+                                               sinceThisOffered: 3 * 86_400,
+                                               channelOffers: 2, thisOffers: 1)),
+                       .speak)
+    }
+
+    func testAnAnswerBuysDaysOfQuietEitherWayItWent() {
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceAnswered: 86_400)), .answerQuiet,
+                       "an accept is consolidating and a no deserves its silence")
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceAnswered: 4 * 86_400)), .speak)
+    }
+
+    func testTheDebutAloneRetriesADaySooner() {
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 90_000,
+                                               sinceThisOffered: 90_000,
+                                               channelOffers: 1, thisOffers: 1)),
+                       .speak,
+                       "the first chip ever is the likeliest missed outright")
+        XCTAssertEqual(Coach.hold(Coach.Moment(sinceOffered: 90_000,
+                                               sinceThisOffered: 90_000,
+                                               channelOffers: 2, thisOffers: 1)),
+                       .retryCooldown,
+                       "past the debut the ordinary cooldown holds")
+    }
+
+    func testTheSameSuggestionRetriesThenParksThenReturns() {
+        var o = Observations()
+        let rec = bindRec()
+        for offer in 0..<Coach.maxOffers {
+            o.apply(coachEvent(action: "offered", rec: rec,
+                               at: later(0, Double(offer) * 4 * 86_400)))
+        }
+        let afterThird = later(0, 3 * 4 * 86_400 + 4 * 86_400)
+        XCTAssertNil(Coach.standingOffer(observations: o, recommendations: [rec],
+                                         now: afterThird),
+                     "three unanswered offers park the suggestion")
+        XCTAssertNotNil(Coach.standingOffer(observations: o, recommendations: [rec],
+                                            now: later(Coach.parkedSleepWeeks + 1)),
+                        "parked, not buried — quiet time re-opens it")
+        let outgrown = bindRec(seconds: rec.secondsPerWeek * 2)
+        XCTAssertNotNil(Coach.standingOffer(observations: o,
+                                            recommendations: [outgrown],
+                                            now: afterThird),
+                        "or the evidence outgrows the silence sooner")
+    }
+
+    func testNeverSleepsLongAndWakesOnlyForStrongerEvidence() {
+        var o = Observations()
+        let rec = bindRec()
+        o.apply(coachEvent(action: "offered", rec: rec, at: start))
+        o.apply(coachEvent(action: "never", rec: rec, at: start))
+        XCTAssertNil(Coach.standingOffer(observations: o, recommendations: [rec],
+                                         now: later(4)),
+                     "no means no for a season")
+        XCTAssertNotNil(Coach.standingOffer(observations: o, recommendations: [rec],
+                                            now: later(Coach.neverSleepWeeks + 1)),
+                        "but the data kept moving, so the season ends")
+        let doubled = bindRec(seconds: rec.secondsPerWeek * 2.5)
+        XCTAssertNotNil(Coach.standingOffer(observations: o, recommendations: [doubled],
+                                            now: later(4)),
+                        "or the world changed enough to ask again")
+    }
+
+    func testAnAcceptedSuggestionIsNeverOfferedAgain() {
+        var o = Observations()
+        let rec = routeRec()
+        o.apply(coachEvent(action: "offered", rec: rec, at: start))
+        o.apply(coachEvent(action: "accepted", rec: rec, at: start))
+        XCTAssertNil(Coach.standingOffer(observations: o, recommendations: [rec],
+                                         now: later(2)))
+    }
+
+    // MARK: - Cues
+
+    func testCuesNameTheMomentTheCostWasFelt() {
+        XCTAssertEqual(Coach.cue(for: bindRec()), .app("facetime"))
+        XCTAssertEqual(Coach.cue(for: routeRec()), .host("github.com"))
+        let retire = Recommendation(kind: .retire, target: "q",
+                                    detail: "never typed", secondsPerWeek: 0,
+                                    probability: 0.95, evidence: [],
+                                    edit: .removeChain(chain: ["q"]))
+        XCTAssertNil(Coach.cue(for: retire), "no cue exists and none is needed")
+    }
+
+    // MARK: - The chip
+
+    func testChipCopyIsExperientialAndHyphenFree() {
+        var o = Observations()
+        var reach = ObservationEvent(t: start, kind: .reach)
+        reach.app = "facetime"
+        reach.route = "searcher"
+        reach.typed = 3
+        for _ in 0..<31 { o.apply(reach) }
+        let chip = Coach.chip(for: bindRec(seconds: 40), observations: o)
+        XCTAssertEqual(chip.headline, "lode f → facetime")
+        XCTAssertEqual(chip.sentence, "facetime could be one key away", "what the offer means, said plainly")
+        XCTAssertTrue(chip.evidence.hasPrefix("Searched 31 times across"),
+                      "the user can verify every clause from experience, and the line opens with a capital")
+        XCTAssertFalse(chip.evidence.contains("seconds a week"),
+                       "one line on the card: the count and the span, the price stays the offer's reason")
+        XCTAssertTrue(chip.footer.hasPrefix("Accept"), "the footer says what accepting does")
+        XCTAssertFalse(chip.footer.contains("fades"), "the chip's own life is not the reader's business")
+        for line in [chip.headline, chip.evidence, chip.footer] {
+            XCTAssertFalse(line.contains("—"), "no dashes in the coach's voice")
+            XCTAssertFalse(line.contains(" - "))
+        }
+    }
+
+    func testRetireChipSaysWhatItFrees() {
+        let retire = Recommendation(kind: .retire, target: "q",
+                                    detail: "never typed", secondsPerWeek: 0,
+                                    probability: 0.95, evidence: [],
+                                    edit: .removeChain(chain: ["q"]))
+        let chip = Coach.chip(for: retire, observations: Observations())
+        XCTAssertEqual(chip.headline, "retire lode q")
+        XCTAssertEqual(chip.sentence, "Lode q has gone unused and the letter could be freed")
+        XCTAssertTrue(chip.footer.contains("retires it"))
+    }
+
+    func testTheYearClauseSpeaksAtAHumanScale() {
+        XCTAssertEqual(Coach.secondsClause(4), "", "too little to say")
+        XCTAssertEqual(Coach.secondsClause(10), " · about 10 seconds a week", "under twenty minutes a year: the week alone")
+        XCTAssertEqual(Coach.secondsClause(30), " · about 30 seconds a week, about half an hour a year")
+        XCTAssertEqual(Coach.secondsClause(50), " · about 50 seconds a week, about an hour a year")
+        XCTAssertEqual(Coach.secondsClause(120), " · about 120 seconds a week, about 2 hours a year")
+        XCTAssertEqual(Coach.secondsClause(1200), " · about 1200 seconds a week, about 17 hours a year")
+    }
+
+    func testTheMeasurementsLineOpensWithACapital() {
+        XCTAssertEqual(Coach.sentenceCase("you searched for it 3 times"), "You searched for it 3 times")
+        XCTAssertEqual(Coach.sentenceCase("41% of reaches"), "41% of reaches", "a number is left alone")
+        XCTAssertEqual(Coach.sentenceCase(""), "")
+        XCTAssertEqual(Coach.sentenceCase("Lode Q has fired"), "Lode Q has fired")
+    }
+
+    func testTheDeclinedNoteSaysWhatADeclineDoes() {
+        XCTAssertTrue(Coach.declinedNote.contains("season"), "thirteen weeks asleep, said as a season")
+        XCTAssertFalse(Coach.declinedNote.hasSuffix("."), "a title never ends with a period")
+    }
+}
+
+/// The assent gesture: two quick taps of lode, nothing else.
+final class LodeTapTests: XCTestCase {
+    func testTwoQuickTapsFire() {
+        var detector = LodeTapDetector()
+        XCTAssertFalse(detector.lodeChanged(held: true, at: 0))
+        XCTAssertFalse(detector.lodeChanged(held: false, at: 0.1))
+        XCTAssertFalse(detector.lodeChanged(held: true, at: 0.3))
+        XCTAssertTrue(detector.lodeChanged(held: false, at: 0.4))
+    }
+
+    func testAHoldIsThePeekNotATap() {
+        var detector = LodeTapDetector()
+        _ = detector.lodeChanged(held: true, at: 0)
+        XCTAssertFalse(detector.lodeChanged(held: false, at: 0.6), "held too long")
+        _ = detector.lodeChanged(held: true, at: 0.7)
+        XCTAssertFalse(detector.lodeChanged(held: false, at: 0.8),
+                       "a hold voids the sequence; the next tap starts fresh")
+    }
+
+    func testAKeystrokeMakesItAChainAndPoisonsTheGesture() {
+        var detector = LodeTapDetector()
+        _ = detector.lodeChanged(held: true, at: 0)
+        detector.keyDown() // lode G — a summon, not a tap
+        XCTAssertFalse(detector.lodeChanged(held: false, at: 0.1))
+        _ = detector.lodeChanged(held: true, at: 0.2)
+        XCTAssertFalse(detector.lodeChanged(held: false, at: 0.3),
+                       "the poisoned press never counts as the first tap")
+    }
+
+    func testTapsOutsideTheWindowAreTwoSeparateThoughts() {
+        var detector = LodeTapDetector()
+        _ = detector.lodeChanged(held: true, at: 0)
+        _ = detector.lodeChanged(held: false, at: 0.1)
+        _ = detector.lodeChanged(held: true, at: 1.0)
+        XCTAssertFalse(detector.lodeChanged(held: false, at: 1.1))
+    }
+
+    func testFlagBounceCannotFabricateTaps() {
+        var detector = LodeTapDetector()
+        // The shim's chord can arrive as several flagsChanged with lode
+        // still classified held — repeated same-state calls are one press.
+        XCTAssertFalse(detector.lodeChanged(held: true, at: 0))
+        XCTAssertFalse(detector.lodeChanged(held: true, at: 0.01))
+        XCTAssertFalse(detector.lodeChanged(held: true, at: 0.02))
+        XCTAssertFalse(detector.lodeChanged(held: false, at: 0.1))
+        XCTAssertFalse(detector.lodeChanged(held: false, at: 0.11),
+                       "a release with no press pending is noise")
+        _ = detector.lodeChanged(held: true, at: 0.2)
+        XCTAssertTrue(detector.lodeChanged(held: false, at: 0.3))
+    }
+
+    func testThirdTapStartsANewSequence() {
+        var detector = LodeTapDetector()
+        _ = detector.lodeChanged(held: true, at: 0)
+        _ = detector.lodeChanged(held: false, at: 0.1)
+        _ = detector.lodeChanged(held: true, at: 0.2)
+        XCTAssertTrue(detector.lodeChanged(held: false, at: 0.3))
+        _ = detector.lodeChanged(held: true, at: 0.4)
+        XCTAssertFalse(detector.lodeChanged(held: false, at: 0.5),
+                       "firing consumes both taps — no chaining a third into a second fire")
+    }
+}
+
+/// The closed road: an accepted nudge puts a toll on the launcher's road
+/// to an app that has an address, until the address's curve bends —
+/// completions since the acceptance, because the address existed before
+/// it and its lifetime says nothing about the transition.
+final class ClosedRoadTests: XCTestCase {
+    private let start = Date(timeIntervalSince1970: 1_700_000_000)
+    private func later(_ weeks: Int = 0, _ seconds: TimeInterval = 0) -> Date {
+        start.addingTimeInterval(Double(weeks) * 604_800 + seconds)
+    }
+
+    private func closedRoad(app: String = "slack", chain: String = "s",
+                            acceptedWeek: Int) -> Observations {
+        var o = Observations()
+        o.ledger = [Observations.LedgerEntry(
+            id: "nudge:\(app)", kind: "nudge", target: app, chain: chain,
+            predictedSecondsPerWeek: 60, firstOfferedWeek: acceptedWeek,
+            lastOfferedWeek: acceptedWeek, offers: 1, status: "accepted",
+            acceptedWeek: acceptedWeek)]
+        return o
+    }
+
+    private func complete(_ o: inout Observations, _ chain: [String], times: Int, from: Date) {
+        for i in 0..<times {
+            var event = ObservationEvent(t: from.addingTimeInterval(Double(i) * 60), kind: .chain)
+            event.chain = chain
+            event.gaps = [0.3]
+            o.apply(event)
+        }
+    }
+
+    func testAnAcceptedNudgeClosesTheLauncherRoad() {
+        let o = closedRoad(acceptedWeek: Observations.week(start))
+        XCTAssertEqual(Coach.roadClosed(observations: o, app: "Slack", now: start), ["s"])
+        XCTAssertNil(Coach.roadClosed(observations: o, app: "brave", now: start))
+    }
+
+    func testTheRoadReopensWhenTheHandHasLearnedTheAddress() {
+        var o = closedRoad(acceptedWeek: Observations.week(start))
+        complete(&o, ["s"], times: Coach.bentCompletions, from: start)
+        XCTAssertNil(Coach.roadClosed(observations: o, app: "slack", now: later(0, 3600)))
+    }
+
+    func testCompletionsBeforeTheClosureDoNotCount() {
+        var o = closedRoad(acceptedWeek: Observations.week(start) + 2)
+        complete(&o, ["s"], times: Coach.bentCompletions, from: start)
+        XCTAssertEqual(Coach.roadClosed(observations: o, app: "slack", now: later(2)), ["s"],
+                       "a lifetime of use before the closure is not the transition")
+        XCTAssertTrue(Coach.slotBusy(observations: o, now: later(2)),
+                      "and the slot waits for the same curve")
+    }
+
+    func testTheRoadReopensAtTheCutoff() {
+        let o = closedRoad(acceptedWeek: Observations.week(start))
+        XCTAssertNil(Coach.roadClosed(observations: o, app: "slack",
+                                      now: later(Coach.supersedeCutoffWeeks)))
+    }
+
+    func testTheCloseRoadChipNamesTheAddressAndTheToll() {
+        let rec = Recommendation(kind: .nudge, target: "slack", detail: "d",
+                                 secondsPerWeek: 60, probability: 0.9, evidence: [],
+                                 display: "Slack",
+                                 edit: .closeRoad(app: "slack", chain: ["s"]))
+        let chip = Coach.chip(for: rec, observations: Observations())
+        XCTAssertEqual(chip.headline, "lode s → Slack")
+        XCTAssertTrue(chip.footer.contains("closes the launcher road"), chip.footer)
+        XCTAssertEqual(Coach.cue(for: rec), .app("slack"))
+        XCTAssertNotNil(Coach.standingOffer(observations: Observations(),
+                                            recommendations: [rec], now: start),
+                        "with an edit to commit, the nudge can stand")
+    }
+}

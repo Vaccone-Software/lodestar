@@ -1,0 +1,77 @@
+# Tests allowed to skip, and where. scripts/test.sh fails on any skip not
+# listed here: a precondition that quietly went missing (no GPU, a moved
+# fixture, a renamed environment variable) turns a test into a pass that
+# tested nothing, and a skip is counted in "Executed N tests".
+#
+#   <where> <Class>.<test>   or   <where> <Class>.*
+#   where: any (at the desk and on CI) | ci (only on CI; the desk must run it)
+#          | desk (only off CI; CI must run it)
+#          | vm (only in scripts/vm-test.sh's virtual Mac). A vm line is added
+#            once a run there has shown the skip, with the reason: the guest is
+#            not assumed to lack what a hosted runner lacks (it has a GPU).
+
+# Live tests: run on demand against a real model, microphone, app or dataset.
+any EditorAccuracyLiveTests.testTheModelAgainstTheFixture
+any EditorConformanceTests.*
+any ClipboardBenchTests.*
+any EditorCostTests.*
+any EditorDownloadLiveTests.*
+any EditorRegionLiveTests.*
+any EditorWatchProbeTests.*
+any IntentPassLiveTests.*
+any MicBridgeLiveTests.*
+any NemotronStreamLiveTests.*
+any LiveEarLiveTests.*
+any DictationReplayLiveTests.*
+any QwenEarTests.testTokenizerFromTheFolderMatchesTransformers
+any WindowModelLiveTests.*
+# The render gallery draws every surface to PNGs for a person to look at:
+# scripts/render-gallery.sh sets LODESTAR_RENDER, and nothing else does.
+any RenderGalleryTests.*
+# Real windows moved off every display: needs Accessibility, which a hosted
+# runner never has. The desk has it and must run them.
+ci RealWindowActionsTests.*
+# Real windows a person can see (a Dock tile, a second display): on demand,
+# LODESTAR_DESK_WINDOWS=1.
+any RealWindowDeskTests.*
+
+# The published dataset's replay: CI fetches it and must run it; the desk
+# runs it when LODESTAR_DATASETS is set (tools/health/fetch-datasets.sh).
+desk ReplayTests.testTheAUCArithmeticReproducesThePapersOwnIndex
+desk ReplayTests.testTheWindowCodeReproducesTheLogFluctuationIndex
+vm ReplayTests.testTheAUCArithmeticReproducesThePapersOwnIndex
+vm ReplayTests.testTheWindowCodeReproducesTheLogFluctuationIndex
+
+# Vision's accurate text model reads nothing on a hosted runner's macOS 27
+# image (the fast pass still reads); the desk must run these.
+ci OCRSenseTests.testAnImageSaysWhatItShows
+ci OCRSenseTests.testCharacterRangeRectsAreNarrowerThanTheirLine
+ci OCRSenseTests.testCleanProseIsReadVerbatimWithHonestGeometry
+ci OCRSenseTests.testGroundingRepairsTheGlyphConfusionRecognitionActuallyMakes
+ci OCRSenseTests.testIdentifiersSurviveWithoutLanguageCorrection
+ci OCRSenseTests.testRereadingACroppedLineReadsThatLine
+ci OCRSenseTests.testTerminalStyleLightOnDarkReads
+# The virtual Mac's Vision reads nothing with the accurate model either
+# (seen on its first run, 2026-11-06): it is a model the guest does not run.
+vm OCRSenseTests.testAnImageSaysWhatItShows
+vm OCRSenseTests.testCharacterRangeRectsAreNarrowerThanTheirLine
+vm OCRSenseTests.testCleanProseIsReadVerbatimWithHonestGeometry
+vm OCRSenseTests.testGroundingRepairsTheGlyphConfusionRecognitionActuallyMakes
+vm OCRSenseTests.testIdentifiersSurviveWithoutLanguageCorrection
+vm OCRSenseTests.testRereadingACroppedLineReadsThatLine
+vm OCRSenseTests.testTerminalStyleLightOnDarkReads
+
+# MLX needs a GPU, and a hosted runner's virtual machine has none.
+ci QwenEarTests.*
+ci MLXCapTests.testTheLimitReachesMLX
+ci EditorRandomStateTests.*
+
+# The timing lane (TimingLane.swift in each test target, the one place a test
+# learns where it runs). Anything with a delay is tested on a clock the test
+# owns, everywhere. What is left is a property that is about real time: how
+# long a real thread, queue or search really takes. A runner shared by every
+# shard cannot give that, so the desk must run these and CI may not. One per
+# component.
+ci MainThreadWatchdogTests.testARealStalledMainThreadIsSeenOnTheWatchdogsOwnThread
+ci EditorStallTests.testAStalledAppNeverHoldsTheMainThread
+ci ClipboardSearchTests.testSearchingAFullHistoryStaysInteractive

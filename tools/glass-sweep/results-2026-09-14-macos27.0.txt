@@ -1,0 +1,28 @@
+bar-dark-glight-t0.png  bbox=1410x789@2303,1228  ground=rgb(100,100,100) L=0.1274 (81% of interior)  ink L=0.7991  ratio=4.79
+pill-dark-glight-t0.png  bbox=469x218@2773,3075  ground=rgb(124,124,124) L=0.2017 (28% of interior)  ink L=0.8308  ratio=3.50
+strip-dark-glight-t0.png  bbox=2444x2468@44,872  ground=rgb(246,246,247) L=0.9222 (84% of interior)  ink L=0.9222  ratio=1.00
+bar-dark-glight-t0.5.png  bbox=1410x789@2303,1228  ground=rgb(84,84,84) L=0.0887 (81% of interior)  ink L=0.7835  ratio=6.01
+pill-dark-glight-t0.5.png  bbox=469x218@2773,3075  ground=rgb(124,124,124) L=0.2017 (28% of interior)  ink L=0.8308  ratio=3.50
+strip-dark-glight-t0.5.png  bbox=2444x2468@44,872  ground=rgb(246,246,247) L=0.9222 (84% of interior)  ink L=0.9222  ratio=1.00
+bar-dark-glight-t1.png  bbox=1410x789@2303,1228  ground=rgb(58,58,58) L=0.0423 (81% of interior)  ink L=0.7529  ratio=8.70
+pill-dark-glight-t1.png  bbox=469x218@2773,3075  ground=rgb(73,73,73) L=0.0667 (29% of interior)  ink L=0.7678  ratio=7.01
+strip-dark-glight-t1.png  bbox=2444x2468@44,872  ground=rgb(246,246,247) L=0.9222 (84% of interior)  ink L=0.9222  ratio=1.00
+bar-light-gdark-t0.png  bbox=1280x658@2368,1258  ground=rgb(171,171,171) L=0.4072 (78% of interior)  ink L=0.0123  ratio=7.34
+pill-light-gdark-t0.png  bbox=356x88@2830,3104  ground=rgb(170,170,170) L=0.4020 (54% of interior)  ink L=0.0000  ratio=9.04
+strip-light-gdark-t0.png  bbox=2422x2448@44,892  ground=rgb(10,10,11) L=0.0031 (90% of interior)  ink L=0.0028  ratio=1.01
+bar-light-gdark-t0.5.png  bbox=1280x658@2368,1258  ground=rgb(189,189,190) L=0.5093 (78% of interior)  ink L=0.0144  ratio=8.68
+pill-light-gdark-t0.5.png  bbox=356x88@2830,3104  ground=rgb(187,187,187) L=0.4972 (55% of interior)  ink L=0.0000  ratio=10.94
+strip-light-gdark-t0.5.png  bbox=2422x2448@44,892  ground=rgb(10,10,11) L=0.0031 (90% of interior)  ink L=0.0028  ratio=1.01
+bar-light-gdark-t1.png  bbox=1280x658@2368,1258  ground=rgb(216,216,217) L=0.6872 (78% of interior)  ink L=0.0177  ratio=10.89
+pill-light-gdark-t1.png  bbox=356x88@2830,3104  ground=rgb(213,213,213) L=0.6654 (44% of interior)  ink L=0.0000  ratio=14.31
+strip-light-gdark-t1.png  bbox=2422x2448@44,892  ground=rgb(10,10,11) L=0.0031 (90% of interior)  ink L=0.0028  ratio=1.01
+bar-dark-gdark-t0.5.png  bbox=1282x660@2367,1257  ground=rgb(27,27,27) L=0.0110 (78% of interior)  ink L=0.7157  ratio=12.56
+bar-light-glight-t0.png  bbox=1390x768@2313,1239  ground=rgb(253,253,253) L=0.9823 (80% of interior)  ink L=0.0203  ratio=14.68
+bar-light-glight-t1.png  bbox=1390x768@2313,1239  ground=rgb(254,254,254) L=0.9911 (80% of interior)  ink L=0.0203  ratio=14.81
+bar-dark-glight-t2.png  bbox=1410x789@2303,1228  ground=rgb(58,58,58) L=0.0423 (81% of interior)  ink L=0.7529  ratio=8.70
+
+# shipping glass, v0.32.4 (TonedGlass 0.85, no scrim)
+ship-bar-dark-glight.png  bbox=1410x789@2303,1228  ground=rgb(22,22,22) L=0.0080 (81% of interior)  ink L=0.7084  ratio=13.07
+ship-bar-dark-gdark.png  bbox=1282x660@2367,1257  ground=rgb(6,6,6) L=0.0018 (78% of interior)  ink L=0.6939  ratio=14.35
+ship-pill-dark-glight.png  bbox=469x218@2773,3075  ground=rgb(27,27,27) L=0.0110 (40% of interior)  ink L=0.7158  ratio=12.54
+ship-bar-light-gdark.png  bbox=1280x658@2368,1258  ground=rgb(248,248,250) L=0.9399 (78% of interior)  ink L=0.0238  ratio=13.42

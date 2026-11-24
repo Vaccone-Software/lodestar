@@ -1,0 +1,17 @@
+{
+  "fill-specializations" : [
+    { "value" : { "solid" : "srgb:0.97255,0.93725,0.90588,1.00000" } },
+    { "appearance" : "dark", "value" : { "solid" : "srgb:0.13333,0.11373,0.09804,1.00000" } }
+  ],
+  "groups" : [
+    {
+      "layers" : [
+        { "glass" : false, "image-name" : "mark.png", "name" : "mark" }
+      ],
+      "shadow" : { "kind" : "none", "opacity" : 0 },
+      "specular" : false,
+      "translucency" : { "enabled" : false, "value" : 0 }
+    }
+  ],
+  "supported-platforms" : { "squares" : "shared" }
+}

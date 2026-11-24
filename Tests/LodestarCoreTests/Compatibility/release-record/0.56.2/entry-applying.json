@@ -1,0 +1,1 @@
+{"at":"2026-01-01T00:40:00Z","because":"swapped in over 0.54.24 by pid 4242; its watchdog follows","by":{"principal":{"updater":{}}},"effects":[],"entered":true,"event":"apply","from":"staged","record":"0123456789abcdef0123456789abcdef","sequence":2,"to":"applying"}

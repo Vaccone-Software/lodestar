@@ -1,0 +1,526 @@
+import AppKit
+import XCTest
+@testable import lodestar
+@testable import LodestarCore
+
+/// The key contract (design/10-key.md), held by what is drawn: a key's
+/// legend is rendered into a bitmap in every state and both looks and read
+/// back by its ink, so a legend that is off its face, a baseline that
+/// wanders with a descender, or a key wider than what it says fails here.
+final class KeyTests: XCTestCase {
+    override func tearDown() { GalleryLook.reset() }
+
+    static let legends = ["a", "g", "y", "e", "s", "A", "⏎", "⇧", "1", "esc", "⌘K", "'", ";"]
+    static let states: [KeyState] = [.resting, .lit, .quiet]
+
+    /// What a key's legend drew: its ink in the key's own coordinates
+    /// (points, y up), the face it sits on, and the key itself.
+    struct Drawn {
+        let key: Key
+        let ink: CGRect
+        let face: CGRect
+        /// The brightness (0…1) of the legend's strongest pixel.
+        var inkBrightness: CGFloat = 0
+    }
+
+    /// The legend's ink, read by drawing the key with and without it and
+    /// keeping the pixels that differ.
+    static func draw(_ legend: String, state: KeyState, size: KeySize = .standard, look: GalleryLook,
+                     pointer: Keycaps.CapState = .resting) -> Drawn {
+        look.apply()
+        let key = Key(legend, size: size, state: state)
+        key.fill(pointer)
+        let width = key.width
+        let margin: CGFloat = 8
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: width + margin * 2, height: key.size.height + margin * 2))
+        key.translatesAutoresizingMaskIntoConstraints = true
+        key.frame = NSRect(x: margin, y: margin, width: width, height: key.size.height)
+        host.addSubview(key)
+        let window = GalleryHost.window(host, size: host.frame.size, look: look)
+        defer { window.close() }
+        let with = GalleryRender.bitmap(of: host)
+        key.legend = ""
+        let without = GalleryRender.bitmap(of: host)
+        key.legend = legend
+        let face = key.face
+        guard let a = with.bitmapData, let b = without.bitmapData else { return Drawn(key: key, ink: .null, face: face) }
+        let scale = CGFloat(with.pixelsWide) / host.frame.width
+        var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
+        var strongest = 0, brightness: CGFloat = 0
+        for row in 0..<with.pixelsHigh {
+            for column in 0..<with.pixelsWide {
+                let at = row * with.bytesPerRow + column * 4
+                var difference = 0
+                for channel in 0..<4 { difference += abs(Int(a[at + channel]) - Int(b[at + channel])) }
+                if difference > strongest {
+                    strongest = difference
+                    brightness = (CGFloat(a[at]) + CGFloat(a[at + 1]) + CGFloat(a[at + 2])) / (3 * 255)
+                }
+                if difference > 60 {
+                    minX = min(minX, column); maxX = max(maxX, column)
+                    minY = min(minY, row); maxY = max(maxY, row)
+                }
+            }
+        }
+        guard maxX >= 0 else { return Drawn(key: key, ink: .null, face: face) }
+        // Pixel rows count from the top; points count from the bottom.
+        let height = CGFloat(with.pixelsHigh)
+        let ink = CGRect(x: CGFloat(minX) / scale - margin, y: (height - CGFloat(maxY) - 1) / scale - margin,
+                         width: CGFloat(maxX - minX + 1) / scale,
+                         height: CGFloat(maxY - minY + 1) / scale)
+        return Drawn(key: key, ink: ink, face: face, inkBrightness: brightness)
+    }
+
+    // MARK: - The legend is centred on the face, on one band
+
+    /// Letters and digits are drawn with their own ink, so the rendered ink
+    /// is their band: the x-height for a lowercase letter, the cap height
+    /// for a capital or a digit.
+    private static let inkIsTheBand: Set<String> = ["a", "e", "s", "A", "1"]
+
+    func testALegendIsCentredOnTheFaceInEveryStateAndLook() {
+        var wrong: [String] = []
+        for look in GalleryLook.all {
+            for state in Self.states {
+                for legend in Self.legends {
+                    let drawn = Self.draw(legend, state: state, look: look)
+                    let name = "\(legend) \(state) \(look.name)"
+                    guard !drawn.ink.isNull else { wrong.append("\(name): nothing drawn"); continue }
+                    // Across: by its ink.
+                    if abs(drawn.ink.midX - drawn.face.midX) > 0.5 {
+                        wrong.append("\(name): ink centre \(drawn.ink.midX) is off the face's \(drawn.face.midX)")
+                    }
+                    // Up and down: the band's centre, from the font's metrics.
+                    let band = drawn.key.placement.band
+                    if abs((band.lowerBound + band.upperBound) / 2 - drawn.face.midY) > 0.5 {
+                        wrong.append("\(name): band centre is off the face's \(drawn.face.midY)")
+                    }
+                    if Self.inkIsTheBand.contains(legend), abs(drawn.ink.midY - drawn.face.midY) > 0.5 {
+                        wrong.append("\(name): ink centre \(drawn.ink.midY) is off the face's \(drawn.face.midY)")
+                    }
+                    // A glyph is drawn within its band, give or take what a
+                    // symbol's own design adds.
+                    if drawn.ink.minY < band.lowerBound - 2 && !["g", "y", ";"].contains(legend)
+                        || drawn.ink.maxY > band.upperBound + 2 {
+                        wrong.append("\(name): ink \(drawn.ink.minY)…\(drawn.ink.maxY) leaves its band \(band)")
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(wrong, [])
+    }
+
+    func testLowercaseLegendsShareABaselineWhateverTheirDescenders() {
+        for look in GalleryLook.all {
+            for state in Self.states {
+                let drawn = ["a", "e", "s", "g", "y"].map { Self.draw($0, state: state, look: look) }
+                let tops = drawn.map(\.ink.maxY), bottoms = drawn.prefix(3).map(\.ink.minY)
+                let name = "\(state) \(look.name)"
+                XCTAssertLessThanOrEqual((tops.max() ?? 0) - (tops.min() ?? 0), 0.5, "x-height tops, \(name): \(tops)")
+                XCTAssertLessThanOrEqual((bottoms.max() ?? 0) - (bottoms.min() ?? 0), 0.5, "baselines, \(name): \(bottoms)")
+                XCTAssertLessThan(drawn[3].ink.minY, bottoms[0] - 1, "the descender of g hangs below the baseline, \(name)")
+            }
+        }
+    }
+
+    /// A legend is drawn in the ink of the look the key is in: light on
+    /// espresso, dark on clay (and not the other look's, which a colour
+    /// resolved outside the view's own appearance would give).
+    func testALegendIsInTheInkOfItsLook() {
+        let day = Self.draw("e", state: .resting, look: .day), night = Self.draw("e", state: .resting, look: .night)
+        XCTAssertLessThan(day.inkBrightness, 0.35, "dark ink on clay")
+        XCTAssertGreaterThan(night.inkBrightness, 0.65, "light ink on espresso")
+        let quietNight = Self.draw("e", state: .quiet, look: .night)
+        XCTAssertGreaterThan(quietNight.inkBrightness, 0.4, "quiet ink on espresso is light too")
+    }
+
+    func testAnEmptyLegendDrawsNothingAndAKeyWithoutOneStillStands() {
+        GalleryLook.day.apply()
+        let key = Key("")
+        XCTAssertEqual(key.width, key.size.height, "square")
+        XCTAssertEqual(key.drawnSide, Ceramic.Side.control)
+    }
+
+    // MARK: - Width
+
+    func testAKeyIsAsWideAsItsLegendPlusEightEachSideAndNeverNarrowerThanTall() {
+        var wrong: [String] = []
+        for look in GalleryLook.all {
+            for legend in Self.legends + ["jk", "space", "lode", "tab", "m", "i", "W"] {
+                let drawn = Self.draw(legend, state: .resting, look: look)
+                let key = drawn.key
+                let night = look == .night
+                let ink = KeyLegend.measure(legend, size: .standard, night: night).ink.width
+                let expected = max(KeySize.standard.height, ceil(ink) + 16)
+                if key.width != expected { wrong.append("\(legend) \(look.name): \(key.width) is not \(expected)") }
+                // And what is drawn agrees: the rendered ink is the measured ink.
+                if abs(drawn.ink.width - ink) > 1.25 {
+                    wrong.append("\(legend) \(look.name): drew \(drawn.ink.width) of ink, measured \(ink)")
+                }
+                if key.width < KeySize.standard.height { wrong.append("\(legend): narrower than tall") }
+            }
+        }
+        XCTAssertEqual(wrong, [])
+        GalleryLook.day.apply()
+        for single in ["a", "i", "l", "1", "'"] {
+            XCTAssertEqual(Key(single).width, 24, "\(single): a single letter stands on a square key")
+        }
+        XCTAssertGreaterThan(Key("esc").width, 24)
+        XCTAssertEqual(Key("a").width, Key("e").width, "no minimum beyond square")
+    }
+
+    // MARK: - Sizes and parts
+
+    func testTheStandardKeyIs24TallOn21AndThreeAndTheLargeIs36OnThirtyOneAndFive() {
+        GalleryLook.day.apply()
+        XCTAssertEqual(KeySize.standard.height, 24)
+        XCTAssertEqual(KeySize.standard.faceHeight, 21)
+        XCTAssertEqual(KeySize.standard.side, 3)
+        XCTAssertEqual(KeySize.large.height, 36)
+        XCTAssertEqual(KeySize.large.faceHeight, 31)
+        XCTAssertEqual(KeySize.large.side, 5)
+        XCTAssertEqual(KeySize.standard.role, .key)
+        XCTAssertEqual(KeySize.large.role, .largeFigure)
+        let key = Key("a"), large = Key("7", size: .large)
+        XCTAssertEqual(key.frameSize.height, 24)
+        XCTAssertEqual(large.frameSize.height, 36)
+        XCTAssertEqual(key.intrinsicContentSize.height, 24, "layout sees the whole key, face and side")
+        XCTAssertEqual(large.intrinsicContentSize.height, 36)
+        XCTAssertEqual(key.alignmentRectInsets.bottom, 0)
+        XCTAssertEqual(large.alignmentRectInsets.bottom, 0)
+        XCTAssertEqual(key.face.height, 21)
+        XCTAssertEqual(large.face.height, 31)
+        XCTAssertEqual(large.legendFont.pointSize, BarTheme.Scale.input)
+        XCTAssertEqual(key.legendFont.pointSize, BarTheme.Scale.meta)
+    }
+
+    func testTheLargeKeysFigureIsCentredOnItsFace() {
+        for look in GalleryLook.all {
+            for figure in ["7", "3", "10"] {
+                let drawn = Self.draw(figure, state: .resting, size: .large, look: look)
+                XCTAssertEqual(drawn.ink.midX, drawn.face.midX, accuracy: 0.5, "\(figure) \(look.name) across")
+                XCTAssertEqual(drawn.ink.midY, drawn.face.midY, accuracy: 0.5, "\(figure) \(look.name) up and down")
+                XCTAssertEqual(Key(figure, size: .large).width, max(36, ceil(drawn.key.width - 16) + 16), "hugs its figure, square at least")
+            }
+        }
+    }
+
+    // MARK: - Punctuation
+
+    func testPunctuationAloneIsDrawnAtTheTitleStepAndStandsOnTheCapBandLikeOnARealKeycap() {
+        for look in GalleryLook.all {
+            let ink = { (mark: String) in Self.draw(mark, state: .resting, look: look) }
+            let comma = ink(","), period = ink("."), tick = ink("'"), backtick = ink("`"), dash = ink("-")
+            for drawn in [comma, period, tick, backtick, dash, ink(";"), ink("/"), ink("=")] {
+                let mark = drawn.key.legend
+                if mark == "/" {
+                    XCTAssertEqual(drawn.key.legendFont.pointSize, Self.draw("a", state: .resting, look: look).key.legendFont.pointSize,
+                                   "\(look.name): a slash is as tall as a capital, so it keeps the letters' size")
+                } else {
+                    XCTAssertEqual(drawn.key.legendFont.pointSize, BarTheme.Scale.title, "\(mark) \(look.name): the title step")
+                }
+                XCTAssertEqual(drawn.ink.midX, drawn.face.midX, accuracy: 0.5, "\(mark) \(look.name): across, by its ink")
+                let band = drawn.key.placement.band
+                XCTAssertEqual((band.lowerBound + band.upperBound) / 2, drawn.face.midY, accuracy: 0.5, "\(mark) \(look.name): the cap band is centred on the face")
+            }
+            XCTAssertLessThan(comma.ink.midY, comma.face.midY - 1, "\(look.name): a comma sits low")
+            XCTAssertLessThan(period.ink.midY, period.face.midY - 1, "\(look.name): a period sits low")
+            XCTAssertGreaterThan(tick.ink.midY, tick.face.midY + 1, "\(look.name): an apostrophe sits high")
+            XCTAssertGreaterThan(backtick.ink.midY, backtick.face.midY + 1, "\(look.name): a backtick sits high")
+            XCTAssertGreaterThanOrEqual(tick.ink.midY - comma.ink.midY, 3, "\(look.name): an apostrophe and a comma are told apart")
+            XCTAssertEqual(dash.ink.midY, dash.face.midY, accuracy: 3, "\(look.name): a dash sits near the middle")
+        }
+    }
+
+    func testTheKindOfALegendDecidesItsBand() {
+        XCTAssertEqual(KeyLegend.band(of: "a"), .xHeight)
+        XCTAssertEqual(KeyLegend.band(of: "esc"), .xHeight)
+        XCTAssertEqual(KeyLegend.band(of: "space"), .xHeight)
+        XCTAssertEqual(KeyLegend.band(of: "lode"), .xHeight)
+        XCTAssertEqual(KeyLegend.band(of: "A"), .capHeight)
+        XCTAssertEqual(KeyLegend.band(of: "1"), .capHeight)
+        XCTAssertEqual(KeyLegend.band(of: "⏎"), .capHeight)
+        XCTAssertEqual(KeyLegend.band(of: "⌘K"), .capHeight)
+        XCTAssertEqual(KeyLegend.band(of: "⇧"), .capHeight)
+        for mark in ["'", "`", ";", "/", ".", ",", "-", "="] { XCTAssertEqual(KeyLegend.band(of: mark), .capHeight, mark) }
+    }
+
+    // MARK: - States
+
+    func testTheThreeStatesAreWhatTheContractSays() {
+        GalleryLook.day.apply()
+        let resting = Key("a"), lit = Key("a", state: .lit), quiet = Key("a", state: .quiet)
+        let pressed = Key("a")
+        pressed.fill(.pressed)
+        for key in [resting, lit, pressed, quiet] {
+            key.frame = NSRect(x: 0, y: 0, width: 24, height: 24)
+            key.layout()
+        }
+        XCTAssertEqual(resting.drawnSide, 3)
+        XCTAssertEqual(lit.drawnSide, 3)
+        XCTAssertEqual(pressed.drawnSide, 1, "the pointer holds it down: the side gives up the rest")
+        XCTAssertEqual(resting.face.minY - pressed.face.minY, 2, "and the face goes down by it")
+        XCTAssertEqual(resting.face.height, pressed.face.height)
+        XCTAssertEqual(quiet.drawnSide, 3, "a quiet key keeps the resting key's side")
+        XCTAssertEqual(quiet.depth, .outlined(side: 3), "not pressable, so it does not stand up; it is the shape of a key that does")
+        XCTAssertEqual(quiet.face, resting.face, "a quiet key stands where the resting face stands, so a row shares its baseline")
+        XCTAssertEqual(lit.standing.faceColor, BarTheme.accent.cgColor)
+        XCTAssertNotEqual(lit.standing.sideColor, resting.standing.sideColor, "the orange's own darker side")
+        XCTAssertEqual(lit.legendColor, BarTheme.onAccent)
+        XCTAssertEqual(resting.legendColor, BarTheme.ink)
+        XCTAssertEqual(quiet.legendColor, BarTheme.secondaryColor)
+        XCTAssertNil(quiet.standing.faceColor.flatMap { $0.alpha > 0 ? $0 : nil }, "no fill")
+        XCTAssertNotNil(quiet.standing.edgeColor, "a hairline")
+        XCTAssertEqual(quiet.standing.sideColor, Ceramic.resolved(BarTheme.hairline, in: quiet),
+                       "the side is in the hairline's tone, not the side colour")
+        XCTAssertNotEqual(quiet.standing.sideColor, resting.standing.sideColor)
+        XCTAssertNil(pressed.layer?.animationKeys(), "nothing animates")
+        XCTAssertEqual(resting.state, .resting)
+        XCTAssertEqual(pressed.state, .resting, "pressing is the pointer's response, not a state")
+    }
+
+    // MARK: - The quiet key: a resting key left unfilled
+
+    /// The pixel at a point of a key's own coordinates (y up) in a render of
+    /// it standing 8 points inside a transparent host, as an un-premultiplied
+    /// colour and its alpha.
+    private static func pixel(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat, hostHeight: CGFloat)
+        -> (alpha: CGFloat, color: NSColor)? {
+        let scale = CGFloat(rep.pixelsWide) / rep.size.width
+        let column = Int((x * scale).rounded(.down)), row = Int(((hostHeight - y) * scale).rounded(.down))
+        guard let color = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB) else { return nil }
+        return (color.alphaComponent, color)
+    }
+
+    /// A quiet key keeps the resting key's size, shape and baseline: the same
+    /// frame, the same 21-point face on 3 of side, the same legend centred on
+    /// the face. It leaves the face unfilled and outlines it by a hairline, and
+    /// stands on a side drawn in the hairline's tone, not the side colour. Read
+    /// off the pixels, in both looks, at both sizes.
+    func testAQuietKeyIsTheRestingKeysShapeLeftUnfilled() {
+        for look in GalleryLook.all {
+            look.apply()
+            for size in [KeySize.standard, .large] {
+                let resting = Key("e", size: size), quiet = Key("e", size: size, state: .quiet)
+                XCTAssertEqual(quiet.frameSize, resting.frameSize, "\(look.name) \(size): the same size")
+                XCTAssertEqual(quiet.width, resting.width)
+                XCTAssertEqual(quiet.alignmentRectInsets.bottom, resting.alignmentRectInsets.bottom)
+                let margin: CGFloat = 8
+                let drawnResting = Self.draw("e", state: .resting, size: size, look: look)
+                let drawnQuiet = Self.draw("e", state: .quiet, size: size, look: look)
+                XCTAssertEqual(drawnQuiet.face, drawnResting.face, "\(look.name) \(size): the same face")
+                XCTAssertEqual(drawnQuiet.ink.midX, drawnResting.ink.midX, accuracy: 0.5, "\(look.name) \(size): the legend across")
+                XCTAssertEqual(drawnQuiet.ink.minY, drawnResting.ink.minY, accuracy: 0.01, "\(look.name) \(size): the legend's baseline")
+                XCTAssertEqual(drawnQuiet.ink.midY, drawnQuiet.face.midY, accuracy: 0.5, "\(look.name) \(size): centred on the face")
+
+                // Pixels: drawn on its own over nothing.
+                let host = NSView(frame: NSRect(x: 0, y: 0, width: quiet.width + margin * 2, height: quiet.size.height + margin * 2))
+                quiet.translatesAutoresizingMaskIntoConstraints = true
+                quiet.frame = NSRect(x: margin, y: margin, width: quiet.width, height: quiet.size.height)
+                host.addSubview(quiet)
+                let window = GalleryHost.window(host, size: host.frame.size, look: look)
+                defer { window.close() }
+                quiet.legend = ""
+                let rep = GalleryRender.bitmap(of: host)
+                let face = quiet.face, side = quiet.size.side
+                func at(_ x: CGFloat, _ y: CGFloat) -> (alpha: CGFloat, color: NSColor)? {
+                    Self.pixel(rep, x: margin + x, y: margin + y, hostHeight: host.frame.height)
+                }
+                // No fill: the middle of the face, and beside where a legend stands, is clear.
+                for x in [quiet.width * 0.3, quiet.width * 0.5, quiet.width * 0.7] {
+                    XCTAssertEqual(at(x, face.midY)?.alpha ?? 1, 0, accuracy: 0.01, "\(look.name) \(size): the face has no fill at \(x)")
+                }
+                // Outlined: the face's top edge is drawn, in a hairline's share of the ink.
+                let share = BarTheme.steps(for: window.effectiveAppearance).hairlineAlpha
+                let edge = at(quiet.width / 2, face.maxY - 0.25)?.alpha ?? 0
+                XCTAssertGreaterThan(edge, 0.3 * share, "\(look.name) \(size): the face is outlined")
+                XCTAssertLessThan(edge, 3 * share)
+                // The side: the band beneath the face, in the hairline's tone and nothing like the side colour.
+                let band = at(quiet.width / 2, side / 2)
+                XCTAssertEqual(band?.alpha ?? 0, share, accuracy: 0.03, "\(look.name) \(size): a side of the hairline's share of the ink")
+                let ink = BarTheme.steps(for: window.effectiveAppearance).ink.color.usingColorSpace(.sRGB)!
+                if let color = band?.color {
+                    XCTAssertEqual(color.redComponent, ink.redComponent, accuracy: 0.05, "\(look.name) \(size): in the ink's tone")
+                    XCTAssertEqual(color.blueComponent, ink.blueComponent, accuracy: 0.05)
+                }
+                XCTAssertEqual(at(quiet.width / 2, side + 1.25)?.alpha ?? 1, 0, accuracy: 0.01, "\(look.name) \(size): and no band under the face itself")
+                XCTAssertEqual(at(quiet.width / 2, -0.5)?.alpha ?? 0, 0, accuracy: 0.01, "\(look.name) \(size): nothing below the frame")
+                // The side is as tall as a resting key's: 3 and 5 points.
+                var tall: CGFloat = 0
+                for step in 0..<Int(side * 4) {
+                    let y = CGFloat(step) / 4 + 0.125
+                    if (at(quiet.width / 2, y)?.alpha ?? 0) > share * 0.5 { tall += 0.25 }
+                }
+                XCTAssertEqual(tall, side, accuracy: 0.5, "\(look.name) \(size): the side is \(side) points")
+            }
+        }
+    }
+
+    func testAKeyHeldDownByThePointerHasItsLegendGoDownWithItsFace() {
+        for look in GalleryLook.all {
+            let resting = Self.draw("e", state: .resting, look: look)
+            let pressed = Self.draw("e", state: .resting, look: look, pointer: .pressed)
+            XCTAssertEqual(resting.ink.midY - pressed.ink.midY, 2, accuracy: 0.5, look.name)
+            XCTAssertEqual(pressed.ink.midY, pressed.face.midY, accuracy: 0.5, "still centred on the face")
+            XCTAssertEqual(resting.key.frame, pressed.key.frame, "the frame does not move")
+            let large = Self.draw("7", state: .resting, size: .large, look: look)
+            let held = Self.draw("7", state: .resting, size: .large, look: look, pointer: .pressed)
+            XCTAssertEqual(large.ink.midY - held.ink.midY, 4, accuracy: 0.5, "\(look.name): a large key drops four points")
+            XCTAssertEqual(held.ink.midY, held.face.midY, accuracy: 0.5, "\(look.name): still centred on the face")
+        }
+    }
+
+    func testTheKeysHintsAreOverContentOpaqueAndHairlined() {
+        GalleryLook.day.apply()
+        let quiet = Key("a", state: .quiet, overContent: true)
+        quiet.frame = NSRect(x: 0, y: 0, width: 24, height: 24)
+        quiet.layout()
+        XCTAssertNotNil(quiet.standing.faceColor, "over another app's window a quiet key keeps a ground, or the content runs through its letter")
+    }
+
+    // MARK: - A sequence, a double tap
+
+    private func allViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(allViews) }
+
+    func testAHintDrawsItsTypedLettersQuietInsideTheOneKey() {
+        for look in GalleryLook.all {
+            look.apply()
+            let key = Key("jk", overContent: true)
+            key.quietPrefix = 1
+            let host = NSView(frame: NSRect(x: 0, y: 0, width: 60, height: 40))
+            key.translatesAutoresizingMaskIntoConstraints = true
+            key.frame = NSRect(x: 8, y: 8, width: key.width, height: 24)
+            host.addSubview(key)
+            let window = GalleryHost.window(host, size: host.frame.size, look: look)
+            defer { window.close() }
+            let rep = GalleryRender.bitmap(of: host)
+            // The face's left half holds `j`, the right `k`: the quiet one is dimmer.
+            func strongest(_ columns: Range<Int>) -> CGFloat {
+                var best: CGFloat = 0
+                let face = BarTheme.markFill.usingColorSpace(.sRGB)!
+                for column in columns {
+                    for row in 26..<50 {
+                        guard let c = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB) else { continue }
+                        best = max(best, abs(c.redComponent - face.redComponent) + abs(c.greenComponent - face.greenComponent))
+                    }
+                }
+                return best
+            }
+            // `jk` is about 13 points of ink in the middle of the key: `j` is its
+            // first third, `k` its last.
+            let left = Int((8 + key.width / 2 - 6.5) * 2), right = Int((8 + key.width / 2 + 6.5) * 2)
+            XCTAssertLessThan(strongest(left..<(left + 6)), strongest((right - 14)..<right),
+                              "\(look.name): the typed j is quieter than the k still to press")
+        }
+    }
+
+    func testASequenceIsOneKeyPerKeystrokeFourApart() {
+        GalleryLook.day.apply()
+        let strokes = Keycaps.strokes(["e", "p"])
+        strokes.layoutSubtreeIfNeeded()
+        let keys = strokes.caps
+        XCTAssertEqual(keys.map(\.legend), ["e", "p"], "never a chip reading \"e p\"")
+        XCTAssertEqual(keys[1].frame.minX - keys[0].frame.maxX, Grid.tight)
+        XCTAssertFalse(allViews(strokes).contains { ($0 as? NSTextField) != nil }, "no words, only keys")
+    }
+
+    func testAnAlternativeIsAKeyOfItsOwnStandingApart() {
+        GalleryLook.day.apply()
+        let strokes = KeyStrokes(groups: [["h"], ["j"], ["k"], ["l"]])
+        strokes.layoutSubtreeIfNeeded()
+        let keys = strokes.caps
+        for pair in zip(keys, keys.dropFirst()) {
+            XCTAssertEqual(pair.1.frame.minX - pair.0.frame.maxX, Grid.close, "separate keys stand 8 apart")
+        }
+    }
+
+    func testADoubleTapIsOneKeyAndTimesTwoInQuietInkAtTheMetaSize() {
+        GalleryLook.day.apply()
+        let strokes = Keycaps.strokes(["lode"], double: true)
+        strokes.layoutSubtreeIfNeeded()
+        XCTAssertEqual(strokes.caps.map(\.legend), ["lode"], "one key, not two identical ones")
+        let times = allViews(strokes).compactMap { $0 as? KeyTimes }
+        XCTAssertEqual(times.count, 1)
+        XCTAssertEqual(KeyTimes.text, "×2")
+        XCTAssertEqual(times[0].font, BarTheme.Role.meta.font(night: false), "at the meta size")
+        XCTAssertEqual(times[0].frame.minX - strokes.caps[0].frame.maxX, Grid.tight, "4 after the key")
+        XCTAssertEqual(times[0].baseline, strokes.caps[0].placement.origin.y, accuracy: 0.01, "on the key legend's baseline")
+    }
+
+    func testAGestureLineDrawsADoubleTapAndASequenceTheSameWay() {
+        GalleryLook.day.apply()
+        let line = Keycaps.line([.init(["lode"], "go", double: true), .init(["e", "p"], "mail")])
+        line.layoutSubtreeIfNeeded()
+        let keys = allViews(line).compactMap { $0 as? Key }
+        XCTAssertEqual(keys.map(\.legend), ["lode", "e", "p"])
+        XCTAssertEqual(allViews(line).compactMap { $0 as? KeyTimes }.count, 1)
+    }
+
+    func testAKeysLegendIsSpokenByName() {
+        XCTAssertEqual(KeyLegend.spoken("⏎"), "return")
+        XCTAssertEqual(KeyLegend.spoken("⌘K"), "command K")
+        XCTAssertEqual(KeyLegend.spoken("⇧⌘V"), "shift command V")
+        XCTAssertEqual(KeyLegend.spoken("esc"), "esc")
+        XCTAssertEqual(KeyLegend.spoken("e"), "e")
+    }
+
+    func testTheKeystrokesAWrittenGroupIs() {
+        XCTAssertEqual(Keycaps.keystrokes(of: "zo"), ["z", "o"])
+        XCTAssertEqual(Keycaps.keystrokes(of: "z="), ["z", "="])
+        XCTAssertEqual(Keycaps.keystrokes(of: "]s"), ["]", "s"])
+        XCTAssertEqual(Keycaps.keystrokes(of: "esc"), ["esc"])
+        XCTAssertEqual(Keycaps.keystrokes(of: "⌘K"), ["⌘K"])
+        XCTAssertEqual(Keycaps.keystrokes(of: "⇧F"), ["⇧F"])
+        XCTAssertEqual(Keycaps.keystrokes(of: "a…z"), ["a…z"])
+        XCTAssertEqual(Keycaps.keystrokes(of: "$"), ["$"])
+        let row = GuideRow(key: "zo zc", label: "x")
+        XCTAssertEqual(row.groups, [["z", "o"], ["z", "c"]])
+        XCTAssertEqual(GuideRow(key: "h j k l", label: "x").groups, [["h"], ["j"], ["k"], ["l"]])
+    }
+
+    // MARK: - Every surface
+
+    /// Every key on every gallery surface, in both looks: none spaces
+    /// letters inside one key ("e p"), none stands next to an identical
+    /// "lode" where a double tap is meant, none is wider than its legend
+    /// needs or narrower than it is tall, and no other view is shaped like
+    /// a key.
+    func testEveryKeyOnEverySurfaceFollowsTheContract() throws {
+        var wrong: [String] = []
+        var seen = 0
+        func walk(_ view: NSView, _ visit: (NSView) -> Void) { visit(view); view.subviews.forEach { walk($0, visit) } }
+        for picture in GallerySweep.pictures(where: { $0.level == 1 }) {
+            let shot = picture.shot, look = picture.look, root = picture.root
+            let name = shot.name(in: look)
+            walk(root) { view in
+                if let key = view as? Key, !key.isHidden {
+                    seen += 1
+                    let legend = key.legend
+                    if legend.range(of: #"\p{L} \p{L}"#, options: .regularExpression) != nil, legend.count < 4 {
+                        wrong.append("\(name): the key \"\(legend)\" spaces its letters")
+                    }
+                    if key.frame.width < key.size.height - 0.01 { wrong.append("\(name): \"\(legend)\" is narrower than tall") }
+                    if key.frame.width > key.width + 0.5 { wrong.append("\(name): \"\(legend)\" is wider than its legend") }
+                    // Only a hint holds several bare letters in one key; a sequence
+                    // anywhere else is a key a keystroke.
+                    let named: Set<String> = ["esc", "tab", "space", "lode", "fn", "return", "delete"]
+                    if legend.count > 1, legend.allSatisfy({ $0.isLetter && $0.isLowercase }),
+                       !named.contains(legend), !key.overContent {
+                        wrong.append("\(name): the key \"\(legend)\" is a sequence in one key; only a hint may be")
+                    }
+                    if ["lode"].contains(legend), let parent = key.superview {
+                        let twins = parent.subviews.compactMap { $0 as? Key }.filter { $0.legend == legend }
+                        if twins.count > 1 { wrong.append("\(name): two \"\(legend)\" keys side by side, a double tap is ×2") }
+                    }
+                } else if view.layer?.cornerRadius == BarTheme.controlRadius, !view.isHidden,
+                          view.frame.height == KeySize.standard.height || view.frame.height == KeySize.large.height,
+                          !(view is RoomButton), !(view is FlatChip), !(view is NSPopUpButton),
+                          !(view is WellView), !(view is WellField), !(view.superview is Key) {
+                    wrong.append("\(name): a key-shaped \(type(of: view)) that is not a Key")
+                }
+            }
+        }
+        XCTAssertGreaterThan(seen, 300, "the surfaces were looked at")
+        GallerySweep.expectNone(wrong, "every key follows the contract")
+    }
+}

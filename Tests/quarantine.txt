@@ -1,0 +1,13 @@
+# Tests parked while they are fixed. scripts/test.sh still runs each one, but
+# its failure does not fail the run: it is printed at the foot of the summary
+# and marked in .build/test-results/junit.xml. A test that hangs or kills its
+# process is not excused, only a failure the log records is.
+#
+#   <Class>.<test> <expires YYYY-MM-DD> <reason>
+#
+# One entry per test, no wildcards. The run fails when an entry has expired,
+# when it expires more than 14 days from today, or when its test is not in
+# the test list (renamed or deleted), so a test is fixed or its entry is
+# deleted, never kept. For a test the history proved flaky
+# (scripts/flake-history.sh), never for one that is simply red: the reason
+# says what the history showed and what is being done.

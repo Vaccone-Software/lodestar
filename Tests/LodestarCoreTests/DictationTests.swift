@@ -1,0 +1,480 @@
+import XCTest
+@testable import LodestarCore
+
+/// The draft's settling pipeline: seams, casing, self-corrections, and
+/// names by sound. The thresholds were measured on 175 recordings; these
+/// hold the behaviours that made them safe.
+final class DictationTests: XCTestCase {
+    private static let packaging = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("packaging")
+    private static let pronouncer: Pronouncer = {
+        let text = (try? String(contentsOf: packaging.appendingPathComponent("cmudict.dict"), encoding: .utf8)) ?? ""
+        return Pronouncer(cmu: text)
+    }()
+    private let ordinary: (String) -> Bool = { CommonWords.isCommon($0) }
+
+    private func matcher(_ words: [String]) -> NameMatcher {
+        NameMatcher(terms: words.map { NameMatcher.Term($0) }, pronouncer: Self.pronouncer,
+                    isCommon: { CommonWords.isCommon($0) }, isFrequent: { CommonWords.isFrequent($0) })
+    }
+
+    private let names = ["Lodestar", "Ghostty", "Xonar", "Kindora", "Supabase", "Asana", "MongoDB", "Compass",
+                         "UAT", "Proton Pass", "Claude Code", "SwiftUI", "Raycast", "Kinesis", "Convex", "Telegram"]
+
+    // MARK: - Seams
+
+    func testAnEllipsisNeverLands() {
+        XCTAssertEqual(Draft.Seams.smoothed("I was going to say... the deploy failed", isOrdinary: ordinary).text,
+                       "I was going to say. The deploy failed", "a trailed-off end gets a period")
+        XCTAssertEqual(Draft.Seams.smoothed("bracketed paste, but... I'm not sure", isOrdinary: ordinary).text,
+                       "bracketed paste, but I'm not sure", "a pause after a word that cannot end a sentence joins")
+        XCTAssertEqual(Draft.Seams.smoothed("…so then", isOrdinary: ordinary).text, "so then")
+        let trailing = Draft.Seams.smoothed("and then we...", isOrdinary: ordinary)
+        XCTAssertEqual(trailing.text, "and then we")
+        XCTAssertTrue(trailing.trailedOff, "the next result decides")
+    }
+
+    func testAPauseBreakAfterADanglingWordJoins() {
+        let joined = Draft.Seams.join(before: "Open the file and look at the.", incoming: "Function that closes it.",
+                                      pause: true, trailedOff: false, isOrdinary: ordinary)
+        XCTAssertEqual(joined.before, "Open the file and look at the")
+        XCTAssertEqual(joined.incoming, "function that closes it.")
+        let real = Draft.Seams.join(before: "That is what the app is.", incoming: "Then we ship.",
+                                    pause: true, trailedOff: false, isOrdinary: ordinary)
+        XCTAssertEqual(real.before, "That is what the app is.", "a real end stays")
+        XCTAssertEqual(real.incoming, "Then we ship.")
+        let names = Draft.Seams.join(before: "I sent it to.", incoming: "Paris already.",
+                                     pause: true, trailedOff: false, isOrdinary: { _ in false })
+        XCTAssertEqual(names.incoming, "Paris already.", "a name keeps its capital")
+        let typed = Draft.Seams.join(before: "look at the.", incoming: "Function", pause: true, trailedOff: false,
+                                     typedBetween: true, isOrdinary: ordinary)
+        XCTAssertEqual(typed.before, "look at the.", "the hand typed between: its text decides")
+        let quick = Draft.Seams.join(before: "look at the.", incoming: "Function", pause: false, trailedOff: false,
+                                     isOrdinary: ordinary)
+        XCTAssertEqual(quick.before, "look at the.", "no pause, no join")
+    }
+
+    func testASentenceEndedOnAWordThatCanEndOneStaysEnded() {
+        func join(_ before: String, _ incoming: String) -> (before: String, incoming: String) {
+            Draft.Seams.join(before: before, incoming: incoming, pause: true, trailedOff: false, isOrdinary: ordinary)
+        }
+        // Said, a pronoun or a connective opens the next sentence: the period stays.
+        for (before, incoming) in [("I called her.", "She never picked up."),
+                                   ("That is what we are looking at.", "But the logs say otherwise."),
+                                   ("Nobody asked what it was about.", "I'm sure of that."),
+                                   ("Tell me who it is for.", "However, I can wait.")] {
+            let joined = join(before, incoming)
+            XCTAssertEqual(joined.before, before, before)
+            XCTAssertEqual(joined.incoming, incoming, before)
+        }
+        // Anything else still reads as the sentence going on after a pause.
+        XCTAssertEqual(join("Open the file and look at.", "The function that closes it.").before,
+                       "Open the file and look at")
+        XCTAssertEqual(join("I want to go over.", "The plan once more.").incoming, "the plan once more.")
+        XCTAssertEqual(join("I think I.", "Should call the bank.").incoming, "should call the bank.")
+        XCTAssertEqual(join("I called her.", "Back after lunch.").before, "I called her")
+        // A word that cannot end one is not given back, whatever opens after it.
+        XCTAssertEqual(join("Open the file and look at the.", "She said so.").before, "Open the file and look at the")
+        // A trailed-off end before a pronoun is a real end.
+        let trailed = Draft.Seams.join(before: "I called her", incoming: "She never answered.", pause: true,
+                                       trailedOff: true, isOrdinary: ordinary)
+        XCTAssertEqual(trailed.before, "I called her.")
+    }
+
+    func testTheSettlerKeepsARealEndOnAPreposition() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let first = settler.land(Heard("That is the file I was looking for.", words: [Heard.Word("That is the file I was looking for.", start: 0, end: 2)]),
+                                 after: "")
+        let second = settler.land(Heard("It lives in scripts.", words: [Heard.Word("It lives in scripts.", start: 5, end: 6.5)]),
+                                  after: first.text)
+        XCTAssertEqual(second.before, .unchanged)
+        XCTAssertEqual(second.text, "It lives in scripts.")
+        XCTAssertEqual(second.joins, 0)
+    }
+
+    func testCasingKeepsIAndNames() {
+        XCTAssertEqual(Draft.cased("I'm sure", after: Array("and")), "I'm sure")
+        XCTAssertEqual(Draft.cased("I’ll go", after: Array("then")), "I’ll go")
+        XCTAssertEqual(Draft.cased("Paris is nice", after: Array("we went to"), isOrdinary: { $0 != "paris" }),
+                       "Paris is nice")
+        XCTAssertEqual(Draft.cased("Ghostty is open", after: Array("so"), isOrdinary: ordinary), "Ghostty is open")
+        XCTAssertEqual(Draft.cased("Then it works", after: Array("and"), isOrdinary: ordinary), "then it works")
+    }
+
+    // MARK: - Self-corrections
+
+    func testCuesTakeBackWhatTheyCorrect() {
+        XCTAssertEqual(Draft.SelfCorrection.apply("Schedule the review for Monday, no wait, I mean Tuesday, at 10.").text,
+                       "Schedule the review for Tuesday, at 10.")
+        XCTAssertEqual(Draft.SelfCorrection.apply("Push it, scratch that, commit it first.").text, "Commit it first.")
+        XCTAssertEqual(Draft.SelfCorrection.apply("Post it on Slack, or actually on Telegram.").text,
+                       "Post it on Telegram.")
+    }
+
+    func testOrdinarySpeechIsLeftAlone() {
+        for text in ["No, I think we should wait.", "I mean it.", "Sorry to bother you.", "Actually it works."] {
+            XCTAssertEqual(Draft.SelfCorrection.apply(text).text, text, text)
+        }
+    }
+
+    func testFillersGo() {
+        XCTAssertEqual(Draft.SelfCorrection.withoutFillers("Um, so we, uh, ship it.").0, "So we ship it.")
+        XCTAssertEqual(Draft.SelfCorrection.withoutFillers("the umbrella and the hum").0, "the umbrella and the hum")
+    }
+
+    // MARK: - Pronunciations
+
+    func testNamesTheDictionaryLacksAreReadFromTheirPieces() {
+        let p = Self.pronouncer
+        XCTAssertEqual(p.phones("Supabase"), ["S", "UW", "P", "AH", "B", "EY", "S"])
+        XCTAssertEqual(p.phones("Kindora"), ["K", "IH", "N", "D", "AO", "R", "AH"])
+        XCTAssertEqual(p.phones("UAT"), ["Y", "UW", "EY", "T", "IY"])
+        XCTAssertEqual(p.phones("SwiftUI"), ["S", "W", "IH", "F", "T", "Y", "UW", "AY"])
+        XCTAssertLessThan(Pronouncer.distance(p.phones("load star"), p.phones("Lodestar")), 0.05)
+        XCTAssertLessThan(Pronouncer.distance(p.phones("super base"), p.phones("Supabase")), 0.1)
+        XCTAssertGreaterThan(Pronouncer.distance(p.phones("vaccine"), p.phones("Vaccone")), 0.2)
+    }
+
+    // MARK: - Names
+
+    func testNamesComeBackBySound() {
+        let m = matcher(names)
+        XCTAssertEqual(m.apply("make load star back off when ray cast is running").text,
+                       "make Lodestar back off when Raycast is running")
+        XCTAssertEqual(m.apply("check the super base migration").text, "check the Supabase migration")
+        XCTAssertEqual(m.apply("ask Cloud Code to fix it").text, "ask Claude Code to fix it")
+        XCTAssertEqual(m.apply("move the Zona tasks into the can Dora board").text,
+                       "move the Xonar tasks into the Kindora board")
+        XCTAssertEqual(m.apply("open lodestar's log").text, "open Lodestar's log")
+    }
+
+    func testOrdinaryWordsStay() {
+        let m = matcher(names)
+        XCTAssertEqual(m.apply("the ghost text sticks around").text, "the ghost text sticks around")
+        XCTAssertEqual(m.apply("a ghostly ghastly sound").text, "a ghostly ghastly sound")
+        XCTAssertEqual(m.apply("get the vaccine").text, "get the vaccine")
+        XCTAssertEqual(m.apply("compare the compass and a convex hull").text, "compare the compass and a convex hull",
+                       "a name that is an everyday word is capitalized by its context, never by sound")
+        XCTAssertEqual(m.apply("Compare MongoDB Compass").text, "Compare MongoDB Compass")
+        XCTAssertEqual(m.apply("ship Lodestar 0.39.5 tonight").text, "ship Lodestar 0.39.5 tonight")
+        XCTAssertEqual(m.apply("read lodestar.log and local/dev").text, "read lodestar.log and local/dev",
+                       "code stays code")
+    }
+
+    func testAnUnsureOrdinaryWordMayBecomeAName() {
+        let m = matcher(["Kash"])
+        let unsure = m.apply(tokens: [.init("ask"), .init("cache", confidence: 0.3), .init("about")])
+        XCTAssertEqual(unsure.text, "ask Kash about")
+        let sure = m.apply(tokens: [.init("clear"), .init("cache", confidence: 0.95), .init("first")])
+        XCTAssertEqual(sure.text, "clear cache first", "a word the recognizer was sure of stays")
+    }
+
+    /// A span too short to sound like anything is skipped for the entry it
+    /// cannot be compared with, and every later entry still gets its casing
+    /// and alias checks. "mm" and "ooh" are a single sound each.
+    func testAShortSpanStillGetsALaterEntrysCasingAndAlias() {
+        XCTAssertLessThan(Self.pronouncer.phones("mm").count, 2)
+        XCTAssertLessThan(Self.pronouncer.phones("ooh").count, 2)
+        let casing = matcher(["Lodestar", "MM"])
+        XCTAssertEqual(casing.apply("it is 4 mm wide").text, "it is 4 MM wide",
+                       "Lodestar comes first and cannot be compared with one sound")
+        let alias = NameMatcher(terms: [.init("Lodestar"), .init("Uber", aliases: [["ooh"]])], pronouncer: Self.pronouncer,
+                                isCommon: { CommonWords.isCommon($0) }, isFrequent: { CommonWords.isFrequent($0) })
+        XCTAssertEqual(alias.apply("call an ooh now").text, "call an Uber now")
+    }
+
+    func testPunctuationRidesAlong() {
+        let m = matcher(names)
+        XCTAssertEqual(m.apply("open ghosty, then (lodestar).").text, "open Ghostty, then (Lodestar).")
+    }
+
+    // MARK: - The whole pipeline
+
+    func testTheSettlerJoinsAPauseAndPutsNamesBack() {
+        var settler = Draft.Settler(matcher: matcher(names), isOrdinary: ordinary)
+        let first = settler.land(Heard("Open load star and look at the.", words: [Heard.Word("Open load star and look at the.", start: 0, end: 2)]),
+                                 after: "")
+        XCTAssertEqual(first.text, "Open Lodestar and look at the.")
+        let second = settler.land(Heard("Function that closes it.", words: [Heard.Word("Function that closes it.", start: 4, end: 5.5)]),
+                                  after: first.text)
+        XCTAssertEqual(second.before, .dropPeriod)
+        XCTAssertEqual(second.text, "function that closes it.")
+    }
+
+    // MARK: - Punctuation the live recognizer wrote late
+
+    private func said(_ text: String, _ start: Double, _ end: Double) -> Heard {
+        Heard(text, words: [Heard.Word(text, start: start, end: end)])
+    }
+
+    /// Nemotron writes a sentence's period after the pause, at the head of
+    /// the next phrase. It ends the sentence before; the phrase is words.
+    func testAPeriodWrittenLateEndsTheSentenceBefore() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let landing = settler.land(said(". Hi Maria, the receipt is attached.", 21, 24), after: "Check it with a keyboard")
+        XCTAssertEqual(landing.before, .add("."))
+        XCTAssertEqual(landing.text, "Hi Maria, the receipt is attached.")
+    }
+
+    /// A late comma is the text before's too, and the word after it keeps
+    /// its lower case.
+    func testACommaWrittenLateGoesOnTheTextBefore() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let landing = settler.land(said(", and then we ship it", 5, 7), after: "We fix the seams")
+        XCTAssertEqual(landing.before, .add(","))
+        XCTAssertEqual(landing.text, "and then we ship it")
+    }
+
+    /// The late period is judged like any other at a pause: after a word a
+    /// sentence cannot end on, it goes, and the next word is lowered.
+    func testALatePeriodAfterAWordThatCannotEndASentenceGoes() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let landing = settler.land(said(". Function that closes it.", 4, 6), after: "Open the file and look at the")
+        XCTAssertEqual(landing.before, .unchanged)
+        XCTAssertEqual(landing.text, "function that closes it.")
+    }
+
+    /// A phrase that is nothing but the late period: the sentence before
+    /// gets it, and nothing lands.
+    func testAPhraseThatIsOnlyALatePeriodEndsTheSentenceBefore() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let landing = settler.land(said(".", 9, 9.1), after: "There are a lot of issues with it")
+        XCTAssertEqual(landing.before, .add("."))
+        XCTAssertEqual(landing.text, "")
+    }
+
+    /// Already ended, or nothing before: no second mark, and none at the start.
+    func testALatePeriodIsNotWrittenTwiceOrAtTheStart() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        XCTAssertEqual(settler.land(said(". Then we ship.", 3, 4), after: "We fix it.").before, .unchanged)
+        settler.reset()
+        let first = settler.land(said(". Then we ship.", 3, 4), after: "")
+        XCTAssertEqual(first.before, .unchanged)
+        XCTAssertEqual(first.text, "Then we ship.")
+    }
+
+    // MARK: - Hearing across a seam
+
+    /// The ear heard the words before the run too: its mark at the seam and
+    /// its words for the run come apart where the run begins.
+    func testAHearingAcrossASeamSplitsWhereTheRunBegins() {
+        let split = Draft.Seams.split(heard: "of the radii, it holds the shape.", before: "We want a variance in the radii.",
+                                      run: "it holds the shape")
+        XCTAssertEqual(split, .init(mark: ",", run: "it holds the shape."))
+        let ended = Draft.Seams.split(heard: "in the radii. It holds the shape.", before: "We want a variance in the radii",
+                                      run: "it holds the shape")
+        XCTAssertEqual(ended, .init(mark: ".", run: "It holds the shape."))
+        let open = Draft.Seams.split(heard: "actually a nonlinear function of its height", before: "It's actually a nonlinear.",
+                                     run: "function of its height")
+        XCTAssertEqual(open, .init(mark: "", run: "function of its height"))
+    }
+
+    /// A last word before the run that the ear heard otherwise stays the
+    /// context's: it is not put back at the head of the run.
+    func testAMisheardLastWordStaysBeforeTheSeam() {
+        let split = Draft.Seams.split(heard: "issues with id. The good news is quick.", before: "There are a lot of issues with it",
+                                      run: "the good news is quick")
+        XCTAssertEqual(split, .init(mark: ".", run: "The good news is quick."))
+    }
+
+    /// Too little of the context heard, or none of the run: not split.
+    func testAHearingThatCannotBeLinedUpIsNotSplit() {
+        XCTAssertNil(Draft.Seams.split(heard: "it holds the shape.", before: "We want a variance in the radii", run: "it holds the shape"))
+        XCTAssertNil(Draft.Seams.split(heard: "in the radii.", before: "We want a variance in the radii", run: "it holds the shape"))
+    }
+
+    // MARK: - The end of a take
+
+    /// A take the voice ended lands with its last sentence ended.
+    func testATakeTheVoiceEndedLandsWithAPeriod() {
+        XCTAssertEqual(Draft.ended("This is worse to interact with", endedBySpeech: true), "This is worse to interact with.")
+        XCTAssertEqual(Draft.ended("Bump it to 0.39.6", endedBySpeech: true), "Bump it to 0.39.6.")
+        XCTAssertEqual(Draft.ended("Ship it  ", endedBySpeech: true), "Ship it.  ", "before any trailing space")
+    }
+
+    /// Punctuation, a bracket or a quote at the end, the hand's last word,
+    /// or no text: as it stands.
+    func testATakeThatEndsOtherwiseLandsAsItStands() {
+        XCTAssertEqual(Draft.ended("Does that make sense?", endedBySpeech: true), "Does that make sense?")
+        XCTAssertEqual(Draft.ended("Ship it.", endedBySpeech: true), "Ship it.")
+        XCTAssertEqual(Draft.ended("see (the logs)", endedBySpeech: true), "see (the logs)")
+        XCTAssertEqual(Draft.ended("call it \"done\"", endedBySpeech: true), "call it \"done\"")
+        XCTAssertEqual(Draft.ended("fix getUser", endedBySpeech: false), "fix getUser")
+        XCTAssertEqual(Draft.ended("", endedBySpeech: true), "")
+    }
+
+    // MARK: - The ear's sentence ends
+
+    /// The ear heard the run whole; where it ends a sentence the live
+    /// recognizer did not, its period stands.
+    func testTheEarsSentenceEndStands() {
+        let settler = Draft.Settler(isOrdinary: ordinary)
+        XCTAssertEqual(settler.resettled(Heard("There are a lot of issues with it."), landed: "There are a lot of issues with it",
+                                         after: "", context: []),
+                       "There are a lot of issues with it.")
+    }
+
+    /// Where the live words ended a sentence and the ear wrote no end, the
+    /// period is kept: a hearing never takes one away.
+    func testAHearingNeverTakesAPeriodAway() {
+        let settler = Draft.Settler(isOrdinary: ordinary)
+        XCTAssertEqual(settler.resettled(Heard("Ship it today"), landed: "Ship it today.", after: "", context: []),
+                       "Ship it today.")
+    }
+
+    func testTheSettlerReachesBackForACorrection() {
+        var settler = Draft.Settler(isOrdinary: ordinary)
+        let first = settler.land(Heard("Send it on Monday."), after: "")
+        let second = settler.land(Heard("No wait, I mean Tuesday."), after: first.text)
+        XCTAssertTrue(second.replacesLast)
+        XCTAssertEqual(second.text, "Send it on Tuesday.")
+    }
+}
+
+/// Names in code: found in the repository from how they are said, and
+/// restyled by one key when they do not exist yet.
+final class CodeNamesTests: XCTestCase {
+    private let isWord: (String) -> Bool = { CommonWords.isCommon($0) }
+    private func index(_ names: [String]) -> CodeNames.Index {
+        CodeNames.Index(names: names, pronouncer: Pronouncer())
+    }
+
+    func testEachStyle() {
+        let text = "draft controller"
+        XCTAssertEqual(CodeNames.restyled(text, as: .pascal, isWord: isWord), "DraftController")
+        XCTAssertEqual(CodeNames.restyled(text, as: .camel, isWord: isWord), "draftController")
+        XCTAssertEqual(CodeNames.restyled(text, as: .snake, isWord: isWord), "draft_controller")
+        XCTAssertEqual(CodeNames.restyled(text, as: .kebab, isWord: isWord), "draft-controller")
+        XCTAssertEqual(CodeNames.restyled(text, as: .upperSnake, isWord: isWord), "DRAFT_CONTROLLER")
+        XCTAssertEqual(CodeNames.restyled("draftController", as: .words, isWord: isWord), "draft controller")
+    }
+
+    func testAnExtensionRidesAlong() {
+        XCTAssertEqual(CodeNames.restyled("draft controller dot swift", as: .pascal, isWord: isWord), "DraftController.swift")
+        XCTAssertEqual(CodeNames.restyled("DraftController.swift", as: .camel, isWord: isWord), "draftController.swift")
+    }
+
+    func testARunTogetherWordIsSplitFirst() {
+        XCTAssertEqual(CodeNames.restyled("draftcontroller", as: .pascal, isWord: isWord), "DraftController")
+    }
+
+    func testRepositoryNamesAreWrittenAsTheCodeWritesThem() {
+        let names = index(["DraftController.swift", "settleGhostAsSeen", "local/dev", "isRunning", "setUp", "Draft",
+                           "WindowModel"])
+        let common: (String) -> Bool = { CommonWords.isCommon($0) }
+        XCTAssertEqual(names.apply("open draft controller dot swift and look", isCommon: common).text,
+                       "open DraftController.swift and look")
+        XCTAssertEqual(names.apply("open draftcontroller.swift now", isCommon: common).text,
+                       "open DraftController.swift now")
+        XCTAssertEqual(names.apply("rebase local slash dev on main", isCommon: common).text,
+                       "rebase local/dev on main")
+        XCTAssertEqual(names.apply("find where settle ghost as seen is called", isCommon: common).text,
+                       "find where settleGhostAsSeen is called")
+    }
+
+    func testEverydayPhrasesStayProse() {
+        let names = index(["isRunning", "setUp", "WindowModel", "HintLabels", "Draft"])
+        let common: (String) -> Bool = { CommonWords.isCommon($0) }
+        for text in ["back off when Raycast is running", "set up the board", "the window model is stale",
+                     "the hint labels overlap", "send the draft"] {
+            XCTAssertEqual(names.apply(text, isCommon: common).text, text, text)
+        }
+    }
+}
+
+/// `cr` and a style in the draft's editor (vim-abolish's coerce): the
+/// name under the cursor or the selection, one undo step.
+final class RestyleKeyTests: XCTestCase {
+    private func keys(_ vim: inout Vim, _ buffer: inout Draft.Buffer, _ text: String) -> [Vim.Effect] {
+        var effects: [Vim.Effect] = []
+        for c in text { effects += vim.key(.char(c), buffer: &buffer, pasteboard: { nil }) }
+        return effects
+    }
+
+    private func normal(_ text: String, at cursor: Int) -> (Vim, Draft.Buffer) {
+        var buffer = Draft.Buffer(text: text, cursor: cursor)
+        var vim = Vim()
+        vim.enterNormal(&buffer)
+        buffer.setCursor(cursor)
+        return (vim, buffer)
+    }
+
+    func testCrNamesTheStyle() {
+        var (vim, buffer) = normal("open draftcontroller.swift now", at: 7)
+        _ = keys(&vim, &buffer, "crp")
+        XCTAssertEqual(buffer.text, "open DraftController.swift now")
+        _ = keys(&vim, &buffer, "crc")
+        XCTAssertEqual(buffer.text, "open draftController.swift now")
+        _ = keys(&vim, &buffer, "crs")
+        XCTAssertEqual(buffer.text, "open draft_controller.swift now")
+        _ = keys(&vim, &buffer, "u")
+        XCTAssertEqual(buffer.text, "open draftController.swift now", "one undo step each")
+    }
+
+    func testACountTakesThatManyWords() {
+        var (vim, buffer) = normal("call it model store dot swift.", at: 8)
+        _ = keys(&vim, &buffer, "4crp")
+        XCTAssertEqual(buffer.text, "call it ModelStore.swift.", "the sentence's period stays outside the name")
+    }
+
+    func testCrStillLeavesOtherChangesAlone() {
+        var (vim, buffer) = normal("one two three", at: 4)
+        _ = keys(&vim, &buffer, "cw")
+        XCTAssertEqual(buffer.text, "one  three")
+    }
+}
+
+/// The dictation journal: one line a dictation, kept only as long as asked.
+final class DictationJournalTests: XCTestCase {
+    private func folder() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("journal-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    func testADictationIsOneLineWithWhatWasHeardAndSent() throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let journal = DictationJournal(folder: dir, days: 14)
+        let now = Date()
+        journal.begin(app: "Ghostty", at: now)
+        journal.heard(Heard("Open load star", words: [.init("Open load star", start: 0, end: 1)]),
+                      landed: "Open Lodestar", at: now)
+        journal.earHeard("qwen3-asr-1.7b", heard: "Open Lodestar.", stood: "Open Lodestar", placed: nil, seconds: 0.4, at: now)
+        journal.finish("pasted", text: "Open Lodestar now", at: now)
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        XCTAssertEqual(files.count, 1)
+        let line = try String(contentsOf: dir.appendingPathComponent(files[0]), encoding: .utf8)
+        let entry = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        XCTAssertEqual(entry["text"] as? String, "Open Lodestar now")
+        XCTAssertEqual(entry["app"] as? String, "Ghostty")
+        XCTAssertEqual((entry["events"] as? [Any])?.count, 2)
+    }
+
+    func testOnlyADevelopmentBuildKeepsOne() {
+        XCTAssertNil(DictationJournal.forThisBuild(bundle: Bundle(for: Self.self), environment: [:]),
+                     "a release (a bundle not stamped LodestarDevelopment) keeps no journal")
+        XCTAssertEqual(DictationJournal.forThisBuild(bundle: Bundle(for: Self.self),
+                                                     environment: ["LODESTAR_JOURNAL_DAYS": "3"])?.days, 3)
+        XCTAssertNil(DictationJournal.forThisBuild(bundle: Bundle(for: Self.self),
+                                                   environment: ["LODESTAR_JOURNAL_DAYS": "0"]))
+    }
+
+    func testNothingHeardIsNothingKept() {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let journal = DictationJournal(folder: dir, days: 14)
+        journal.begin(app: nil, at: Date())
+        journal.finish("empty", text: "", at: Date())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path))
+    }
+
+    func testOldDaysAreDeleted() throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data().write(to: dir.appendingPathComponent("2020-01-01.jsonl"))
+        let today = DictationJournal.day(Date())
+        try Data().write(to: dir.appendingPathComponent("\(today).jsonl"))
+        _ = DictationJournal(folder: dir, days: 7)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), ["\(today).jsonl"])
+    }
+}

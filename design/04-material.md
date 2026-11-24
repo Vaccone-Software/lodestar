@@ -1,0 +1,84 @@
+# 04 · Material
+
+Matte ceramic, opaque, lit from above. Every surface is one solid colour with a polished rim along its top edge and a hairline around it; depth is a visible side, and it follows role.
+
+## What it is for
+
+Material is what a surface is made of, and so how it shows what it is: a pane you read from, a key you press, a well you put something in. One material, honestly drawn, means the same thing reads the same way on every surface, by day and by night, over any desktop.
+
+## Origin
+
+- **Glass retires** (decided 20 October 2026). Lodestar's panels were glass: macOS's material, tinted, with a veil in the ground's colour inside it at 0.9 to take the desktop's vote. The readability section spent a page measuring how the tone still drifted with whatever lay behind a panel. Glass also contradicted the rest: honest matter, keys that are keys. Matte ceramic was chosen over machined metal, paper and lacquer on the canvas "Lodestar Design Languages" because it is calm, warm, and has an edge the light can catch.
+- **Depth by role.** The search refused two directions of elevation as a rule ("things rise, nothing sinks") and then found it too strict: a field and an empty keepsake are places you put something, and they read best sunk. So depth follows role: what you press stands up, a place you put something sinks, the rest is flat.
+- **Thickness, not shadow.** A key's side survives the night, where a shadow does not, so depth reads the same in both looks without a second recipe.
+
+## Values
+
+### The pane
+
+| Part   | Day                                          | Night                            |
+| ------ | -------------------------------------------- | -------------------------------- |
+| fill   | clay pane `#F6EFE8`, opaque                  | espresso pane `#1D1916`, opaque  |
+| rim    | 1.5 pt along the top, clay key step          | 1.5 pt along the top, ink at 10% |
+| edge   | 0.5 pt all round, ink at 10%                 | 0.5 pt all round, ink at 8%      |
+| shadow   | one, soft: quiet ink at 14%, 24 blur, 8 down | one, faint: espresso ground at 40%, 24 blur, 8 down |
+
+The rim is the shape less itself moved down by 1.5: a crescent along the top that follows the outline round each corner and thins to nothing where the curve turns vertical, so it never ends in a cut. Where a lit fill reaches the pane's top edge (the meeting's stub) the rim there is the lit rim, the accent lifted, as a lit key wears it, clipped to the fill's own shape (its curves included) so it ends exactly where the orange does, and the pane's own rim never crosses the orange. The edge is drawn above the pane's content, so a picture that fills the pane does not cover it. The shadow follows the pane's outline.
+
+### Depth by role
+
+| Role      | What                                                                                                   | How it is drawn                                                                     |
+| --------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| stands up | anything you press: a key, a button, a popup, a switch's knob, the chosen thing                        | a face on a visible side, the look's side colour beneath it                         |
+| sinks     | a place you put something: a field, an empty keepsake, a drop target                                   | a well: one step below the pane it sits in, a 0.5 pt edge, no side, no inner shadow |
+| flat      | everything else: panes, cards that are not pressed, groups, chips that only say something | the surface's own fill, at most a hairline                                          |
+
+**The side.** A band of the side colour beneath the face, as tall as its size calls for: 3 points at a control's size, 4 at a row's, 5 at a large key's. While the pointer holds the mouse down on a key or button that can be clicked, the side collapses to 1 point at once, the face moving down by what the side gave up. That is the pointer's response, not a state a surface draws. The side sits inside the thing's frame (geometry, rule 6).
+
+**The well** by day is the pane darkened by 0.05 in lightness (`#E6DED6` in a clay pane), with its edge at ink 14%; by night it is the pane darkened by 0.04 (`#14100D` in an espresso pane), never below the ground, with its edge at ink 12%. A placeholder in quiet ink still clears 4.5 : 1 in it at every level.
+
+### Weights retire
+
+Glass had three weights (normal, raised, faint), each a different opacity. An opaque material has none: a surface is a pane, a key step, or the ground, by its role.
+
+A **quiet key** is not in the table: it cannot be pressed, so it does not stand up, and it is not flat either, since it keeps a resting key's shape. It is outlined: its face unfilled with a hairline round it, and a side in the hairline's tone (design/10-key.md). The depth sweep calls it `outlined`.
+
+## Rules
+
+1. **Opaque.** Nothing Lodestar draws lets the desktop through. No glass, no blur, no vibrancy, no transparency setting to honour, because there is nothing to make opaque. A window may be clear around its pane, for the corners and the shadow; the pane itself never is.
+2. **One light, from above.** Every rim is on a top edge, every side beneath a face, every shadow falls down. Nothing is lit from the side or below.
+3. **Depth follows role.** Stands up, sinks, or flat, by what the thing does. Nothing sinks only to make its neighbour look raised, and nothing stands up that cannot be pressed.
+4. **Thickness over shadow.** Pressability is a side, never a shadow. A shadow only separates a floating pane from the desktop: soft by day, faint at night. A pressable thing that floats on the desktop itself (Keep's cards) is both: a side, and the pane's shadow.
+5. **No gradients, no inner shadows, no glows.** A face is one colour; a well is one colour and an edge.
+6. **The edge is on top.** A pane's hairline and rim are drawn above its content.
+7. **Content is not material.** Pictures, app icons and previews are drawn as they are, with no rim, edge or side of their own unless they are a key.
+
+## Enforcement
+
+- A drift test fails on any glass, visual-effect or vibrancy type, or a window that is not opaque, outside debug previews.
+- A test holds the pane's fill, rim, edge and shadow per look, and the well's step.
+- A gallery test checks every pressable thing has a side, every well has none, and every flat thing has neither; and that the pointer's press collapses a side to 1 point.
+
+## Renders
+
+`foundation-material-{day,night}`: a pane with its rim, edge and shadow over a light and a dark desktop; the three roles side by side; a key at rest. Then every surface: with glass gone, the gallery shows exactly what is on screen.
+
+## Status
+
+Built 22 October 2026. Before it, main's panels were glass (`TonedGlass`, an `NSGlassEffectView`, with a visual-effect fallback) with a veil at 0.9, 0.94 or 0.8 by weight; keys stood on a hard 1.5-point shadow with a lit top edge; a quiet key sat in a shallow well; a lifted card cast a small shadow by day. The build made the bar's field a visible well (a bar with no rows is now 84 tall, the well sitting 12 inside the pane), made two-line rows 52 tall so their face stays 48, and removed the glow behind Settings' mark.
+
+## Main lessons
+
+- **A rim is a crescent, not a strip.** The first build cut a flat 1.5 pt strip with the pane's outline. On a flat pane that is the same, but on a capsule (the pill, the meeting's chip) the strip stopped abruptly where the curve began and read as a stray white line, and over the meeting's lit stub it ran straight across the orange (changed 23 October 2026). The rim is now the shape minus itself moved down by the rim's height, which follows the outline, and a lit fill that reaches the top edge wears the lit rim.
+
+## Prototype lessons
+
+- **Draw the edge last.** Content that filled a pane (a picture, the walk's tiles) covered the pane's hairline until the edge moved above it.
+- **One edge per object.** A pane hosted inside a card that draws its own edge drew two; the inner one must stand down.
+- **Repaint in the view's own look.** A layer colour set once keeps the look it was set in; the pane paints in its draw pass under its own appearance.
+
+## Decided in review
+
+- Night panes cast a faint shadow (espresso ground at 40%), so a pane separates from a dark desktop as well as by its edge (22 October 2026).
+- Wells sink twice as far as first built, with a firmer edge: a step of 0.025 read almost flat (Feedback's note was the example).
+- Pressed is the pointer's response, not a state a surface draws (24 October 2026): while the mouse is down on a key or button that can be clicked, its side drops to 1 point and the face follows; no gallery sheet draws a pressed key (design/10-key.md).

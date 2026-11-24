@@ -1,0 +1,1 @@
+{"feedback":{"diagnostics":"12:00:01.000 INFO boot\n12:00:02.500 ERR  speech: the recognizer stopped\n","macos":"27.0.0","message":"Dictation stopped after a minute.","replyTo":"","version":"0.54.23"},"schema":1}

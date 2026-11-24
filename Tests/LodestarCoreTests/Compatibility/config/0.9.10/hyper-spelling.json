@@ -1,8 +1,0 @@
-{
-  "scroll": {
-    "speed": 2000
-  },
-  "hyper": {
-    "trigger": "raw-hyper"
-  }
-}

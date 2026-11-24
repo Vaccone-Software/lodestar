@@ -1,1 +1,0 @@
-../LodestarAppTests/OffScreenGuard.swift

@@ -87,7 +87,8 @@ enum ConfigDoctor {
     /// from the same schema that validates reloads — they cannot drift.
     static func emitSchema() {
         Log.attempt("config: could not write the editor schema beside the config") {
-            try Data(ConfigFile.jsonSchemaText().utf8).write(to: Config.directory.appendingPathComponent("lodestar-schema.json"))
+            try DurableFile.write(Data(ConfigFile.jsonSchemaText().utf8),
+                                  to: Config.directory.appendingPathComponent("lodestar-schema.json"))
         }
     }
 

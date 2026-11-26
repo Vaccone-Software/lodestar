@@ -378,7 +378,7 @@ final class ModelResidencyTests: XCTestCase {
     /// editor's, and `EarHost` has the editor's copy prepared. The closure is
     /// the one `main.swift` hands `prepareShared`.
     private func dictate(_ world: World) -> EarHost {
-        let host = EarHost(clock: world.clock.clock)
+        let host = EarHost()
         host.hasCleanup = { _ in true }
         host.install(ear: SlowEar(loaded: true), tier: .max)
         host.sharesEditor = { _ in true }

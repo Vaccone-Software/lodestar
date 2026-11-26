@@ -1,5 +1,7 @@
 import XCTest
 import LodestarCore
+import Stoic
+import StoicTesting
 @testable import lodestar
 
 /// The held key: up when secure input is stuck, a click brings the holder
@@ -9,9 +11,9 @@ final class SecureInputControllerTests: XCTestCase {
     let brave = SecureInputNotice.Holder(pid: 2154, name: "Brave Browser", bundleID: "com.brave.Browser")
     let ghostty = SecureInputNotice.Holder(pid: 1377, name: "Ghostty", bundleID: "com.mitchellh.ghostty")
 
-    func testStuckSecureInputHoldsTheKeyUntilItEndsAndThenLightsIt() {
-        var pending: [DispatchWorkItem] = []
-        let notice = HeldKeyNotice(clock: Clock(now: { Date() }, after: { _, work in pending.append(work) }))
+    @MainActor func testStuckSecureInputHoldsTheKeyUntilItEndsAndThenLightsIt() async {
+        let clock = TestClock()
+        let notice = HeldKeyNotice()
         let controller = SecureInputController()
         var sample = SecureInputNotice.Sample(on: false, holder: nil, frontPID: brave.pid, screenLocked: false)
         var brought: [Int32] = []
@@ -38,7 +40,7 @@ final class SecureInputControllerTests: XCTestCase {
         XCTAssertEqual(brought, [2154], "a click brings the holder forward")
 
         sample = .init(on: false, holder: nil, frontPID: ghostty.pid, screenLocked: false)
-        controller.tick()
+        await withAmbient({ $0.clock = clock.erased }) { controller.tick() }
         XCTAssertTrue(notice.isUp)
         XCTAssertFalse(notice.standing, "no longer asking")
         XCTAssertEqual(notice.key?.state, .lit)
@@ -46,7 +48,14 @@ final class SecureInputControllerTests: XCTestCase {
         notice.click()
         XCTAssertEqual(brought, [2154], "a click on the lit key brings nothing forward")
 
-        pending.forEach { $0.perform() }
+        await clock.waitForSleepers(count: 1)
+        let reading = Readability.flashSeconds(for: SecureInputNotice.keysBack)
+        await clock.advance(by: .seconds(reading - 0.1))
+        for _ in 0..<10 { try? await Task.sleep(for: .milliseconds(1)) }
+        XCTAssertTrue(notice.isUp, "not before it has been read")
+        await clock.advance(by: .seconds(0.2))
+        let until = Date().addingTimeInterval(EditorRig.patience)
+        while notice.isUp, Date() < until { try? await Task.sleep(for: .milliseconds(2)) }
         XCTAssertFalse(notice.isUp, "it leaves once read")
     }
 

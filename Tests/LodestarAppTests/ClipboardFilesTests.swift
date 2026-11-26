@@ -727,6 +727,42 @@ final class ClipboardFilesTests: XCTestCase {
 
     private func ids() -> Set<String> { Set(store.clips.map(\.id)) }
 
+    /// The look that is planned is the soonest asked for, and its moment is
+    /// the ambient clock's: opening plans one five minutes on, a copy one a
+    /// second on, and a look plans the next five minutes after it.
+    func testTheSoonestLookAskedForIsTheOnePlanned() throws {
+        let time = TestClock()
+        func pass(_ seconds: Double) {
+            let moved = expectation(description: "the clock moved")
+            Task { await time.advance(by: .seconds(seconds)); moved.fulfill() }
+            wait(for: [moved], timeout: 60)
+            quiesce()
+        }
+        try withAmbient({ $0.clock = time.erased }) {
+            store.close()
+            store = SealedFixture.clipboardStore(directory.appendingPathComponent("planned", isDirectory: true))
+            controller = ClipboardController(store: store)
+            controller.pasteboard = board
+            controller.secureInput = { false }
+            let gone = try make("gone.txt")
+            copy([gone])
+            wait("the card is in") { !self.store.clips.isEmpty }
+            let goneID = try XCTUnwrap(store.clips.first?.id)
+            store.flushIO()
+            quiesce()
+            pass(1)
+            XCTAssertTrue(ids().contains(goneID), "the copy's own look found its file there")
+            try FileManager.default.removeItem(at: gone)
+            store.pruneGoneFilesSoon(after: 30)
+            store.pruneGoneFilesSoon(after: 60)
+            quiesce()
+            pass(29)
+            XCTAssertTrue(ids().contains(goneID), "not before its moment")
+            pass(1)
+            wait("the look was taken at its moment") { !self.ids().contains(goneID) }
+        }
+    }
+
     func testACardWhoseFilesAreGoneLeavesAndOneWhoseFilesAreThereStays() throws {
         let gone = try make("gone.txt"), kept = try make("kept.txt")
         copy([gone])

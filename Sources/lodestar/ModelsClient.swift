@@ -68,6 +68,15 @@ final class ModelsClient: Sendable {
 
     private let resident = Mutex(Resident())
 
+    /// What the service was told to let go, in the order it was told. A load
+    /// waits for what was asked before it: a release that came after it would
+    /// have two models in the service's memory meanwhile, and an unload that
+    /// did would let go the ear just loaded. An unload asked while a load is
+    /// on its way still overtakes it, which the service reads as "nobody
+    /// wants it any more".
+    private let releases = ResidencyLane()
+    private let earUnloads = ResidencyLane()
+
     init(peer: XPCPeer = XPCPeer(service: Models.serviceName, build: Build.id)) {
         self.peer = peer
     }
@@ -87,6 +96,7 @@ final class ModelsClient: Sendable {
     // MARK: Language models
 
     func loadLanguageModel(_ spec: LanguageModelSpec) async throws -> ServiceLanguageModel {
+        await releases.settled()
         let handle = try await call(ModelsAPI.loadLanguageModel, spec)
         // The run that answered. Were it lost between its reply and here,
         // this is nil or a later run's, and the model's first request is
@@ -124,26 +134,24 @@ final class ModelsClient: Sendable {
         let held = resident.withLock { $0.handles.removeValue(forKey: handle) != nil }
         guard held, let run, run == self.run else { return }
         let peer = self.peer
-        releasing.withLock { $0 += 1 }
-        Task { [self] in
+        releases.run {
             await Log.attempt("models: could not tell the service to release a language model") {
                 try await peer.call(ModelsAPI.releaseLanguageModel, handle, ifRunning: true)
             }
-            releasing.withLock { $0 -= 1 }
         }
     }
 
-    /// Releases sent and not yet answered. A release is sent from a task of
-    /// its own, since a model lets go in its deinit, so this is the one way
-    /// to know it is over: a test waits for it before moving its clock.
-    var releasesInFlight: Int { releasing.withLock { $0 } }
-    private let releasing = Mutex(0)
+    /// Every release sent is answered. A model lets go in its deinit, which
+    /// cannot wait, so this is the one way to know it is over: a test waits
+    /// for it before moving its clock.
+    func released() async { await releases.settled() }
 
     // MARK: The ear
 
     /// Loads the ear; the run it was loaded on, nil if that run was lost
     /// before the answer was read.
     func loadEar(_ spec: EarSpec) async throws -> Int? {
+        await earUnloads.settled()
         _ = try await call(ModelsAPI.loadEar, spec)
         let run = self.run
         resident.withLock { resident in resident.ear = run }
@@ -161,7 +169,7 @@ final class ModelsClient: Sendable {
         }
         guard let run, run == self.run else { return }
         let peer = self.peer
-        Task {
+        earUnloads.run {
             await Log.attempt("models: could not tell the service to unload the ear") {
                 try await peer.call(ModelsAPI.unloadEar, XPCEmpty(), ifRunning: true)
             }

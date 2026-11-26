@@ -125,7 +125,7 @@ public enum ConfigStore {
     static func file(from tree: [String: ConfigValue]) throws -> ConfigFile {
         let decoded = schema.decode(json(tree), options: .strict)
         guard let file = decoded.value else {
-            throw Config.EditError.invalid(decoded.errors.map(ConfigFile.sentence(for:)).joined(separator: "; "))
+            throw Config.EditError.invalid(decoded.errors.map(ConfigFile.sentence(for:)).joined(separator: ", "))
         }
         return file
     }
@@ -207,9 +207,9 @@ public enum ConfigStore {
         case .durabilityUnknown(let failure):
             return .storage("\(failure)")
         case .invalid(let issues):
-            return .invalid(issues.map(ConfigFile.sentence(for:)).joined(separator: "; "))
+            return .invalid(issues.map(ConfigFile.sentence(for:)).joined(separator: ", "))
         case .newerFormat:
-            return .unparsed("\(file) was written by a newer Lodestar")
+            return .newer(file)
         }
     }
 

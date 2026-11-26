@@ -731,7 +731,9 @@ final class ClipboardController {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
-            try bytes.write(to: url)
+            // Atomic: the name is the person's, and may be a file that is
+            // there. A write that fails leaves it as it was, never cut short.
+            try DurableFile.write(bytes, to: url)
             lastSavedPath = path
             flash("⌂ Saved \(url.lastPathComponent) to \(Clipboard.folderName(of: path, home: home))")
             Log.info("strip", ["saved": format.rawValue, "bytes": bytes.count,

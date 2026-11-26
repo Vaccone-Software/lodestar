@@ -1,6 +1,8 @@
 import AppKit
 import CoreAudio
 import LodestarCore
+import Stoic
+import Synchronization
 
 /// Music steps aside while the draft listens.
 ///
@@ -366,8 +368,50 @@ final class PlaybackPause {
 /// player, which the entitlement and the Info.plist purpose string
 /// permit. A player that is not running is never addressed: sending
 /// script to a quit app would launch it.
+///
+/// Every ask has a deadline. An Apple Event waits two minutes for its
+/// reply by default, and the asks share one serial queue with every
+/// pause, resume, route and tab check, so one player that has stopped
+/// answering would hold all of them. An ask that overruns is left
+/// running and counted (`BoundedCall`), and answers nothing: not
+/// playing, and for a pause or play a line in the log and no more. A
+/// player that comes back may still obey the event it was sent; that
+/// was so of a blocked ask too, and only the waiting has changed.
 enum Players {
     static let known = ["com.apple.Music", "com.spotify.client"]
+
+    /// How long one ask of one player may take.
+    static let deadline: TimeInterval = 2
+    /// Asks of one player left running at once; past it the player is
+    /// not answering, and the next ask is refused at once. Per player,
+    /// so a hung Music never stops Spotify from being asked.
+    static let slots = 2
+
+    /// What a script sent to a player came back with.
+    enum Reply: Sendable, Equatable {
+        case answer(String?)
+        case failed(String)
+    }
+
+    private struct Seams {
+        var clock: AnyClock?
+        var send: @Sendable (String) -> Reply = Players.run
+    }
+    private static let seams = Mutex(Seams())
+
+    /// The clock the deadlines are on; nil is Stoic's ambient one. A seam
+    /// for the tests, which move a clock of their own.
+    static var clock: AnyClock? {
+        get { seams.withLock { $0.clock } }
+        set { seams.withLock { $0.clock = newValue } }
+    }
+
+    /// The Apple Event itself, given the script's source. A seam for the
+    /// tests, which stand in for a player that never answers.
+    static var send: @Sendable (String) -> Reply {
+        get { seams.withLock { $0.send } }
+        set { seams.withLock { $0.send = newValue } }
+    }
 
     static func playing() -> [String] {
         known.filter { isPlaying($0) }
@@ -391,16 +435,35 @@ enum Players {
         !NSRunningApplication.runningApplications(withBundleIdentifier: id).isEmpty
     }
 
-    private static func ask(_ body: String, of id: String) -> String? {
+    /// The player's answer, or nil: a script error, or no answer within
+    /// the deadline (or a player whose every slot is held by asks that
+    /// have not come back, which is refused without being sent).
+    static func ask(_ body: String, of id: String) -> String? {
         let source = "tell application id \"\(id)\" to \(body)"
+        let send = self.send
+        guard let reply = BoundedCall.blocking(deadline, label: "player.\(id)", limit: slots, clock: clock,
+                                               qos: .userInitiated, { send(source) })
+        else {
+            Log.info("draft", ["playback": "no answer", "player": id, "asked": body,
+                               "deadline": "\(deadline)"])
+            return nil
+        }
+        switch reply {
+        case .answer(let answer):
+            return answer
+        case .failed(let message):
+            Log.info("draft", ["playback": "script error", "player": id, "error": message])
+            return nil
+        }
+    }
+
+    private static let run: @Sendable (String) -> Reply = { source in
         var error: NSDictionary?
         let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
         if let error {
-            Log.info("draft", ["playback": "script error", "player": id,
-                               "error": "\(error[NSAppleScript.errorMessage] ?? error)"])
-            return nil
+            return .failed("\(error[NSAppleScript.errorMessage] ?? error)")
         }
-        return result?.stringValue
+        return .answer(result?.stringValue)
     }
 }
 

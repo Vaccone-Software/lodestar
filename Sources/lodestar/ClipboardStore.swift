@@ -82,7 +82,8 @@ final class ClipboardStore {
     private var refs: [String: Ref] = [:]
     private var pendingOps: [ClipboardOp] = []
     private var pendingSave: Task<Void, Never>?
-    private var compactionWork: Task<Void, Never>?
+    /// Running means a fold is owed: waiting for its moment, or at it.
+    private let compactionWork = TaskSlot<Void, any Error>(label: "clipboard.fold")
     /// A delete whose key has not been rotated away yet.
     private var deletionOwed = false
     /// Folds that have finished (rotating the key), for the tests.
@@ -430,8 +431,7 @@ final class ClipboardStore {
     // MARK: - Folding the log, and making a deletion real
 
     private func scheduleCompaction(after delay: TimeInterval) {
-        compactionWork?.cancel()
-        compactionWork = onMain(after: .seconds(delay)) { [weak self] in self?.compactNow() }
+        compactionWork.settle(for: self, after: .seconds(delay)) { $0.compactNow() }
     }
 
     /// Main. The log is folded into a snapshot on the io queue, **rotating the
@@ -439,7 +439,6 @@ final class ClipboardStore {
     /// of each clip deleted since — can no longer be opened by anyone.
     private func compactNow() {
         dispatchPrecondition(condition: .onQueue(.main))
-        compactionWork = nil
         guard phase == .ready else { return }
         saveNow()
         io.async { [weak self] in
@@ -476,9 +475,8 @@ final class ClipboardStore {
         if phase == .opening { waitUntilOpen(timeout: 5) }
         saveNow()
         flushIO()
-        if (deletionOwed || compactionWork != nil) && phase == .ready {
-            compactionWork?.cancel()
-            compactionWork = nil
+        if (deletionOwed || compactionWork.isRunning) && phase == .ready {
+            compactionWork.cancel()
             let done = io.sync { () -> Bool in
                 if case .compacted = self.disk.compact(rotatingKey: true) { return true }
                 return false
@@ -1541,8 +1539,7 @@ final class ClipboardStore {
         pendingOps.removeAll()
         pendingSave?.cancel()
         pendingSave = nil
-        compactionWork?.cancel()
-        compactionWork = nil
+        compactionWork.cancel()
         deletionOwed = false
         thumbnails.removeAll()
         thumbnailOrder.removeAll()

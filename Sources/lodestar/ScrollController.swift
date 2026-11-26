@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import LodestarCore
+import Stoic
 
 /// Scroll mode's hands: pointer warping, the aim, and synthesized
 /// pixel-scroll events. The engine owns the mode; this owns the physics.
@@ -79,7 +80,16 @@ final class ScrollController {
         self.model = model
     }
 
-    private var discoveryGeneration = 0
+    private var discoveryGeneration = 0 {
+        didSet { discoveryRetry?.cancel() }
+    }
+    /// The asking-again for a focused window (`retryDiscovery`), owned so
+    /// that the next session, or the end of this one, ends it.
+    private var discoveryRetry: Task<Void, Never>?
+    /// A look every 250 ms, the first one wait in, sixteen in all: four
+    /// seconds for the window to exist.
+    static let discoveryInterval = Duration.milliseconds(250)
+    static let discoveryLooks = Schedule.fixed(discoveryInterval).attempts(16)
 
     /// Called when async pane discovery lands (for guide refreshes).
     var onPanesDiscovered: (() -> Void)?
@@ -144,27 +154,26 @@ final class ScrollController {
             appName = front.localizedName ?? "App"
             appIcon = front.icon
             windowFrame = .zero
-            retryDiscovery(generation: discoveryGeneration, began: ContinuousClock.now, attempts: 0)
+            retryDiscovery(generation: discoveryGeneration, began: ContinuousClock.now)
         }
     }
 
     /// Ask the model again until the focused window exists, then discover
     /// its panes. The keys never waited: this refines aim, it does not
     /// gate the mode.
-    private func retryDiscovery(generation: Int, began: ContinuousClock.Instant, attempts: Int) {
-        guard discoveryGeneration == generation, attempts < 16 else { return }
-        onMain(after: .milliseconds(250)) { [weak self] in
-            guard let self, self.discoveryGeneration == generation else { return }
-            guard let focused = self.model.focusedWindowNow() else {
-                self.retryDiscovery(generation: generation, began: began,
-                                    attempts: attempts + 1)
-                return
+    private func retryDiscovery(generation: Int, began: ContinuousClock.Instant) {
+        discoveryRetry = Task { @MainActor [weak self] in
+            do { try await Ambient.sleep(for: Self.discoveryInterval) } catch { return }
+            await recur(Self.discoveryLooks, label: "scroll.discovery") { _ in
+                guard let self, self.discoveryGeneration == generation else { return .stop }
+                guard let focused = self.model.focusedWindowNow() else { return .continue }
+                self.appName = focused.appName
+                self.appIcon = NSRunningApplication(processIdentifier: focused.pid)?.icon
+                self.windowFrame = focused.frame
+                self.discoverPanes(of: focused.element, began: began)
+                self.onPanesDiscovered?()
+                return .stop
             }
-            self.appName = focused.appName
-            self.appIcon = NSRunningApplication(processIdentifier: focused.pid)?.icon
-            self.windowFrame = focused.frame
-            self.discoverPanes(of: focused.element, began: began)
-            self.onPanesDiscovered?()
         }
     }
 

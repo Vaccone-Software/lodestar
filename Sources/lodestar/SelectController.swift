@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import Stoic
 
 /// One machine, three doors. Text addressed by its own content: type a few
 /// characters of what you can see; matches highlight and wear capital
@@ -129,8 +130,16 @@ final class SelectController {
     /// What the grounding said about the last gathered span, for the log.
     private var groundingNote = ""
     /// One per verified copy, so a verdict arriving after the next mode
-    /// entry lands nowhere.
-    private var copyGeneration = 0
+    /// entry lands nowhere. A new one ends the watch for the last copy.
+    private var copyGeneration = 0 {
+        didSet { appCopyWatch?.cancel() }
+    }
+    /// The ⌘C and the watch for the app's copy that follows it, owned so
+    /// that the next copy (or the next mode entry) ends it.
+    private var appCopyWatch: Task<Void, Never>?
+    /// The watch for the app's copy: a look at once and every 50 ms after,
+    /// nine looks in all, about 400 ms.
+    static let appCopyLooks = Schedule.fixed(.milliseconds(50)).attempts(9)
     /// Stamped on every event of Lodestar's own drag-and-copy, so the tap
     /// passes them to the app untouched: the ghost's ⌘C would otherwise
     /// take the synthetic ⌘C as the hand's.
@@ -1535,10 +1544,24 @@ final class SelectController {
         let before = SystemEvents.pasteboard.changeCount
         // ⌘C once the app has taken the mouse-up, then a short watch for
         // the pasteboard to move.
-        onMain(after: .milliseconds(90)) { [weak self] in
-            guard let self, self.copyGeneration == token else { return }
+        appCopyWatch = Task { @MainActor [weak self] in
+            do { try await Ambient.sleep(for: .milliseconds(90)) } catch { return }
+            guard !Task.isCancelled, self?.copyGeneration == token else { return }
             Self.postCopy()
-            self.awaitAppCopy(attempt, token: token, before: before, polls: 0, began: began)
+            let watched = await recur(Self.appCopyLooks, label: "select.app-copy") { _ in
+                guard let self, self.copyGeneration == token else { return .stop }
+                let board = SystemEvents.pasteboard
+                guard board.changeCount != before else { return .continue }
+                attempt.appText = board.string(forType: .string)
+                attempt.appDone = true
+                self.settleCopy(attempt, token: token, began: began)
+                return .stop
+            }
+            // Every look taken and the pasteboard never moved: the app's
+            // reading is in, and it is nothing.
+            guard watched == .scheduleEnded, let self, self.copyGeneration == token else { return }
+            attempt.appDone = true
+            self.settleCopy(attempt, token: token, began: began)
         }
     }
 
@@ -1550,25 +1573,6 @@ final class SelectController {
         var appDone = false
         var settled = false
         init(pixel: String) { self.pixel = pixel }
-    }
-
-    private func awaitAppCopy(_ attempt: VerifiedCopy, token: Int, before: Int, polls: Int, began: ContinuousClock.Instant) {
-        guard copyGeneration == token else { return }
-        let board = SystemEvents.pasteboard
-        if board.changeCount != before {
-            attempt.appText = board.string(forType: .string)
-            attempt.appDone = true
-            settleCopy(attempt, token: token, began: began)
-            return
-        }
-        guard polls < 8 else {
-            attempt.appDone = true
-            settleCopy(attempt, token: token, began: began)
-            return
-        }
-        onMain(after: .milliseconds(50)) { [weak self] in
-            self?.awaitAppCopy(attempt, token: token, before: before, polls: polls + 1, began: began)
-        }
     }
 
     /// Both readings in: decide what stands on the pasteboard, and how

@@ -94,15 +94,17 @@ final class DailyCountTests: XCTestCase {
     }
 
     func testRetriesAreThreeAndBounded() {
-        let random = RandomSource.seeded(7)
-        for (failures, whole) in [(1, 60.0), (2, 300.0), (3, 1800.0)] {
-            let delay = try? XCTUnwrap(DailyCount.retryDelay(afterFailures: failures, random: random))
+        XCTAssertEqual(DailyCount.retrySchedule.schedule.maximalDelays(limit: 10),
+                       [.seconds(60), .seconds(300), .seconds(1800)])
+        XCTAssertEqual(DailyCount.retrySchedule.maximumAttempts, 4)
+        var retries = DailyCount.retrySchedule.makeStepper(random: RandomSource.seeded(7).generator())
+        for whole in [60.0, 300.0, 1800.0] {
+            let delay = retries.next(elapsed: .zero)
             XCTAssertNotNil(delay)
-            XCTAssertGreaterThanOrEqual(delay ?? 0, whole / 2)
-            XCTAssertLessThanOrEqual(delay ?? .infinity, whole)
+            XCTAssertGreaterThanOrEqual(delay?.inSeconds ?? 0, whole / 2)
+            XCTAssertLessThanOrEqual(delay?.inSeconds ?? .infinity, whole)
         }
-        XCTAssertNil(DailyCount.retryDelay(afterFailures: 4, random: random), "then the day goes uncounted")
-        XCTAssertNil(DailyCount.retryDelay(afterFailures: 0, random: random))
+        XCTAssertNil(retries.next(elapsed: .zero), "then the day goes uncounted")
     }
 
     // MARK: - Who may count

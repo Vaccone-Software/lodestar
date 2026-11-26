@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import Stoic
 
 /// Predicted warming: the accessibility trees of the apps most likely to
 /// be next are asked to stand *before* the switch, so the first text mode
@@ -48,7 +49,7 @@ final class Prewarmer {
     private var model = NextApp()
     private var strategy: NextApp.Strategy = .blend
     private var tuning = NextApp.Tuning()
-    private var pending: Task<Void, Never>?
+    private let settling = TaskSlot<Void, any Error>(label: "prewarm.settle")
     /// Stamped at init so the first refresh is the boot's, after its
     /// delay — not the first focus change during launch.
     private var seededAt = ContinuousClock.now
@@ -63,8 +64,7 @@ final class Prewarmer {
     /// predicted apps are warmed.
     func focused(app: String) {
         model.observe(app)
-        pending?.cancel()
-        pending = onMain(after: .seconds(Self.settle)) { [weak self] in self?.warmPredicted() }
+        settling.settle(for: self, after: .seconds(Self.settle)) { $0.warmPredicted() }
         if seededAt.secondsElapsed >= Self.seedInterval { refresh() }
     }
 
@@ -76,7 +76,6 @@ final class Prewarmer {
     }
 
     private func warmPredicted() {
-        pending = nil
         let predicted = model.predict(strategy, k: Self.count)
         lastPredicted = predicted
         guard !predicted.isEmpty else { return }

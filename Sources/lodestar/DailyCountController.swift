@@ -54,7 +54,9 @@ final class DailyCountController {
     private var sending = false
     /// The try now going, for a test to wait on rather than guess at.
     private(set) var inFlight: Task<Void, Never>?
-    private var failures = 0
+    /// The walk through `DailyCount.retrySchedule` that the sends failing
+    /// in a row have taken; nil when none is under way.
+    private var retries: Schedule.Stepper?
     private var wakeObserver: NSObjectProtocol?
 
     init(eligible: Bool = DailyCount.thisProcessIsEligible(), clock: Clock = .live,
@@ -147,7 +149,7 @@ final class DailyCountController {
     private func cancelSend() {
         sendWork?.cancel()
         sendWork = nil
-        failures = 0
+        retries = nil
     }
 
     private func sendIfDue() {
@@ -188,17 +190,18 @@ final class DailyCountController {
         case .counted, .refused:
             // A refusal is a bug in what was sent; sending it again would
             // be refused again, so the day is settled either way.
-            failures = 0
+            retries = nil
             if outcome == .counted { record.lastSentDay = max(record.lastSentDay ?? "", day) }
             if record.pending?.day == day { record.pending = nil }
             write(record)
         case .later:
-            failures += 1
-            guard let delay = DailyCount.retryDelay(afterFailures: failures, random: random) else {
-                failures = 0
+            var walk = retries ?? DailyCount.retrySchedule.makeStepper(random: random.generator())
+            guard let delay = walk.next(elapsed: .zero) else {
+                retries = nil
                 return
             }
-            scheduleSend(at: clock.now().addingTimeInterval(delay))
+            retries = walk
+            scheduleSend(at: clock.now().addingTimeInterval(delay.inSeconds))
         }
     }
 

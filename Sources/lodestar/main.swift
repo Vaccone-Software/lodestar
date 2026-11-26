@@ -60,8 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var coachSuggestionItem: NSMenuItem?
     private var menuBarHideTimer: Timer?
     private var signalSource: DispatchSourceSignal?
-    private var trustPoll: Timer?
-    private var displayReconcile: Task<Void, Never>?
+    private var trustPoll: Task<Void, Never>?
+    private let displayReconcile = TaskSlot<Void, any Error>(label: "displays.settle")
     private var clickHandler: ClickHandler?
     /// Links that arrived before the handler existed. A URL open can be the
     /// reason we were launched, so the event can beat our own setup; the queue
@@ -847,8 +847,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             object: nil, queue: .main
         ) { [weak self] _ in
             // Reconfigurations arrive in bursts; act once they settle.
-            self?.displayReconcile?.cancel()
-            self?.displayReconcile = onMain(after: .seconds(1)) { [weak self] in self?.layout.reconcileDisplays() }
+            guard let self else { return }
+            self.displayReconcile.settle(for: self, after: .seconds(1)) { $0.layout.reconcileDisplays() }
         }
         if config.showMenuBar { createStatusItem() }
         watchAppIcon()
@@ -936,9 +936,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                               rows: [], owner: .flash)
             }
             launchStages.finish()
-            trustPoll = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
-                guard let self, Permissions.isTrusted else { return }
-                self.trustPoll?.invalidate()
+            trustPoll = onMain(every: .seconds(2.5), label: "accessibility.trust") { [weak self] in
+                guard let self else { return true }
+                guard Permissions.isTrusted else { return false }
                 self.trustPoll = nil
                 Log.info("accessibility granted — waking up")
                 self.model.stop()
@@ -948,6 +948,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if self.engine.start() {
                     self.flashReady("\(self.model.windows.count) windows tracked")
                 }
+                return true
             }
             return
         }

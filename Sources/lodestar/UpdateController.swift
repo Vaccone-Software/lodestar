@@ -172,21 +172,31 @@ final class UpdateController {
         self.records = installURL == nil ? nil : records
     }
 
-    /// Checks that failed in a row, and the retry waiting on them.
+    /// Checks that failed in a row (for the log), the walk through
+    /// `Updater.retrySchedule` they have taken, and the retry waiting on
+    /// the next step. A check that reads the feed starts both again.
     private var failedChecks = 0
-    private var retry: Timer?
+    private var retries = UpdateController.freshRetries()
+    private var retry: Task<Void, Never>?
 
-    /// A check that failed is asked again soon (`Updater.retryDelay`), not
-    /// the next day. Main.
+    private static func freshRetries() -> Schedule.Stepper {
+        Updater.retrySchedule.makeStepper(random: RandomSource.system.generator())
+    }
+
+    /// A check that failed is asked again soon (`Updater.retrySchedule`),
+    /// not the next day; once the schedule is spent, the daily check has
+    /// it. Main.
     private func scheduleRetry() {
         failedChecks += 1
-        retry?.invalidate()
-        guard let delay = Updater.jitteredRetryDelay(afterFailures: failedChecks) else {
+        retry?.cancel()
+        guard let delay = retries.next(elapsed: .zero) else {
             retry = nil
             return
         }
-        Log.info("update", ["retry-in-minutes": Int(delay / 60), "failures": failedChecks])
-        retry = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+        Log.info("update", ["retry-in-minutes": Int(delay.inSeconds / 60), "failures": failedChecks])
+        // Not counting time asleep, so a retry never falls due the moment a
+        // Mac wakes, before its network has.
+        retry = onMain(after: delay, clock: Ambient.current.livenessClock) { [weak self] in
             self?.check(force: false)
         }
     }
@@ -490,7 +500,10 @@ final class UpdateController {
                         log: "\(channel.rawValue) feed unreadable (\(problem ?? "no release with a zip"))", failed: true)
             return
         }
-        DispatchQueue.main.async { self.failedChecks = 0 }
+        DispatchQueue.main.async {
+            self.failedChecks = 0
+            self.retries = Self.freshRetries()
+        }
         let local = Updater.parseVersion(Lodestar.version) ?? []
         guard Updater.isNewer(release.version, than: local) else {
             finishCheck(force: force, voice: Voice.newest(Lodestar.version), log: nil)

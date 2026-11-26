@@ -29,6 +29,9 @@ public enum WebRouting {
     /// machine). Those get http, because a box on your desk has no
     /// certificate and https is the one guess that could never work.
     /// Everything else, and anything you gave a scheme, is left alone.
+    /// The decision uses the real host: userinfo, a port, and IPv6
+    /// brackets are set aside first, so a colon in a password is not a
+    /// machine on the desk.
     public static func normalize(_ input: String) -> String {
         let trimmed = input.trimmingCharacters(in: .whitespaces)
         if hasScheme(trimmed) { return trimmed }
@@ -58,10 +61,50 @@ public enum WebRouting {
         return bare.isEmpty ? nil : bare
     }
 
-    /// The host alone: no path, no port, lowercased.
+    /// The host alone: no userinfo, no path, no query, no port, lowercased.
+    ///
+    /// Read this before any colon is treated as special. `user:pass@github.com`
+    /// is the host `github.com`, not the machine `user` — a password may
+    /// contain colons, and cutting at the first one sent those credentials
+    /// out over http. `[::1]:8080` is the loopback address `::1`; the colons
+    /// inside the brackets are the address, and the port sits after `]`.
+    /// An unbracketed `::1` has no port at all (that form is `[::1]:8080`).
+    /// `URL` cannot do this job: it reads `user:pass@github.com` as a scheme.
     private static func bareHost(of input: String) -> String {
         let head = String(input.split(separator: "/").first ?? "")
-        return String(head.split(separator: ":").first ?? "").lowercased()
+        let end = head.firstIndex(where: { $0 == "?" || $0 == "#" }) ?? head.endIndex
+        return hostWithoutPort(stripUserinfo(String(head[..<end]))).lowercased()
+    }
+
+    /// `user:pass@host` — everything after the last `@`. A password can hold
+    /// a colon, so this has to happen before the port is read.
+    private static func stripUserinfo(_ authority: String) -> String {
+        guard let at = authority.lastIndex(of: "@") else { return authority }
+        return String(authority[authority.index(after: at)...])
+    }
+
+    /// Name or IPv6 address, without a trailing port. `[::1]:8080` and
+    /// `api:8000` lose the port; `::1` and `time:now` do not. A port on an
+    /// IPv6 literal is only written after `]`.
+    private static func hostWithoutPort(_ authority: String) -> String {
+        if authority.hasPrefix("[") {
+            guard let close = authority.firstIndex(of: "]") else { return authority }
+            let inside = authority[authority.index(after: authority.startIndex)..<close]
+            let after = authority[authority.index(after: close)...]
+            if after.isEmpty { return String(inside) }
+            if after.first == ":" {
+                let port = after.dropFirst()
+                if port.isEmpty || port.allSatisfy(\.isNumber) { return String(inside) }
+            }
+            return authority
+        }
+        guard let colon = authority.lastIndex(of: ":") else { return authority }
+        let name = authority[..<colon]
+        // Another colon means an unbracketed IPv6 address, not `name:port`.
+        guard !name.contains(":") else { return authority }
+        let port = authority[authority.index(after: colon)...]
+        guard port.isEmpty || port.allSatisfy(\.isNumber) else { return authority }
+        return String(name)
     }
 
     /// A host that names a machine rather than a site: loopback, a private

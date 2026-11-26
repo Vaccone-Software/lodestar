@@ -25,16 +25,16 @@ final class HeldKeyNotice {
     private let panel = Ceramic.makePanel(level: .floating, takesKeys: false)
     private let root = NSView()
     private lazy var gate = PointerGate(panel: panel)
-    private let clock: Clock
     private var onClick: (() -> Void)?
-    private var leave: DispatchWorkItem?
+    private var leave: Task<Void, Never>?
+    /// Stays up once the keys are back, so that it can be photographed.
+    var stays = false
 
     /// What is drawn now, for the tests: the line, and the key's state.
     private(set) var words: String?
     private(set) var key: Key?
 
-    init(clock: Clock = .live) {
-        self.clock = clock
+    init() {
         root.wantsLayer = true
         panel.contentView = root
         root.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(click)))
@@ -65,9 +65,8 @@ final class HeldKeyNotice {
         let sentence = SecureInputNotice.keysBack
         draw(lit: true, sentence: sentence)
         root.setAccessibilityLabel(sentence)
-        let work = DispatchWorkItem { [weak self] in self?.hide() }
-        leave = work
-        clock.after(Readability.flashSeconds(for: sentence), work)
+        guard !stays else { return }
+        leave = onMain(after: .seconds(Readability.flashSeconds(for: sentence))) { [weak self] in self?.hide() }
     }
 
     func hide() {

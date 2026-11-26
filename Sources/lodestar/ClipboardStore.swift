@@ -814,17 +814,17 @@ final class ClipboardStore {
     }
     private var pruneScheduled = false
     private var pruning = false
-    private var pruneDue: ContinuousClock.Instant?
+    private var pruneDue: AnyClock.Instant?
 
     /// Look the cards of files over soon: after a copy, when the strip
     /// closes, and every `prunePeriod` in between.
     func pruneGoneFilesSoon(after delay: TimeInterval = 1) {
-        let due = ContinuousClock.now + .seconds(delay)
+        let due = Ambient.current.clock.now.advanced(by: .seconds(delay))
         guard prunesGoneFiles, !pruneScheduled || pruneDue.map({ due < $0 }) ?? true else { return }
         pruneScheduled = true
         pruneDue = due
         onMain(after: .seconds(delay)) { [weak self] in
-            guard let self, let planned = self.pruneDue, planned <= ContinuousClock.now + .seconds(0.05) else { return }
+            guard let self, let planned = self.pruneDue, planned <= Ambient.current.clock.now.advanced(by: .seconds(0.05)) else { return }
             self.pruneScheduled = false
             self.pruneDue = nil
             self.pruneGoneFiles()

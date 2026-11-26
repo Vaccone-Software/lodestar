@@ -54,9 +54,11 @@ final class MeetingController: NSObject {
     /// Occurrences whose chip has been offered, for the observation that
     /// is recorded once per instance rather than once per redraw.
     private var offered: Set<String> = []
-    private var primeShownThisBoot = false
-    /// A denied grant is reported once, not every reconcile.
-    private var reportedDenied = false
+    /// Whether meetings run, and what has been asked and said. Stepped on
+    /// the main thread only, so what a step owes is done before `send` returns.
+    private lazy var access = StateMachine(MeetingAccess.self, initial: .init()) { [weak self] effect in
+        self?.perform(effect)
+    }
     /// One fetch in flight at a time; a storm of change notifications
     /// coalesces into the trailing edge of a one-second debounce.
     private var refreshing = false
@@ -176,34 +178,28 @@ final class MeetingController: NSObject {
     // MARK: - Reconciling intent with the machine
 
     private func reconcile() {
-        guard config.meetingsEnabled else {
-            stop()
-            // Disabling re-arms the prime: someone who turns the feature
-            // back on is asking the question again and deserves the card
-            // again, this boot included.
-            primeShownThisBoot = false
-            return
-        }
-        switch authorization {
-        case _ where authorized:
-            reportedDenied = false
+        access.send(seen)
+    }
+
+    private var seen: MeetingAccess.Event {
+        guard config.meetingsEnabled else { return .switchedOff }
+        if authorized { return .granted }
+        return authorization == .notDetermined ? .undecided : .refused
+    }
+
+    private func perform(_ effect: MeetingAccess.Effect) {
+        switch effect {
+        case .start:
             grantPoll?.cancel(); grantPoll = nil
             prime.orderOut(nil)
             start()
-        case .notDetermined:
-            pollForGrant()
-            guard !primeShownThisBoot else { return }
-            primeShownThisBoot = true
-            showPrime()
-        default:
-            stop()
-            pollForGrant()
-            if !reportedDenied {
-                reportedDenied = true
-                Log.error("meetings: enabled but calendar access is denied")
-                flash?("Meetings need calendar access. Allow Lodestar under "
-                    + "Privacy and Security, Calendars.")
-            }
+        case .stop: stop()
+        case .watch: pollForGrant()
+        case .prime: showPrime()
+        case .tell:
+            Log.error("meetings: enabled but calendar access is denied")
+            flash?("Meetings need calendar access. Allow Lodestar under "
+                + "Privacy and Security, Calendars.")
         }
     }
 

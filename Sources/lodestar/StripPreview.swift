@@ -406,7 +406,8 @@ enum StripPreview {
         // key beside the line naming the holder, or lit when the keys come back (held up
         // here, so it can be photographed).
         if variant == 144 {
-            let notice = HeldKeyNotice(clock: Clock(now: { Moment.now.date }, after: { _, _ in }))
+            let notice = HeldKeyNotice()
+            notice.stays = true
             let terminal = ProcessInfo.processInfo.environment["NOTICE"] == "terminal"
             let holder = terminal
                 ? SecureInputNotice.Holder(pid: 1, name: "Ghostty", bundleID: "com.mitchellh.ghostty")

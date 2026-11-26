@@ -1,6 +1,7 @@
 import ApplicationServices
 import Foundation
 import LodestarCore
+import Stoic
 import Synchronization
 
 /// The names of the code being talked about, for the draft to write as the
@@ -42,19 +43,22 @@ enum RepoNames {
         return nil
     }
 
-    private static let cache = Mutex<[String: (at: ContinuousClock.Instant, index: CodeNames.Index)]>([:])
-    private static let freshFor: TimeInterval = 600
+    private static let cache = Mutex<[String: (at: AnyClock.Instant, index: CodeNames.Index)]>([:])
+    private static let freshFor: Duration = .seconds(600)
 
     /// The repository's names, read off the main thread when they are not
     /// already fresh; `done` runs on the main thread.
     static func index(for root: URL, done: @escaping (CodeNames.Index?) -> Void) {
+        // The asker's clock, for the queue's reading too: a queue has no
+        // ambient context of its own.
+        let clock = Ambient.current.clock
         let cached = cache.withLock { $0[root.path] }
-        if let cached, cached.at.secondsElapsed < freshFor { done(cached.index); return }
+        if let cached, cached.at.duration(to: clock.now) < freshFor { done(cached.index); return }
         DispatchQueue.global(qos: .utility).async {
             let began = ContinuousClock.now
             let names = CodeNames.gather(root)
             let index = CodeNames.Index(names: names, pronouncer: DictationLexicon.pronouncer)
-            cache.withLock { $0[root.path] = (ContinuousClock.now, index) }
+            cache.withLock { $0[root.path] = (clock.now, index) }
             Log.info("draft", ["code names": index.count, "repository": root.lastPathComponent,
                                "ms": Int(began.secondsElapsed * 1000)])
             DispatchQueue.main.async { done(index) }

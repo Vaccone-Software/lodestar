@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LodestarCore
+import Stoic
 
 /// Installed + running applications, searchable for the searcher.
 final class AppIndex {
@@ -17,8 +18,8 @@ final class AppIndex {
     /// the graph-summon path, and an O(n) scan with a lowercase per entry
     /// was the price of throwing the scan dictionary's keys away.
     private var byLowerName: [String: Entry] = [:]
-    private var lastScan: ContinuousClock.Instant?
-    private var scanning = false
+    private var lastScan: AnyClock.Instant?
+    private(set) var scanning = false
     /// Resolved icons, living exactly as long as the entries they came from.
     private var icons: [String: NSImage?] = [:]
 
@@ -37,14 +38,15 @@ final class AppIndex {
     /// ~150 Info.plists, and the searcher's first keystroke after idle must
     /// not pay for it. Queries keep the current entries until the swap.
     func refreshIfStale() {
-        guard lastScan.map({ $0.secondsElapsed > 30 }) ?? true, !scanning else { return }
+        let clock = Ambient.current.clock
+        guard lastScan.map({ $0.duration(to: clock.now) > .seconds(30) }) ?? true, !scanning else { return }
         scanning = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let found = AppIndex.scanDisk()
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.install(AppIndex.mergeRunning(into: found))
-                self.lastScan = ContinuousClock.now
+                self.lastScan = clock.now
                 self.scanning = false
             }
         }
@@ -53,7 +55,7 @@ final class AppIndex {
     /// Synchronous full scan — the boot path, before any panel exists.
     func refresh() {
         install(AppIndex.mergeRunning(into: AppIndex.scanDisk()))
-        lastScan = ContinuousClock.now
+        lastScan = Ambient.current.clock.now
     }
 
     /// Swap in a fresh index. The icon table survives a swap that changed

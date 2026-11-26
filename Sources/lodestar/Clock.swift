@@ -12,6 +12,11 @@ import StoicTime
 /// then a sixty-second chip in no wall time, and a test that says "at ten
 /// seconds the offer is spent" states its own clock instead of inheriting
 /// the machine's. The app uses `.live`: the wall clock and the main actor.
+///
+/// What that harness turns by hand takes one, since a wait on the ambient
+/// clock wakes through a thread the harness does not hold and its steps
+/// would land in no order. Anything else should wait with `onMain(after:)`
+/// and read `Moment.now`, which a test pins with `TestClock`.
 struct Clock {
     /// The current moment.
     let now: () -> Date

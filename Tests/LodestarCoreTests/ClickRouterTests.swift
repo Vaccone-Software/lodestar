@@ -75,6 +75,37 @@ final class ClickRouterTests: XCTestCase {
         XCTAssertEqual(ClickRouter.route("https://x.com/a", in: stale), .passThrough)
     }
 
+    /// A clicked link is matched on its host. The pattern has to cover whole
+    /// labels, and a copy of the pattern in the path or the query is not a
+    /// site the rule named — the click never shows a row that could catch it.
+    func testAClickedLinkMatchesTheHostOnLabelBoundaries() {
+        let routed = context(routes: ["github.com": "work", "youtube": "personal", "ai": "work"])
+        XCTAssertEqual(ClickRouter.route("https://github.com/lodestar", in: routed),
+                       .profile(work, pattern: "github.com"))
+        XCTAssertEqual(ClickRouter.route("https://gist.github.com/vac", in: routed),
+                       .profile(work, pattern: "github.com"))
+        XCTAssertEqual(ClickRouter.route("https://www.github.com/", in: routed),
+                       .profile(work, pattern: "github.com"))
+        XCTAssertEqual(ClickRouter.route("https://music.youtube.com/playlist", in: routed),
+                       .profile(personal, pattern: "youtube"))
+        XCTAssertEqual(ClickRouter.route("https://notgithub.com/login", in: routed), .passThrough)
+        XCTAssertEqual(ClickRouter.route("https://mygithub.com.evil.test/a", in: routed),
+                       .passThrough)
+        XCTAssertEqual(ClickRouter.route("https://github.com.evil.test/a", in: routed),
+                       .passThrough)
+        XCTAssertEqual(ClickRouter.route("https://mail.google.com/mail/u/0/#inbox", in: routed),
+                       .passThrough)
+        XCTAssertEqual(
+            ClickRouter.route("https://evil.example/login?next=https://github.com", in: routed),
+            .passThrough)
+        XCTAssertEqual(
+            ClickRouter.route("https://evil.example/redirect/github.com", in: routed),
+            .passThrough)
+        XCTAssertEqual(
+            ClickRouter.route("https://github.com@evil.example/path", in: routed),
+            .passThrough)
+    }
+
     func testLongestPatternWinsAsItDoesEverywhereElse() {
         let overlapping = context(routes: ["youtube": "work", "music.youtube": "personal"])
         XCTAssertEqual(ClickRouter.route("https://youtube.com/feed", in: overlapping),

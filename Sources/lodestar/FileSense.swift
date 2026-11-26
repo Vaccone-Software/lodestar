@@ -326,16 +326,11 @@ enum FileSense {
     /// which is nil. So is the answer when the label is wedged (every place
     /// under it held by a read that has not come back) and the read is
     /// refused without being begun, and when the read never got its turn.
+    /// The bridge from a synchronous caller is `BoundedCall`'s.
     static func withDeadline<T: Sendable>(_ seconds: TimeInterval, label: String, limit: Int = slots,
                                           _ work: @escaping @Sendable () -> T?) -> T? {
-        blocking(seconds) { clock in
-            do throws(PolicyError<Never>) {
-                return try await abandoningAfter(.seconds(seconds), label: label, limit: limit, clock: clock,
-                                                 qos: .utility, operation: work)
-            } catch {
-                return nil
-            }
-        }
+        BoundedCall.blocking(seconds, label: label, limit: limit, clock: clock, backstop: backstop,
+                             start: start, work)
     }
 
     /// The same for a read that awaits (a callback, an asset's load): it
@@ -343,37 +338,8 @@ enum FileSense {
     /// holds its place under the label until it returns, cancelled or not.
     static func withAsyncDeadline<T: Sendable>(_ seconds: TimeInterval, label: String, limit: Int = slots,
                                                _ work: @escaping @concurrent @Sendable () async -> T?) -> T? {
-        blocking(seconds) { clock in
-            do throws(PolicyError<Never>) {
-                return try await abandoningAsyncAfter(.seconds(seconds), label: label, limit: limit, clock: clock,
-                                                      operation: work)
-            } catch {
-                return nil
-            }
-        }
-    }
-
-    /// What `ask` answers, for a caller that is not async. The wait is on a
-    /// task that Stoic's wait answers by its deadline at the latest, so the
-    /// caller is not held past it; an ordinary Task, so the ambient context
-    /// of the caller (where Stoic's events go) comes with it. It needs a
-    /// thread of the cooperative pool for the moment it takes to start the
-    /// read, as `UpdateController.run`'s bridge does, and a pool with none to
-    /// give must not hold the caller for ever (one caller is the main
-    /// thread): on the real clock the caller waits `backstop` past the
-    /// read's deadline and no longer, and has nothing. On a test's clock the
-    /// deadline is the test's to move, and there is no other.
-    private static func blocking<T: Sendable>(_ seconds: TimeInterval,
-                                              _ ask: @escaping @Sendable (AnyClock?) async -> T?) -> T? {
-        let handoff = Handoff<T>()
-        let clock = Self.clock
-        start { handoff.finish(await ask(clock)) }
-        guard clock == nil else { return handoff.wait() }
-        guard let answer = handoff.wait(for: seconds + backstop) else {
-            Log.error("file read: the read was not begun or answered \(backstop) s past its deadline, so its caller went on without it")
-            return nil
-        }
-        return answer
+        BoundedCall.awaiting(seconds, label: label, limit: limit, clock: clock, backstop: backstop,
+                             start: start, work)
     }
 
     /// How long past a read's deadline its caller waits for the task that
@@ -388,19 +354,5 @@ enum FileSense {
     // stoic:allow(nonisolated-unsafe): a test seam that only tests assign, on the main thread before the read that uses it begins (LeakGuard puts it back after); production never writes it, so every read sees the initial value or the one a test set before it
     nonisolated(unsafe) static var start: (@escaping @Sendable () async -> Void) -> Void = { work in
         Task { await work() }
-    }
-
-    /// An answer handed from the task to the thread waiting for it.
-    private final class Handoff<T: Sendable>: Sendable {
-        private let stored = Mutex<T?>(nil)
-        private let done = DispatchSemaphore(value: 0)
-        func finish(_ value: T?) { stored.withLock { $0 = value }; done.signal() }
-        func wait() -> T? { done.wait(); return stored.withLock { $0 } }
-        /// The answer if it came within `seconds`; a wait that ran out is
-        /// told from an answer of nothing by the outer nil.
-        func wait(for seconds: TimeInterval) -> T?? {
-            guard done.wait(timeout: .now() + seconds) == .success else { return nil }
-            return .some(stored.withLock { $0 })
-        }
     }
 }

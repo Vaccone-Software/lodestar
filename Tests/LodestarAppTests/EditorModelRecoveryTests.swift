@@ -387,7 +387,10 @@ final class EditorModelRecoveryTests: XCTestCase {
         await model.release(reason: "test")
         await eventually("the cache is cleared", { events.all.count == 1 })
         XCTAssertEqual(events.all, ["clear held"], "the clear waited its turn on the lane like any evaluation")
-        XCTAssertFalse(gate.isHeld)
+        // The event is written inside the clear, which runs holding the lane,
+        // so the lane is let go only after the event is seen: wait for that,
+        // and a lane never let go still fails here.
+        await eventually("the lane is let go after the clear", { !gate.isHeld })
     }
 
     func testTheClearWaitsForTheLaneAndNeverFollowsTheNextLoad() async {

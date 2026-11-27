@@ -600,6 +600,8 @@ public enum SettingsModel {
                 presets: [
                     Preset(label: "Brave Search", value: "https://search.brave.com/search?q=%s"),
                     Preset(label: "Google", value: "https://www.google.com/search?q=%s"),
+                    // Startpage's own template, from its OpenSearch file.
+                    Preset(label: "Startpage", value: "https://www.startpage.com/sp/search?query=%s"),
                 ]),
             Row(title: "Links", path: "web.links",
                 control: .table(kind: .links, entries: linkEntries),

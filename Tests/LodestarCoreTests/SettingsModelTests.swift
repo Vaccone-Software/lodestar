@@ -202,6 +202,15 @@ final class SettingsModelTests: XCTestCase {
     }
 
     /// A kept zone is listed by its city and offset, never its identifier.
+    /// Ask's search engine offers its templates by name, each with the %s
+    /// a query goes into.
+    func testTheSearchEnginesOnOffer() throws {
+        let row = try XCTUnwrap(sections.flatMap(\.rows).first { $0.path == "web.search-url" })
+        XCTAssertEqual(row.presets.map(\.label), ["Brave Search", "Google", "Startpage"])
+        XCTAssertEqual(row.presets.last?.value, "https://www.startpage.com/sp/search?query=%s")
+        XCTAssertTrue(row.presets.allSatisfy { $0.value.contains("%s") })
+    }
+
     func testEveryConfigRowWearsItsPath() {
         for section in sections {
             for row in section.rows {

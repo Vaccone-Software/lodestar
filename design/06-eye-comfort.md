@@ -8,7 +8,7 @@ A screen is brightest when the room is darkest. Lodestar cannot dim the Mac, but
 
 ## Origin
 
-- **Decided with Ceramic** (20 October 2026): one setting, named for its purpose, "Eye comfort", on by default with one off switch. The schedule follows the sun, because a fixed schedule is wrong half the year; receding is housed here because it is the same idea in space rather than time.
+- **Decided with Ceramic** (20 October 2026): one setting, named for its purpose, "Eye comfort", on by default with one off switch. **No switch since 0.57** (27 November 2026): on for everyone, always. The schedule follows the sun, because a fixed schedule is wrong half the year; receding is housed here because it is the same idea in space rather than time.
 - **No night look at bedtime** (22 October 2026). The first draft took Lodestar's surfaces dark at bedtime even while the Mac was light. A dark room is the case for dark, and people work in dark rooms long before bedtime and sometimes never; Lodestar cannot see the room, and the Mac's appearance is the person's own answer (Auto takes every app dark together at sunset). A panel that turned dark on its own would be the odd one on a light screen and would break the rule that a surface follows the look the person chose. What the evidence supports is less light, so bedtime brings a deeper dim instead.
 - **Brightness, not hue.** The Lighting Research Center's study of Night Shift found that brightness, not colour temperature, decides what evening light does. So Lodestar dims and never tints; colour temperature stays with Night Shift.
 - **Dimming is luminance.** The prototype dimmed by 12% of perceptual lightness, which is about a 35% cut in luminance: clay turned grey, quiet ink fell under its floor, and the orange went brown to stay readable. The research's figures are luminance. Dimmed as luminance, clay stays clay.
@@ -44,9 +44,9 @@ A screen is brightest when the room is darkest. Lodestar cannot dim the Mac, but
 
 The pill and the meeting's chip stay on screen while the work is elsewhere. After 20 seconds without attention their ink moves toward their pane, to 7 : 1, and their quiet ink to 4.5 : 1, so the two keep a visible order (at 5.5 and 4.5 they read as one grey: contrast bunches near the floor). Receding is off while Increase Contrast is on. They come back at once on hover, a key, a change of state, or when the meeting is due. A lit key never recedes.
 
-### The setting
+### Not a setting
 
-In Settings, General, under "Sound and display": a switch titled **Eye comfort**, described as "Lodestar adjusts its own surfaces through the day to be easier on your eyes: dimmer and softer after sunset, dimmer still late at night, and quieter when you're not using them. What you copy and view is never changed". The config key is `appearance.eye-comfort`, true by default.
+Until 0.57 it had a switch in Settings, General, and the config key `appearance.eye-comfort`. Since 0.57 it is how Lodestar looks: easing the eyes is health, and DESIGN.md's appearance sentence leaves health to the product. A file that still names the key loads clean, and the next write drops it.
 
 ## Rules
 

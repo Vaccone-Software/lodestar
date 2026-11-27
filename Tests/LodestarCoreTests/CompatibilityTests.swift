@@ -262,7 +262,6 @@ final class CompatibilityTests: XCTestCase {
         tuned.clipboard.maxSizeMB = 200
         tuned.draft.editingStyle = .vim
         tuned.draft.words = ["Lodestar": true]
-        tuned.appearance.eyeComfort = false
         tuned.mice.reversedWheels = ["1133:49271": "Desk Mouse"]
         tuned.keys = ["10": "§"]
         return [("defaults", ConfigFile()), ("tuned", tuned)]

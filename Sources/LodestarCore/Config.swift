@@ -46,10 +46,6 @@ public struct Config {
     /// level that is safe all day, at Light, Standard or Strong. Off unless
     /// the person turns it on.
     public var reduceLoudAudio = LoudAudio.Level.off
-    /// Eye comfort: Lodestar's own surfaces ease through the day (dimmer and
-    /// softer after sunset, dimmer still late at night) and the ones that stay
-    /// on screen quiet down when unused. Never content. One switch.
-    public var eyeComfort = true
     /// Keep the login LaunchAgent installed (installed app only).
     public var startAtLogin = true
     /// Show the status item permanently; false hides it (picking lodestar
@@ -433,7 +429,6 @@ public struct Config {
         var config = Config()
         config.sounds = file.app.sounds
         config.reduceLoudAudio = file.app.reduceLoudAudio
-        config.eyeComfort = file.appearance.eyeComfort
         config.autoUpdate = file.app.autoUpdate
         config.channel = file.app.channel
         config.dailyCount = file.app.dailyCount

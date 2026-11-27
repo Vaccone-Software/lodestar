@@ -77,10 +77,10 @@ final class SettingsArmedRowTests: XCTestCase {
         var written: [Written] = []
         let settings = window { written.append($0) }
         settings.renderForTesting(place: general)
-        let eye = try row(settings, place: general, path: "appearance.eye-comfort")
+        let eye = try row(settings, place: general, path: "app.sounds")
         land(settings, place: general, row: eye)
         settings.keyForTesting("return")
-        XCTAssertEqual(written.map(\.path), ["appearance.eye-comfort"], "return works the row the search found")
+        XCTAssertEqual(written.map(\.path), ["app.sounds"], "return works the row the search found")
         settings.close()
     }
 
@@ -88,11 +88,11 @@ final class SettingsArmedRowTests: XCTestCase {
         var written: [Written] = []
         let settings = window { written.append($0) }
         settings.renderForTesting(place: general)
-        let eye = try row(settings, place: general, path: "appearance.eye-comfort")
+        let eye = try row(settings, place: general, path: "app.sounds")
         land(settings, place: general, row: eye)
         settings.keyForTesting("return")
         settings.keyForTesting("return")
-        XCTAssertEqual(written.map(\.path), ["appearance.eye-comfort"], "return spends the landing")
+        XCTAssertEqual(written.map(\.path), ["app.sounds"], "return spends the landing")
         settings.close()
     }
 
@@ -131,7 +131,7 @@ final class SettingsArmedRowTests: XCTestCase {
         var written: [Written] = []
         let settings = window { written.append($0) }
         settings.renderForTesting(place: general)
-        let eye = try row(settings, place: general, path: "appearance.eye-comfort")
+        let eye = try row(settings, place: general, path: "app.sounds")
         land(settings, place: general, row: eye)
         try clickBack(settings)
         XCTAssertNil(settings.placeForTesting)
@@ -144,9 +144,9 @@ final class SettingsArmedRowTests: XCTestCase {
         var written: [Written] = []
         let settings = window { written.append($0) }
         settings.renderForTesting(place: general)
-        let eye = try row(settings, place: general, path: "appearance.eye-comfort")
+        let eye = try row(settings, place: general, path: "app.sounds")
         let calendarRows = settings.sectionsForTesting[meetings].rows.count
-        XCTAssertLessThanOrEqual(calendarRows, eye, "Meetings has no row at General's Eye comfort number")
+        XCTAssertLessThanOrEqual(calendarRows, eye, "Meetings has no row at General's Sounds number")
         land(settings, place: general, row: eye)
         try clickBack(settings)
         try clickPlace(settings, meetings)
@@ -160,7 +160,7 @@ final class SettingsArmedRowTests: XCTestCase {
         var written: [Written] = []
         let settings = window { written.append($0) }
         settings.renderForTesting(place: general)
-        let eye = try row(settings, place: general, path: "appearance.eye-comfort")
+        let eye = try row(settings, place: general, path: "app.sounds")
         land(settings, place: general, row: eye)
         try clickBack(settings)
         try clickPlace(settings, general)

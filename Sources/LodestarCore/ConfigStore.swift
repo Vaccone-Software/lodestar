@@ -23,8 +23,8 @@ public enum ConfigStore {
     public typealias Store = SettingsStore<ConfigFile>
 
     /// The top-level sections in the order a person reads the file: what they
-    /// edit most first, then the rest alphabetically (`appearance`, `draft`,
-    /// `health`). `$schema` and `version` come before them, as the file's
+    /// edit most first, then the rest alphabetically (`draft`, `health`,
+    /// `mice`). `$schema` and `version` come before them, as the file's
     /// header. `ConfigFile.schema` declares them in this order, and the layout
     /// is the schema's; this is the order `Json.emit` writes a tree in, which
     /// `lodestar config` prints, held to the schema's by a test.

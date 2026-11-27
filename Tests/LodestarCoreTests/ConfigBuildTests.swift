@@ -301,23 +301,18 @@ final class ConfigBuildTests: XCTestCase {
             XCTAssertEqual(config.scrollSpeed, 2500, "the rest of the file still reads")
         }
         let (bare, problems) = try build(#"{"appearance": {}}"#)
-        XCTAssertEqual(problems, [], "the empty section that is left reads clean")
+        XCTAssertEqual(problems, [], "the empty section reads clean")
         XCTAssertEqual(bare.scrollSpeed, Config().scrollSpeed)
-        XCTAssertTrue(bare.eyeComfort, "and keeps the one setting the section carries")
     }
 
-    /// Eye comfort is the one appearance setting, on unless turned off, and a
-    /// file that still names the accent beside it keeps what it says about it.
-    func testEyeComfortIsOnUnlessTurnedOff() throws {
-        let (config, problems) = try build("{}")
-        XCTAssertTrue(config.eyeComfort)
-        XCTAssertEqual(problems, [])
-        let (off, offProblems) = try build(#"{"appearance": {"eye-comfort": false}}"#)
-        XCTAssertFalse(off.eyeComfort)
-        XCTAssertEqual(offProblems, [])
-        let (both, bothProblems) = try build(#"{"appearance": {"accent": "orange", "eye-comfort": false}}"#)
-        XCTAssertFalse(both.eyeComfort, "the section's live key still reads beside the retired one")
-        XCTAssertEqual(bothProblems, [], "and the retired one is no warning")
+    /// Eye comfort is how Lodestar looks since 0.57, not a switch: a file
+    /// that turned it off, beside the accent or alone, loads clean.
+    func testAFileThatTurnedEyeComfortOffLoadsClean() throws {
+        for json in [#"{"appearance": {"eye-comfort": false}}"#,
+                     #"{"appearance": {"accent": "orange", "eye-comfort": false}, "scroll": {"speed": 2500}}"#] {
+            let (_, problems) = try build(json)
+            XCTAssertEqual(problems, [], json)
+        }
     }
 
     // MARK: - Doctrines, not switches

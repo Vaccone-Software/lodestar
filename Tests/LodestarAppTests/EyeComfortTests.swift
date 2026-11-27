@@ -280,17 +280,16 @@ final class EyeComfortTests: XCTestCase {
         XCTAssertEqual(EyeComfortState.shared.level, 1, "on a zone change: it is the next morning there")
     }
 
-    func testTheSwitchFollowsTheConfig() {
-        XCTAssertTrue(Config().eyeComfort, "on by default")
+    /// The app turns it on at launch and nothing turns it off; off is
+    /// exactly off for the harness that draws at full.
+    func testOnIsTheEveningLevelAndOffIsFull() {
         let controller = EyeComfortController.shared
         controller.zone = { self.eastern }
         controller.place = { _ in self.newYork }
         controller.now = { self.night() }
-        controller.configure(enabled: Config().eyeComfort)
+        controller.configure(enabled: true)
         XCTAssertEqual(EyeComfortState.shared.level, 0.8, accuracy: 0.001)
-        var config = Config()
-        config.eyeComfort = false
-        controller.configure(enabled: config.eyeComfort)
+        controller.configure(enabled: false)
         XCTAssertEqual(EyeComfortState.shared.level, 1)
         XCTAssertEqual(BarTheme.palette, Palette.clay)
     }

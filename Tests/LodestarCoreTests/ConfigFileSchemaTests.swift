@@ -33,7 +33,6 @@ final class ConfigFileSchemaTests: XCTestCase {
             ]),
             "scroll": .table(["speed": .int(1800)]),
             "select": .table(["copy-on-complete": .bool(false)]),
-            "appearance": .table(["eye-comfort": .bool(true)]),
             "draft": .table(["editing-style": .string("standard"), "input": .string(""), "model": .string(""),
                              "words": .table([:])]),
             "clipboard": .table([
@@ -79,7 +78,7 @@ final class ConfigFileSchemaTests: XCTestCase {
     /// emitter never listed come last, alphabetically.
     func testTheSectionsAreDeclaredInTheOrderOfTheFile() {
         let root = ConfigSchemaWalk.objects().first { $0.path.isEmpty }!.object
-        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["appearance", "draft", "health", "mice"])
+        XCTAssertEqual(root.fields.map(\.key), ConfigStore.sectionOrder + ["draft", "health", "mice"])
     }
 
 
@@ -155,12 +154,11 @@ final class ConfigFileSchemaTests: XCTestCase {
         let file = try ConfigFile.schema.normalized(
             JSONDocument(parsing: #"{"appearance": {"accent": "orange", "background": "lodestone", "eye-comfort": false}, "scroll": {"speed": 2500}}"#,
                          options: .strict).value)
-        XCTAssertNil(file.value(at: jsonPath("appearance", "accent")), "the accent is dropped")
-        XCTAssertNil(file.value(at: jsonPath("appearance", "background")), "and so is the background")
-        XCTAssertEqual(file.value(at: jsonPath("appearance", "eye-comfort"))?.bool, false, "the live key stays")
+        XCTAssertNil(file.value(at: jsonPath("appearance")), "the section is dropped whole, Eye comfort with it")
         XCTAssertNotNil(file.value(at: jsonPath("scroll", "speed")), "the rest is kept")
         XCTAssertFalse(ConfigFile.jsonSchemaText().contains("accent"), "the schema offers no accent")
         XCTAssertFalse(ConfigFile.jsonSchemaText().contains("background"), "and no background")
+        XCTAssertFalse(ConfigFile.jsonSchemaText().contains("eye-comfort"), "nor Eye comfort")
     }
 
     /// A reference the registry never held is already a name, and a

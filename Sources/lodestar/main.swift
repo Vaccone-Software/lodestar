@@ -210,7 +210,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         KeyboardLayout.install()
         Keys.apply(overrides: loaded.keyOverrides)
         reversedWheels.configure(loaded.reversedWheels)
-        EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
+        // Eye comfort is how Lodestar looks, not a setting (0.57).
+        EyeComfortController.shared.configure(enabled: true)
         // The first time a hold stops the volume, the note says why and where
         // it is set, so a key that does nothing never looks broken. Only on
         // a clear glass: a guide or the coach standing is not taken over.
@@ -2653,7 +2654,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
         reversedWheels.configure(loaded.reversedWheels)
-        EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         loudAudio.configure(level: loaded.reduceLoudAudio)
         engine.config = loaded
         webBar.config = loaded

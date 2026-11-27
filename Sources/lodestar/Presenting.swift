@@ -42,7 +42,7 @@ final class Presenting {
     /// is consulted at every boundary, thousands of times a day — so it must
     /// never be a CoreAudio round trip.
     private(set) var isOn = false
-    private var timer: Timer?
+    private var timer: Task<Void, Never>?
     /// When the input device was first seen open, so a device that never
     /// closes cannot hold the floor for the rest of the week. See
     /// `Presence.microphoneCeiling` for why that is a real hazard rather
@@ -52,15 +52,16 @@ final class Presenting {
 
     func start() {
         sample()
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: Self.interval,
-                                     repeats: true) { [weak self] _ in
-            self?.sample()
+        timer?.cancel()
+        timer = onMain(every: .seconds(Self.interval), label: "presenting.sample") { [weak self] in
+            guard let self else { return true }
+            self.sample()
+            return false
         }
     }
 
     func stop() {
-        timer?.invalidate()
+        timer?.cancel()
         timer = nil
     }
 

@@ -62,6 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var iconObservers: [NSObjectProtocol] = []
     private var coachSuggestionItem: NSMenuItem?
     private var menuBarHideTimer: Timer?
+    /// The archive's daily look for a month that has ended.
+    private var rollupDaily: Task<Void, Never>?
     private var signalSource: DispatchSourceSignal?
     private var trustPoll: Task<Void, Never>?
     private let displayReconcile = TaskSlot<Void, any Error>(label: "displays.settle")
@@ -312,9 +314,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Month ends arrive without reboots on a machine that only ever
         // sleeps: the archive checks daily, and add-only makes every
         // check but the first of the month nearly free.
-        Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) {
-            [weak observationStore] _ in
-            observationStore?.rollupSoon()
+        rollupDaily = onMain(every: .seconds(24 * 3600), label: "observations.rollup") {
+            [weak observationStore] in
+            guard let observationStore else { return true }
+            observationStore.rollupSoon()
+            return false
         }
         launchStages.enter("hud")
         hud = HUD()

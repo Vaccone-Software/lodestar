@@ -25,7 +25,7 @@ final class StandCueController {
     var hide: (_ sentence: String) -> Void = { _ in }
     private var cue = StandCue()
     private var shown: (sentence: String, at: Date)?
-    private var timer: Timer?
+    private var timer: Task<Void, Never>?
     private var monitors: [Any] = []
     private var observer: NSObjectProtocol?
     private var activeApp: (pid: pid_t, since: Date)?
@@ -37,7 +37,11 @@ final class StandCueController {
 
     func start() {
         guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.tick() }
+        timer = onMain(every: .seconds(5), label: "walk.cue") { [weak self] in
+            guard let self else { return true }
+            self.tick()
+            return false
+        }
         for mask: NSEvent.EventTypeMask in [[.leftMouseDown, .rightMouseDown, .otherMouseDown], [.scrollWheel]] {
             if let monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] event in
                 guard let cg = event.cgEvent, Coach.isHumanOrigin(
@@ -58,7 +62,7 @@ final class StandCueController {
     }
 
     func stop() {
-        timer?.invalidate()
+        timer?.cancel()
         timer = nil
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         monitors = []

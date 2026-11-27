@@ -208,9 +208,9 @@ final class BorderProber {
 
     func place() {
         guard let target, !moving, let frame = AXWindow(element: target.element)?.frame else { return }
-        guard let primary = NSScreen.screens.first?.frame else { return }
         // AX frames are top-left global; Cocoa's are bottom-left.
-        let cocoa = CGRect(x: frame.minX, y: primary.maxY - frame.maxY, width: frame.width, height: frame.height)
+        let cocoa = CGRect(x: frame.minX, y: Screens.primaryHeight - frame.maxY,
+                           width: frame.width, height: frame.height)
         panel.setFrame(cocoa, display: false)
         CATransaction.begin()
         CATransaction.setDisableActions(true)

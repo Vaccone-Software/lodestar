@@ -796,12 +796,8 @@ public enum SettingsModel {
                 isDefault: (person?.typing ?? "").isEmpty, dimmed: aboutDimmed, group: "About you"),
             Row(title: "Walk", path: "coach.stand",
                 control: .toggle(config.standEnabled),
-                detail: "A cue to walk for two minutes, at the next stopping point after a stretch without a break",
+                detail: "After thirty minutes without a break, a cue to walk for two, at the next stopping point",
                 isDefault: !config.standEnabled, group: "Walk"),
-            Row(title: "After", path: "coach.stand-after",
-                control: .number(config.standAfterMinutes, min: 15, max: 120, unit: "min"),
-                detail: config.standEnabled ? "Thirty is what the research supports" : "Needs the walk",
-                isDefault: config.standAfterMinutes == 30, dimmed: !config.standEnabled, group: "Walk"),
             Row(title: "Delete the logbook", control: .readout("", sub: nil),
                 detail: "Everything the coach reads, gone from this Mac", group: "Delete")
                 .doing(Action(id: "delete-logbook", label: "Delete", destructive: true,

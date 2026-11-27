@@ -48,12 +48,16 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(try build(#"{"scroll": {"speed": 1}}"#).0.scrollSpeed, 200)
     }
 
-    /// Scrolling is always smooth (0.57): a file that still holds the switch
-    /// or the step it fell back to loads clean, with the speed it names.
-    func testTheRetiredScrollKeysLoadClean() throws {
-        let (config, problems) = try build(#"{"scroll": {"smooth": false, "step": 120, "speed": 2400}}"#)
+    /// 0.57 fixed what had been choices. A file a person set any of them in
+    /// loads clean, and what still is a setting beside them reads as written.
+    func testTheSettingsFixedIn057LoadClean() throws {
+        let (config, problems) = try build("""
+        {"scroll": {"smooth": false, "step": 120, "speed": 2400},
+         "coach": {"stand": true, "stand-after": 45}}
+        """)
         XCTAssertEqual(problems, [])
         XCTAssertEqual(config.scrollSpeed, 2400)
+        XCTAssertTrue(config.standEnabled)
     }
 
     /// Retired in 0.22: the delay is tuned once, for everyone. A file

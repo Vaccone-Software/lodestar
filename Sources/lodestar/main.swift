@@ -1641,7 +1641,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// stopping point, in the coach's quiet. See `StandCue`.
     private func wireStand() {
         stand.enabled = { [weak self] in self?.config.standEnabled ?? false }
-        stand.minutes = { [weak self] in self?.config.standAfterMinutes ?? 30 }
         stand.quiet = { [weak self] in
             guard let self, let coach = self.coach, let hud = self.hud else { return false }
             return coach.engineQuiet() && !coach.suppressed() && !coach.chipVisible

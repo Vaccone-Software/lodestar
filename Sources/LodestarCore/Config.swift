@@ -178,10 +178,9 @@ public struct Config {
     /// mouse that is unplugged still shows.
     public var reversedWheels: [String: String] = [:]
     public var coachEnabled = true
-    /// The walk: a cue at a stopping point after `standAfterMinutes` of
-    /// unbroken work.
+    /// The walk: a cue at a stopping point after thirty minutes of unbroken
+    /// work, the length the research supports (`StandCueController`).
     public var standEnabled = false
-    public var standAfterMinutes = 30
     /// The chain guide fades as a subtree is learned: the map waits for
     /// recall before it appears. The coach's doctrine, not a switch.
     public var guideFade: Bool { true }
@@ -527,7 +526,6 @@ public struct Config {
         config.observationsHealth = file.observations.health
         config.coachEnabled = file.coach.enabled
         config.standEnabled = file.coach.stand
-        config.standAfterMinutes = file.coach.standAfter
         if let born = file.health.born { config.healthBorn = Person.year(born) }
         config.healthHand = file.health.hand ?? ""
         for (id, keys) in file.health.keyboards {

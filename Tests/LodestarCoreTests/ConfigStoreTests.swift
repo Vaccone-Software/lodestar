@@ -47,13 +47,13 @@ final class ConfigStoreTests: XCTestCase {
                 ]),
                 "routes": .table(["github.com": .string("brave:Work"), "news.ycombinator.com": .string("brave:Home")]),
             ]),
-            "scroll": .table(["speed": .int(2200), "step": .double(45.5)]),
+            "scroll": .table(["speed": .double(2200.5)]),
             "select": .table(["hold": .double(0.35)]),
             "meetings": .table(["enabled": .bool(true), "calendars": .table(["Work": .string("brave:Work")])]),
             "clipboard": .table(["max-size-mb": .int(900), "exclude-apps": .table(["com.1password.1password": .bool(true)])]),
             "editor": .table(["enabled": .bool(true)]),
             "observations": .table(["logbook": .bool(false)]),
-            "coach": .table(["stand-after": .int(45)]),
+            "coach": .table(["stand": .bool(true)]),
             "keys": .table(["10": .string("§"), "50": .string("`")]),
             "graph": .table([
                 "b": .table(["x": .string("brave:Work"), "y": .string("Xonar \u{1F680} café")]),
@@ -79,10 +79,10 @@ final class ConfigStoreTests: XCTestCase {
         }
         XCTAssertNotEqual(onDisk, original)
         var changed = realistic
-        changed["scroll"] = .table(["speed": .int(2400), "step": .double(45.5)])
+        changed["scroll"] = .table(["speed": .int(2400)])
         XCTAssertEqual(onDisk, stamped(changed), "one change, the bytes the old emitter wrote for it")
         try Config.edit(in: file) { tree in
-            Json.setting(tree, path: ["scroll", "speed"], to: .int(2200))!
+            Json.setting(tree, path: ["scroll", "speed"], to: .double(2200.5))!
         }
         XCTAssertEqual(onDisk, original, "and back, byte for byte")
     }
@@ -375,9 +375,9 @@ final class ConfigStoreTests: XCTestCase {
 extension ConfigStoreTests {
     /// Numbers a config can hold are spelt as before.
     func testNumbersAreSpeltAsBefore() throws {
-        for value in [10.5, 45.25, 60.1, 100.5, 399.9, 123.456, 200.0 / 3.0] {
-            try Config.edit(in: file) { Json.setting($0, path: ["scroll", "step"], to: .double(value))! }
-            let old = stamped(["scroll": .table(["step": .double(value)])])
+        for value in [200.5, 450.25, 600.1, 1000.5, 3999.9, 1234.456, 2000.0 / 3.0] {
+            try Config.edit(in: file) { Json.setting($0, path: ["scroll", "speed"], to: .double(value))! }
+            let old = stamped(["scroll": .table(["speed": .double(value)])])
             XCTAssertEqual(onDisk, old, "\(value)")
         }
     }

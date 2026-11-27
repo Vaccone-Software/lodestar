@@ -1,5 +1,6 @@
 import AppKit
 import LodestarCore
+import Stoic
 
 /// The chip a clicked link leaves behind when it declines to take the screen.
 ///
@@ -34,7 +35,7 @@ final class LinkChip {
 
     private let panel = Ceramic.makePanel(level: .floating, takesKeys: false)
     private let root = NSView()
-    private var expiry: Timer?
+    private var expiry: Task<Void, Never>?
 
     init() {
         SoftShadow.host(root, in: panel, cornerRadius: BarTheme.surfaceRadius)
@@ -55,9 +56,10 @@ final class LinkChip {
             return
         }
         render(destination: destination, icon: icon)
-        expiry?.invalidate()
-        expiry = Timer.scheduledTimer(withTimeInterval: Self.life, repeats: false) {
-            [weak self] _ in self?.hide()
+        expiry?.cancel()
+        // As the run loop's timer it replaced counted: not time asleep.
+        expiry = onMain(after: .seconds(Self.life), clock: Ambient.current.livenessClock) { [weak self] in
+            self?.hide()
         }
     }
 
@@ -79,7 +81,7 @@ final class LinkChip {
     }
 
     func hide() {
-        expiry?.invalidate()
+        expiry?.cancel()
         expiry = nil
         panel.orderOut(nil)
     }

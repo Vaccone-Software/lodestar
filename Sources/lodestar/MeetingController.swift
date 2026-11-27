@@ -45,7 +45,8 @@ final class MeetingController: NSObject {
 
     private let store = EKEventStore()
     private var storeObserver: NSObjectProtocol?
-    private var tick: Timer?
+    /// The calendar asked again every thirty seconds.
+    private var tick: Task<Void, Never>?
     /// The chip's clock: once a second, the phase is re-read from the
     /// occurrence already on screen and the chip redraws only when the
     /// words change — the calendar itself is asked every thirty seconds.
@@ -229,8 +230,10 @@ final class MeetingController: NSObject {
             guard let self else { return }
             self.pendingRefresh.settle(for: self, after: .seconds(1)) { $0.refresh() }
         }
-        tick = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            self?.refresh()
+        tick = onMain(every: .seconds(30), label: "meetings.refresh") { [weak self] in
+            guard let self else { return true }
+            self.refresh()
+            return false
         }
         countdown = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.advanceCountdown()
@@ -257,7 +260,7 @@ final class MeetingController: NSObject {
     private func stop() {
         if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
         storeObserver = nil
-        tick?.invalidate(); tick = nil
+        tick?.cancel(); tick = nil
         countdown?.invalidate(); countdown = nil
         pendingRefresh.cancel()
         grantPoll?.cancel(); grantPoll = nil

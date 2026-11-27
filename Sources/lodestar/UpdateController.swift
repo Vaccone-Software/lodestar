@@ -124,9 +124,12 @@ final class UpdateController {
     private var phase: Updater.Phase = .idle
     /// The verified bundle waiting to be swapped in; set only while `.ready`.
     private var stagedBundle: URL?
-    private var firstCheck: Timer?
-    private var dailyCheck: Timer?
-    private var applyPoll: Timer?
+    /// The first check, the daily one and the apply poll, on the liveness
+    /// clock as the run loop's timers they replaced counted: time asleep
+    /// does not bring a check due.
+    private var firstCheck: Task<Void, Never>?
+    private var dailyCheck: Task<Void, Never>?
+    private var applyPoll: Task<Void, Never>?
     /// The feed's client, bounded in time and in size (see `UpdateFeed`):
     /// URLSession.shared would let a trickling answer hold the run in
     /// `.checking` for days, refusing every later check. (The zip is fetched
@@ -216,7 +219,7 @@ final class UpdateController {
         worker.async { self.clearStaging() }
         // First check well clear of the login rush; the leftover .previous
         // bundle from the last swap is long past its watchdog by then.
-        firstCheck = Timer.scheduledTimer(withTimeInterval: 180, repeats: false) { [weak self] _ in
+        firstCheck = onMain(after: .seconds(180), clock: Ambient.current.livenessClock) { [weak self] in
             guard let self else { return }
             // Only reap the leftover while nothing is in flight: a forced
             // check early in this session could still be mid-swap, and its
@@ -235,11 +238,15 @@ final class UpdateController {
             }
             self.check(force: false)
         }
-        dailyCheck = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { [weak self] _ in
-            self?.check(force: false)
+        dailyCheck = onMain(every: .seconds(24 * 3600), label: "update.daily-check") { [weak self] in
+            guard let self else { return true }
+            self.check(force: false)
+            return false
         }
-        applyPoll = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.tryApply(force: false)
+        applyPoll = onMain(every: .seconds(60), label: "update.apply") { [weak self] in
+            guard let self else { return true }
+            self.tryApply(force: false)
+            return false
         }
     }
 

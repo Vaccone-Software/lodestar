@@ -135,9 +135,6 @@ public enum SettingsModel {
         /// The doctor's finding about this row, rendered where it can be
         /// fixed rather than in a terminal nobody runs on a good day.
         public let problem: String?
-        /// Choices shown and not choosable: an editor model too big for
-        /// this Mac is listed with what it needs, and greyed.
-        public var disabledChoices: Set<String> = []
         /// The row's address inside its place, fixed by the catalog: a
         /// letter belongs to the row, never to the render, so a neighbour
         /// dimming or a readout appearing never moves it.
@@ -168,7 +165,6 @@ public enum SettingsModel {
         public func inGroup(_ group: String) -> Row {
             var row = Row(title: title, path: path, control: control, detail: detail, keycaps: keycaps,
                           isDefault: isDefault, dimmed: dimmed, group: group, presets: presets, problem: problem)
-            row.disabledChoices = disabledChoices
             row.letter = letter
             row.action = action
             return row
@@ -423,13 +419,7 @@ public enum SettingsModel {
             Row(title: "Sounds", path: "app.sounds",
                 control: .toggle(config.sounds),
                 detail: "Lodestar's alert, and the draft's notes when the microphone is live and when the words land",
-                isDefault: config.sounds, group: "Sound and display"),
-            Row(title: "Reduce loud audio", path: "app.reduce-loud-audio",
-                control: .choice(options: LoudAudio.Level.allCases.map(\.rawValue),
-                                 labels: LoudAudio.Level.allCases.map(\.name),
-                                 current: config.reduceLoudAudio.rawValue),
-                detail: "Keeps headphone volume below a safe level. Light suits noisy places and quiet headphones, Standard is safe for long listening every day, and Strong is for children or the most protection. On a call the limit is higher, since voices play quieter than music. Speakers are never limited",
-                isDefault: config.reduceLoudAudio == .off, group: "Sound and display"),
+                isDefault: config.sounds, group: "Sound"),
             permission("Accessibility", state: machine.accessibility,
                        detail: "Seeing windows, moving them and reading menus. Lodestar cannot work without it",
                        pane: "accessibility", group: "Permission"),
@@ -469,7 +459,7 @@ public enum SettingsModel {
             Row(title: "Your letters", path: "graph",
                 control: .table(kind: .letters, entries: config.graph.leaves().map { leaf in
                     TableEntry(key: leaf.chain.joined(separator: " "),
-                               display: leaf.chain.map { $0.uppercased() }.joined(separator: " "),
+                               display: leaf.chain.joined(separator: " "),
                                sub: "→  \(leaf.target.label)")
                 }),
                 detail: "Each letter and the app it opens. Remove one to free its letter for another app",
@@ -600,7 +590,12 @@ public enum SettingsModel {
             }
         let routeEntries = config.webRoutes.sorted { $0.key < $1.key }
             .map { TableEntry(key: $0.key, display: $0.key, sub: "→  \(shownReference($0.value))") }
-        sections.append(Section(name: "Web", rows: [
+        let calendarEntries = config.meetingsCalendars.sorted { $0.key < $1.key }
+            .map { TableEntry(key: $0.key, display: $0.key, sub: "→  \(shownReference($0.value))") }
+        let calendarsGranted = granted(machine.calendars)
+        // 6 · Routing: every link to the browser and profile it belongs
+        // to, typed in Ask, clicked in another app, or a meeting's
+        sections.append(Section(name: "Routing", rows: [
             gesture("web-bar", group: "Ask", detail: "Type a destination or a question. It opens in the right browser profile"),
             Row(title: "Fallback profile", path: "web.fallback",
                 control: .choice(options: fallbackOptions, labels: fallbackLabels, current: fallbackCurrent),
@@ -612,7 +607,7 @@ public enum SettingsModel {
                 detail: "Where a query goes when what you typed is not a link. Your words go where the %s is",
                 isDefault: isDefault(["web", "search-url"], .string(config.webSearchURL)), group: "Ask",
                 presets: [
-                    Preset(label: "Brave Search", value: "https://search.brave.com/search?q=%s"),
+                    Preset(label: "Brave", value: "https://search.brave.com/search?q=%s"),
                     Preset(label: "Google", value: "https://www.google.com/search?q=%s"),
                     // Startpage's own template, from its OpenSearch file.
                     Preset(label: "Startpage", value: "https://www.startpage.com/sp/search?query=%s"),
@@ -636,15 +631,6 @@ public enum SettingsModel {
                 control: .readout(machine.savedBrowser, sub: machine.savedBrowserID),
                 detail: "Where a link no rule matches goes, and the browser handed back when Lodestar lets go",
                 group: "Clicked links"),
-        ], picture: "place-web",
-           sentence: "Every link opens in the browser and profile it belongs to",
-           status: "Links and browsers"))
-
-        // 7 · Meetings
-        let calendarEntries = config.meetingsCalendars.sorted { $0.key < $1.key }
-            .map { TableEntry(key: $0.key, display: $0.key, sub: "→  \(shownReference($0.value))") }
-        let calendarsGranted = granted(machine.calendars)
-        sections.append(Section(name: "Meetings", rows: [
             Row(title: "Meetings", path: "meetings.enabled",
                 control: .toggle(config.meetingsEnabled),
                 detail: "A chip five minutes before each meeting with a link. Tap lode twice to join",
@@ -652,18 +638,18 @@ public enum SettingsModel {
                 problem: problem(at: "meetings.enabled")),
             Row(title: "Calendars", path: "meetings.calendars",
                 control: .table(kind: .calendars, entries: calendarEntries),
-                detail: "Calendar → profile, for meetings joined in a browser. Outranks routes",
-                isDefault: config.meetingsCalendars.isEmpty, group: "Calendars",
+                detail: "Calendar → profile, for meetings joined in a browser. Outranks rules",
+                isDefault: config.meetingsCalendars.isEmpty, group: "Meetings",
                 problem: problem(at: "meetings.calendars")),
             permission("Calendar access", state: machine.calendars,
                        detail: "Reading your next meeting. Asked when meetings are turned on",
-                       pane: "calendars", group: "Calendars"),
-        ], picture: "place-meetings",
-           sentence: "A chip before each meeting, and one tap to join",
-           status: "Calendar and joining",
+                       pane: "calendars", group: "Meetings"),
+        ], picture: "place-web",
+           sentence: "Every link, typed, clicked or in a meeting, goes to the browser and profile it belongs to",
+           status: "Links, browsers and meetings",
            attention: config.meetingsEnabled && !calendarsGranted && machine.calendars != "unknown"))
 
-        // 8 · Input
+        // 7 · Input
         // The facts about you are sealed with the health record, so they
         // read as nothing until it has opened.
         let person = machine.person
@@ -692,20 +678,35 @@ public enum SettingsModel {
                 control: .table(kind: .keyRemaps, entries: remapEntries),
                 detail: "Keycode to key name, for keyboards the built-in table misreads",
                 isDefault: config.keyOverrides.isEmpty, group: "Keyboards"),
-            // The Mice group is last: its rows come and go with the mice heard,
-            // and a letter belongs to its row, so only rows after the fixed
-            // ones may.
+            // Once, for both its readers. The Mice group is last: its rows
+            // come and go with the mice heard, and a letter belongs to its
+            // row, so only rows after the fixed ones may.
             permission("Input Monitoring", state: machine.inputMonitoring,
-                       detail: "Hearing which mouse turned a wheel, so its scroll direction can be reversed",
+                       detail: "Hearing which keyboard sent a press, for the health record, and which mouse turned a wheel, so its scroll direction can be reversed",
                        pane: "input-monitoring", group: "Mice"),
         ] + wheelRows(config: config, machine: machine), picture: "place-keys",
            sentence: "The key every gesture starts from, and the keyboards and mice you use",
            status: "Lode, keyboards and mice"))
 
-        // 9 · Observations: two records, each with its switch, its limit,
-        // and what reads it. The coach reads the logbook; Born and
-        // Dominant hand belong to health.
+        // 8 · Wellbeing: the care Lodestar takes of the body (the ears,
+        // the walk), the coach, and the two records they read. The coach
+        // reads the logbook; Born and Dominant hand belong to health.
         var observationRows: [Row] = [
+            Row(title: "Reduce loud audio", path: "app.reduce-loud-audio",
+                control: .choice(options: LoudAudio.Level.allCases.map(\.rawValue),
+                                 labels: LoudAudio.Level.allCases.map(\.name),
+                                 current: config.reduceLoudAudio.rawValue),
+                detail: "Keeps headphone volume below a safe level. Light suits noisy places and quiet headphones, Standard is safe for long listening every day, and Strong is for children or the most protection. On a call the limit is higher, since voices play quieter than music. Speakers are never limited",
+                isDefault: config.reduceLoudAudio == .off, group: "Care"),
+            Row(title: "Walk", path: "coach.stand",
+                control: .toggle(config.standEnabled),
+                detail: "After thirty minutes without a break, a cue to walk for two, at the next stopping point",
+                isDefault: !config.standEnabled, group: "Care"),
+            Row(title: "Coach", path: "coach.enabled",
+                control: .toggle(config.coachEnabled && config.logbookEnabled),
+                detail: config.logbookEnabled ? "One shortcut worth learning, now and then, from the logbook" : "Needs the logbook",
+                isDefault: config.coachEnabled || !config.logbookEnabled,
+                dimmed: !config.logbookEnabled, group: "Coach"),
             Row(title: "Logbook", path: "observations.logbook",
                 control: .toggle(config.logbookEnabled),
                 detail: "How you move between apps, windows and gestures. Sites by name, never their pages, titles or what you type",
@@ -714,11 +715,6 @@ public enum SettingsModel {
                 control: .number(Int(config.logbookBytes >> 20), min: Retention.logbookMinimumMB, max: 4096, unit: "MB"),
                 detail: config.logbookEnabled ? "The oldest months leave first once it is full. Their summaries stay" : "Needs the logbook",
                 isDefault: config.logbookBytes == Retention.behavioralBytes,
-                dimmed: !config.logbookEnabled, group: "Logbook"),
-            Row(title: "Coach", path: "coach.enabled",
-                control: .toggle(config.coachEnabled && config.logbookEnabled),
-                detail: config.logbookEnabled ? "One shortcut worth learning, now and then, from the logbook" : "Needs the logbook",
-                isDefault: config.coachEnabled || !config.logbookEnabled,
                 dimmed: !config.logbookEnabled, group: "Logbook"),
             Row(title: "Health", path: "observations.health",
                 control: .toggle(config.observationsHealth),
@@ -730,9 +726,6 @@ public enum SettingsModel {
                 detail: config.observationsHealth ? "Lodestar tells you when the record nears this. Health is never deleted on its own" : "Needs health",
                 isDefault: config.healthBytes == Retention.healthBytes,
                 dimmed: !config.observationsHealth, group: "Health"),
-            permission("Input Monitoring", state: machine.inputMonitoring,
-                       detail: "Hearing which keyboard sent a press, for health, and which mouse turned a wheel",
-                       pane: "input-monitoring", group: "Health"),
             Row(title: "Born", path: "health.born",
                 control: .text(person?.born.map(String.init) ?? "", placeholder: "Year"),
                 detail: about("Age adjusts every reading of the hands"),
@@ -752,10 +745,6 @@ public enum SettingsModel {
                                  labels: ["Not set", "Touch typing", "Other"], current: person?.typing ?? ""),
                 detail: about("Whether each finger keeps to its own keys. The finger readings assume it does"),
                 isDefault: (person?.typing ?? "").isEmpty, dimmed: aboutDimmed, group: "About you"),
-            Row(title: "Walk", path: "coach.stand",
-                control: .toggle(config.standEnabled),
-                detail: "After thirty minutes without a break, a cue to walk for two, at the next stopping point",
-                isDefault: !config.standEnabled, group: "Walk"),
             Row(title: "Delete the logbook", control: .readout("", sub: nil),
                 detail: "Everything the coach reads, gone from this Mac", group: "Delete")
                 .doing(Action(id: "delete-logbook", label: "Delete", destructive: true,
@@ -776,9 +765,9 @@ public enum SettingsModel {
                                   confirm: "Press the letter again to move the unreadable health record aside and start a new one")),
                 at: index)
         }
-        sections.append(Section(name: "Observations", rows: observationRows, picture: "place-observations",
-           sentence: "Everything Lodestar observes stays on this Mac",
-           status: "Logbook and health",
+        sections.append(Section(name: "Wellbeing", rows: observationRows, picture: "place-observations",
+           sentence: "Lodestar looks after your hands, ears and habits, and everything it notices stays on this Mac",
+           status: "Care, coach and records",
            note: "The coach reads the logbook. Health is its own record, kept whatever the logbook is set to"))
 
         return sections
@@ -792,9 +781,9 @@ public enum SettingsModel {
         parts.filter { !$0.isEmpty }.joined(separator: ". ")
     }
 
-    /// The ten places, in their digits' order.
+    /// The nine places, in their digits' order.
     public static let placeNames = ["General", "Write", "Switch", "Keep", "Speak",
-                                    "Operate", "Web", "Meetings", "Input", "Observations"]
+                                    "Operate", "Routing", "Input", "Wellbeing"]
     public static func placeIndex(_ name: String) -> Int? { placeNames.firstIndex(of: name) }
 
     public static let keyboardsPage = "Keyboards"
@@ -934,16 +923,15 @@ public enum SettingsModel {
 
     /// The words people type for a place that is named by what it does.
     static let aliases: [String: String] = [
-        "General": "login startup updates stable preview channel release daily count usage ping eye comfort sunset bedtime dim dark night sound reduce loud audio headphones volume hearing ears menu bar display accessibility permission",
+        "General": "login startup updates stable preview channel release daily count usage ping sound alert menu bar accessibility permission",
         "Write": "editor grammar spelling typos proofread",
         "Switch": "windows launcher apps graph letters breaths layout maximize",
         "Keep": "clipboard copy paste history clips",
         "Speak": "dictation draft voice microphone mic speech vim editing style keys",
         "Operate": "click hints scroll select commands menus interactions screen recording",
-        "Web": "browser ask links routes profile search engine",
-        "Meetings": "calendar meeting join zoom",
+        "Routing": "web browser ask links routes rules profile search engine calendar meeting meetings join zoom",
         "Input": "keyboard mouse wheel scroll reverse direction lode trigger remap keycode",
-        "Observations": "coach health logbook privacy data delete record",
+        "Wellbeing": "observations coach health logbook privacy data delete record reduce loud audio headphones volume hearing ears walk break stand",
     ]
 
     /// Flat and stable: a row's title, path and line, its entries, and its

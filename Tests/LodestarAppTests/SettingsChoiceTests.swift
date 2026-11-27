@@ -58,7 +58,7 @@ final class SettingsChoiceTests: XCTestCase {
         let settings = controller { written.append($0) }
         var clicked = 0
         var paths: Set<String> = []
-        for place in 0..<10 {
+        for place in SettingsModel.placeNames.indices {
             settings.renderForTesting(place: place)
             for choice in settings.choicesForTesting {
                 let items = try itemViews(of: choice.popup)
@@ -89,7 +89,7 @@ final class SettingsChoiceTests: XCTestCase {
     func testAChoiceIsWrittenWhenTheMenuChoosesIt() throws {
         var written: [Written] = []
         let settings = controller { written.append($0) }
-        settings.openForTesting(place: "Observations")
+        settings.openForTesting(place: "Wellbeing")
         let sex = try XCTUnwrap(settings.choicesForTesting.first { $0.path == "health.sex" })
         let menu = try XCTUnwrap(sex.popup.menu)
         let female = try XCTUnwrap(sex.options.firstIndex(of: "female"))
@@ -100,18 +100,4 @@ final class SettingsChoiceTests: XCTestCase {
 
     /// A disabled choice (a model this Mac is too small for) is drawn and
     /// cannot be taken.
-    func testADisabledChoiceWritesNothing() throws {
-        var written: [Written] = []
-        let settings = controller { written.append($0) }
-        for place in 0..<10 {
-            settings.renderForTesting(place: place)
-            for choice in settings.choicesForTesting {
-                for (item, view) in try itemViews(of: choice.popup) where !item.isEnabled {
-                    try click(view)
-                }
-            }
-        }
-        XCTAssertEqual(written, [])
-        settings.close()
-    }
 }

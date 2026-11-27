@@ -1198,7 +1198,7 @@ final class HotkeyEngine {
         if strip.isVisible { return "Keep" }
         if case .hints = core.state, select.door == .editor { return "Write" }
         if let chip = chipScope() { return chip }
-        if webBar.isVisible { return "Web" }
+        if webBar.isVisible { return "Routing" }
         if searcher.isVisible { return "Switch" }
         if commandsBar.isVisible { return "Operate" }
         return nil

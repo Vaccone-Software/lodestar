@@ -13,7 +13,7 @@ final class SettingsArmedRowTests: XCTestCase {
         var value: ConfigValue?
     }
 
-    private let general = 0, switchPlace = 2, speak = 4, meetings = 7, observations = 9
+    private let general = 0, switchPlace = 2, speak = 4
 
     /// The window with nothing wired to the person's config: every write is
     /// kept here instead. It is never shown.
@@ -100,9 +100,9 @@ final class SettingsArmedRowTests: XCTestCase {
         var written: [Written] = []
         let settings = window { written.append($0) }
         settings.renderForTesting(place: general)
-        let loud = try row(settings, place: general, path: "app.reduce-loud-audio")
-        // Switch has a toggle at the same row: Layout undo.
-        let move = try row(settings, place: switchPlace, path: "gestures.layout-undo")
+        let loud = try row(settings, place: general, path: "app.sounds")
+        // Switch has a toggle at the same row: Flip orientation.
+        let move = try row(settings, place: switchPlace, path: "gestures.flip-orientation")
         XCTAssertEqual(loud, move, "the two places share the row's number")
         land(settings, place: general, row: loud)
         try clickBack(settings)
@@ -145,14 +145,14 @@ final class SettingsArmedRowTests: XCTestCase {
         let settings = window { written.append($0) }
         settings.renderForTesting(place: general)
         let eye = try row(settings, place: general, path: "app.sounds")
-        let calendarRows = settings.sectionsForTesting[meetings].rows.count
-        XCTAssertLessThanOrEqual(calendarRows, eye, "Meetings has no row at General's Sounds number")
+        let speakRows = settings.sectionsForTesting[speak].rows.count
+        XCTAssertLessThanOrEqual(speakRows, eye, "Speak has no row at General's Sounds number")
         land(settings, place: general, row: eye)
         try clickBack(settings)
-        try clickPlace(settings, meetings)
-        XCTAssertEqual(settings.placeForTesting, meetings)
+        try clickPlace(settings, speak)
+        XCTAssertEqual(settings.placeForTesting, speak)
         settings.keyForTesting("return")
-        XCTAssertEqual(written, [], "return in Meetings works nothing: the landing was in General")
+        XCTAssertEqual(written, [], "return in Speak works nothing: the landing was in General")
         settings.close()
     }
 

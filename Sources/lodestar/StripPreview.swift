@@ -288,8 +288,8 @@ enum StripPreview {
             app.run()
         }
 
-        // 89 the settings overview, 90…99 each place by its digit.
-        if (89...99).contains(variant) {
+        // 89 the settings overview, 90…98 each place by its digit.
+        if (89...98).contains(variant) {
             let held = SettingsController.preview(variant - 90)
             _ = held
             app.run()

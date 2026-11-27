@@ -227,7 +227,7 @@ enum GalleryRow {
                 config.logbookEnabled = false
                 config.observationsHealth = false
                 settings.config = config
-                settings.renderForTesting(place: SettingsModel.placeIndex("Observations"))
+                settings.renderForTesting(place: SettingsModel.placeIndex("Wellbeing"))
                 return [settings]
             }, where: { $0 is KeyablePanel }, frame: Stage.screen(1000, 680))
         }

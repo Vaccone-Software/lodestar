@@ -507,7 +507,6 @@ final class DesignDriftTests: XCTestCase {
             ("Keys.swift", "key.uppercased()", "what a key types with shift: data the engine matches on"),
             ("CodeNames.swift", "$0.uppercased()", "UPPER_SNAKE for a name in code"),
             ("ClipTime.swift", "s.uppercased()", "reading a time"),
-            ("ClipTime.swift", "typed.uppercased()", "reading a time zone"),
             ("MenuItems.swift", "char.uppercased()", "a menu shortcut's chord: modifiers, then a capital"),
             ("IntentChecker.swift", "w.uppercased()", "reading words"),
             ("EditorSession.swift", "word.uppercased()", "reading words"),

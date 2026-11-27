@@ -33,9 +33,9 @@ final class MiceGroupTests: XCTestCase {
 
     /// Keys is Input everywhere the place is named, and the digit is the same.
     func testTheKeysPlaceIsInput() throws {
-        XCTAssertEqual(SettingsModel.placeNames[8], "Input")
+        XCTAssertEqual(SettingsModel.placeNames[7], "Input")
         XCTAssertNil(SettingsModel.placeIndex("Keys"))
-        XCTAssertEqual(SettingsModel.placeIndex("Input"), 8)
+        XCTAssertEqual(SettingsModel.placeIndex("Input"), 7)
         let place = try input(machine())
         XCTAssertEqual(place.picture, "place-keys", "the picture stays")
         XCTAssertEqual(place.sentence, "The key every gesture starts from, and the keyboards and mice you use")
@@ -168,12 +168,15 @@ final class MiceGroupTests: XCTestCase {
         }
     }
 
-    /// The Observations permission names the mice too.
-    func testTheObservationsPermissionNoLongerSaysHealthOnly() throws {
-        let observations = try XCTUnwrap(SettingsModel.catalog(config: Config(), machine: machine())
-            .first { $0.name == "Observations" })
-        let row = try XCTUnwrap(observations.rows.first { $0.title == "Input Monitoring" })
+    /// Input Monitoring is asked once (0.57), in Input, for both its readers.
+    func testInputMonitoringIsListedOnceForKeyboardsAndMice() throws {
+        let sections = SettingsModel.catalog(config: Config(), machine: machine())
+        let rows = sections.flatMap(\.rows).filter { $0.title == "Input Monitoring" }
+        XCTAssertEqual(rows.count, 1)
+        let input = try XCTUnwrap(sections.first { $0.name == "Input" })
+        let row = try XCTUnwrap(input.rows.first { $0.title == "Input Monitoring" })
         XCTAssertTrue(row.detail?.contains("mouse") ?? false, row.detail ?? "")
+        XCTAssertTrue(row.detail?.contains("keyboard") ?? false, row.detail ?? "")
     }
 
     /// The history names a change to the table as Reversed wheels, a mouse

@@ -34,7 +34,7 @@ final class SettingsLightTests: XCTestCase {
         let settings = settings(excluding: ["com.apple.TextEdit"])
         settings.config.scrollSpeed = 1200
         var keys: [RoomButton] = []
-        for place in 0..<10 {
+        for place in SettingsModel.placeNames.indices {
             settings.renderForTesting(place: place)
             keys += settings.viewsForTesting(of: RoomButton.self)
         }

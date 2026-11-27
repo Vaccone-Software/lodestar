@@ -1644,8 +1644,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         engine.onOpenSettings = { [weak self] place in self?.settings.toggle(place: place) }
         engine.chipScope = { [weak self] in
             guard let self else { return nil }
-            if self.meetings.chipVisible { return "Meetings" }
-            if self.coach?.chipVisible == true { return "Observations" }
+            if self.meetings.chipVisible { return "Routing" }
+            if self.coach?.chipVisible == true { return "Wellbeing" }
             return nil
         }
         settings.perform = { [weak self] action in self?.performSettingsAction(action) }

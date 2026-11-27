@@ -3,7 +3,7 @@ import LodestarCore
 
 /// The settings window: `SettingsModel` (LodestarCore) decides what exists
 /// and what the keys mean; this draws it and translates. One keyable glass
-/// window, born centered every time. It opens on the overview: the ten
+/// window, born centered every time. It opens on the overview: the nine
 /// places on a ring around the mark, each with its picture and one line
 /// saying what that part of Lodestar is doing. A digit opens a place from
 /// anywhere; a place is its picture and sentence on the left and its rows,
@@ -42,7 +42,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         panel.allowsMultipleSelection = false
         panel.directoryURL = start
         panel.prompt = "Choose"
-        NSApp.activate()
+        SystemEvents.activateLodestar()
         return panel.runModal() == .OK ? panel.url : nil
     }
     /// The machine's calendars and accounts, once access is granted.
@@ -195,8 +195,11 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private static let pagePicture = NSSize(width: 192, height: 144)
     private static let placePicture = NSSize(width: 120, height: 90)
     private static let placeTile = NSSize(width: 224, height: 136)
-    /// The ring the ten places stand on, around the mark.
-    private static let ring = NSSize(width: 372, height: 228)
+    /// The ring the nine places stand on, around the mark.
+    /// 358 wide since 0.57's nine places: at 40° apart the side places sit
+    /// 10° off the horizontal, and a ring any wider pushed their tiles past
+    /// the field's edges.
+    private static let ring = NSSize(width: 358, height: 228)
     /// The most a readout's value takes before it wraps.
     private static let readoutWidth: CGFloat = 224
 
@@ -1271,14 +1274,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
 
     // MARK: - The overview
 
-    /// The ten places on a ring around the mark: each its picture, its
+    /// The places on a ring around the mark: each its picture, its
     /// digit and name, and one line saying what it is doing. A place that
     /// needs the person wears a dot beside its name; nothing points.
     private func buildOverview() -> NSView {
         let field = FlippedView()
         let width = Self.contentWidth, height = Self.contentHeight
-        // Sized so neighbours never touch: down the sides the places sit
-        // 2·ry·sin 18° apart (143), and a place stands 136 tall.
+        // Sized so neighbours never touch: with nine places, down the sides
+        // they sit 2·ry·sin 20° apart, more than a place stands tall (136).
         let center = NSPoint(x: width / 2, y: height / 2 - Grid.part)
         let rx = Self.ring.width, ry = Self.ring.height
 
@@ -1293,7 +1296,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         field.addSubview(mark)
 
         for (index, section) in sections.enumerated() {
-            let angle = (-90 + 36 * CGFloat(index)) * .pi / 180
+            let angle = (-90 + 360 / CGFloat(sections.count) * CGFloat(index)) * .pi / 180
             let point = NSPoint(x: center.x + rx * cos(angle), y: center.y + ry * sin(angle))
             let tile = buildPlaceTile(section, index: index)
             // The picture sits on the ring; its name and line hang below.
@@ -1728,14 +1731,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .choice(let options, let labels, let current):
             let popup = KeyPopUp()
             popup.addItems(withTitles: labels)
-            // Shown and greyed: an editor model this Mac is too small for
-            // says what it needs rather than vanishing.
-            if !row.disabledChoices.isEmpty {
-                popup.autoenablesItems = false
-                for (item, option) in zip(popup.itemArray, options) where row.disabledChoices.contains(option) {
-                    item.isEnabled = false
-                }
-            }
             if let at = options.firstIndex(of: current) {
                 popup.selectItem(at: at)
             }
@@ -2443,7 +2438,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     // MARK: - Staging
 
     #if DEBUG
-    /// `lodestar __strip-preview 89` stages the overview, 90…99 each place.
+    /// `lodestar __strip-preview 89` stages the overview, 90…98 each place.
     static func preview(_ index: Int) -> SettingsController {
         let controller = SettingsController()
         let (config, _) = Config.load()

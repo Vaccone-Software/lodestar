@@ -20,8 +20,8 @@ final class SettingsPlacesTests: XCTestCase {
         XCTAssertNil(settings.placeForTesting, "letters are rows, and the overview has none")
         settings.pressForTesting("3")
         XCTAssertEqual(settings.placeForTesting, 3, "3 is Keep")
-        settings.pressForTesting("9")
-        XCTAssertEqual(settings.placeForTesting, 9, "a digit works from inside a place too")
+        settings.pressForTesting("8")
+        XCTAssertEqual(settings.placeForTesting, 8, "a digit works from inside a place too")
         settings.close()
     }
 
@@ -59,9 +59,9 @@ final class SettingsPlacesTests: XCTestCase {
         settings.perform = { performed.append($0) }
         // The row's letter is its place in the list, so it is looked up,
         // never assumed: a row added above it moves it.
-        let observations = SettingsModel.catalog(config: Config(), machine: .init())[9]
-        let delete = SettingsModel.labelAlphabet[observations.rows.firstIndex { $0.title == "Delete the logbook" }!]
-        settings.pressForTesting("9")
+        let wellbeing = SettingsModel.catalog(config: Config(), machine: .init())[8]
+        let delete = SettingsModel.labelAlphabet[wellbeing.rows.firstIndex { $0.title == "Delete the logbook" }!]
+        settings.pressForTesting("8")
         settings.pressForTesting(delete)
         XCTAssertEqual(performed, [], "the first press only asks")
         settings.pressForTesting("b")

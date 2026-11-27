@@ -11,14 +11,15 @@ final class SettingsModelTests: XCTestCase {
         SettingsModel.catalog(config: config, machine: machine).first { $0.name == name }!
     }
 
-    /// Ten places on the number row, General first on 0, then the four
-    /// doors in the site's order.
-    func testTheTenPlacesInTheirDigitsOrder() {
+    /// Nine places on the number row (0.57), General first on 0, then the
+    /// four doors in the site's order.
+    func testTheNinePlacesInTheirDigitsOrder() {
         XCTAssertEqual(sections.map(\.name), SettingsModel.placeNames)
         XCTAssertEqual(sections.map(\.name), ["General", "Write", "Switch", "Keep", "Speak",
-                                              "Operate", "Web", "Meetings", "Input", "Observations"])
+                                              "Operate", "Routing", "Input", "Wellbeing"])
         XCTAssertEqual(SettingsModel.paneAddresses(count: sections.count),
-                       ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
+                       ["0", "1", "2", "3", "4", "5", "6", "7", "8"])
+        XCTAssertNil(SettingsModel.pane(forKey: "9", count: sections.count), "9 is no place now")
         XCTAssertEqual(SettingsModel.pane(forKey: "3", count: sections.count), 3)
         XCTAssertNil(SettingsModel.pane(forKey: "a", count: sections.count))
         XCTAssertEqual(SettingsModel.placeIndex("Speak"), 4)
@@ -44,16 +45,15 @@ final class SettingsModelTests: XCTestCase {
         }
         var off = Config()
         off.logbookEnabled = false
-        let before = place("Observations").rows.map { "\($0.letter ?? "")\($0.path)" }
-        let after = place("Observations", off).rows.map { "\($0.letter ?? "")\($0.path)" }
+        let before = place("Wellbeing").rows.map { "\($0.letter ?? "")\($0.path)" }
+        let after = place("Wellbeing", off).rows.map { "\($0.letter ?? "")\($0.path)" }
         XCTAssertEqual(before, after, "a row dimming never moves a letter")
     }
 
     /// Where a place has one switch for the whole of it, it is `a`.
     func testTheMasterSwitchIsA() {
         for (name, path) in [("Write", "editor.enabled"), ("Keep", "clipboard.enabled"),
-                             ("Speak", "gestures.draft"), ("Meetings", "meetings.enabled"),
-                             ("Observations", "observations.logbook"), ("Web", "gestures.web-bar")] {
+                             ("Speak", "gestures.draft"), ("Routing", "gestures.web-bar")] {
             let first = place(name).rows.first!
             XCTAssertEqual(first.letter, "a")
             XCTAssertEqual(first.path, path, name)
@@ -132,7 +132,7 @@ final class SettingsModelTests: XCTestCase {
     func testAboutYouHoldsFourOptionalFacts() {
         var machine = SettingsModel.MachineState()
         machine.person = Person()
-        let rows = place("Observations", Config(), machine).rows.filter { $0.group == "About you" }
+        let rows = place("Wellbeing", Config(), machine).rows.filter { $0.group == "About you" }
         XCTAssertEqual(rows.map(\.path), ["health.born", "health.sex", "health.hand", "health.typing"])
         XCTAssertEqual(rows.map(\.path), Person.paths)
         XCTAssertTrue(rows.allSatisfy(\.isDefault), "unset by default")
@@ -143,7 +143,7 @@ final class SettingsModelTests: XCTestCase {
         machine.person = Person(born: 1990, sex: "female", typing: "touch")
         var config = Config()
         config.healthHand = "left"
-        let filled = place("Observations", config, machine).rows.filter { $0.group == "About you" }
+        let filled = place("Wellbeing", config, machine).rows.filter { $0.group == "About you" }
         XCTAssertEqual(filled.map(\.isDefault), [false, false, true, false], "an old config line is not a fact")
         guard case .choice(_, _, let sex) = filled[1].control else { return XCTFail("sex is chosen") }
         XCTAssertEqual(sex, "female")
@@ -152,26 +152,26 @@ final class SettingsModelTests: XCTestCase {
     /// Exact keyboard attribution has no switch: health asks for Input
     /// Monitoring itself, and Settings shows the grant.
     func testInputMonitoringIsAPermissionNotASwitch() {
-        let rows = place("Observations").rows
+        let rows = place("Input").rows
         XCTAssertFalse(rows.contains { $0.path == "health.exact-keyboards" || $0.title == "Exact keyboard" })
         var machine = SettingsModel.MachineState()
         machine.inputMonitoring = "Not granted"
-        let asking = place("Observations", Config(), machine).rows.first { $0.title == "Input Monitoring" }
+        let asking = place("Input", Config(), machine).rows.first { $0.title == "Input Monitoring" }
         XCTAssertEqual(asking?.action?.id, "open-input-monitoring")
         machine.inputMonitoring = "Granted"
-        let granted = place("Observations", Config(), machine).rows.first { $0.title == "Input Monitoring" }
+        let granted = place("Input", Config(), machine).rows.first { $0.title == "Input Monitoring" }
         XCTAssertNotNil(granted)
         XCTAssertNil(granted?.action, "nothing to open once it is granted")
     }
 
     func testAboutYouWaitsForTheHealthRecord() {
-        let rows = place("Observations").rows.filter { $0.group == "About you" }
+        let rows = place("Wellbeing").rows.filter { $0.group == "About you" }
         XCTAssertTrue(rows.allSatisfy(\.dimmed), "nothing to show until the sealed facts are read")
         XCTAssertTrue(rows.allSatisfy { $0.detail == "Opens with the health record" })
     }
 
     func testTheHealthRowSaysTheFingersAssumeTouchTyping() {
-        let row = place("Observations").rows.first { $0.path == "observations.health" }!
+        let row = place("Wellbeing").rows.first { $0.path == "observations.health" }!
         XCTAssertTrue(row.detail?.contains("touch typist") == true)
     }
 
@@ -206,7 +206,7 @@ final class SettingsModelTests: XCTestCase {
     /// a query goes into.
     func testTheSearchEnginesOnOffer() throws {
         let row = try XCTUnwrap(sections.flatMap(\.rows).first { $0.path == "web.search-url" })
-        XCTAssertEqual(row.presets.map(\.label), ["Brave Search", "Google", "Startpage"])
+        XCTAssertEqual(row.presets.map(\.label), ["Brave", "Google", "Startpage"])
         XCTAssertEqual(row.presets.last?.value, "https://www.startpage.com/sp/search?query=%s")
         XCTAssertTrue(row.presets.allSatisfy { $0.value.contains("%s") })
     }
@@ -222,7 +222,7 @@ final class SettingsModelTests: XCTestCase {
         guard case .table(let kind, let entries) = row.control else { return XCTFail("the letters are a list") }
         XCTAssertEqual(kind, .letters)
         XCTAssertEqual(entries.map(\.key), ["b x", "e o", "g"])
-        XCTAssertEqual(entries.map(\.display), ["B X", "E O", "G"])
+        XCTAssertEqual(entries.map(\.display), ["b x", "e o", "g"], "keystrokes as typed, lowercase")
         XCTAssertEqual(entries.map(\.sub), ["→  Mail", "→  Outlook", "→  Ghostty"])
         XCTAssertFalse(row.isDefault)
         XCTAssertTrue(place("Switch").rows.first { $0.path == "graph" }!.isDefault, "no letters, nothing changed")
@@ -256,7 +256,7 @@ final class SettingsModelTests: XCTestCase {
 
     /// Deleting asks twice, in words.
     func testDeletingIsAVerbThatAsksTwice() {
-        let rows = place("Observations").rows.filter { $0.group == "Delete" }
+        let rows = place("Wellbeing").rows.filter { $0.group == "Delete" }
         XCTAssertEqual(rows.compactMap(\.action?.id), ["delete-logbook", "delete-health"])
         XCTAssertTrue(rows.allSatisfy { $0.action?.destructive == true && $0.action?.confirm != nil })
         XCTAssertEqual(place("Keep").rows.last?.action?.id, "clear-clipboard")
@@ -276,10 +276,10 @@ final class SettingsModelTests: XCTestCase {
     func testEachRecordGatesWhatReadsIt() {
         var config = Config()
         config.observationsHealth = false
-        let rows = place("Observations", config).rows
-        XCTAssertEqual(rows.map(\.path).prefix(5), ["observations.logbook", "observations.logbook-mb",
-                                                    "coach.enabled", "observations.health",
-                                                    "observations.health-mb"])
+        let rows = place("Wellbeing", config).rows
+        XCTAssertEqual(rows.map(\.path).prefix(7), ["app.reduce-loud-audio", "coach.stand", "coach.enabled",
+                                                    "observations.logbook", "observations.logbook-mb",
+                                                    "observations.health", "observations.health-mb"])
         for path in ["observations.health-mb"] + Person.paths {
             XCTAssertTrue(rows.first { $0.path == path }!.dimmed, "\(path) needs health")
         }
@@ -289,7 +289,7 @@ final class SettingsModelTests: XCTestCase {
     func testCoachRowDimsWithoutTheLogbook() {
         var config = Config()
         config.logbookEnabled = false
-        let row = place("Observations", config).rows.first { $0.path == "coach.enabled" }!
+        let row = place("Wellbeing", config).rows.first { $0.path == "coach.enabled" }!
         XCTAssertTrue(row.dimmed)
         XCTAssertTrue(row.isDefault, "the dot and the switch agree")
         if case .toggle(let value) = row.control { XCTAssertFalse(value, "a dimmed coach never shows as on") }
@@ -330,7 +330,7 @@ final class SettingsModelTests: XCTestCase {
         config.scrollSpeed = 2400
         config.meetingsEnabled = true
         XCTAssertFalse(place("Operate", config).rows.first { $0.path == "scroll.speed" }!.isDefault)
-        XCTAssertFalse(place("Meetings", config).rows.first { $0.path == "meetings.enabled" }!.isDefault)
+        XCTAssertFalse(place("Routing", config).rows.first { $0.path == "meetings.enabled" }!.isDefault)
     }
 }
 
@@ -373,14 +373,15 @@ final class SettingsCoverageTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.title == "Accent" || $0.title == "Eye comfort" })
     }
 
-    /// Reduce loud audio is one menu, Off until the person picks a level, in
-    /// Sound and display right after Sounds, and found by what people type.
+    /// Reduce loud audio is one menu, Off until the person picks a level,
+    /// first in Wellbeing's Care beside the walk (0.57), and found by what
+    /// people type.
     /// The levels are named for how much they reduce, with no figures.
-    func testReduceLoudAudioIsOneMenuOffBesideSounds() throws {
-        let general = try XCTUnwrap(SettingsModel.catalog(config: Config(), machine: .init()).first { $0.name == "General" })
-        let titles = general.rows.filter { $0.group == "Sound and display" }.map(\.title)
-        XCTAssertEqual(Array(titles.prefix(2)), ["Sounds", "Reduce loud audio"])
-        let row = try XCTUnwrap(general.rows.first { $0.path == "app.reduce-loud-audio" })
+    func testReduceLoudAudioIsOneMenuOffInWellbeingsCare() throws {
+        let wellbeing = try XCTUnwrap(SettingsModel.catalog(config: Config(), machine: .init()).first { $0.name == "Wellbeing" })
+        let titles = wellbeing.rows.filter { $0.group == "Care" }.map(\.title)
+        XCTAssertEqual(titles, ["Reduce loud audio", "Walk"])
+        let row = try XCTUnwrap(wellbeing.rows.first { $0.path == "app.reduce-loud-audio" })
         guard case .choice(let options, let labels, let current) = row.control else { return XCTFail("one menu, no slider") }
         XCTAssertEqual(options, ["off", "light", "standard", "strong"])
         XCTAssertEqual(labels, ["Off", "Light", "Standard", "Strong"])
@@ -396,7 +397,7 @@ final class SettingsCoverageTests: XCTestCase {
         XCTAssertEqual(held.isDefault, false)
 
         for word in ["headphones", "volume", "hearing", "loud"] {
-            XCTAssertTrue(SettingsModel.aliases["General"]?.split(separator: " ").contains(Substring(word)) == true, word)
+            XCTAssertTrue(SettingsModel.aliases["Wellbeing"]?.split(separator: " ").contains(Substring(word)) == true, word)
         }
     }
 

@@ -92,6 +92,25 @@ final class EventLogTests: XCTestCase {
         XCTAssertEqual(log.readAll().count, 1, "a reader must never miss the last few seconds")
     }
 
+    /// A date a line cannot hold exactly (written as seconds since 1970, a
+    /// `Date` counts from 2001) reads the same pending as flushed, the stamp
+    /// and a date inside the event alike: what a reader makes of one must not
+    /// turn on whether the flush has run.
+    func testAPendingEventReadsTheDatesItsLineWillHold() {
+        let log = makeLog()
+        let t = Date(timeIntervalSinceReferenceDate: 810_691_200.673)
+        XCTAssertNotEqual(Date(timeIntervalSince1970: t.timeIntervalSince1970), t,
+                          "the stamp must be one the line does not hold exactly, or this proves nothing")
+        log.append(chainEvent(at: t))
+        log.append(BlindSpan.event(.secureInput, from: t, to: t.addingTimeInterval(6)))
+        func dates() -> [Double] {
+            log.readAll().flatMap { [$0.t, $0.blind?.end].compactMap { $0?.timeIntervalSinceReferenceDate } }
+        }
+        let pending = dates()
+        log.flush()
+        XCTAssertEqual(pending, dates())
+    }
+
     func testAppendsAccumulateAcrossFlushes() {
         let log = makeLog()
         log.append(chainEvent(at: Date()))

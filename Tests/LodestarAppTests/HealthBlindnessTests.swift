@@ -64,8 +64,12 @@ final class HealthBlindnessTests: XCTestCase {
         let found = spans(health, store)
         XCTAssertEqual(found.count, 1)
         XCTAssertEqual(found.first?.blind?.blindKind, .secureInput)
-        XCTAssertEqual(found.first?.t, t0, "from the last sample that saw it off")
-        XCTAssertEqual(found.first?.blind?.end, t0.addingTimeInterval(6), "to the first that sees it off")
+        // Dates as a line holds them (seconds since 1970), which can sit a
+        // hair off the `Date` sampled: what the log reads back, pending or not.
+        XCTAssertEqual(found.first?.t.timeIntervalSince1970 ?? 0, t0.timeIntervalSince1970, accuracy: 1e-6,
+                       "from the last sample that saw it off")
+        XCTAssertEqual(found.first?.blind?.end.timeIntervalSince1970 ?? 0, t0.timeIntervalSince1970 + 6, accuracy: 1e-6,
+                       "to the first that sees it off")
         XCTAssertEqual(found.first?.blind?.resolution, HealthMonitor.secureInputInterval)
         health.setEnabled(false)
     }

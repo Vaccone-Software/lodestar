@@ -65,6 +65,9 @@ public enum SettingsModel {
         case choice(options: [String], labels: [String], current: String)
         case number(Int, min: Int, max: Int, unit: String?)
         case text(String, placeholder: String)
+        /// A folder, chosen in the Mac's own folder panel rather than typed:
+        /// the value is its path, the home folder written as `~`.
+        case folder(String)
         /// Machine states and notes the config does not own. The sub is
         /// the identifier line every list row also wears.
         case readout(String, sub: String?)
@@ -484,7 +487,7 @@ public enum SettingsModel {
                 isDefault: config.clipboardMaxBytes == 500_000_000,
                 dimmed: !config.clipboardEnabled, group: "Keep"),
             Row(title: "Save images to", path: "clipboard.save-to",
-                control: .text(config.clipboardSaveFolder, placeholder: "~/Downloads"),
+                control: .folder(config.clipboardSaveFolder),
                 detail: "Where an image saved from the strip lands",
                 isDefault: config.clipboardSaveFolder == "~/Downloads", group: "Keep"),
             Row(title: "Excluded apps", path: "clipboard.exclude-apps",

@@ -29,6 +29,19 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// (a bundle id, a route pattern) cannot ride a dotted string.
     var applyEntries: (([[String]], [([String], ConfigValue)]) -> String?)?
     var machineState: () -> SettingsModel.MachineState = { .init() }
+    /// The Mac's folder panel, opened at a folder: the one chosen, or nil
+    /// when it was cancelled. A seam, so a test answers in its place.
+    var chooseFolder: (URL) -> URL? = { start in
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = start
+        panel.prompt = "Choose"
+        NSApp.activate()
+        return panel.runModal() == .OK ? panel.url : nil
+    }
     /// The machine's calendars and accounts, once access is granted.
     var calendarChoices: () -> [String] = { [] }
     /// A bundle identifier's human name and icon, for the app lists: an
@@ -662,6 +675,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             }
         case .page(let name):
             open(page: name)
+        case .folder(let value):
+            chooseFolder(for: row.path, from: value)
         case .selector:
             popups[index]?.performClick(nil)
         case .readout:
@@ -785,6 +800,21 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         armedAction = nil
         perform(action.id)
         render()
+    }
+
+    /// The folder panel, opened where the row's folder is; the choice is
+    /// written with the home folder as `~`, as the file has always said it.
+    private func chooseFolder(for path: String, from value: String) {
+        let start = URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
+        guard let chosen = chooseFolder(start) else { return }
+        write(path, .string((chosen.path as NSString).abbreviatingWithTildeInPath))
+    }
+
+    @objc private func folderPressed(_ sender: NSButton) {
+        guard let path = sender.identifier?.rawValue,
+              let row = current.rows.first(where: { $0.path == path }),
+              case .folder(let value) = row.control else { return }
+        chooseFolder(for: path, from: value)
     }
 
     @objc private func presetPressed(_ sender: NSButton) {
@@ -1396,7 +1426,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
                             guard let self, let field = self.fields[index] else { return }
                             self.panel.makeFirstResponder(field)
                         }
-                    case .toggle, .choice:
+                    case .toggle, .choice, .folder:
                         // The arm is state, not focus: set now, so the
                         // return that works it never depends on the main
                         // queue having had its turn first.
@@ -1578,7 +1608,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         var trailing: [NSView] = []
         if !row.isDefault, !row.path.isEmpty {
             switch row.control {
-            case .choice, .number, .text:
+            case .choice, .number, .text, .folder:
                 // An action is a key, never a word in grey that happens
                 // to be clickable.
                 let reset = RoomButton(glyph: .undo, named: "Reset", target: self, action: #selector(resetPressed(_:)))
@@ -1750,6 +1780,20 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let open = RoomButton(title: "Open", target: self, action: #selector(pagePressed(_:)))
             open.identifier = NSUserInterfaceItemIdentifier(name)
             return open
+        case .folder(let value):
+            // The folder as the Finder names it, and the key that changes it.
+            let holder = NSStackView()
+            holder.orientation = .horizontal
+            holder.alignment = .centerY
+            holder.spacing = Grid.close
+            let shown = label((value as NSString).abbreviatingWithTildeInPath, role: .control,
+                              color: BarTheme.secondaryColor)
+            shown.lineBreakMode = .byTruncatingHead
+            holder.addArrangedSubview(shown)
+            let choose = RoomButton(title: "Choose", target: self, action: #selector(folderPressed(_:)))
+            choose.identifier = NSUserInterfaceItemIdentifier(row.path)
+            holder.addArrangedSubview(choose)
+            return holder
         case .selector(let options, let labels, let current):
             let popup = KeyPopUp()
             popup.addItems(withTitles: labels)

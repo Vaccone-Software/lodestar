@@ -30,6 +30,13 @@ final class UpdateToolDeadlineTests: XCTestCase {
         XCTAssertEqual(outcome, .timedOut)
         let pid = try XCTUnwrap(Int32(String(contentsOf: marker, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)))
+        // The signal reaches the whole group, but the sleep is the shell's
+        // child, not ours: once the shell is gone, launchd reaps it, a few
+        // milliseconds after `run` returns on a loaded Mac (seen at 1 to 7 ms
+        // in 8 of 30 loaded runs, 2026-11-27, and on CI). So it must go, and
+        // soon: a sleep nobody stopped would stand for its 30 seconds.
+        let until = Date().addingTimeInterval(5)
+        while kill(pid, 0) == 0, Date() < until { usleep(1000) }
         XCTAssertNotEqual(kill(pid, 0), 0, "the sleep the shell started was stopped with it")
     }
 

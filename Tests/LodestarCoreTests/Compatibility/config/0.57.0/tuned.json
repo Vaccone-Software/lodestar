@@ -1,0 +1,47 @@
+{
+  "$schema": "lodestar-schema.json",
+  "version": "0.57.0",
+  "lode": {
+    "tap": false,
+    "trigger": "left-command"
+  },
+  "app": {
+    "auto-update": false,
+    "channel": "preview",
+    "units": "metric"
+  },
+  "gestures": {
+    "scroll": false
+  },
+  "web": {
+    "fallback": "brave:Work",
+    "links": {
+      "docs": {
+        "url": "example.com/docs"
+      }
+    },
+    "routes": {
+      "example.com": "brave:Work"
+    }
+  },
+  "scroll": {
+    "speed": 2200
+  },
+  "clipboard": {
+    "max-size-mb": 200
+  },
+  "keys": {
+    "10": "§"
+  },
+  "draft": {
+    "editing-style": "vim",
+    "words": {
+      "Lodestar": true
+    }
+  },
+  "mice": {
+    "reversed-wheels": {
+      "1133:49271": "Desk Mouse"
+    }
+  }
+}

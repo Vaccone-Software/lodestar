@@ -1,0 +1,1 @@
+{"at":"2026-01-01T00:42:00Z","because":"0.54.25 never took the pid file, and 0.54.24 was put back","by":{"principal":{"watchdog":{}}},"effects":["e9e0c0e3c967ea1769fb096b68f75c6c"],"entered":true,"event":"rollBack","from":"running","record":"0123456789abcdef0123456789abcdef","sequence":4,"to":"rolledBack"}

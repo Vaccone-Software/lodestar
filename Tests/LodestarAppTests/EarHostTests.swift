@@ -351,6 +351,29 @@ private struct Quiet: EditorBackend {
         }
     }
 
+    /// A load asked while one is on its way waits for it, and returns with
+    /// the model in. The load that began it stores what it brought on its
+    /// own turn on the model's actor, and a joiner with a higher priority
+    /// is given its turn first: before, the joiner returned on that turn
+    /// with nothing stored yet. Asked from the joiner's own turn, so no
+    /// machine is fast enough to hide it.
+    func testALoadThatJoinsAnotherReturnsWithTheModelIn() async {
+        let door = Door()
+        let model = DraftModel(model: .qwen36, loader: { _ in await door.wait(); return Quiet() }, clearCache: {})
+        let first = Task.detached(priority: .background) { await model.load() }
+        await eventually("the first load reaches the loader") { door.held == 1 }
+        let joined = Task(priority: .userInitiated) { () -> Bool in
+            await model.load()
+            return await model.isLoaded
+        }
+        // The joiner waits on the load in flight before the door opens.
+        try? await Task.sleep(for: .milliseconds(20))
+        door.open()
+        let loaded = await joined.value
+        XCTAssertTrue(loaded, "a load that joined another returned before the model was in")
+        await first.value
+    }
+
     func testAWarningLetsTheRestingModelGoAndKeepsTheEar() async {
         let ear = SlowEar(loaded: true)
         let (host, model) = host(ear: ear, loads: Loads())

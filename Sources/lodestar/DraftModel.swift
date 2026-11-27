@@ -69,7 +69,9 @@ actor DraftModel {
     typealias Loader = @Sendable (CleanupModel) async throws -> any EditorBackend
     let model: CleanupModel
     private var backend: (any EditorBackend)?
-    private var loading: Task<(any EditorBackend)?, Never>?
+    /// The load on its way. It ends once what it brought is stored, so a
+    /// caller that waits on it returns with the model in.
+    private var loading: Task<Void, Never>?
     private var warmed: Set<IntentPass.Prompt> = []
     private let loader: Loader
     private let clearCache: @Sendable () -> Void
@@ -103,32 +105,42 @@ actor DraftModel {
         recoverIfStuck()
         dropIfLost()
         if backend != nil { return }
-        if let loading { _ = await loading.value; return }
+        if let loading { await loading.value; return }
         let began = ContinuousClock.now
         let model = self.model
         let loader = self.loader
         let calls = self.calls
         let clear = self.clearCache
         let deadline = loadDeadline
-        let task = Task { () -> (any EditorBackend)? in
+        // What the load brought is stored inside the task, on this actor,
+        // before the task ends. Stored by whoever began it after awaiting the
+        // task, a second caller waiting on the same task could be given its
+        // turn first (it may well have the higher priority) and return with
+        // nothing in yet.
+        let task = Task { () -> Void in
             let asked = await calls.ask(deadline: deadline, wait: deadline) { () -> Result<any EditorBackend, Error>? in
                 calls.clearIfPending(clear)
                 do { return .success(try await loader(model)) } catch { return .failure(error) }
             }
+            var loaded: (any EditorBackend)?
             switch asked {
-            case .answer(.success(let backend)): return backend
+            case .answer(.success(let backend)): loaded = backend
             case .answer(.failure(let error)):
                 Log.info("intent", ["model": model.rawValue, "load failed": "\(error)"])
             case .unanswered, .busy:
                 Log.info("intent", ["model": model.rawValue, "load failed": "no answer in \(Int(deadline)) seconds"])
             }
-            return nil
+            self.loadEnded(with: loaded, began: began)
         }
         loading = task
-        backend = await task.value
+        await task.value
+    }
+
+    private func loadEnded(with loaded: (any EditorBackend)?, began: ContinuousClock.Instant) {
+        backend = loaded
         loading = nil
-        calls.loadEnded(succeeded: backend != nil)
-        if backend != nil {
+        calls.loadEnded(succeeded: loaded != nil)
+        if loaded != nil {
             calls.backendReplaced()
             Log.info("intent", ["model": model.rawValue, "loaded ms": Int(began.secondsElapsed * 1000)])
         }

@@ -379,7 +379,7 @@ extension ConfigFile {
     private static let editorSection = section(Editor.self, default: Editor()) {
         Field("enabled", \.enabled, .bool, doc: "Mark mistakes as you write; lode ⇥ letters the marks.")
         Field("model", \.model, .string(oneOf: ["", "spelling", "minimal", "standard", "full"]),
-              doc: "How the editor reads: spelling (no model, any Mac), minimal (Apple's own model), standard (16 GB Macs and up) or full (64 GB and up). Empty picks the one this Mac suits; one this Mac cannot run falls back the same way.")
+              doc: "Leave empty: the editor picks the model this Mac suits, and Settings only says which. A name forces one, for measuring: spelling (no model, any Mac), minimal (Apple's own model), standard (16 GB Macs and up) or full (64 GB and up); one this Mac cannot run falls back the same way.")
         Field("skip-apps", \.skipApps, switches("true to never read fields in this app."),
               doc: "App name → true. Fields in these apps are never read.")
     }
@@ -413,7 +413,7 @@ extension ConfigFile {
         Field("input", \.input, .string(),
               doc: "The microphone the draft listens to, by its name in Sound settings. Empty follows the system default input.")
         Field("model", \.model, .string(oneOf: ["", "apple", "small", "standard", "full", "max"]),
-              doc: "Leave empty: the draft sizes its models by this Mac's memory and fetches them the first time you dictate. Every setup but apple hears live with Nemotron in place of Apple's recognizer once it is here. A name forces one setup, for measuring: apple (Apple's recognizer only), small (Parakeet), standard (Parakeet, Qwen3-ASR 0.6B behind it and Gemma 4 E2B, 16 GB and up), full (Parakeet, Qwen3-ASR 1.7B and Gemma 4 E2B, 24 GB and up), max (Parakeet, Qwen3-ASR 1.7B and Qwen3.6 35B, 64 GB and up).")
+              doc: "Leave empty: the draft sizes its models by this Mac's memory and fetches them once you accept them after your first take. Every setup but apple hears live with Nemotron in place of Apple's recognizer once it is here. A name forces one setup, for measuring: apple (Apple's recognizer only), small (Parakeet), standard (Parakeet, Qwen3-ASR 0.6B behind it and Gemma 4 E2B, 16 GB and up), full (Parakeet, Qwen3-ASR 1.7B and Gemma 4 E2B, 24 GB and up), max (Parakeet, Qwen3-ASR 1.7B and Qwen3.6 35B, 64 GB and up).")
         Field("words", \.words, switches("true to keep this word in the draft's vocabulary."),
               doc: "Word → true. Names and terms speech gets wrong; a settled result that sounds like one is written as it, case and all.")
     }

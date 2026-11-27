@@ -366,6 +366,7 @@ final class CompatibilityTests: XCTestCase {
         state.walkCompletedVersion = Lodestar.version
         state.walkDoor = "speak"
         state.editorConsentAt = Date(timeIntervalSinceReferenceDate: 783_100_000.25)
+        state.draftModelsConsentAt = Date(timeIntervalSinceReferenceDate: 783_200_000.25)
         state.meetingSpent = ["standup@2026-04-01T09:00"]
         state.coachStandingSince = ["breath:gb": Date(timeIntervalSinceReferenceDate: 783_100_000.25)]
         state.curriculum = ["breaths": Curriculum.Record(offers: 2, lastOfferedAt: Date(timeIntervalSinceReferenceDate: 783_100_000.25),
@@ -386,7 +387,7 @@ final class CompatibilityTests: XCTestCase {
          "properties": {"version": {"type": "integer"}, "breaths": {"type": "array"}, "latestBreath": {"type": "string"},
           "parked": {"type": "array"}, "parkedSession": {"type": "string"}, "usage": {"type": "object"},
           "walkStep": {"type": "integer"}, "walkCompletedVersion": {"type": "string"}, "walkDoor": {"type": "string"},
-          "editorConsentAt": {"type": "number"}, "meetingSpent": {"type": "array", "items": {"type": "string"}},
+          "editorConsentAt": {"type": "number"}, "draftModelsConsentAt": {"type": "number"}, "meetingSpent": {"type": "array", "items": {"type": "string"}},
           "coachStandingSince": {"type": "object"}, "curriculum": {"type": "object"}, "editingStyleSettled": {"type": "boolean"}}}
         """)
 

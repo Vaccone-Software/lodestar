@@ -270,13 +270,12 @@ public enum SettingsModel {
         /// each app that has posted a mouse's scrolls since launch, and
         /// whether it is here now.
         public var wheels: [Wheel] = []
-        /// The editor's engines this Mac may run, their names (Automatic
-        /// is added in front by the catalog), and where the one in use stands.
-        public var editorEngines: [String] = []
-        public var editorEngineLabels: [String] = []
-        public var editorEngineCurrent = ""
-        /// The dictation model in use, or what it is fetching, for its row.
-        public var earStatus = ""
+        /// What the editor runs on, on this Mac, for its switch: the
+        /// model, what it downloads, or how far along that is. The model is
+        /// the Mac's to choose (0.57), so this is a sentence, not a menu.
+        public var editorModels = ""
+        /// The same for the draft's models.
+        public var draftModels = ""
         /// Input Monitoring, for exact keyboard attribution: "Granted" or not.
         public var inputMonitoring = "unknown"
         /// The health record's size warning, once it is near its bound.
@@ -290,10 +289,6 @@ public enum SettingsModel {
         /// The health key is gone and sealed files need it: the row that
         /// starts a new record is shown.
         public var healthKeyLost = false
-        public var editorModelStatus = ""
-        /// Engines this Mac cannot run (too little memory, no Apple
-        /// Intelligence): listed, greyed.
-        public var editorEnginesUnavailable: Set<String> = []
         /// The units the Mac's region measures in, for Units until one is chosen.
         public var unitsInferred = ClipQuantity.System.imperial.rawValue
         /// Whether the Mac is in dark mode: the night is chosen only there,
@@ -438,20 +433,6 @@ public enum SettingsModel {
            attention: !granted(machine.accessibility) && machine.accessibility != "unknown"))
 
         // 1 · Write: the editor
-        var model: Row
-        if !machine.editorEngines.isEmpty {
-            model = Row(title: "Model", path: "editor.model",
-                control: .choice(options: [""] + machine.editorEngines, labels: [Self.automaticModelLabel] + machine.editorEngineLabels,
-                                 current: machine.editorEngineCurrent),
-                detail: machine.editorModelStatus + ". Spelling reads typos without a model, the others read grammar too",
-                isDefault: config.editorModel.isEmpty, group: "Editor")
-            model.disabledChoices = machine.editorEnginesUnavailable
-        } else {
-            model = Row(title: "Model", path: "editor.model",
-                control: .readout(machine.editorModelStatus, sub: nil),
-                detail: "Loads when you start writing and lets its memory go two minutes after you stop",
-                isDefault: config.editorModel.isEmpty, group: "Editor")
-        }
         let words = Row(title: "Words", path: "draft.words", control: .page(wordsPage),
                         detail: config.draftWords.isEmpty
                             ? "Names and terms, written the way you write them. Shared by Write and Speak"
@@ -460,10 +441,10 @@ public enum SettingsModel {
         sections.append(Section(name: "Write", rows: [
             Row(title: "Editor", path: "editor.enabled",
                 control: .toggle(config.editorEnabled),
-                detail: "Marks mistakes as you write, in every app. Your text never leaves this Mac and is never kept",
+                detail: Self.sentences("Marks mistakes as you write, in every app. Your text never leaves this Mac and is never kept",
+                                       machine.editorModels),
                 keycaps: ["lode", "⇥"], isDefault: !config.editorEnabled, group: "Editor",
                 problem: problem(at: "editor.enabled")),
-            model,
             words,
             Row(title: "Skip in", path: "editor.skip-apps",
                 control: .table(kind: .editorSkipApps, entries: config.editorSkipApps.sorted().map {
@@ -532,15 +513,9 @@ public enum SettingsModel {
         // 4 · Speak: the draft
         let inputOptions = [""] + machine.inputDevices
         let inputLabels = ["System · " + (machine.defaultInput ?? "Default")] + machine.inputDevices
-        // Not a choice: the draft sizes its models by this Mac's memory.
-        // `draft.model` still names one, by hand, for a measurement.
-        let speakModel = Row(title: "Models", path: "draft.model",
-            control: .readout(machine.earStatus.isEmpty ? "Apple's recognizer" : machine.earStatus, sub: nil),
-            detail: "Chosen for this Mac's memory. They hear what you said again while you keep talking, "
-                + "and take out the words you take back",
-            isDefault: config.draftModel.isEmpty, group: "Draft")
         sections.append(Section(name: "Speak", rows: [
-            gesture("draft", group: "Draft", detail: "Speak into it and ⏎ pastes where your cursor was"),
+            gesture("draft", group: "Draft",
+                    detail: Self.sentences("Speak into it and ⏎ pastes where your cursor was", machine.draftModels)),
             Row(title: "Microphone", path: "draft.input",
                 control: .choice(options: inputOptions, labels: inputLabels,
                                  current: inputOptions.contains(config.draftInput) ? config.draftInput : ""),
@@ -554,7 +529,6 @@ public enum SettingsModel {
                     ? "Vim's modes and motions. Esc goes to normal mode first"
                     : "Edits like any Mac text field. Esc closes the draft",
                 isDefault: config.draftEditingStyle == .standard, group: "Draft"),
-            speakModel,
             words.inGroup("Words"),
         ], picture: "door-speak",
            sentence: "Speak, and the draft writes it down and hears you again to get it right",
@@ -795,10 +769,11 @@ public enum SettingsModel {
 
     // MARK: - Pages
 
-    /// The first item of both Model menus. It names no model: Automatic is
-    /// trusted to pick the best one this Mac runs, and the menu's other
-    /// items, smallest to largest, say what each costs.
-    public static let automaticModelLabel = "Automatic"
+    /// Sentences joined as the house writes them: each ends with a period
+    /// but the last, and an empty one is left out.
+    static func sentences(_ parts: String...) -> String {
+        parts.filter { !$0.isEmpty }.joined(separator: ". ")
+    }
 
     /// The ten places, in their digits' order.
     public static let placeNames = ["General", "Write", "Switch", "Keep", "Speak",

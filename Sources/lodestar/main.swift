@@ -48,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var editorAnnounced = false
     private var draftEditor: DraftEditor?
     private let editorConsent = EditorConsent()
+    /// The draft's question: its models run on this Mac (0.57).
+    private let draftConsent = EditorConsent(tag: EditorConsent.draftTag, sentence: EditorConsent.draftSentence)
     private let editorDownload = EditorDownload()
     private var lastSettingsProgress: ContinuousClock.Instant?
     private var coach: CoachController!
@@ -439,6 +441,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.info("editor", ["consent": "declined"])
             self?.setEditorEnabled(false, flash: "The editor stays off")
         }
+        // The draft's models, asked after its first take on this Mac: the
+        // take itself needs nothing fetched (Apple's recognizer hears it),
+        // and turning the draft on is agreeing to the models, so a decline
+        // turns it back off.
+        draftConsent.present = { [weak self] sentence, detail, rows in
+            guard let self else { return }
+            if self.hud.owner == .coach { self.hud.hide() }
+            self.hud.showVoice(sentence: sentence, detail: detail, rows: rows, owner: .coach, tag: EditorConsent.draftTag)
+        }
+        draftConsent.isShowing = { [weak self] in self?.hud.voiceTag == EditorConsent.draftTag }
+        draftConsent.clear = { [weak self] in self?.hud.hide() }
+        draftConsent.accepted = { [weak self] in
+            guard let self else { return }
+            self.store.setDraftModelsConsent(Moment.now.date)
+            Log.info("draft", ["models": "accepted"])
+            self.earHost.fetchNow()
+        }
+        draftConsent.declined = { [weak self] in
+            Log.info("draft", ["models": "declined"])
+            self?.setGesture("draft", on: false, flash: "The draft stays off")
+        }
         // The model's files, fetched in the background once the editor
         // runs. Whole, the other models' files go, the editor starts asking
         // it, and the hand is told once.
@@ -481,7 +504,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.refreshToldWords()
             self.earHost.warm()
         }
-        draft.onClosed = { [weak self] in self?.earHost.rest() }
+        draft.onClosed = { [weak self] in
+            guard let self else { return }
+            self.earHost.rest()
+            self.askDraftConsentWhenClear(after: 1)
+        }
+        earHost.mayFetch = { [weak self] in self?.store.draftModelsConsented ?? false }
         // An ear that was cold when the words were said hears them once it
         // is in, if the draft is still open.
         earHost.loaded = { [weak draft] in draft?.earLoaded() }
@@ -727,6 +755,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // turned the editor on), so it answers before any offer.
             Voice(assent: { [weak self] in self?.editorConsent.assent() ?? false },
                   dismiss: { [weak self] in self?.editorConsent.dismiss() ?? false }),
+            Voice(assent: { [weak self] in self?.draftConsent.assent() ?? false },
+                  dismiss: { [weak self] in self?.draftConsent.dismiss() ?? false }),
             Voice(assent: { [weak self] in self?.meetings.join() ?? false },
                   dismiss: { [weak self] in self?.meetings.dismiss() ?? false }),
             Voice(assent: { [weak self] in self?.linkChip.take() ?? false },
@@ -1510,29 +1540,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             default:
                 break
             }
-            // All three, always: one this Mac cannot run is listed with
-            // what it needs, and greyed.
-            let engines = EditorEngine.allCases
-            let reasons = engines.map { EditorEngine.unavailable($0) }
-            // Automatic leads the menu and is the default; the catalog adds
-            // it, bare, because it is trusted to pick what this Mac runs.
-            state.editorEngines = engines.map(\.rawValue)
-            state.editorEngineLabels = zip(engines, reasons).map { engine, why in engine.menuLabel(unavailable: why) }
-            state.editorEnginesUnavailable = Set(zip(engines, reasons).filter { $0.1 != nil }.map(\.0.rawValue))
-            let engine = self?.editorController?.engine ?? EditorEngine.resolved(self?.config.editorModel ?? "")
-            state.editorEngineCurrent = self?.config.editorModel ?? ""
-            state.earStatus = self?.earHost.status ?? ""
+            state.editorModels = self?.editorModelsLine() ?? ""
+            state.draftModels = self?.draftModelsLine() ?? ""
             // As health or the wheels last read it, off the main thread: the
             // privacy service is never asked from here.
             state.inputMonitoring = (self?.reversedWheels.listenGranted ?? self?.health.listenGranted)
                 .map { $0 ? "Granted" : "Not granted" } ?? "unknown"
             state.unitsInferred = ClipQuantity.System.regional().rawValue
             state.isDark = Tone.systemDark
-            let waiting = (self?.config.editorEnabled ?? false) && !(self?.store.editorConsented ?? true)
-            state.editorModelStatus = waiting ? "\(engine.name) · waiting for Accept or Decline"
-                : self?.editorDownload.status
-                ?? EditorEngine.unavailable(engine).map { "\(engine.name) \($0), so only spelling is marked" }
-                ?? EditorModels.status(for: engine)
             state.inputDevices = AudioInput.inputDevices().map(\.name)
             state.defaultInput = AudioInput.defaultInputName
             state.accessibility = Permissions.isTrusted ? "Granted" : "Not granted"
@@ -1735,6 +1750,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func stateSettled() {
         if store.isKnown {
             parking.adopt(store.parkedSpots)
+            // A Mac that dictated before 0.57 already fetched the draft's
+            // models, which is the yes the card would ask for.
+            if !store.draftModelsConsented, earHost.hasSomeModel {
+                store.setDraftModelsConsent(Moment.now.date)
+            }
             applyEditor(config)
             settleEditingStyle()
             dailyCount.stateSettled()
@@ -2593,6 +2613,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let problem = rewriteConfig(flash: flash, logged: "editor.enabled", edit: { tree in
             guard let updated = Json.setting(tree, path: ["editor", "enabled"], to: .bool(on)) else {
                 throw Config.EditError.unparsed("editor.enabled")
+            }
+            return updated
+        }) {
+            hud.flash("✕ \(problem)")
+        }
+    }
+
+    /// What the editor runs on, for the sentence under its switch: Settings
+    /// names no model and offers no menu (0.57), only what this Mac holds.
+    private func editorModelsLine() -> String {
+        if let fetching = editorDownload.status { return "Its model is on its way: \(fetching.lowercased())" }
+        let engine = editorController?.engine ?? EditorEngine.resolved(config.editorModel)
+        switch engine {
+        case .spelling: return "It uses the Mac's spell checker, with nothing to download"
+        case .minimal: return "It runs on Apple's model, built into macOS"
+        case .standard, .full:
+            guard let manifest = EditorManifest.forEngine(engine) else { return "" }
+            let size = String(format: "%.1f GB", Double(manifest.total) / 1e9)
+            return EditorModels.directory(for: engine) != nil
+                ? "It runs on a model on this Mac (\(size))"
+                : "It runs on a model on this Mac, about \(size), downloaded once when you accept"
+        }
+    }
+
+    /// What the draft runs on, for the sentence under its switch.
+    private func draftModelsLine() -> String {
+        if let fetching = earHost.download.status ?? earHost.cleanupDownload.status {
+            return "Its models are on their way: \(fetching.lowercased())"
+        }
+        if earHost.needsDownload {
+            return config.draftModel.isEmpty && !store.draftModelsConsented
+                ? "It runs on models on this Mac, about \(earHost.downloadSize), downloaded once after your first take"
+                : "It runs on models on this Mac, about \(earHost.downloadSize) still to download"
+        }
+        return earHost.hasSomeModel ? "It runs on models on this Mac" : "It runs on Apple's recognizer, on this Mac"
+    }
+
+    /// The draft's question, asked once the glass is clear after a take:
+    /// only while the models it would fetch are not here, nothing in the
+    /// file names a setup by hand, and nobody has answered on this Mac.
+    private func askDraftConsentWhenClear(after seconds: TimeInterval) {
+        onMain(after: .seconds(seconds)) { [weak self] in
+            guard let self, self.store.isKnown, !self.store.draftModelsConsented, self.config.draftModel.isEmpty,
+                  self.earHost.needsDownload, !self.draftConsent.isShowing(),
+                  self.draftController?.isOpen != true else { return }
+            guard self.hud.owner == .none else {
+                self.askDraftConsentWhenClear(after: 30)
+                return
+            }
+            self.draftConsent.ask(detail: "About \(self.earHost.downloadSize), downloaded once in the background")
+        }
+    }
+
+    /// A gesture's switch, written as Settings would write it.
+    private func setGesture(_ name: String, on: Bool, flash: String) {
+        if let problem = rewriteConfig(flash: flash, logged: "gestures.\(name)", edit: { tree in
+            guard let updated = Json.setting(tree, path: ["gestures", name], to: .bool(on)) else {
+                throw Config.EditError.unparsed("gestures.\(name)")
             }
             return updated
         }) {

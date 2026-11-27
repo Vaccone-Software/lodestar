@@ -77,7 +77,6 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(place("General").rows.contains { $0.title == "Accessibility" })
         XCTAssertTrue(place("Input").rows.contains { $0.path == "keys" })
         XCTAssertTrue(place("Input").rows.contains { $0.path == "health.keyboards" })
-        XCTAssertTrue(place("Speak").rows.contains { $0.path == "draft.model" })
         XCTAssertTrue(place("Write").rows.contains { $0.path == "editor.skip-apps" })
     }
 
@@ -317,7 +316,10 @@ final class SettingsCoverageTests: XCTestCase {
     /// Leaves settings deliberately does not carry, each with its reason.
     /// The graph is edited where addressing happens — ⌘K and the file —
     /// and a third editor would be a product pretending to be a pane.
-    private static let exceptions: Set<String> = ["graph.<key>"]
+    /// The models are the Mac's to choose (0.57): the two keys stay in the
+    /// file for a measurement that must force one, and Settings says in a
+    /// sentence what runs instead of offering a menu.
+    private static let exceptions: Set<String> = ["graph.<key>", "editor.model", "draft.model"]
 
     func testEverySchemaLeafHasARow() {
         let sections = SettingsModel.catalog(config: Config(), machine: .init())

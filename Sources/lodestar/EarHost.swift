@@ -106,7 +106,9 @@ final class EarHost {
     }
 
     private func fetchIfMissing() {
-        guard suited != .apple else { return }
+        // Automatic waits for the hand's yes (`mayFetch`); a tier named
+        // outright in the file is that yes already.
+        guard suited != .apple, !named.isEmpty || mayFetch() else { return }
         // The live recognizer, then the ear that hears first, then the one
         // behind it.
         if let missing = ([suited.liveEngine].compactMap { $0 } + suited.engines).first(where: { !Self.hasEngine($0) }) {
@@ -181,6 +183,41 @@ final class EarHost {
     static func hasModel(_ tier: EarTier) -> Bool {
         tier.engines.allSatisfy(hasEngine)
     }
+
+    /// Has the person agreed to the draft's models on this Mac? Nothing is
+    /// downloaded for Automatic until they have (0.57).
+    var mayFetch: () -> Bool = { true }
+
+    /// What the tier this Mac suits still needs: its live recognizer, its
+    /// ears and its model for what was meant. Empty on a Mac that runs
+    /// Apple's recognizer alone, or once everything is here.
+    private var missing: [EditorManifest] {
+        guard suited != .apple else { return [] }
+        let ears = ([suited.liveEngine].compactMap { $0 } + suited.engines)
+            .filter { !Self.hasEngine($0) }
+            .compactMap { EarEngines.manifest($0).map(EditorManifest.init) }
+        let model = suited.cleanup.flatMap { EditorModels.directory(for: $0.manifest) == nil ? $0.manifest : nil }
+        return ears + [model].compactMap { $0 }
+    }
+
+    /// The draft would download something the first time it is let.
+    var needsDownload: Bool { !missing.isEmpty }
+
+    /// Some of the tier's files are already here: a Mac that dictated
+    /// before 0.57 asked, which is its yes.
+    var hasSomeModel: Bool {
+        guard suited != .apple else { return false }
+        return ([suited.liveEngine].compactMap { $0 } + suited.engines).contains(where: Self.hasEngine)
+    }
+
+    /// The download, as the card and Settings say it: "3.1 GB".
+    var downloadSize: String {
+        let bytes = missing.reduce(0.0) { $0 + Double($1.total) }
+        return String(format: "%.1f GB", bytes / 1e9)
+    }
+
+    /// Agreed: what is missing is fetched now, in the background.
+    func fetchNow() { fetchIfMissing() }
 
     /// The tier the setting names, resolved for this Mac. A tier named
     /// outright whose model is not here yet is fetched, and taken up when
@@ -282,19 +319,6 @@ final class EarHost {
             }
         }
         return removed
-    }
-
-    /// What the Settings row says: the ear in use, or the one on its way.
-    var status: String {
-        if let fetching = download.status ?? cleanupDownload.status { return fetching }
-        switch tier {
-        case .apple: return named == "apple" ? "" : "Not on this Mac yet"
-        case .small, .standard, .full, .max:
-            let live = live != nil ? [EarEngines.nemotron] : []
-            let names = (live + tier.engines).map(EarEngines.displayName)
-            return (names.count > 1 ? names.dropLast().joined(separator: ", ") + " and " + names.last! : names.joined())
-                + " in use"
-        }
     }
 
     /// Dictation started: the ear loads now, off the main thread, if it

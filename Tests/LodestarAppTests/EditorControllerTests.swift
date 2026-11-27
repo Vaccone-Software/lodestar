@@ -1611,16 +1611,3 @@ final class EditorLetterOrderTests: XCTestCase {
         XCTAssertEqual(rig.controller.lensMarks.map(\.issue.original), ["sheduled", "recieve"])
     }
 }
-
-final class EditorMenuLabelTests: XCTestCase {
-    /// The menu says what each choice costs, and what a Mac lacks for one.
-    func testTheModelMenuShowsSizes() {
-        XCTAssertEqual(EditorEngine.spelling.menuLabel(unavailable: nil), "Spelling · no download")
-        XCTAssertEqual(EditorEngine.minimal.menuLabel(unavailable: nil), "Minimal · built into macOS")
-        XCTAssertEqual(EditorEngine.standard.menuLabel(unavailable: nil), "Standard · 3.6 GB download · holds 4 GB")
-        XCTAssertEqual(EditorEngine.full.menuLabel(unavailable: nil), "Full · 20.4 GB download · holds 20 GB")
-        XCTAssertEqual(EditorEngine.full.menuLabel(unavailable: "needs 64 GB"), "Full · 20.4 GB download · needs 64 GB")
-        XCTAssertEqual(EditorEngine.minimal.menuLabel(unavailable: "needs Apple Intelligence"),
-                       "Minimal · needs Apple Intelligence")
-    }
-}

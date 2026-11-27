@@ -1,18 +1,33 @@
 import AppKit
 import LodestarCore
 
-/// The editor asks before it reads anything. Turning it on puts one card
-/// on the glass: what it does, what it holds, and Accept or Decline, by
-/// lode lode and lode ⌫ or by the mouse. Accepted once per Mac; declined,
-/// the switch goes back off and nothing was read.
+/// The editor asks before it reads anything, and the draft before it
+/// downloads its models. Turning the editor on, or the draft's first take,
+/// puts one card on the glass: what it does, what it holds, and Accept or
+/// Decline, by lode lode and lode ⌫ or by the mouse. Accepted once per Mac;
+/// declined, the switch goes back off and nothing was read or fetched.
 ///
 /// The card must be the one showing for a gesture to answer it: a card
 /// another surface replaced is not a question anyone saw, so it is asked
-/// again the next time the editor is turned on or Lodestar starts.
+/// again the next time the feature is turned on or used.
 final class EditorConsent {
     static let tag = "editor-consent"
     static let sentence = "The editor reads what you write in every app to mark mistakes. "
         + "Your text stays on this Mac and is never kept"
+    /// The draft's question (0.57): its models run on this Mac, and turning
+    /// the draft on is agreeing to them, so the card says so once.
+    static let draftTag = "draft-consent"
+    static let draftSentence = "The draft hears you with models that run on this Mac. "
+        + "Your voice never leaves it"
+
+    /// Which card this is, and what it says.
+    let tag: String
+    let sentence: String
+
+    init(tag: String = EditorConsent.tag, sentence: String = EditorConsent.sentence) {
+        self.tag = tag
+        self.sentence = sentence
+    }
 
     /// The card, drawn: sentence, the engine's line, the two answers.
     var present: (_ sentence: String, _ detail: String, _ rows: [GuideRow]) -> Void = { _, _, _ in }
@@ -25,7 +40,7 @@ final class EditorConsent {
     var declined: () -> Void = {}
 
     func ask(detail: String) {
-        present(Self.sentence, detail, [
+        present(sentence, detail, [
             GuideRow(keys: ["lode"], double: true, label: "Accept", action: { [weak self] in _ = self?.assent() }, lit: true),
             GuideRow(keys: ["lode", "⌫"], label: "Decline", action: { [weak self] in _ = self?.dismiss() }),
         ])

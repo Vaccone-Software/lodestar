@@ -89,6 +89,10 @@ public struct PersistedState: Codable, Sendable {
     /// Machine owned, like the walk: consent is given by a person at a
     /// Mac, not carried in a config file copied to another one.
     public var editorConsentAt: Date?
+    /// When the hand accepted the draft's models on this Mac (0.57): the
+    /// files it downloads to hear better than Apple's recognizer alone.
+    /// Machine owned, like the editor's.
+    public var draftModelsConsentAt: Date?
     /// Meeting occurrences already joined or dismissed — the chip never
     /// resurrects one. Pruned to live occurrences on every write.
     public var meetingSpent: [String]?
@@ -452,6 +456,15 @@ public final class StateStore {
 
     public func setEditorConsent(_ at: Date?) {
         state.editorConsentAt = at
+        save()
+    }
+
+    // MARK: - The draft's models
+
+    public var draftModelsConsented: Bool { state.draftModelsConsentAt != nil }
+
+    public func setDraftModelsConsent(_ at: Date?) {
+        state.draftModelsConsentAt = at
         save()
     }
 

@@ -66,7 +66,7 @@ since 2001):
   `0.24.5` adds `coachStandingSince`; `0.30.15` adds `curriculum`; `0.37.0`
   adds `editorConsentAt`; `0.39.0` adds `walkDoor`; `0.54.5` adds
   `editingStyleSettled`; `0.54.11` adds a breath member's `display` and a
-  breath's `orientations`.
+  breath's `orientations`; `0.57.0` adds `draftModelsConsentAt`.
 - `0.54.22`: the last release before this one, the shape 0.54.11 settled.
   Its `_schema.json` is `PersistedState`'s decoder written out by hand (a
   non-optional Codable property is required when its key is absent: `breaths`

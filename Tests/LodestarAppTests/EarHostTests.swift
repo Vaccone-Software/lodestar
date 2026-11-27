@@ -730,3 +730,45 @@ private struct Quiet: EditorBackend {
         XCTAssertEqual(problem, "dictation has no ear on this Mac yet (Settings › Dictation)")
     }
 }
+
+/// The draft's models wait for the hand's yes (0.57): Automatic fetches
+/// nothing until the card is accepted.
+final class DraftModelsConsentTests: XCTestCase {
+    func testAutomaticFetchesNothingUntilAccepted() {
+        let host = EarHost()
+        host.mayFetch = { false }
+        host.configure("")
+        host.fetchNow()
+        XCTAssertNil(host.download.model, "nothing on its way before the yes")
+        XCTAssertNil(host.cleanupDownload.model)
+    }
+
+    func testTheCardSaysTheModelsRunOnThisMac() throws {
+        let consent = EditorConsent(tag: EditorConsent.draftTag, sentence: EditorConsent.draftSentence)
+        var shown: (sentence: String, detail: String, rows: [GuideRow])?
+        var declined = 0
+        consent.present = { shown = ($0, $1, $2) }
+        consent.isShowing = { shown != nil }
+        consent.clear = { shown = nil }
+        consent.declined = { declined += 1 }
+        consent.ask(detail: "About 3.1 GB, downloaded once in the background")
+        let card = try XCTUnwrap(shown)
+        XCTAssertTrue(card.sentence.contains("on this Mac"), card.sentence)
+        XCTAssertFalse(card.sentence.hasSuffix("."))
+        XCTAssertEqual(card.rows.map(\.label), ["Accept", "Decline"])
+        XCTAssertNotEqual(consent.tag, EditorConsent.tag, "the editor's card and the draft's are told apart")
+        XCTAssertTrue(consent.dismiss())
+        XCTAssertEqual(declined, 1)
+    }
+
+    func testTheYesIsRememberedOnThisMac() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("state-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let store = SealedFixture.stateStore(file)
+        XCTAssertFalse(store.draftModelsConsented)
+        store.setDraftModelsConsent(Date())
+        let again = SealedFixture.stateStore(file)
+        again.load()
+        XCTAssertTrue(again.draftModelsConsented)
+    }
+}

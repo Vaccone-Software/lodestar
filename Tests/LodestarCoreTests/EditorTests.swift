@@ -492,44 +492,21 @@ final class EditorAnsweredPromptTests: XCTestCase {
 }
 
 final class EditorSettingsTests: XCTestCase {
-    /// Every engine is listed; the ones this Mac cannot run are greyed,
-    /// named with what they need.
-    func testAModelTooBigIsListedAndGreyed() throws {
+    /// The model is the Mac's to choose (0.57): no Model row in Write or
+    /// Speak, and each switch says in one sentence what runs on this Mac.
+    func testTheModelsAreASentenceUnderEachSwitchNotARow() throws {
         var machine = SettingsModel.MachineState()
-        machine.editorEngines = ["spelling", "minimal", "standard", "full"]
-        machine.editorEngineLabels = ["Spelling", "Minimal", "Standard", "Full · needs 64 GB"]
-        machine.editorEngineCurrent = "standard"
-        machine.editorEnginesUnavailable = ["full"]
+        machine.editorModels = "It runs on a model on this Mac (2.6 GB)"
+        machine.draftModels = "It runs on models on this Mac"
         let rows = SettingsModel.catalog(config: Config(), machine: machine).flatMap(\.rows)
-        let model = try XCTUnwrap(rows.first { $0.path == "editor.model" })
-        guard case .choice(let options, let labels, let current) = model.control else {
-            return XCTFail("the model is a choice")
-        }
-        XCTAssertEqual(options, ["", "spelling", "minimal", "standard", "full"])
-        XCTAssertEqual(labels.first, "Automatic", "Automatic names no model")
-        XCTAssertEqual(labels.last, "Full · needs 64 GB")
-        XCTAssertEqual(current, "standard")
-        XCTAssertEqual(model.disabledChoices, ["full"])
-    }
-
-    /// Write's Model menu leads with a bare Automatic, the one thing to
-    /// trust; Speak's models are not a menu at all, only what is in use.
-    func testWritesModelMenuLeadsWithABareAutomaticAndSpeaksIsNoMenu() throws {
-        var machine = SettingsModel.MachineState()
-        machine.editorEngines = ["spelling", "minimal", "standard", "full"]
-        machine.editorEngineLabels = ["Spelling", "Minimal", "Standard", "Full"]
-        machine.earStatus = "Nemotron, Parakeet and Qwen3-ASR in use"
-        let rows = SettingsModel.catalog(config: Config(), machine: machine).flatMap(\.rows)
-        let editor = try XCTUnwrap(rows.first { $0.path == "editor.model" })
-        guard case .choice(let options, let labels, _) = editor.control else {
-            return XCTFail("editor.model is a choice")
-        }
-        XCTAssertEqual(options.first, "")
-        XCTAssertEqual(labels.first, "Automatic")
-        XCTAssertEqual(labels.count, options.count)
-        let speak = try XCTUnwrap(rows.first { $0.path == "draft.model" })
-        guard case .readout(let text, _) = speak.control else { return XCTFail("draft.model is a readout") }
-        XCTAssertEqual(text, "Nemotron, Parakeet and Qwen3-ASR in use")
+        XCTAssertFalse(rows.contains { $0.path == "editor.model" || $0.path == "draft.model" })
+        XCTAssertFalse(rows.contains { $0.title == "Model" || $0.title == "Models" })
+        let editor = try XCTUnwrap(rows.first { $0.path == "editor.enabled" })
+        XCTAssertEqual(editor.detail, "Marks mistakes as you write, in every app. Your text never leaves this Mac and is never kept. "
+                       + "It runs on a model on this Mac (2.6 GB)")
+        let draft = try XCTUnwrap(rows.first { $0.path == "gestures.draft" })
+        XCTAssertEqual(draft.detail, "Speak into it and ⏎ pastes where your cursor was. It runs on models on this Mac")
+        XCTAssertFalse(draft.detail?.hasSuffix(".") ?? true, "house copy ends without a period")
     }
 
     func testNothingIsLearnedFromGrammar() {

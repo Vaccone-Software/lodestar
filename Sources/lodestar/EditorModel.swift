@@ -86,22 +86,6 @@ enum EditorEngine: String, CaseIterable {
         }
     }
 
-    /// The model menu's line: what choosing it costs, so the tradeoff is
-    /// read where it is made — the download, the memory held while you
-    /// write, or what this Mac lacks for it.
-    func menuLabel(unavailable why: String?) -> String {
-        let download = EditorManifest.forEngine(self).map { String(format: "%.1f GB download", Double($0.total) / 1e9) }
-        if let why {
-            return ([name] + [download, why].compactMap { $0 }).joined(separator: " · ")
-        }
-        switch self {
-        case .spelling: return "Spelling · no download"
-        case .minimal: return "Minimal · built into macOS"
-        case .standard: return "Standard · \(download ?? "") · holds 4 GB"
-        case .full: return "Full · \(download ?? "") · holds 20 GB"
-        }
-    }
-
     /// The margin a grammar fix must win by (`EditorConfidence`), by the
     /// model's own scale; nil where nothing weighs.
     var confidenceThreshold: Double? {

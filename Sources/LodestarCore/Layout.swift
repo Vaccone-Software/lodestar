@@ -75,6 +75,13 @@ public final class LayoutController {
     /// old rectangle: overlaps, gaps, or a strip hidden under the Dock,
     /// until some other layout verb happened to re-cut it.
     private var tiledFrames: [CGDirectDisplayID: CGRect] = [:]
+    /// Where each member stood when its display's last retile came to
+    /// rest, read back from the window rather than asked for, so a window
+    /// that took less than its slice is recorded where it settled. A
+    /// member has no entry while its display is being retiled, and keeps
+    /// the entry after a drag: comparing the two is how the focus outline
+    /// knows a window is no longer where Lodestar put it.
+    private var placed: [CGWindowID: CGRect] = [:]
 
     private let model: WindowQuerying
     private let parking: ParkingLot
@@ -89,6 +96,9 @@ public final class LayoutController {
     private let moveQueue: DispatchQueue?
 
     public var onChange: (() -> Void)?
+    /// A retile came to rest: every member of the display is where this
+    /// controller left it, and `placedFrame(of:)` says where that is.
+    public var onPlaced: ((CGDirectDisplayID) -> Void)?
     /// One retile batch finished: its wall-clock seconds and member count
     /// — the instrument observing itself.
     public var onMoves: ((TimeInterval, Int) -> Void)?
@@ -150,6 +160,10 @@ public final class LayoutController {
     public var allMembers: Set<CGWindowID> {
         Set(layouts.values.flatMap(\.members))
     }
+
+    /// The frame a member was left in by the last retile that came to
+    /// rest; nil while one is in flight, and for a window in no layout.
+    public func placedFrame(of id: CGWindowID) -> CGRect? { placed[id] }
 
     public func display(of windowID: CGWindowID) -> CGDirectDisplayID? {
         layouts.first { $0.value.members.contains(windowID) }?.key
@@ -486,6 +500,10 @@ public final class LayoutController {
         guard var layout = layouts[display] else { return }
         layout.members.removeAll { model.window($0)?.isAlive != true }
         layouts[display] = layout
+        // Nothing on this display is placed until the moves have landed,
+        // and a window that left every layout is placed nowhere.
+        let everyMember = allMembers
+        placed = placed.filter { everyMember.contains($0.key) && !layout.members.contains($0.key) }
         let generation = (retileGenerations[display] ?? 0) + 1
         retileGenerations[display] = generation
         guard !layout.members.isEmpty else { return }
@@ -505,11 +523,11 @@ public final class LayoutController {
             moves.append((window, frame))
         }
         let members = layout.members
-        let placed = moves.map { (id: $0.0.id, slice: $0.1) }
+        let slices = moves.map { (id: $0.0.id, slice: $0.1) }
         perform(moves: moves) { [weak self] in
             guard let self, self.retileGenerations[display] == generation else { return }
             for id in members { self.model.refreshFrame(id) }
-            self.settle(placed, on: display, generation: generation)
+            self.settle(slices, on: display, generation: generation)
             let controller = MainQueueOnly(value: WeakRef(self))
             onMain(after: .milliseconds(150)) {
                 controller.value.object?.correctivePass(on: display, generation: generation)
@@ -525,21 +543,34 @@ public final class LayoutController {
     /// pass, which is what catches a window that answered late, either
     /// way: one that shrank after the read is centered then, one that
     /// grew to its edge from a centered origin is put back at the edge.
-    private func settle(_ placed: [(id: CGWindowID, slice: CGRect)],
-                        on display: CGDirectDisplayID, generation: Int) {
+    @discardableResult
+    private func settle(_ slices: [(id: CGWindowID, slice: CGRect)],
+                        on display: CGDirectDisplayID, generation: Int) -> Bool {
         var moves: [(WindowModel.Window, CGPoint)] = []
-        for (id, slice) in placed {
+        for (id, slice) in slices {
             guard let window = model.window(id), window.isAlive,
                   let origin = Tiling.settledOrigin(of: window.frame, in: slice) else { continue }
             moves.append((window, origin))
         }
-        guard !moves.isEmpty else { return }
+        guard !moves.isEmpty else { return false }
         let ids = moves.map { $0.0.id }
         Log.info("layout-centered", ["display": display, "windows": ids])
         perform(positions: moves) { [weak self] in
             guard let self, self.retileGenerations[display] == generation else { return }
             for id in ids { self.model.refreshFrame(id) }
+            self.recordPlaced(on: display)
         }
+        return true
+    }
+
+    /// The display's retile has come to rest: each member's frame, as the
+    /// window reports it now, is where Lodestar put it.
+    private func recordPlaced(on display: CGDirectDisplayID) {
+        for id in layouts[display]?.members ?? [] {
+            guard let window = model.window(id), window.isAlive else { continue }
+            placed[id] = window.frame
+        }
+        onPlaced?(display)
     }
 
     /// Accessibility work that belongs in the move lane: run after every
@@ -607,9 +638,14 @@ public final class LayoutController {
               let layout = layouts[display], !layout.members.isEmpty else { return }
         for id in layout.members { model.refreshFrame(id) }
         let alive = layout.members.compactMap { model.window($0) }.filter(\.isAlive)
+        // A member died under the pass: its removal retiles again, and that
+        // retile is the one that comes to rest.
         guard alive.count == layout.members.count else { return }
 
-        guard let displayBounds = displays.ordered().first(where: { $0.id == display })?.bounds else { return }
+        guard let displayBounds = displays.ordered().first(where: { $0.id == display })?.bounds else {
+            recordPlaced(on: display)
+            return
+        }
         let bounds = displays.visibleFrame(displayBounds)
         let horizontal = layout.orientation == .horizontal
         let requested = Tiling.frames(count: alive.count, in: bounds, orientation: layout.orientation)
@@ -633,8 +669,10 @@ public final class LayoutController {
         guard flexibleCount > 0, flexibleCount < alive.count, flexibleSpan >= 120 else {
             // Nothing to absorb: the cut stands, and whatever answered
             // late is settled against it.
-            settle(zip(alive, requested).map { (id: $0.id, slice: $1) },
-                   on: display, generation: generation)
+            if !settle(zip(alive, requested).map { (id: $0.id, slice: $1) },
+                       on: display, generation: generation) {
+                recordPlaced(on: display)
+            }
             return
         }
 
@@ -653,7 +691,9 @@ public final class LayoutController {
         perform(moves: moves) { [weak self] in
             guard let self, self.retileGenerations[display] == generation else { return }
             for id in members { self.model.refreshFrame(id) }
-            self.settle(corrected, on: display, generation: generation)
+            if !self.settle(corrected, on: display, generation: generation) {
+                self.recordPlaced(on: display)
+            }
         }
         Log.info("layout-corrective", ["display": display, "absorbed": alive.count - flexibleCount])
     }

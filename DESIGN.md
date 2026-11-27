@@ -64,6 +64,14 @@ A breath is a **snapshot** of a specific-window layout. It is not a mode. You co
 
 Breaths pin specific windows, so they carry the window-identity risk in full.
 
+### The focus outline
+
+**The window the keys go to is outlined, while the layout is Lodestar's** (November 2026). When two or more windows stand side by side because a layout put them there, the focused one wears a faint line in the accent, just inside its edge. Tiles alike in size and chrome make the keys' destination a guess, and the cost of a wrong guess is text typed into the wrong window; the outline answers it at a glance, and answers it again when the person comes back to the desk. It is orientation and a guard against the wrong window, not a reason to skip a key: the digit that reaches a window is still the gesture, and pressing it never needs the outline read first. The outline only spares a look.
+
+It is drawn only where Lodestar is being used as it is meant to be, and its absence says so too. The focused window must be a member of its display's layout, the layout must hold two or more, the window must stand exactly where the layout's last retile came to rest (within two points of the frame read back from the window, so a window that took less than its slice is measured where it settled), and no other app's normal window may lie over it. A drag, a resize or an app moving its own window ends it, and it does not come back when the window stops: a window moved by hand has left the layout, and the way back is a layout verb, the one deterministic road in. Nothing is remembered about how a window got where it is; membership, the placed frame, the frame now and the window server's stack answer it every time (`FocusOutline`). While a retile is moving windows no member is placed, so the outline is gone until the pass after the moves.
+
+It stands one level above normal windows. Ordered just above its own window, it sank under it after most switches: activating an app raises every window it has, within 55 ms of the focus notice in the probe, and Brave raised its windows again as late as two seconds after. Above the normal level nothing it outlines can rise past it, and what another app puts over the window hides the outline instead. A window's own sheets, popovers and status bubbles never hide it, and palettes, menus and Lodestar's bars stand above it. There is no setting: it changes what the eye reads, which is workflow, so the product decides (see the appearance sentence below). `probe border` is the instrument it was measured with.
+
 ## Ask (added after the four)
 
 `lode ⏎` opens a second bar with its own grammar, on the axis the four primitives do not address: a destination **inside** an app. The four are about which window you are looking at; Ask is about which browser profile a URL lands in, which is the same question one level down.

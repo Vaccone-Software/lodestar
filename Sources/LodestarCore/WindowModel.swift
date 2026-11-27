@@ -123,6 +123,10 @@ public final class WindowModel {
     public var onDestroyed: ((CGWindowID) -> Void)?
     public var onFocus: ((CGWindowID) -> Void)?
     public var onTitleChanged: ((CGWindowID) -> Void)?
+    /// A window's frame or minimized state changed by the world, read from
+    /// its app's own notice: a drag, a resize, an app moving itself. Not
+    /// called for `refreshFrame`, which is a caller reading on purpose.
+    public var onFrameChanged: ((CGWindowID) -> Void)?
     public var onTrace: ((String) -> Void)?
     /// Who is in front, for a fresh ask. A closure so the scenario harness,
     /// whose world never touches a real window, can answer nobody.
@@ -769,9 +773,10 @@ public final class WindowModel {
         let reader = self.reader
         read(on: pid, { reader.frame(of: element) }) { model, frame in
             let dirty = model.pendingFrames.removeValue(forKey: id) ?? false
-            if let frame, var w = model.windows[id], w.isAlive {
+            if let frame, var w = model.windows[id], w.isAlive, w.frame != frame {
                 w.frame = frame
                 model.windows[id] = w
+                model.onFrameChanged?(id)
             }
             if dirty, model.windows[id]?.isAlive == true { model.readFrame(id, element: element, pid: pid) }
         }
@@ -786,5 +791,6 @@ public final class WindowModel {
         guard let id = idByElement[ElementKey(element: element)], var w = windows[id] else { return }
         change(&w)
         windows[id] = w
+        onFrameChanged?(id)
     }
 }

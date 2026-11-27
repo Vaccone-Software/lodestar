@@ -1587,3 +1587,14 @@ final class ShadowHostView: NSView {
         return super.hitTest(point)
     }
 }
+
+extension BarTheme {
+    /// The focus outline (`FocusOutlineSurface`): the accent, opaque like
+    /// everything Lodestar draws, made faint by its weight alone, and drawn
+    /// just inside the window's edge because the layout's tiles abut.
+    enum Outline {
+        static let width: CGFloat = 1.5
+        /// The window's own corner, as macOS 27 draws a standard window.
+        static let corner: CGFloat = 14
+    }
+}

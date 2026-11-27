@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var model: WindowModel!
     private var parking: ParkingLot!
     private var layout: LayoutController!
+    private var focusOutline: FocusOutlineSurface!
     private var appIndex: AppIndex!
     private var store: StateStore!
     private var observationStore: ObservationStore!
@@ -330,6 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         actions = Actions(model: model, parking: parking, layout: layout,
                           appIndex: appIndex, store: store, hud: hud)
         actions.attach()
+        attachFocusOutline()
         actions.observations = observationStore
         actions.roads = roads
         prewarmer.observations = observationStore
@@ -1773,6 +1775,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Main. The screen unlocked: a keychain that was only locked can be
     /// asked again (a refusal cannot). Asked off the main thread.
+    /// The outline asks again after everything that can change its answer.
+    /// The model's and the layout's callbacks each have one owner, so the
+    /// outline rides behind whatever `Actions` already does with them.
+    private func attachFocusOutline() {
+        let outline = FocusOutlineSurface(model: model, layout: layout)
+        focusOutline = outline
+        let focus = model.onFocus, created = model.onCreated, destroyed = model.onDestroyed
+        let changed = layout.onChange
+        model.onFocus = { id in focus?(id); outline.refresh() }
+        model.onCreated = { id in created?(id); outline.refresh() }
+        model.onDestroyed = { id in destroyed?(id); outline.refresh() }
+        model.onFrameChanged = { _ in outline.refresh() }
+        layout.onChange = { changed?(); outline.refresh() }
+        layout.onPlaced = { _ in outline.refresh() }
+    }
+
     private func keychainMayHaveUnlocked() {
         // The clipboard's own ring: a history paused for a locked keychain asks again.
         clipboardController?.keychainMayHaveUnlocked()

@@ -621,4 +621,70 @@ final class LayoutControllerTests: XCTestCase {
         _ = layout.undo()
         XCTAssertEqual(layout.members(on: 1), [10])
     }
+
+    // MARK: - Where the layout left each window (the focus outline's anchor)
+
+    func testARetileThatComesToRestRecordsWhereEachMemberStands() {
+        model.addWindow(10)
+        model.addWindow(20)
+        var placedOn: [CGDirectDisplayID] = []
+        layout.onPlaced = { placedOn.append($0) }
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        XCTAssertNil(layout.placedFrame(of: 20), "nothing is placed until the pass after the moves")
+        layout.runCorrectivePass(on: 1)
+        XCTAssertEqual(layout.placedFrame(of: 10), CGRect(x: 0, y: 0, width: 800, height: 900))
+        XCTAssertEqual(layout.placedFrame(of: 20), CGRect(x: 800, y: 0, width: 800, height: 900))
+        XCTAssertEqual(placedOn, [1])
+    }
+
+    func testAWindowThatTookLessThanItsSliceIsPlacedWhereItSettled() {
+        model.addWindow(10)
+        model.addWindow(20)
+        mover.maxSizes[20] = CGSize(width: 600, height: 900)
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        layout.runCorrectivePass(on: 1)
+        let placed = layout.placedFrame(of: 20)
+        XCTAssertEqual(placed?.size, CGSize(width: 600, height: 900))
+        XCTAssertEqual(placed, model.windows[20]?.frame, "the frame the window reports, not the slice")
+    }
+
+    func testARetileForgetsWhereItsMembersWereUntilItComesToRest() {
+        model.addWindow(10)
+        model.addWindow(20)
+        model.addWindow(30)
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        layout.runCorrectivePass(on: 1)
+        XCTAssertNotNil(layout.placedFrame(of: 10))
+        layout.add(30, on: 1)
+        XCTAssertNil(layout.placedFrame(of: 10), "mid-retile, no member is where it was left")
+        layout.runCorrectivePass(on: 1)
+        XCTAssertEqual(layout.placedFrame(of: 10)?.width, 534, "the leading slice takes the remainder")
+    }
+
+    func testAWindowThatLeavesTheLayoutIsPlacedNowhere() {
+        model.addWindow(10)
+        model.addWindow(20)
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        layout.runCorrectivePass(on: 1)
+        layout.remove(20)
+        XCTAssertNil(layout.placedFrame(of: 20))
+        layout.replace(with: 20, on: 1)
+        XCTAssertNil(layout.placedFrame(of: 10), "parked by a replace, so in no layout")
+    }
+
+    func testADraggedWindowKeepsItsPlaceSoTheDragShows() {
+        model.addWindow(10)
+        model.addWindow(20)
+        layout.replace(with: 10, on: 1)
+        layout.add(20, on: 1)
+        layout.runCorrectivePass(on: 1)
+        model.windows[20]?.frame.origin.x += 40
+        let placed = layout.placedFrame(of: 20)
+        XCTAssertNotNil(placed, "a drag is not a retile: the record stands")
+        XCTAssertFalse(FocusOutline.stands(model.windows[20]!.frame, at: placed!))
+    }
 }

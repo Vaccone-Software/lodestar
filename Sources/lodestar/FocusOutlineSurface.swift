@@ -55,7 +55,7 @@ final class FocusOutlineSurface {
     }
 
     private func show(_ frame: CGRect) {
-        let panel = self.panel ?? makePanel()
+        let panel = self.panel ?? makeWindow()
         let cocoa = NSRect(x: frame.minX, y: Screens.primaryHeight - frame.maxY,
                            width: frame.width, height: frame.height).integral
         if shownFrame != frame || !panel.isVisible {
@@ -81,11 +81,20 @@ final class FocusOutlineSurface {
         panel?.orderOut(nil)
     }
 
-    private func makePanel() -> NSPanel {
-        let panel = Ceramic.makePanel(level: NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue + 1),
-                                      takesKeys: false)
-        panel.ignoresMouseEvents = true
+    private func makeWindow() -> NSPanel {
+        // A line, not a pane: no glass, so no surface's shadow either (the
+        // chrome's grammar), and never a key window, so no title bar is
+        // needed to keep the window server from etching an edge.
+        let panel = NSPanel(contentRect: BarTheme.unplaced, styleMask: [.borderless, .nonactivatingPanel],
+                            backing: .buffered, defer: true)
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue + 1)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
         let root = NSView()
         root.wantsLayer = true
         shape.fillColor = nil

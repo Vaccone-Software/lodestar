@@ -64,10 +64,11 @@ final class MaterialTests: XCTestCase {
 
     /// A window is clear only to leave room for its pane's shadow and to
     /// curve its corners: whatever makes one not opaque hosts its pane on
-    /// `SoftShadow`, which draws the shadow in that margin, or is the
-    /// marks laid over another app's window, which are keys, not panes.
+    /// `SoftShadow`, which draws the shadow in that margin, or is a mark
+    /// laid over another app's window: the editor's keys, and the focus
+    /// outline's line round the window the keys go to. Neither is a pane.
     func testAClearWindowIsOnlyTheMarginOfAnOpaquePane() throws {
-        let notPanes: Set<String> = ["EditorMarks.swift", "Ceramic.swift"]
+        let notPanes: Set<String> = ["EditorMarks.swift", "FocusOutlineSurface.swift", "Ceramic.swift"]
         var found: [String] = []
         for file in DesignDriftTests.swiftFiles(under: DesignDriftTests.appSources) {
             let raw = try String(contentsOf: file, encoding: .utf8)

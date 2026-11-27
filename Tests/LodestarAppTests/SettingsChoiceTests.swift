@@ -78,9 +78,11 @@ final class SettingsChoiceTests: XCTestCase {
         for path in ["health.sex", "health.hand", "health.typing", "lode.trigger"] {
             XCTAssertTrue(paths.contains(path), "\(path) was clicked")
         }
-        // Speak's models are sized by the Mac now, not chosen: no menu.
+        // The models are the Mac's to choose (0.57): no menu in Write or Speak.
         XCTAssertFalse(paths.contains("draft.model"))
-        XCTAssertGreaterThanOrEqual(clicked, 33, "every enabled choice of every menu")
+        XCTAssertFalse(paths.contains("editor.model"))
+        // 33 before 0.57 took away the Active display, Spelling and Model menus.
+        XCTAssertGreaterThanOrEqual(clicked, 26, "every enabled choice of every menu")
         settings.close()
     }
 

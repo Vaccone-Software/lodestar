@@ -81,10 +81,10 @@ final class SettingsModelTests: XCTestCase {
     }
 
     /// The Editing style is the Speak page's second row of the Draft group,
-    /// directly under Microphone: Standard and Vim, Standard the default.
+    /// directly under Input device: Standard and Vim, Standard the default.
     func testTheEditingStyleSitsUnderTheMicrophone() throws {
         let rows = place("Speak").rows.filter { $0.group == "Draft" }.map(\.title)
-        let microphone = try XCTUnwrap(rows.firstIndex(of: "Microphone"))
+        let microphone = try XCTUnwrap(rows.firstIndex(of: "Input device"))
         XCTAssertEqual(rows[microphone + 1], "Editing style")
 
         let row = try XCTUnwrap(place("Speak").rows.first { $0.path == "draft.editing-style" })

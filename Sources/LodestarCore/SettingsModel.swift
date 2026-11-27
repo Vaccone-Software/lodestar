@@ -403,7 +403,7 @@ public enum SettingsModel {
                 control: .toggle(config.startAtLogin), isDefault: config.startAtLogin, group: "Lodestar"),
             Row(title: "Automatic updates", path: "app.auto-update",
                 control: .toggle(config.autoUpdate), isDefault: config.autoUpdate, group: "Lodestar"),
-            Row(title: "Updates", path: "app.channel",
+            Row(title: "Update channel", path: "app.channel",
                 control: .choice(options: ["stable", "preview"],
                                  labels: ["Stable", "Preview"],
                                  current: config.channel.rawValue),
@@ -433,11 +433,12 @@ public enum SettingsModel {
            attention: !granted(machine.accessibility) && machine.accessibility != "unknown"))
 
         // 1 · Write: the editor
-        let words = Row(title: "Words", path: "draft.words", control: .page(wordsPage),
+        // Words the person spells their own way: one list, two doors.
+        let words = Row(title: "Names and terms", path: "draft.words", control: .page(wordsPage),
                         detail: config.draftWords.isEmpty
-                            ? "Names and terms, written the way you write them. Shared by Write and Speak"
-                            : "\(config.draftWords.count) words, shared by Write and Speak",
-                        isDefault: config.draftWords.isEmpty, group: "Words and apps")
+                            ? "Names and jargon spelled your way. The editor never marks them, and the draft writes them as you do"
+                            : "\(config.draftWords.count) spelled your way. The editor never marks them, and the draft writes them as you do",
+                        isDefault: config.draftWords.isEmpty, group: "Names and apps")
         sections.append(Section(name: "Write", rows: [
             Row(title: "Editor", path: "editor.enabled",
                 control: .toggle(config.editorEnabled),
@@ -450,7 +451,7 @@ public enum SettingsModel {
                 control: .table(kind: .editorSkipApps, entries: config.editorSkipApps.sorted().map {
                     TableEntry(key: $0, display: $0) }),
                 detail: "Fields in these apps are never read",
-                isDefault: config.editorSkipApps.isEmpty, group: "Words and apps"),
+                isDefault: config.editorSkipApps.isEmpty, group: "Names and apps"),
         ], picture: "door-write",
            sentence: "The editor marks mistakes as you write, in every app",
            status: "Spelling and grammar"))
@@ -516,10 +517,10 @@ public enum SettingsModel {
         sections.append(Section(name: "Speak", rows: [
             gesture("draft", group: "Draft",
                     detail: Self.sentences("Speak into it and ⏎ pastes where your cursor was", machine.draftModels)),
-            Row(title: "Microphone", path: "draft.input",
+            Row(title: "Input device", path: "draft.input",
                 control: .choice(options: inputOptions, labels: inputLabels,
                                  current: inputOptions.contains(config.draftInput) ? config.draftInput : ""),
-                detail: "What the draft listens to. It names it while listening",
+                detail: "The microphone the draft listens to",
                 isDefault: config.draftInput.isEmpty, group: "Draft"),
             Row(title: "Editing style", path: "draft.editing-style",
                 control: .choice(options: Draft.EditingStyle.allCases.map(\.rawValue),
@@ -529,7 +530,7 @@ public enum SettingsModel {
                     ? "Vim's modes and motions. Esc goes to normal mode first"
                     : "Edits like any Mac text field. Esc closes the draft",
                 isDefault: config.draftEditingStyle == .standard, group: "Draft"),
-            words.inGroup("Words"),
+            words.inGroup("Names and terms"),
         ], picture: "door-speak",
            sentence: "Speak, and the draft writes it down and hears you again to get it right",
            status: "Dictation"))
@@ -603,12 +604,12 @@ public enum SettingsModel {
             Row(title: "Links", path: "web.links",
                 control: .table(kind: .links, entries: linkEntries),
                 detail: "A short name you type in Ask, and the page it opens. A pinned profile overrides every rule",
-                isDefault: config.webLinks.isEmpty, group: "Links and routes",
+                isDefault: config.webLinks.isEmpty, group: "Links and rules",
                 problem: problem(at: "web.links")),
-            Row(title: "Routes", path: "web.routes",
+            Row(title: "Rules", path: "web.routes",
                 control: .table(kind: .routes, entries: routeEntries),
                 detail: "Pattern → profile, matched against anything you type or click",
-                isDefault: config.webRoutes.isEmpty, group: "Links and routes",
+                isDefault: config.webRoutes.isEmpty, group: "Links and rules",
                 problem: problem(at: "web.routes")),
             Row(title: "Route clicked links", path: "web.clicks.enabled",
                 control: .toggle(config.webHandleClicks),
@@ -781,7 +782,7 @@ public enum SettingsModel {
     public static func placeIndex(_ name: String) -> Int? { placeNames.firstIndex(of: name) }
 
     public static let keyboardsPage = "Keyboards"
-    public static let wordsPage = "Words"
+    public static let wordsPage = "Names and terms"
 
     /// The Health row's one line: which boards differ, and by how much.
     static func keyboardsSummary(config: Config, machine: MachineState) -> String {
@@ -803,13 +804,12 @@ public enum SettingsModel {
                              view: ViewState = ViewState()) -> [Section] {
         [keyboardsSection(config: config, machine: machine, view: view),
          Section(name: wordsPage, rows: [
-            Row(title: "Words", path: "draft.words",
+            Row(title: "Names and terms", path: "draft.words",
                 control: .table(kind: .draftWords, entries: config.draftWords.map { TableEntry(key: $0, display: $0) }),
-                detail: "Names and terms speech gets wrong and the editor should never mark. "
-                    + "A spoken word that sounds like one of these becomes it, case and all",
-                isDefault: config.draftWords.isEmpty, group: "Words"),
+                detail: "The editor never marks these. A spoken word that sounds like one of them is written as it, case and all",
+                isDefault: config.draftWords.isEmpty, group: "Names and terms"),
          ], parent: "Write", picture: "door-write",
-            sentence: "The words you use, written the way you write them",
+            sentence: "Names and jargon, spelled the way you spell them",
             note: "Shared by Write and Speak. A word the editor learns when you keep it lands here")]
     }
 

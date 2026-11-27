@@ -28,7 +28,9 @@ final class SettingsPlacesTests: XCTestCase {
     func testEscapeStepsBackOneLevel() {
         let settings = controller()
         settings.pressForTesting("1")
-        settings.pressForTesting("d") // Words, a page behind Write
+        let write = SettingsModel.catalog(config: Config(), machine: .init())[1]
+        // Names and terms, a page behind Write
+        settings.pressForTesting(SettingsModel.labelAlphabet[write.rows.firstIndex { $0.path == "draft.words" }!])
         XCTAssertEqual(settings.pageForTesting, SettingsModel.wordsPage)
         settings.pressForTesting("escape")
         XCTAssertNil(settings.pageForTesting)

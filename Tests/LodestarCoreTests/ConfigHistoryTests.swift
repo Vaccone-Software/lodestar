@@ -97,7 +97,7 @@ final class ConfigHistoryTests: XCTestCase {
     /// list's own row for an entry in it, the row itself for a value.
     func testAChangeIsNamedByItsRow() {
         XCTAssertEqual(SettingsModel.historyTitle(["graph", "s"]), "Letters")
-        XCTAssertEqual(SettingsModel.historyTitle(["draft", "words", "Kindora"]), "Words")
+        XCTAssertEqual(SettingsModel.historyTitle(["draft", "words", "Kindora"]), "Names and terms")
         XCTAssertEqual(SettingsModel.historyTitle(["scroll", "speed"]), "Scroll speed")
     }
 

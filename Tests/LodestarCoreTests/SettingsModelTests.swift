@@ -211,6 +211,23 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(row.presets.allSatisfy { $0.value.contains("%s") })
     }
 
+    /// Switch lists every letter and the app it opens, chains spelled as
+    /// the keys are pressed, so one can be freed.
+    func testSwitchListsTheLetters() throws {
+        var problems: [String] = []
+        let config = Config.build(from: try Json.parse(#"{"graph": {"g": "Ghostty", "b": {"x": "Mail"}, "eo": "Outlook"}}"#),
+                                  problems: &problems)
+        XCTAssertEqual(problems, [])
+        let row = try XCTUnwrap(place("Switch", config).rows.first { $0.path == "graph" })
+        guard case .table(let kind, let entries) = row.control else { return XCTFail("the letters are a list") }
+        XCTAssertEqual(kind, .letters)
+        XCTAssertEqual(entries.map(\.key), ["b x", "e o", "g"])
+        XCTAssertEqual(entries.map(\.display), ["B X", "E O", "G"])
+        XCTAssertEqual(entries.map(\.sub), ["→  Mail", "→  Outlook", "→  Ghostty"])
+        XCTAssertFalse(row.isDefault)
+        XCTAssertTrue(place("Switch").rows.first { $0.path == "graph" }!.isDefault, "no letters, nothing changed")
+    }
+
     func testEveryConfigRowWearsItsPath() {
         for section in sections {
             for row in section.rows {
@@ -323,12 +340,12 @@ final class SettingsModelTests: XCTestCase {
 /// schema. The sibling of ConfigCoverageTests, one layer up.
 final class SettingsCoverageTests: XCTestCase {
     /// Leaves settings deliberately does not carry, each with its reason.
-    /// The graph is edited where addressing happens — ⌘K and the file —
-    /// and a third editor would be a product pretending to be a pane.
+    /// The graph has its row since 0.57, Your letters in Switch, so a
+    /// letter an app no longer needs can be freed where it is seen.
     /// The models are the Mac's to choose (0.57): the two keys stay in the
     /// file for a measurement that must force one, and Settings says in a
     /// sentence what runs instead of offering a menu.
-    private static let exceptions: Set<String> = ["graph.<key>", "editor.model", "draft.model"]
+    private static let exceptions: Set<String> = ["editor.model", "draft.model"]
 
     func testEverySchemaLeafHasARow() {
         let sections = SettingsModel.catalog(config: Config(), machine: .init())

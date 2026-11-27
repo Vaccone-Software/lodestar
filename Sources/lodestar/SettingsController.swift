@@ -29,6 +29,9 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     /// (a bundle id, a route pattern) cannot ride a dotted string.
     var applyEntries: (([[String]], [([String], ConfigValue)]) -> String?)?
     var machineState: () -> SettingsModel.MachineState = { .init() }
+    /// The letters' edits, made the way ⌘K makes them: a chain removed, or
+    /// letters bound to an app. Returns a problem, or nil.
+    var editLetters: ((_ remove: [String]?, _ add: (letters: [String], app: String)?) -> String?)?
     /// The Mac's folder panel, opened at a folder: the one chosen, or nil
     /// when it was cancelled. A seam, so a test answers in its place.
     var chooseFolder: (URL) -> URL? = { start in
@@ -949,6 +952,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .draftWords: return ["draft", "words", key]
         case .keyRemaps: return ["keys", key]
         case .editorSkipApps: return ["editor", "skip-apps", key]
+        case .letters: return ["graph"] + key.split(separator: " ").map(String.init)
         }
     }
 
@@ -961,6 +965,14 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private func removeEntry(kind: SettingsModel.TableKind, key: String) {
+        if kind == .letters {
+            // A chain may be written nested or as one key; the graph's own
+            // editor finds whichever spelling the file has.
+            if let problem = editLetters?(key.split(separator: " ").map(String.init), nil) {
+                Log.error("settings", ["write": "letters", "problem": problem])
+            }
+            return
+        }
         writeEntries(remove: [entryPath(kind, key)])
     }
 
@@ -1939,7 +1951,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         guard parts.count == 2 else { return }
         let kind: SettingsModel.TableKind? = [
             "links": .links, "routes": .routes,
-            "calendars": .calendars, "excludeApps": .excludeApps,
+            "calendars": .calendars, "excludeApps": .excludeApps, "letters": .letters,
             "excludePatterns": .excludePatterns, "keyRemaps": .keyRemaps,
             "draftWords": .draftWords,
             "editorSkipApps": .editorSkipApps,
@@ -2039,6 +2051,13 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let app = popup(appChoices().map(\.name), width: BarTheme.Field.menu)
             bar.addArrangedSubview(app)
             addInputs[addKey(kind)] = app
+        case .letters:
+            let letters = field("Letters", width: BarTheme.Field.narrow)
+            let app = popup(appChoices().map(\.name), width: BarTheme.Field.menu)
+            bar.addArrangedSubview(letters)
+            bar.addArrangedSubview(app)
+            addInputs[addKey(kind)] = letters
+            addInputs["letters.app"] = app
         case .excludePatterns:
             let pattern = field("Text", width: BarTheme.Field.regular)
             bar.addArrangedSubview(pattern)
@@ -2125,6 +2144,15 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             guard calendar != "none found", !calendar.isEmpty,
                   let profile = chosenToken("calendars.profile") else { return }
             writeEntries(set: [(entryPath(.calendars, calendar), .string(reference(profile)))])
+        case "letters":
+            // Letters only, each its own step: "bx" is lode B then X.
+            let letters = fieldText("letters").lowercased().filter(\.isLetter).map(String.init)
+            let app = popupChoice("letters.app")
+            guard !letters.isEmpty, !app.isEmpty else { return }
+            if let problem = editLetters?(nil, (letters, app)) {
+                Log.error("settings", ["write": "letters", "problem": problem])
+                NSSound.beep()
+            }
         case "excludeApps":
             let name = popupChoice("excludeApps")
             guard let bundleID = appChoices().first(where: { $0.name == name })?.bundleID
@@ -2504,6 +2532,11 @@ extension SettingsController {
     var placeForTesting: Int? { place }
     /// For the tests: the page open, by name.
     var pageForTesting: String? { openPage }
+
+    /// A table entry's Remove, and an add line's inputs and its Add.
+    func removeEntryForTesting(kind: SettingsModel.TableKind, key: String) { removeEntry(kind: kind, key: key) }
+    func addInputForTesting(_ key: String) -> NSControl? { addInputs[key] }
+    func addForTesting(_ id: String) { performAdd(id) }
     /// For the tests: the place the scoped door chose.
     func openForTesting(place name: String?) { open(place: name.flatMap { SettingsModel.placeIndex($0) }) }
     /// For the tests: a page opened from the place it was reached from.

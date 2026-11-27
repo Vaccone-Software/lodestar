@@ -101,8 +101,8 @@ final class SettingsArmedRowTests: XCTestCase {
         let settings = window { written.append($0) }
         settings.renderForTesting(place: general)
         let loud = try row(settings, place: general, path: "app.reduce-loud-audio")
-        // Switch has a toggle at the same row: Display move.
-        let move = try row(settings, place: switchPlace, path: "gestures.display-move")
+        // Switch has a toggle at the same row: Layout undo.
+        let move = try row(settings, place: switchPlace, path: "gestures.layout-undo")
         XCTAssertEqual(loud, move, "the two places share the row's number")
         land(settings, place: general, row: loud)
         try clickBack(settings)

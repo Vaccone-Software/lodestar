@@ -1525,6 +1525,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return out
             }
         }
+        // Switch's letters, edited as ⌘K edits them: the same checks on a
+        // chain, the same writes, the same flash.
+        settings.editLetters = { [weak self] remove, add in
+            guard let self else { return "lodestar is shutting down" }
+            if let remove { return self.removeChainFromGraph(remove) }
+            if let add { return self.addTargetToGraph(add.letters, target: add.app) }
+            return nil
+        }
         settings.machineState = { [weak self] in
             var state = SettingsModel.MachineState()
             state.breaths = self?.store.state.breaths.count ?? 0

@@ -28,6 +28,9 @@ public enum SettingsModel {
         case excludeApps
         case excludePatterns
         case draftWords
+        /// The graph's letters and the app each opens (0.57): written
+        /// through the same edits ⌘K makes, never as raw table entries.
+        case letters
         case keyRemaps
         case editorSkipApps
     }
@@ -463,6 +466,14 @@ public enum SettingsModel {
         sections.append(Section(name: "Switch", rows: [
             gesture("launcher", group: "Launcher and letters", detail: "Type a few letters of any app and press return"),
             gesture("graph", group: "Launcher and letters", detail: "Letters that lead straight to apps. Hold lode and press one"),
+            Row(title: "Your letters", path: "graph",
+                control: .table(kind: .letters, entries: config.graph.leaves().map { leaf in
+                    TableEntry(key: leaf.chain.joined(separator: " "),
+                               display: leaf.chain.map { $0.uppercased() }.joined(separator: " "),
+                               sub: "→  \(leaf.target.label)")
+                }),
+                detail: "Each letter and the app it opens. Remove one to free its letter for another app",
+                isDefault: config.graph.leaves().isEmpty, group: "Launcher and letters"),
             gesture("index-jump", group: "Launcher and letters"),
             gesture("maximize", group: "Windows"),
             gesture("flip-orientation", group: "Windows"),

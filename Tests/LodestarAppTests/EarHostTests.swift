@@ -150,7 +150,7 @@ private struct Quiet: EditorBackend {
 
     private func host(ear: SlowEar, loads: Loads) -> (EarHost, DraftModel) {
         let host = EarHost(clock: clock.erased)
-        let model = DraftModel(model: .qwen36, loader: { _ in loads.note(); return Quiet() }, clearCache: {})
+        let model = DraftModel(model: .qwen36, gate: MLXGate(), loader: { _ in loads.note(); return Quiet() }, clearCache: {})
         host.hasCleanup = { _ in true }
         host.install(ear: ear, tier: .max, model: model)
         return (host, model)
@@ -275,7 +275,7 @@ private struct Quiet: EditorBackend {
         let host = EarHost(clock: clock.erased)
         host.hasCleanup = { _ in true }
         host.install(ear: quick, behind: behind, tier: .max,
-                     model: DraftModel(model: .qwen36, loader: { _ in loads.note(); return Quiet() }, clearCache: {}))
+                     model: DraftModel(model: .qwen36, gate: MLXGate(), loader: { _ in loads.note(); return Quiet() }, clearCache: {}))
         var told = 0
         host.loaded = { told += 1 }
         host.warm()
@@ -357,10 +357,29 @@ private struct Quiet: EditorBackend {
     /// is given its turn first: before, the joiner returned on that turn
     /// with nothing stored yet. Asked from the joiner's own turn, so no
     /// machine is fast enough to hide it.
+    /// The process has one GPU gate (`MLXGate.shared`), and another test in
+    /// the same process may hold it: a model these tests make waits on its
+    /// own gate, or a load waits out its whole deadline (CI, 2026-11-27,
+    /// "the first load reaches the loader" after 60 s).
+    func testATestsModelNeverWaitsOnTheProcesssGate() async throws {
+        let taken = await MLXGate.shared.acquire(within: .seconds(5))
+        let permit = try XCTUnwrap(taken, "the shared gate is free to take")
+        defer { MLXGate.shared.release(permit) }
+        let (_, model) = host(ear: SlowEar(loaded: true), loads: Loads())
+        let began = ContinuousClock.now
+        await model.load()
+        let loaded = await model.isLoaded
+        XCTAssertTrue(loaded, "loaded while another test holds the shared gate")
+        XCTAssertLessThan(began.duration(to: .now), .seconds(5))
+    }
+
     func testALoadThatJoinsAnotherReturnsWithTheModelIn() async {
         let door = Door()
-        let model = DraftModel(model: .qwen36, loader: { _ in await door.wait(); return Quiet() }, clearCache: {})
-        let first = Task.detached(priority: .background) { await model.load() }
+        let model = DraftModel(model: .qwen36, gate: MLXGate(), loader: { _ in await door.wait(); return Quiet() }, clearCache: {})
+        // Lower than the joiner's, so the actor may well give the joiner its
+        // turn first, but never .background: macOS throttles that class, and
+        // on a loaded runner it did not start for a minute (CI, 2026-11-27).
+        let first = Task.detached(priority: .utility) { await model.load() }
         await eventually("the first load reaches the loader") { door.held == 1 }
         let joined = Task(priority: .userInitiated) { () -> Bool in
             await model.load()
@@ -491,7 +510,7 @@ private struct Quiet: EditorBackend {
     /// A model whose loads wait at the door, and its host with a warm ear.
     private func doored(_ door: Door, weights: Weights) -> EarHost {
         let host = EarHost(clock: clock.erased)
-        let model = DraftModel(model: .qwen36, loader: { _ in
+        let model = DraftModel(model: .qwen36, gate: MLXGate(), loader: { _ in
             await door.wait()
             return weights.make()
         }, clearCache: {})
@@ -624,7 +643,7 @@ private struct Quiet: EditorBackend {
         let events = RecordingInstrumentation()
         let host = EarHost(clock: clock.erased)
         let loaded = Loads()
-        let model = DraftModel(model: .qwen36, loader: { _ in
+        let model = DraftModel(model: .qwen36, gate: MLXGate(), loader: { _ in
             loaded.note()
             Ambient.current.instrumentation.record(Event("test.model_loading", level: .info))
             return Quiet()

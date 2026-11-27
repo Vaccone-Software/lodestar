@@ -82,11 +82,12 @@ final class JsonTests: XCTestCase {
     func testMergeOverlaysDeepAndCarriesUnknowns() {
         let merged = Json.merged(defaults: ConfigFile.defaultTree, overlay: [
             "scroll": .table(["speed": .int(2200)]),
+            "lode": .table(["trigger": .string("left-command")]),
             "graph": .table(["g": .string("Ghostty")]),
             "mystery": .bool(true),
         ])
         XCTAssertEqual(merged["scroll"]?.table?["speed"], .int(2200))
-        XCTAssertEqual(merged["scroll"]?.table?["smooth"], .bool(true)) // default survives beside the override
+        XCTAssertEqual(merged["lode"]?.table?["tap"], .bool(true)) // default survives beside the override
         XCTAssertEqual(merged["graph"]?.table?["g"], .string("Ghostty"))
         XCTAssertEqual(merged["mystery"], .bool(true))
         XCTAssertEqual(merged["clipboard"]?.table?["max-size-mb"], .int(500))

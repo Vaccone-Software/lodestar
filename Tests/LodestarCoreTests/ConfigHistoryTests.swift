@@ -113,7 +113,7 @@ final class ConfigHistoryTests: XCTestCase {
         let choices = SettingsModel.askChoices(sections)
         XCTAssertEqual(Set(choices).count, choices.count, "every name is unique")
         let hit = SettingsModel.hit(forName: "Operate › Scroll speed", in: sections)
-        XCTAssertEqual(hit?.address, "5 d")
+        XCTAssertEqual(hit?.address, "5 c")
         XCTAssertNil(SettingsModel.hit(forName: "Operate › Nonsense", in: sections))
         XCTAssertTrue(SettingsModel.askCatalog(sections).contains("Keep, about clipboard"))
     }

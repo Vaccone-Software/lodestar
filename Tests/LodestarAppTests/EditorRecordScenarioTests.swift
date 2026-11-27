@@ -164,6 +164,42 @@ final class EditorRecordScenarioTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(rig.events.last?.seconds), 2.1, accuracy: 0.11, "1.5 s, then 0.6 s more before they came down")
     }
 
+    /// A placing begun for the field where it stood, and a read that finds it
+    /// with nowhere to draw before the places come home: the read is inside
+    /// the half second since that placing, so it starts none of its own, and
+    /// the places found for the old frame must not put the lines back up
+    /// over a field that has no frame now. Seen on CI as the test above
+    /// waiting out its minute with the lines up, when the model's answer
+    /// brought a placing home in the same moment as the bare read.
+    func testPlacesFoundForTheFieldWhereItWasAreNotDrawnWhenItHasNowhereToDraw() {
+        let rig = EditorRig()
+        // The model never answers here: its answer starts placings of its
+        // own, at moments this test does not choose.
+        rig.reader.hold()
+        rig.type(typo)
+        rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
+        rig.clock.advance(by: 1.5)
+        rig.beat()
+        rig.drain()
+        rig.clock.advance(by: 0.6)
+        // The accessibility queue is held: the placing this beat begins
+        // waits there until the bare read has been taken in.
+        let held = DispatchSemaphore(value: 0)
+        rig.queue.async { held.wait() }
+        rig.beat()
+        let old = EditorRig.field(typo)
+        let bare = EditorField(element: old.element, pid: old.pid, appName: old.appName, bundleID: old.bundleID,
+                               text: old.text, caret: old.caret, frame: nil, windowFrame: nil)
+        rig.source.field = bare
+        rig.controller.receive(bare)
+        held.signal()
+        rig.drain()
+        rig.drain()
+        XCTAssertTrue(rig.drawing.shown.isEmpty, "drawn over a frame the field no longer has")
+        XCTAssertEqual(rig.controller.lensMarks.count, 1, "the mark is still known")
+        rig.reader.letGo()
+    }
+
     // MARK: - A draft that is left and returned to
 
     /// Back in the field the hand left, with the text as it was.

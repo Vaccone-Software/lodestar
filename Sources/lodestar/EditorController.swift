@@ -748,7 +748,17 @@ final class EditorController: EditorLens {
                 // has, say nothing of the marks in it, and the read of the new
                 // text is on its way.
                 guard let self, self.geometryGeneration == expected, self.enabled,
-                      !self.editedSinceRead, self.field?.text == field.text else { return }
+                      !self.editedSinceRead, let now = self.field, now.text == field.text else { return }
+                // The field was read again while these places were found, and
+                // stands somewhere else now (moved, or with nowhere to draw):
+                // they are places for where it was. The read came inside the
+                // half second since this placing, so it began none of its
+                // own, and nothing else would; the marks are placed again
+                // for where it is.
+                if now.frame != field.frame || now.windowFrame != field.windowFrame {
+                    self.placeMarks()
+                    return
+                }
                 self.marks = zip(issues, rects).compactMap { issue, rect in rect.map { Mark(issue: issue, rect: $0) } }
                 self.stand(drawn: self.marks.map(\.issue), all: issues)
                 self.hover?.marksChanged()

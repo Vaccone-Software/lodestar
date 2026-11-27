@@ -83,12 +83,14 @@ final class RollupStreamTests: XCTestCase {
     }
 
     /// Roll the whole read to `old.json` and the stream to `rollups.json`,
-    /// and say they are the same file.
+    /// and say they are the same file. `between` runs after the whole read.
     @discardableResult
     private func assertSameArchive(_ store: ObservationStore, expectingAdded: [String]? = nil,
+                                   between: () -> Void = {},
                                    file: StaticString = #filePath, line: UInt = #line) throws -> [String] {
         let whole = directory.appendingPathComponent("old.json")
         let oldOutcome = Rollup.roll(events: store.allEvents(), file: whole, ring: ring, now: Self.now)
+        between()
         let newOutcome = store.roll(now: Self.now)
         XCTAssertEqual(newOutcome, oldOutcome, "the same months archived", file: file, line: line)
         XCTAssertFalse(newOutcome.added.isEmpty, "a roll that archives nothing proves nothing", file: file, line: line)
@@ -120,6 +122,26 @@ final class RollupStreamTests: XCTestCase {
     /// the live file at the instant a shard's event has, and events are still
     /// pending: shard, then live file, then pending, is the old order.
     func testAHalfRotatedRingWithStragglersAndPendingEventsKeepsTheOldOrder() throws {
+        let store = try halfRotatedStoreWithPendingEvents()
+        _ = store.log.readAll()
+        _ = store.healthLog.readAll()
+        try assertSameArchive(store, expectingAdded: ["2026-06", "2026-07", "2026-08", "2026-09", "2026-10"])
+    }
+
+    /// The scheduled flush runs between the whole read and the stream (five
+    /// seconds after an append, which a slow runner reaches mid-test): the
+    /// pending events the whole read saw are lines the stream reads, and the
+    /// roll is the same. It was not while a pending event kept a stamp its
+    /// line could not hold: the pending focus, once flushed, read back a hair
+    /// earlier, and the dwell sums measured from it differed in their last
+    /// digits (72970 bytes against 72967; CI, 2026-11-26, 72969 against 72966).
+    func testAFlushBetweenTheTwoReadsChangesNothing() throws {
+        let store = try halfRotatedStoreWithPendingEvents()
+        try assertSameArchive(store, expectingAdded: ["2026-06", "2026-07", "2026-08", "2026-09", "2026-10"],
+                              between: { self.flush(store) })
+    }
+
+    private func halfRotatedStoreWithPendingEvents() throws -> ObservationStore {
         let store = makeStore()
         append(Self.events, to: store)
         flush(store)
@@ -144,9 +166,7 @@ final class RollupStreamTests: XCTestCase {
         pendingPulse.activeMinutes = 5
         store.log.append(pendingFocus)
         store.healthLog.append(pendingPulse)
-        _ = store.log.readAll()
-        _ = store.healthLog.readAll()
-        try assertSameArchive(store, expectingAdded: ["2026-06", "2026-07", "2026-08", "2026-09", "2026-10"])
+        return store
     }
 
     /// The file already holds July and September, marked: those months are

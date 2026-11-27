@@ -777,9 +777,25 @@ public final class EventLog: @unchecked Sendable {
         self.live = LineJournal(plaintext: file, ring: ring, fileSystem: fileSystem)
     }
 
+    /// The event is held as its line will read back. A line writes a date as
+    /// seconds since 1970, and a `Date` counts from 2001, so a date read back
+    /// can sit a hair off the one appended (…200.673 read back as
+    /// …200.6729999). Held as it was, a pending event and the same event once
+    /// flushed were two different instants, and what a reader made of the log
+    /// (a dwell measured from it, the order it sorts in) turned on whether
+    /// the scheduled flush had run yet. Every date an event carries (`t`, a
+    /// span's end, a window's start) goes through the line, not one by name.
     public func append(_ event: ObservationEvent) {
-        io.async { self.pending.append(event) }
+        io.async { self.pending.append(Self.asItReadsBack(event)) }
         scheduleFlush()
+    }
+
+    /// `event` written as a line and read back; as it was when it has no line
+    /// (the flush drops it then, and no reader sees it once it has run).
+    private static func asItReadsBack(_ event: ObservationEvent) -> ObservationEvent {
+        guard let line = try? makeEncoder().encode(event),
+              let back = try? makeDecoder().decode(ObservationEvent.self, from: line) else { return event }
+        return back
     }
 
     /// Synchronous: everything buffered is on disk when this returns.

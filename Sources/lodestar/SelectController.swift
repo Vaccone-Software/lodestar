@@ -144,11 +144,12 @@ final class SelectController {
     /// passes them to the app untouched: the ghost's ⌘C would otherwise
     /// take the synthetic ⌘C as the hand's.
     static let ownMark: Int64 = 0x4C4F_4445
-    /// select.copy-on-complete: a completed span serves the pasteboard at
-    /// the grammar's full stop, every ending alike. The config line is the
-    /// arbiter — the mode never reads the situation, which is what buried
-    /// the first auto-copy.
-    var copyOnComplete = false
+    /// A completed span serves the pasteboard at the grammar's full stop,
+    /// every ending alike: the doctrine since 0.57, when the switch
+    /// (`select.copy-on-complete`) retired. The mode never reads the
+    /// situation, which is what buried the first auto-copy. A test may set
+    /// this false to read the endings without the copy.
+    var copyOnComplete = true
     /// A search narrowed to one match picks it — the doctrine, not a
     /// switch; the config's value is always true, and a test may set this
     /// false to read the grammar without the auto-anchor.
@@ -1716,15 +1717,14 @@ final class SelectController {
         return copy(anchor: anchor, via: nil)
     }
 
-    /// Escape would take the anchored word: the switch is on, the anchor
-    /// door stands, and a start is placed with no far end. Anywhere else
+    /// Escape would take the anchored word: the anchor door stands, and a start is placed with no far end. Anywhere else
     /// Escape only leaves.
     var escapeCopies: Bool {
         guard copyOnComplete, door == .anchor, let anchor = core?.anchor else { return false }
         return units.indices.contains(anchor.element)
     }
 
-    /// Escape after the first anchor, with copy-on-complete on: the same
+    /// Escape after the first anchor: the same
     /// ending ⌘C reaches. The engine ends the mode whatever happens here,
     /// so a word that moved is a quiet nothing rather than a flash on a
     /// band that is leaving.

@@ -32,7 +32,6 @@ final class ConfigFileSchemaTests: XCTestCase {
                 "clicks": .table(["enabled": .bool(false), "browser": .string("")]),
             ]),
             "scroll": .table(["speed": .int(1800)]),
-            "select": .table(["copy-on-complete": .bool(false)]),
             "draft": .table(["editing-style": .string("standard"), "input": .string(""), "model": .string(""),
                              "words": .table([:])]),
             "clipboard": .table([
@@ -87,7 +86,7 @@ final class ConfigFileSchemaTests: XCTestCase {
     /// for byte.
     func testEverySectionDeclaresItsFieldsAlphabetically() {
         let sections = ConfigSchemaWalk.objects().filter { !$0.path.isEmpty }
-        XCTAssertGreaterThan(sections.count, 15)
+        XCTAssertGreaterThan(sections.count, 12, "the walk reaches the sections (15 since 0.57 retired appearance and select)")
         for (path, object) in sections {
             let keys = object.fields.map(\.key)
             XCTAssertEqual(keys, keys.sorted(), "\(path.joined(separator: ".")) is not alphabetical")
@@ -353,8 +352,8 @@ final class ConfigFileSchemaTests: XCTestCase {
     func testTheSchemaIsDraft07WithEveryOptionDescribed() {
         XCTAssertEqual(document.value(at: jsonPath("$schema"))?.string, "http://json-schema.org/draft-07/schema#")
         let properties = document.value(at: jsonPath("properties"))?.object
-        XCTAssertEqual(properties?.keys.prefix(13).map { $0 },
-                       ["lode", "app", "gestures", "web", "scroll", "select", "meetings", "clipboard", "editor",
+        XCTAssertEqual(properties?.keys.prefix(12).map { $0 },
+                       ["lode", "app", "gestures", "web", "scroll", "meetings", "clipboard", "editor",
                         "observations", "coach", "keys", "graph"])
         XCTAssertEqual(document.value(at: jsonPath("properties", "scroll", "properties", "speed", "minimum"))?.number?.lexeme, "200")
         XCTAssertEqual(document.value(at: jsonPath("properties", "scroll", "properties", "speed", "maximum"))?.number?.lexeme, "4000")

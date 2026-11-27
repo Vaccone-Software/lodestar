@@ -258,7 +258,6 @@ final class CompatibilityTests: XCTestCase {
         tuned.web.routes = ["example.com": "brave:Work"]
         tuned.web.links = ["docs": ConfigFile.Web.Link(profile: nil, url: "example.com/docs")]
         tuned.scroll.speed = 2200
-        tuned.select.copyOnComplete = true
         tuned.clipboard.maxSizeMB = 200
         tuned.draft.editingStyle = .vim
         tuned.draft.words = ["Lodestar": true]

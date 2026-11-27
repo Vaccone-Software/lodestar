@@ -325,8 +325,7 @@ final class ConfigBuildTests: XCTestCase {
         let root = try Json.parse(#"{"select": {"commit-on-unique": false, "copy-on-complete": true}, "guide": {"fade": false}}"#)
         let normalized = ConfigFile.schema.normalized(ConfigStore.json(root))
         XCTAssertNil(normalized.value(at: jsonPath("guide")), "the guide table is gone with its only key")
-        XCTAssertNil(normalized.value(at: jsonPath("select", "commit-on-unique")))
-        XCTAssertEqual(normalized.value(at: jsonPath("select", "copy-on-complete"))?.bool, true, "its neighbour survives")
+        XCTAssertNil(normalized.value(at: jsonPath("select")), "and the select table, copy-on-complete with it (0.57)")
         var problems: [String] = []
         let config = Config.build(from: root, problems: &problems)
         XCTAssertTrue(problems.isEmpty, "\(problems)")

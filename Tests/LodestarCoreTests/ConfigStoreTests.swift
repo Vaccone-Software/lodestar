@@ -48,7 +48,6 @@ final class ConfigStoreTests: XCTestCase {
                 "routes": .table(["github.com": .string("brave:Work"), "news.ycombinator.com": .string("brave:Home")]),
             ]),
             "scroll": .table(["speed": .double(2200.5)]),
-            "select": .table(["hold": .double(0.35)]),
             "meetings": .table(["enabled": .bool(true), "calendars": .table(["Work": .string("brave:Work")])]),
             "clipboard": .table(["max-size-mb": .int(900), "exclude-apps": .table(["com.1password.1password": .bool(true)])]),
             "editor": .table(["enabled": .bool(true)]),

@@ -3072,7 +3072,6 @@ extension HotkeyEngine: EngineWorld {
             self.select.commitOnUnique = self.config.selectCommitOnUnique
             // Read at mode entry, the way scroll reads its physics: a reload
             // mid-session is honored by the next `lode /`.
-            self.select.copyOnComplete = self.config.selectCopyOnComplete
             self.select.start(opening)
         }
         return true

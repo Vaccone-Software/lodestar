@@ -30,7 +30,7 @@ public enum ConfigStore {
     /// `lodestar config` prints, held to the schema's by a test.
     public static let sectionOrder = [
         "lode", "app", "gestures", "web", "scroll",
-        "select", "meetings", "clipboard", "editor", "observations", "coach", "keys", "graph",
+        "meetings", "clipboard", "editor", "observations", "coach", "keys", "graph",
     ]
 
     /// The config's file header: written first by every update, ignored on

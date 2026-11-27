@@ -29,7 +29,6 @@ public struct ConfigFile: Sendable, Equatable {
     public var gestures = GestureSwitches()
     public var web = Web()
     public var scroll = Scroll()
-    public var select = Select()
     public var meetings = Meetings()
     public var clipboard = Clipboard()
     public var editor = Editor()
@@ -81,10 +80,6 @@ public struct ConfigFile: Sendable, Equatable {
 
     public struct Scroll: Sendable, Equatable {
         public var speed = 1800.0
-    }
-
-    public struct Select: Sendable, Equatable {
-        public var copyOnComplete = false
     }
 
     public struct Meetings: Sendable, Equatable {
@@ -189,7 +184,6 @@ extension ConfigFile {
               doc: "Every gesture, one switch each; false frees its keys to the app.")
         Field("web", \.web, webSection, doc: "The web bar.")
         Field("scroll", \.scroll, scrollSection, doc: "Scroll mode.")
-        Field("select", \.select, selectSection, doc: "Select mode.")
         Field("meetings", \.meetings, meetingsSection, doc: "Meetings at the door.")
         Field("clipboard", \.clipboard, clipboardSection, doc: "Clipboard history.")
         Field("editor", \.editor, editorSection, doc: "The editor: marks under mistakes, lode ⇥ to fix.")
@@ -256,8 +250,10 @@ extension ConfigFile {
             // letters and the rescan delay (the layout is detected now), and
             // the auto-reload toggle (watching is simply how the config works)
             "you", "double-tap", "hints", "web.clicks.trace", "app.auto-reload",
-            // commit-on-unique and the guide's fade became the doctrine (0.30.9)
-            "select.commit-on-unique", "guide",
+            // commit-on-unique and the guide's fade became the doctrine
+            // (0.30.9), and copy-on-complete with them (0.57): a finished
+            // selection is always copied, so the select section is gone whole
+            "select", "guide",
             // the registry itself, which the operation above has read
             "profiles",
             // exact keyboard attribution, which is simply how health reads
@@ -352,12 +348,6 @@ extension ConfigFile {
         Field("speed", \.speed, .double(.range(200...4000)).clampingToRange(),
               doc: "How fast a held direction key scrolls, pixels per second. Scrolling stops the moment the key is let go.",
               unit: "px/s")
-    }
-    .readingNullAsEmpty()
-
-    private static let selectSection = section(Select.self, default: Select()) {
-        Field("copy-on-complete", \.copyOnComplete, .bool,
-              doc: "Copy a completed span to the clipboard the moment its second anchor lands. Escape after only the first anchor copies that word.")
     }
     .readingNullAsEmpty()
 

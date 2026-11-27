@@ -325,9 +325,8 @@ public protocol EngineWorld: AnyObject {
     /// something was copied and the mode is over, `.pending` when there
     /// was nothing anchored yet to take.
     func selectCopy() -> SelectStep
-    /// Would Escape right now take the anchored word? Only when
-    /// `select.copy-on-complete` is on and a start anchor stands with no
-    /// far end yet. The config line is the whole arbiter.
+    /// Would Escape right now take the anchored word? Only when a start
+    /// anchor stands with no far end yet.
     var selectEscapeCopies: Bool { get }
     /// Escape's copy: the same ending ⌘C reaches, quietly. The mode ends
     /// either way, so there is nothing to answer.
@@ -1157,8 +1156,7 @@ public struct EngineCore {
     ///
     /// Plain ⌘C is the one modifier the mode answers to: it takes the word
     /// already anchored, so a single word costs one pick instead of two.
-    /// Escape after that first anchor asks the same thing, but only for a
-    /// hand that set `select.copy-on-complete`.
+    /// Escape after that first anchor asks the same thing.
     /// Lode is a command key itself, so the gesture is only ever the other
     /// one — `held` has already claimed the lode half above.
     private mutating func selectPress(key: String, held: Bool, shift: Bool,
@@ -1177,8 +1175,8 @@ public struct EngineCore {
         }
         switch key {
         case "escape":
-            // With copy-on-complete on, leaving after the first anchor is
-            // also asking: the word is taken the way ⌘C would take it.
+            // Leaving after the first anchor is also asking: the word is
+            // taken the way ⌘C would take it.
             if world.selectEscapeCopies { world.selectEscapeCopy() }
             state = .idle
             return [.exitSelect]

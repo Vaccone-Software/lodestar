@@ -60,12 +60,6 @@ public struct Config {
     /// 0.57, since the choice changed what the eye follows, not how
     /// Lodestar looks.
     public var scrollSpeed: CGFloat = 1800
-    /// A completed span copies itself the moment its second anchor lands.
-    /// The second capital is the grammar's full stop — nothing follows it —
-    /// so copying there arbitrates nothing; the config line is the arbiter,
-    /// decided once, never at the moment of use. Escape after the first
-    /// anchor alone takes that word the same way.
-    public var selectCopyOnComplete = false
     /// A select search narrowed to exactly one match picks it without the
     /// capital. The capital there could only confirm — a keystroke with
     /// one legal meaning carries no information, so the grammar stops
@@ -435,7 +429,6 @@ public struct Config {
         config.trigger = file.lode.trigger
         config.lodeTap = file.lode.tap
         config.scrollSpeed = CGFloat(file.scroll.speed)
-        config.selectCopyOnComplete = file.select.copyOnComplete
         config.clipboardEnabled = file.clipboard.enabled
         config.clipboardMaxBytes = file.clipboard.maxSizeMB * 1_000_000
         config.clipboardExcludedApps = Set(file.clipboard.excludeApps.filter(\.value).keys.map { $0.lowercased() })

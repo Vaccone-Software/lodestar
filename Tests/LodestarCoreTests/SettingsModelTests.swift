@@ -43,9 +43,9 @@ final class SettingsModelTests: XCTestCase {
                            Array(SettingsModel.labelAlphabet.prefix(section.rows.count)), section.name)
         }
         var off = Config()
-        off.scrollSmooth = false
-        let before = place("Operate").rows.map { "\($0.letter ?? "")\($0.path)" }
-        let after = place("Operate", off).rows.map { "\($0.letter ?? "")\($0.path)" }
+        off.logbookEnabled = false
+        let before = place("Observations").rows.map { "\($0.letter ?? "")\($0.path)" }
+        let after = place("Observations", off).rows.map { "\($0.letter ?? "")\($0.path)" }
         XCTAssertEqual(before, after, "a row dimming never moves a letter")
     }
 
@@ -290,7 +290,7 @@ final class SettingsModelTests: XCTestCase {
     func testSearchFindsRowsAndTheWordsPeopleUse() {
         let hits = SettingsModel.search("speed", in: sections)
         XCTAssertEqual(hits.first?.sectionName, "Operate")
-        XCTAssertEqual(hits.first?.address, "5 d", "a hit teaches its two keys")
+        XCTAssertEqual(hits.first?.address, "5 c", "a hit teaches its two keys")
         XCTAssertEqual(SettingsModel.search("clipboard", in: sections).first?.sectionName, "Keep")
         XCTAssertEqual(SettingsModel.search("dictation", in: sections).first?.sectionName, "Speak")
         XCTAssertTrue(SettingsModel.search("", in: sections).isEmpty, "search is a verb, not a view")

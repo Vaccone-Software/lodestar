@@ -101,13 +101,13 @@ final class ConfigFileTests: XCTestCase {
           "lode": {"trigger": "left-command"}
         }
         """)
-        try Config.edit(in: file) { Json.setting($0, path: ["scroll", "smooth"], to: .bool(false))! }
+        try Config.edit(in: file) { Json.setting($0, path: ["lode", "tap"], to: .bool(false))! }
         XCTAssertEqual(onDisk, written("""
           "lode": {
+            "tap": false,
             "trigger": "left-command"
           },
           "scroll": {
-            "smooth": false,
             "speed": 2200,
             "inertia": 0.5
           },
@@ -186,7 +186,7 @@ final class ConfigFileTests: XCTestCase {
             guard case Config.EditError.invalid(let detail) = $0 else { return XCTFail("\($0)") }
             XCTAssertTrue(detail.hasPrefix("lode.trigger: "), detail)
         }
-        XCTAssertThrowsError(try Config.edit(in: file) { Json.setting($0, path: ["scroll", "smooth"], to: .int(3))! })
+        XCTAssertThrowsError(try Config.edit(in: file) { Json.setting($0, path: ["lode", "tap"], to: .int(3))! })
         XCTAssertEqual(onDisk, before)
     }
 
@@ -213,10 +213,10 @@ final class ConfigFileTests: XCTestCase {
 
 
     func testTheFlashShowsTheFirstProblemInTheOrderOfTheFile() throws {
-        try write("{\n  \"scroll\": {\"smooth\": 1},\n  \"coach\": {\"stnad\": true},\n  \"app\": {\"channel\": \"beta\"}\n}")
+        try write("{\n  \"lode\": {\"tap\": 1},\n  \"coach\": {\"stnad\": true},\n  \"app\": {\"channel\": \"beta\"}\n}")
         let (_, problems) = Config.load(from: file)
         XCTAssertEqual(problems.count, 3, "\(problems)")
-        XCTAssertTrue(problems[0].hasPrefix("scroll.smooth: "), "\(problems)")
+        XCTAssertTrue(problems[0].hasPrefix("lode.tap: "), "\(problems)")
         XCTAssertTrue(problems[1].hasPrefix("coach.stnad: "), "\(problems)")
         XCTAssertTrue(problems[2].hasPrefix("app.channel: "), "\(problems)")
     }

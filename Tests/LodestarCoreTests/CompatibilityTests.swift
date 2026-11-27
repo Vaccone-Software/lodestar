@@ -258,7 +258,6 @@ final class CompatibilityTests: XCTestCase {
         tuned.web.routes = ["example.com": "brave:Work"]
         tuned.web.links = ["docs": ConfigFile.Web.Link(profile: nil, url: "example.com/docs")]
         tuned.scroll.speed = 2200
-        tuned.scroll.step = 80
         tuned.select.copyOnComplete = true
         tuned.clipboard.maxSizeMB = 200
         tuned.draft.editingStyle = .vim
@@ -304,8 +303,8 @@ final class CompatibilityTests: XCTestCase {
                 if fixture.name == "defaults", file != ConfigFile() {
                     problems.append("a file with only its header reads as something other than the defaults")
                 }
-                if fixture.name == "tuned", file.scroll.speed != 2200 || file.scroll.step != 80 {
-                    problems.append("scroll.speed and scroll.step, written as 2200 and 80, read as \(file.scroll.speed) and \(file.scroll.step)")
+                if fixture.name == "tuned", file.scroll.speed != 2200 {
+                    problems.append("scroll.speed, written as 2200, reads as \(file.scroll.speed)")
                 }
                 return problems
             },

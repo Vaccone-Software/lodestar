@@ -82,9 +82,7 @@ public struct ConfigFile: Sendable, Equatable {
     }
 
     public struct Scroll: Sendable, Equatable {
-        public var smooth = true
         public var speed = 1800.0
-        public var step = 60.0
     }
 
     public struct Select: Sendable, Equatable {
@@ -279,6 +277,10 @@ extension ConfigFile {
             // turning the mouse's wheel apart from the trackpad (0.54.2), which
             // a mouse's own app or a scrolling utility does better (0.54.6)
             "app.mouse-scrolling",
+            // 0.57 fixed what was a choice and changed what the hand or the
+            // eye does, not how Lodestar looks: scrolling is always smooth,
+            // so its switch and the step it fell back to retired.
+            "scroll.smooth", "scroll.step",
         ])
 
     /// An object of the file, read exactly: a spelling that is not the
@@ -351,11 +353,9 @@ extension ConfigFile {
     }
 
     private static let scrollSection = section(Scroll.self, default: Scroll()) {
-        Field("smooth", \.smooth, .bool, doc: "Constant velocity while held; instant stop on release.")
         Field("speed", \.speed, .double(.range(200...4000)).clampingToRange(),
-              doc: "Smooth velocity, pixels per second.", unit: "px/s")
-        Field("step", \.step, .double(.range(10...400)).clampingToRange(),
-              doc: "Pixels per press when smooth is off.", unit: "px")
+              doc: "How fast a held direction key scrolls, pixels per second. Scrolling stops the moment the key is let go.",
+              unit: "px/s")
     }
     .readingNullAsEmpty()
 

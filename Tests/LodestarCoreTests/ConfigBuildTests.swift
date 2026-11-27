@@ -28,8 +28,6 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(config.startAtLogin, bare.startAtLogin)
         XCTAssertEqual(config.showMenuBar, bare.showMenuBar)
         XCTAssertEqual(config.activeDisplayMode, bare.activeDisplayMode)
-        XCTAssertEqual(config.scrollStep, bare.scrollStep)
-        XCTAssertEqual(config.scrollSmooth, bare.scrollSmooth)
         XCTAssertEqual(config.scrollSpeed, bare.scrollSpeed)
         XCTAssertEqual(config.webFallback, bare.webFallback)
         XCTAssertEqual(config.webSearchURL, bare.webSearchURL)
@@ -48,8 +46,14 @@ final class ConfigBuildTests: XCTestCase {
     func testScrollValuesClampInsteadOfRefusing() throws {
         XCTAssertEqual(try build(#"{"scroll": {"speed": 99999}}"#).0.scrollSpeed, 4000)
         XCTAssertEqual(try build(#"{"scroll": {"speed": 1}}"#).0.scrollSpeed, 200)
-        XCTAssertEqual(try build(#"{"scroll": {"step": 99999}}"#).0.scrollStep, 400)
-        XCTAssertEqual(try build(#"{"scroll": {"step": 0}}"#).0.scrollStep, 10)
+    }
+
+    /// Scrolling is always smooth (0.57): a file that still holds the switch
+    /// or the step it fell back to loads clean, with the speed it names.
+    func testTheRetiredScrollKeysLoadClean() throws {
+        let (config, problems) = try build(#"{"scroll": {"smooth": false, "step": 120, "speed": 2400}}"#)
+        XCTAssertEqual(problems, [])
+        XCTAssertEqual(config.scrollSpeed, 2400)
     }
 
     /// Retired in 0.22: the delay is tuned once, for everyone. A file

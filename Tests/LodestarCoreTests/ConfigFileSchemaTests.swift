@@ -31,7 +31,7 @@ final class ConfigFileSchemaTests: XCTestCase {
                 "links": .table([:]), "routes": .table([:]),
                 "clicks": .table(["enabled": .bool(false), "browser": .string("")]),
             ]),
-            "scroll": .table(["smooth": .bool(true), "speed": .int(1800), "step": .int(60)]),
+            "scroll": .table(["speed": .int(1800)]),
             "select": .table(["copy-on-complete": .bool(false)]),
             "appearance": .table(["eye-comfort": .bool(true)]),
             "draft": .table(["editing-style": .string("standard"), "input": .string(""), "model": .string(""),
@@ -219,7 +219,7 @@ final class ConfigFileSchemaTests: XCTestCase {
         XCTAssertEqual(introduced(["scroll", "speed"], .int(99_999)).count, 1)
         XCTAssertEqual(introduced(["scroll", "speeed"], .int(2400)),
                        ["scroll.speeed: unknown key `speeed` (did you mean 'speed'?)"])
-        XCTAssertEqual(introduced(["scroll", "smooth"], .string("yes")).count, 1)
+        XCTAssertEqual(introduced(["lode", "tap"], .string("yes")).count, 1)
         XCTAssertEqual(introduced(["app", "channel"], .string("beta")).count, 1)
         XCTAssertEqual(introduced(["web", "routes", "github.com"], .int(5)).count, 1)
         XCTAssertEqual(introduced(["web", "routes", "github.com"], .string("brave:Work")), [])
@@ -239,7 +239,7 @@ final class ConfigFileSchemaTests: XCTestCase {
         XCTAssertEqual(try problems("""
         {
           "lode": {"trigger": "right-command"},
-          "scroll": {"smooth": true, "speed": 1800},
+          "scroll": {"speed": 1800},
           "graph": {"s": "Slack", "e": {"o": "Outlook"}},
           "web": {"routes": {"acme": "brave:Work"}}
         }
@@ -247,8 +247,8 @@ final class ConfigFileSchemaTests: XCTestCase {
     }
 
     func testUnknownKeyWithTypoHint() throws {
-        XCTAssertEqual(try problems(#"{"scroll": {"smoothe": true}}"#),
-                       ["scroll.smoothe: unknown key `smoothe` (did you mean 'smooth'?)"])
+        XCTAssertEqual(try problems(#"{"scroll": {"sped": 1800}}"#),
+                       ["scroll.sped: unknown key `sped` (did you mean 'speed'?)"])
     }
 
     func testUnknownTopLevelSection() throws {
@@ -258,9 +258,9 @@ final class ConfigFileSchemaTests: XCTestCase {
     }
 
     func testTypeMismatch() throws {
-        let findings = try problems(#"{"scroll": {"smooth": 12}}"#)
+        let findings = try problems(#"{"lode": {"tap": 12}}"#)
         XCTAssertEqual(findings.count, 1)
-        XCTAssertTrue(findings[0].hasPrefix("scroll.smooth: "), "\(findings)")
+        XCTAssertTrue(findings[0].hasPrefix("lode.tap: "), "\(findings)")
         XCTAssertTrue(findings[0].contains("boolean"), "\(findings)")
     }
 

@@ -58,8 +58,6 @@ final class ScrollController {
     private var aims = 0
     private var aimsLanded = 0
     private var aimsAway = 0
-    var step: CGFloat = 60
-    var smooth = true
     var speed: CGFloat = 900
     /// Shift's multiplier on a direction key: fixed, not a knob. One
     /// modifier the hand already owns, one meaning, so the pair stays a
@@ -223,25 +221,12 @@ final class ScrollController {
     // MARK: - Smooth scrolling (constant velocity while held, instant stop)
 
     /// A direction key went down (repeats included; the set makes them
-    /// no-ops). Smooth off falls back to one step per event — the classic
-    /// key-repeat feel.
+    /// no-ops).
     func directionKeyDown(_ key: String, fast: Bool = false) {
         cancelGlide()
         self.fast = fast
-        // A press, not a repeat: the held set already knows a key that is
-        // down, and the classic path has no set to ask.
-        if !smooth || !heldKeys.contains(key) { keysPressed += 1 }
-        guard smooth else {
-            let distance = Int32(step * (fast ? Self.fastMultiplier : 1))
-            switch key {
-            case "j": postVertical(distance)
-            case "k": postVertical(-distance)
-            case "h": postHorizontal(-distance)
-            case "l": postHorizontal(distance)
-            default: break
-            }
-            return
-        }
+        // A press, not a repeat: the held set already knows a key that is down.
+        if !heldKeys.contains(key) { keysPressed += 1 }
         lastKeyDown[key] = ContinuousClock.now
         heldKeys.insert(key)
         if HotkeyEngine.traceTap { Log.info("smooth: down \(key) held=\(heldKeys.sorted())") }

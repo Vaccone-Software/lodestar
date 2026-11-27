@@ -60,11 +60,11 @@ public struct Config {
     /// "metric" or "imperial": the units a copied measurement is read
     /// into. Empty until chosen, and then the region's.
     public var units = ""
-    /// Pixels per j/k/h/l press in scroll mode when smooth is off.
-    public var scrollStep: CGFloat = 60
-    /// Constant velocity while a direction key is held; instant stop on release.
-    public var scrollSmooth = true
-    /// Smooth-scroll velocity in pixels per second.
+    /// Scroll mode's velocity while a direction key is held, in pixels per
+    /// second. Scrolling is always smooth (constant velocity while held,
+    /// instant stop on release): the step-per-press alternative retired in
+    /// 0.57, since the choice changed what the eye follows, not how
+    /// Lodestar looks.
     public var scrollSpeed: CGFloat = 1800
     /// A completed span copies itself the moment its second anchor lands.
     /// The second capital is the grammar's full stop — nothing follows it —
@@ -447,8 +447,6 @@ public struct Config {
         config.activeDisplayMode = file.app.activeDisplay
         config.trigger = file.lode.trigger
         config.lodeTap = file.lode.tap
-        config.scrollStep = CGFloat(file.scroll.step)
-        config.scrollSmooth = file.scroll.smooth
         config.scrollSpeed = CGFloat(file.scroll.speed)
         config.selectCopyOnComplete = file.select.copyOnComplete
         config.clipboardEnabled = file.clipboard.enabled

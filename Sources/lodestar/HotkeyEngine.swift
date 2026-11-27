@@ -3096,8 +3096,6 @@ extension HotkeyEngine: EngineWorld {
         guard let opening = scroller.opening() else { return false }
         pendingEntry = { [weak self] in
             guard let self else { return }
-            self.scroller.step = self.config.scrollStep
-            self.scroller.smooth = self.config.scrollSmooth
             self.scroller.speed = self.config.scrollSpeed
             self.scroller.start(opening)
         }

@@ -39,9 +39,7 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["app", "show-menu-bar"], value: .bool(false)) { !$0.showMenuBar },
         Probe(path: ["app", "start-at-login"], value: .bool(false)) { !$0.startAtLogin },
 
-        Probe(path: ["scroll", "smooth"], value: .bool(false)) { !$0.scrollSmooth },
         Probe(path: ["scroll", "speed"], value: .int(2500)) { $0.scrollSpeed == 2500 },
-        Probe(path: ["scroll", "step"], value: .int(120)) { $0.scrollStep == 120 },
         Probe(path: ["select", "copy-on-complete"], value: .bool(true)) { $0.selectCopyOnComplete },
         Probe(path: ["appearance", "eye-comfort"], value: .bool(false)) { !$0.eyeComfort },
 

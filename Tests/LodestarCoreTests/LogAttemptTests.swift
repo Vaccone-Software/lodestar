@@ -207,10 +207,10 @@ final class FailureWordsTests: XCTestCase {
 
     /// Two problems in one edit, as the store words them.
     func testTwoRefusedValuesReadWithoutASemicolon() throws {
-        XCTAssertThrowsError(try ConfigStore.file(from: ["scroll": .table(["smooth": .int(3)]),
+        XCTAssertThrowsError(try ConfigStore.file(from: ["app": .table(["sounds": .int(3)]),
                                                          "lode": .table(["trigger": .string("nonsense")])])) {
             let sentence = shown($0)
-            XCTAssertTrue(sentence.contains("scroll.smooth") && sentence.contains("lode.trigger"), sentence)
+            XCTAssertTrue(sentence.contains("app.sounds") && sentence.contains("lode.trigger"), sentence)
             XCTAssertFalse(sentence.contains("—") || sentence.contains(";"), sentence)
         }
     }

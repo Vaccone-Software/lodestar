@@ -225,6 +225,11 @@ public enum Meetings {
         }
     }
 
+    /// How many minutes before its start a meeting's chip appears: long
+    /// enough to finish a sentence and find the headphones, short enough
+    /// that the chip is about this meeting. Fixed since 0.57.
+    public static let leadMinutes = 5
+
     /// The one occurrence worth a chip right now: inside its window
     /// (lead minutes before start, until its end), not dismissed, not
     /// already joined — and when meetings overlap, the one that started

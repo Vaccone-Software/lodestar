@@ -53,11 +53,13 @@ final class ConfigBuildTests: XCTestCase {
     func testTheSettingsFixedIn057LoadClean() throws {
         let (config, problems) = try build("""
         {"scroll": {"smooth": false, "step": 120, "speed": 2400},
-         "coach": {"stand": true, "stand-after": 45}}
+         "coach": {"stand": true, "stand-after": 45},
+         "meetings": {"enabled": true, "lead-minutes": 10}}
         """)
         XCTAssertEqual(problems, [])
         XCTAssertEqual(config.scrollSpeed, 2400)
         XCTAssertTrue(config.standEnabled)
+        XCTAssertTrue(config.meetingsEnabled)
     }
 
     /// Retired in 0.22: the delay is tuned once, for everyone. A file

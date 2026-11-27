@@ -12,7 +12,7 @@ import StoicTime
 /// lives in the core; this file draws, fetches, and executes.
 ///
 /// The chip is never key and swallows nothing, exactly like the walk's
-/// companion and for the same reason. It appears `lead-minutes` before
+/// companion and for the same reason. It appears five minutes before
 /// the start, lives the meeting out (late joining is the point), and is
 /// spent by its own join, a dismissal, or the meeting ending — never by
 /// a clock of its own.
@@ -327,7 +327,7 @@ final class MeetingController: NSObject {
 
     private func evaluate() {
         let candidate = Meetings.candidate(occurrences: occurrences, now: Moment.now.date,
-                                           leadMinutes: config.meetingsLeadMinutes,
+                                           leadMinutes: Meetings.leadMinutes,
                                            spent: loadSpent())
         current = candidate
         guard let candidate, !suppressed() else {

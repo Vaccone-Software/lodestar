@@ -97,7 +97,6 @@ final class ConfigCoverageTests: XCTestCase {
         },
 
         Probe(path: ["meetings", "enabled"], value: .bool(true)) { $0.meetingsEnabled },
-        Probe(path: ["meetings", "lead-minutes"], value: .int(10)) { $0.meetingsLeadMinutes == 10 },
         Probe(path: ["meetings", "calendars", "Work"], value: .string("brave:Work")) {
             $0.meetingsCalendars["Work"] == "brave:work"
         },

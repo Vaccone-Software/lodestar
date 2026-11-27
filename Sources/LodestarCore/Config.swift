@@ -95,7 +95,6 @@ public struct Config {
     /// has no gesture to hang a lazy prompt on, so intent is a config line
     /// and the subsystem reconciles.
     public var meetingsEnabled = false
-    public var meetingsLeadMinutes = 5
     /// Calendar or account name → canonical profile reference. Outranks
     /// the domain route for meeting joins: the calendar is the only
     /// signal that can tell two meetings on the same host apart.
@@ -509,7 +508,6 @@ public struct Config {
             config.keyOverrides[keycode] = name
         }
         config.meetingsEnabled = file.meetings.enabled
-        config.meetingsLeadMinutes = file.meetings.leadMinutes
         for (name, profile) in file.meetings.calendars {
             if let key = profileReference(profile, at: "meetings.calendars.\(name)") {
                 config.meetingsCalendars[name] = key

@@ -92,7 +92,6 @@ public struct ConfigFile: Sendable, Equatable {
     public struct Meetings: Sendable, Equatable {
         public var calendars: [String: String] = [:]
         public var enabled = false
-        public var leadMinutes = 5
     }
 
     public struct Clipboard: Sendable, Equatable {
@@ -283,6 +282,8 @@ extension ConfigFile {
             // The walk is due after thirty minutes, the length the research
             // supports, and a number beside its switch only asked again.
             "coach.stand-after",
+            // A meeting's chip appears five minutes before it starts.
+            "meetings.lead-minutes",
         ])
 
     /// An object of the file, read exactly: a spelling that is not the
@@ -371,9 +372,7 @@ extension ConfigFile {
         Field("calendars", \.calendars,
               .lossyDictionary(of: .string(), valueDoc: "The browser:name profile this calendar's meetings join in."),
               doc: "Calendar or account name → profile. Outranks web.routes for meetings.")
-        Field("enabled", \.enabled, .bool, doc: "Offer the calendar's next meeting as a chip.")
-        Field("lead-minutes", \.leadMinutes, .int(.range(0...120)).clampingToRange(),
-              doc: "Minutes before the start the chip appears.", unit: "min")
+        Field("enabled", \.enabled, .bool, doc: "Offer the calendar's next meeting as a chip, five minutes before it starts.")
     }
     .readingNullAsEmpty()
 

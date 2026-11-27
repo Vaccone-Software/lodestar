@@ -2,8 +2,8 @@ import AppKit
 import CoreGraphics
 
 /// Per-display layouts: every monitor owns an ordered set of equal-sized
-/// windows, and verbs act on the active display — pointer-chosen by
-/// default (app.active-display). Resting posture is one window,
+/// windows, and verbs act on the active display — the one under
+/// the pointer (ActivePolicy). Resting posture is one window,
 /// full-screen, per display; multiplicity only ever comes from an explicit
 /// beside-summon or a breath.
 public final class LayoutController {
@@ -115,11 +115,10 @@ public final class LayoutController {
 
     // MARK: - Active display
 
-    /// The monitor being used — by pointer or by keyboard focus, per
-    /// app.active-display. Falls back sensibly either way.
+    /// The monitor being used: the one under the pointer, else the one
+    /// holding the focused window, else the first.
     public func activeDisplay() -> Displays.DisplayInfo? {
-        if ActivePolicy.mode == .pointer,
-           let location = CGEvent(source: nil)?.location,
+        if let location = CGEvent(source: nil)?.location,
            let display = displays.displayContaining(CGRect(origin: location, size: CGSize(width: 1, height: 1))) {
             return display
         }

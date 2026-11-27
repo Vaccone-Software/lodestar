@@ -27,7 +27,6 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertEqual(config.autoUpdate, bare.autoUpdate)
         XCTAssertEqual(config.startAtLogin, bare.startAtLogin)
         XCTAssertEqual(config.showMenuBar, bare.showMenuBar)
-        XCTAssertEqual(config.activeDisplayMode, bare.activeDisplayMode)
         XCTAssertEqual(config.scrollSpeed, bare.scrollSpeed)
         XCTAssertEqual(config.webFallback, bare.webFallback)
         XCTAssertEqual(config.webSearchURL, bare.webSearchURL)
@@ -54,12 +53,14 @@ final class ConfigBuildTests: XCTestCase {
         let (config, problems) = try build("""
         {"scroll": {"smooth": false, "step": 120, "speed": 2400},
          "coach": {"stand": true, "stand-after": 45},
-         "meetings": {"enabled": true, "lead-minutes": 10}}
+         "meetings": {"enabled": true, "lead-minutes": 10},
+         "app": {"active-display": "focus", "sounds": false}}
         """)
         XCTAssertEqual(problems, [])
         XCTAssertEqual(config.scrollSpeed, 2400)
         XCTAssertTrue(config.standEnabled)
         XCTAssertTrue(config.meetingsEnabled)
+        XCTAssertFalse(config.sounds)
     }
 
     /// Retired in 0.22: the delay is tuned once, for everyone. A file
@@ -72,9 +73,9 @@ final class ConfigBuildTests: XCTestCase {
     // MARK: - Enums fall back loudly
 
     func testUnknownEnumsKeepTheDefaultAndSaySo() throws {
-        let (config, problems) = try build(#"{"app": {"active-display": "elsewhere"}}"#)
-        XCTAssertEqual(config.activeDisplayMode, .pointer)
-        XCTAssertTrue(problems.contains { $0.contains("active-display") }, "\(problems)")
+        let (config, problems) = try build(#"{"app": {"channel": "beta"}}"#)
+        XCTAssertEqual(config.channel, .stable)
+        XCTAssertTrue(problems.contains { $0.contains("app.channel") }, "\(problems)")
 
         let (lode, lodeProblems) = try build(#"{"lode": {"trigger": "left-pinky"}}"#)
         XCTAssertEqual(lode.trigger, .rightCommand)

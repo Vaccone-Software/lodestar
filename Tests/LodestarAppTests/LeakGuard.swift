@@ -81,7 +81,6 @@ enum LeakGuard {
     /// The statics both bundles' tests change: LodestarCore's.
     static let core: [Watched] = [
         .value("ActivePolicy.frameOverride", \ActivePolicy.Type.frameOverride),
-        .value("ActivePolicy.mode", \ActivePolicy.Type.mode),
         .value("Log.stdoutEnabled", \Log.Type.stdoutEnabled),
         .value("Log.fileEnabled", \Log.Type.fileEnabled),
         .closure("Log.listener", \Log.Type.listener) { $0 == nil ? "none" : "a listener" },

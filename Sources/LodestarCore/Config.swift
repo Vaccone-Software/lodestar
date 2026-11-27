@@ -55,8 +55,6 @@ public struct Config {
     /// Show the status item permanently; false hides it (picking lodestar
     /// in the searcher reveals it for a minute).
     public var showMenuBar = true
-    /// How the active display is chosen: pointer | focus.
-    public var activeDisplayMode = ActivePolicy.Mode.pointer
     /// "metric" or "imperial": the units a copied measurement is read
     /// into. Empty until chosen, and then the region's.
     public var units = ""
@@ -442,7 +440,6 @@ public struct Config {
         config.startAtLogin = file.app.startAtLogin
         config.showMenuBar = file.app.showMenuBar
         config.units = file.app.units
-        config.activeDisplayMode = file.app.activeDisplay
         config.trigger = file.lode.trigger
         config.lodeTap = file.lode.tap
         config.scrollSpeed = CGFloat(file.scroll.speed)

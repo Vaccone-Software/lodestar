@@ -50,7 +50,6 @@ public struct ConfigFile: Sendable, Equatable {
     }
 
     public struct App: Sendable, Equatable {
-        public var activeDisplay = ActivePolicy.Mode.pointer
         public var autoUpdate = true
         public var channel = Updater.Channel.stable
         public var dailyCount = true
@@ -284,6 +283,8 @@ extension ConfigFile {
             "coach.stand-after",
             // A meeting's chip appears five minutes before it starts.
             "meetings.lead-minutes",
+            // Windows and panels land on the display under the pointer.
+            "app.active-display",
         ])
 
     /// An object of the file, read exactly: a spelling that is not the
@@ -305,8 +306,6 @@ extension ConfigFile {
     .readingNullAsEmpty()
 
     private static let appSection = section(App.self, default: App()) {
-        Field("active-display", \.activeDisplay, .enumeration(ActivePolicy.Mode.self),
-              doc: "How the active display is chosen.")
         Field("auto-update", \.autoUpdate, .bool,
               doc: "Keep Lodestar current: check daily, verify the download, apply quietly when idle (installed app only).")
         Field("channel", \.channel, .enumeration(Updater.Channel.self),

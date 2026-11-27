@@ -4,31 +4,22 @@ import StoicTime
 import Synchronization
 
 /// Where is "here"? The single answer every surface consults — layouts
-/// place there, panels present there. Pointer by default; keyboard focus
-/// as the configurable alternative (app.active-display).
+/// place there, panels present there: the display under the pointer, where
+/// the eyes are. Until 0.57 the display with the focused window was a
+/// choice beside it (app.active-display); a keyboard tool still has the
+/// eyes follow the pointer, so the product decides.
 public enum ActivePolicy {
-    public enum Mode: String, CaseIterable, Sendable {
-        case pointer
-        case focus
-    }
-
-    /// The setting is written from main (config load) and read wherever a
-    /// panel or a layout asks where "here" is, so both live behind one lock.
+    /// Read wherever a panel or a layout asks where "here" is, from any
+    /// thread, so it lives behind one lock.
     private struct State {
-        var mode: Mode = .pointer
         var cachedPresentation: (frame: NSRect, at: Date)?
         var frameOverride: NSRect?
     }
     private static let state = Mutex(State())
 
-    public static var mode: Mode {
-        get { state.withLock { $0.mode } }
-        set { state.withLock { $0.mode = newValue } }
-    }
-
     /// The active display, for panel positioning (AppKit coordinates).
     public static func appKitScreen(fallbackFrom layout: LayoutController?) -> Screens.Screen? {
-        if mode == .pointer, let location = CGEvent(source: nil)?.location,
+        if let location = CGEvent(source: nil)?.location,
            let display = Displays.display(containing: CGRect(origin: location, size: CGSize(width: 1, height: 1))),
            let screen = screen(for: display.id) {
             return screen

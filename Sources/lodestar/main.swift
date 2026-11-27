@@ -209,7 +209,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // the config's `keys:` stays the user's last word over either.
         KeyboardLayout.install()
         Keys.apply(overrides: loaded.keyOverrides)
-        ActivePolicy.mode = loaded.activeDisplayMode
         reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         // The first time a hold stops the volume, the note says why and where
@@ -2653,7 +2652,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                           fileProblem: snapshot?.problem != nil)
         config = loaded
         Keys.apply(overrides: loaded.keyOverrides)
-        ActivePolicy.mode = loaded.activeDisplayMode
         reversedWheels.configure(loaded.reversedWheels)
         EyeComfortController.shared.configure(enabled: loaded.eyeComfort)
         loudAudio.configure(level: loaded.reduceLoudAudio)

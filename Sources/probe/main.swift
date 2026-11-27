@@ -17,6 +17,8 @@ func usage() -> Never {
       probe listening devices|tap|clamp  headphone safety: outputs and curves, a process tap
                                        (--noise DBFS, --nudge), a volume ceiling (--presses N,
                                        --virtual or --swallow)
+      probe border [--seconds N] [--level normal|floating] [--settle-ms N] [--radius R]
+                                       an outline on the focused window: stacking checked, hidden while it moves
       probe displays                   display bounds, their union, the parking point
       probe cg [--all]                 raw window-server list (works without accessibility)
       probe list                       every app's windows with CGWindowIDs (the private-call bridge)
@@ -86,6 +88,7 @@ case "find": runFind(&arguments)
 case "press": runPress(&arguments)
 case "key": runKey(&arguments)
 case "owners": runOwners(&arguments)
+case "border": MainActor.assumeIsolated { runBorder(&arguments) }
 case "ocrlive": runOCRLive(&arguments)
 case "speech": runSpeech(&arguments)
 case "dictation": runDictation(&arguments)

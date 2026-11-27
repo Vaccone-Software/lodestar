@@ -36,7 +36,7 @@ final class ConfigFileSchemaTests: XCTestCase {
                              "words": .table([:])]),
             "clipboard": .table([
                 "enabled": .bool(true), "max-size-mb": .int(500), "save-to": .string("~/Downloads"),
-                "exclude-apps": .table([:]), "exclude": .table([:]), "time-zones": .table([:]),
+                "exclude-apps": .table([:]), "exclude": .table([:]),
             ]),
             "observations": .table([
                 "logbook": .bool(true), "logbook-mb": .int(256), "health": .bool(true), "health-mb": .int(1024),

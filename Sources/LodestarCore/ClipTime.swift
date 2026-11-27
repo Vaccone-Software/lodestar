@@ -5,13 +5,13 @@ import Synchronization
 
 /// A clip that is only a timestamp — a Unix time out of a log, an ISO date
 /// out of an API — is read as the moment it names: how long ago, as it is
-/// felt, then your clock and the other zones. The reading is Lodestar's
+/// felt, then your clock and UTC. The reading is Lodestar's
 /// note on the card, set apart from the value, which is still what pastes.
 public struct ClipTime: Equatable {
     public enum Kind: Equatable {
         case unix(Unit)
         /// ISO 8601 or the date format mail and HTTP use: already a date,
-        /// read into your zones.
+        /// read into your zone.
         case written
         /// A date with no time of day.
         case day
@@ -154,13 +154,11 @@ public struct ClipTime: Equatable {
         /// Your clock: "Fri, Sep 25 at 9:14 AM", or only "9:14 AM" when the
         /// voice already names the day.
         public let local: String
-        /// UTC and the zones you keep, each "1:14 PM UTC", with the
-        /// weekday when that zone's day is not yours. A zone whose clock
-        /// reads the same as yours or as the value's own is left out.
+        /// UTC, "1:14 PM UTC", with the weekday when its day is not yours;
+        /// empty when UTC reads the same as your clock or as the value's
+        /// own. Only UTC since 0.57: the list of other zones a person kept
+        /// retired, and your zone and UTC are the reading.
         public let zones: [String]
-        /// `zones` without the UTC line: only the ones you keep, so a card
-        /// short of rows can let UTC give way to them.
-        public let kept: [String]
     }
 
     /// Within a week the voice has said which day ("6 hours ago",
@@ -168,7 +166,7 @@ public struct ClipTime: Equatable {
     /// room it leaves goes to a zone.
     /// `compact` leaves the weekday out of your clock's line, for a card too
     /// narrow to hold it whole: the date and time are what is read.
-    public func note(local: TimeZone = .current, zones: [TimeZone] = [], now: Date = Moment.now.date,
+    public func note(local: TimeZone = .current, now: Date = Moment.now.date,
                      locale: Locale = .current, compact: Bool = false) -> Note {
         let calendar = Calendar(identifier: .gregorian)
         let sameYear = calendar.dateComponents(in: local, from: date).year == calendar.dateComponents(in: local, from: now).year
@@ -179,7 +177,7 @@ public struct ClipTime: Equatable {
         if kind == .day {
             full.setLocalizedDateFormatFromTemplate(compact ? (sameYear ? "dMMMM" : "dMMMMy")
                                                     : (sameYear ? "EEEEdMMMM" : "EEEEdMMMMy"))
-            return Note(voice: voice, local: full.string(from: date), zones: [], kept: [])
+            return Note(voice: voice, local: full.string(from: date), zones: [])
         }
         var dayCalendar = Calendar(identifier: .gregorian)
         dayCalendar.timeZone = local
@@ -191,9 +189,7 @@ public struct ClipTime: Equatable {
         var shown: Set<Int> = [local.secondsFromGMT(for: date)]
         if let writtenOffset { shown.insert(writtenOffset) }
         var lines: [String] = []
-        var kept: [String] = []
-        for (index, zone) in ([TimeZone(identifier: "UTC")!] + zones).enumerated()
-        where shown.insert(zone.secondsFromGMT(for: date)).inserted {
+        for zone in [TimeZone(identifier: "UTC")!] where shown.insert(zone.secondsFromGMT(for: date)).inserted {
             let short = DateFormatter()
             short.locale = locale
             short.timeZone = zone
@@ -201,9 +197,8 @@ public struct ClipTime: Equatable {
             short.setLocalizedDateFormatFromTemplate(sameDay ? "jmm" : "EEEjmm")
             let line = "\(short.string(from: date)) \(Self.place(zone))"
             lines.append(line)
-            if index > 0 { kept.append(line) }
         }
-        return Note(voice: voice, local: full.string(from: date), zones: lines, kept: kept)
+        return Note(voice: voice, local: full.string(from: date), zones: lines)
     }
 
     /// How far off the moment is, the way a person says it: minutes and
@@ -274,31 +269,6 @@ public struct ClipTime: Equatable {
         if ["UTC", "GMT", "Etc/UTC", "Etc/GMT"].contains(zone.identifier) { return "UTC" }
         let city = zone.identifier.split(separator: "/").last.map(String.init) ?? zone.identifier
         return city.replacingOccurrences(of: "_", with: " ")
-    }
-
-    /// A zone from what a hand types: an identifier ("Asia/Tokyo"), a city
-    /// ("tokyo", "new york"), or an abbreviation ("PST", "CET").
-    public static func zone(named text: String) -> TimeZone? {
-        let typed = text.trimmingCharacters(in: .whitespaces)
-        guard !typed.isEmpty else { return nil }
-        if let exact = TimeZone(identifier: typed) { return exact }
-        let city = typed.replacingOccurrences(of: " ", with: "_").lowercased()
-        if let id = TimeZone.knownTimeZoneIdentifiers.first(where: {
-            $0.lowercased() == city || $0.split(separator: "/").last.map { $0.lowercased() == city } == true
-        }) {
-            return TimeZone(identifier: id)
-        }
-        if typed.count <= 5, let abbreviated = TimeZone(abbreviation: typed.uppercased()) { return abbreviated }
-        return nil
-    }
-
-    /// "Tokyo · UTC+9", for the list of zones you keep.
-    public static func label(_ zone: TimeZone, at date: Date = Moment.now.date) -> String {
-        let offset = zone.secondsFromGMT(for: date)
-        let hours = offset / 3600, minutes = abs(offset % 3600) / 60
-        let sign = offset < 0 ? "−" : "+"
-        let utc = offset == 0 ? "UTC" : "UTC\(sign)\(abs(hours))" + (minutes > 0 ? String(format: ":%02d", minutes) : "")
-        return place(zone) == utc ? utc : "\(place(zone)) · \(utc)"
     }
 }
 

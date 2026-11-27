@@ -471,7 +471,6 @@ final class HotkeyEngine {
     }
 
     private func applyStripConfig() {
-        strip.timeZones = config.clipboardTimeZones.compactMap(TimeZone.init(identifier:))
         strip.units = .chosen(config.units)
     }
 
@@ -2911,7 +2910,7 @@ extension HotkeyEngine: EngineWorld {
                 clipboard.pastePaths(of: clip)
                 return
             }
-            guard let reading = Clipboard.reading(of: clip, units: strip.units, zones: strip.timeZones) else {
+            guard let reading = Clipboard.reading(of: clip, units: strip.units) else {
                 stripSession?.outcome = ("abandoned", source, nil, rank)
                 hud.flash("✕ That card has no reading")
                 return
@@ -2988,7 +2987,7 @@ extension HotkeyEngine: EngineWorld {
         }
         // A card of files always reads as its paths; where they are is
         // asked when it pastes.
-        return clip.map { $0.pastesAsFiles || Clipboard.reading(of: $0, units: strip.units, zones: strip.timeZones) != nil } ?? false
+        return clip.map { $0.pastesAsFiles || Clipboard.reading(of: $0, units: strip.units) != nil } ?? false
     }
 
     /// A click means the user is looking at something else now, and the

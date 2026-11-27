@@ -111,9 +111,6 @@ public struct Config {
     public var clipboardMaxBytes = 500_000_000
     public var clipboardExcludedApps: Set<String> = []
     public var clipboardExcludePatterns: [String] = []
-    /// Zones a timestamp card also reads into, beside yours and UTC, as
-    /// IANA identifiers ("Asia/Tokyo").
-    public var clipboardTimeZones: [String] = []
     /// Where an image saved from the strip lands, unless the name typed
     /// says otherwise. `~` is the home folder.
     public var clipboardSaveFolder = "~/Downloads"
@@ -435,8 +432,6 @@ public struct Config {
         let folder = file.clipboard.saveTo.trimmingCharacters(in: .whitespaces)
         if !folder.isEmpty { config.clipboardSaveFolder = folder }
         config.clipboardExcludePatterns = file.clipboard.exclude.filter(\.value).keys.sorted()
-        config.clipboardTimeZones = file.clipboard.timeZones
-            .filter { $0.value && TimeZone(identifier: $0.key) != nil }.keys.sorted()
         config.draftEditingStyle = file.draft.editingStyle
         config.draftWords = file.draft.words.filter(\.value).keys.sorted()
         config.draftInput = file.draft.input.trimmingCharacters(in: .whitespaces)

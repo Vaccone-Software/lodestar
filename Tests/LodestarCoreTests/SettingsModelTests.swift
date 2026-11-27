@@ -203,16 +203,6 @@ final class SettingsModelTests: XCTestCase {
     }
 
     /// A kept zone is listed by its city and offset, never its identifier.
-    func testKeptTimeZonesAreListedByPlace() {
-        var config = Config()
-        config.clipboardTimeZones = ["Asia/Tokyo", "Asia/Kolkata"]
-        let row = place("Keep", config).rows.first { $0.path == "clipboard.time-zones" }!
-        guard case .table(let kind, let entries) = row.control else { return XCTFail("time zones are a list") }
-        XCTAssertEqual(kind, .clipboardTimeZones)
-        XCTAssertEqual(entries.map(\.display), ["Tokyo · UTC+9", "Kolkata · UTC+5:30"])
-        XCTAssertFalse(row.isDefault)
-    }
-
     func testEveryConfigRowWearsItsPath() {
         for section in sections {
             for row in section.rows {

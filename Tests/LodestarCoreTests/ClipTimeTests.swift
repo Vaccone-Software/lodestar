@@ -6,7 +6,6 @@ import XCTest
 /// untouched.
 final class ClipTimeTests: XCTestCase {
     private let newYork = TimeZone(identifier: "America/New_York")!
-    private let tokyo = TimeZone(identifier: "Asia/Tokyo")!
     private let english = Locale(identifier: "en_US")
     /// 2026-09-25 13:14:17 UTC.
     private let moment = Date(timeIntervalSince1970: 1_790_342_057)
@@ -42,21 +41,14 @@ final class ClipTimeTests: XCTestCase {
 
     private func plain(_ text: String) -> String { text.replacingOccurrences(of: "\u{202F}", with: " ") }
 
-    func testTheNoteIsTheFeltTimeYourClockAndTheOtherZones() throws {
+    /// Your zone and UTC are the reading (0.57): the list of other zones a
+    /// person kept retired.
+    func testTheNoteIsTheFeltTimeYourClockAndUTC() throws {
         let time = try XCTUnwrap(ClipTime.parse("1790342057"))
-        let note = time.note(local: newYork, zones: [tokyo], now: moment.addingTimeInterval(4 * 3600), locale: english)
+        let note = time.note(local: newYork, now: moment.addingTimeInterval(4 * 3600), locale: english)
         XCTAssertEqual(note.voice, "4 hours ago")
         XCTAssertEqual(plain(note.local), "9:14 AM", "the voice has named the day, so the clock is enough")
-        XCTAssertEqual(note.zones.map(plain), ["1:14 PM UTC", "10:14 PM Tokyo"],
-                       "13:14 UTC is 22:14 in Tokyo, still Friday there: no weekday")
-    }
-
-    func testKeptIsTheZonesWithoutUTC() throws {
-        let time = try XCTUnwrap(ClipTime.parse("1790342057"))
-        let note = time.note(local: newYork, zones: [tokyo], now: moment, locale: english)
-        XCTAssertEqual(note.zones.map(plain), ["1:14 PM UTC", "10:14 PM Tokyo"])
-        XCTAssertEqual(note.kept.map(plain), ["10:14 PM Tokyo"], "UTC is not a zone you kept")
-        XCTAssertEqual(time.note(local: newYork, now: moment, locale: english).kept, [], "none kept")
+        XCTAssertEqual(note.zones.map(plain), ["1:14 PM UTC"], "13:14 UTC, still Friday there: no weekday")
     }
 
     func testAFarMomentKeepsItsDate() throws {
@@ -68,30 +60,27 @@ final class ClipTimeTests: XCTestCase {
 
     func testAnotherDaySaysWhichDay() throws {
         let time = try XCTUnwrap(ClipTime.parse("2026-09-25T23:30:00-04:00"))
-        let note = time.note(local: newYork, zones: [tokyo], now: time.date, locale: english)
-        XCTAssertTrue(note.zones[1].hasPrefix("Sat"), "Tokyo is already Saturday: \(note.zones[1])")
+        let note = time.note(local: newYork, now: time.date, locale: english)
+        XCTAssertTrue(note.zones[0].hasPrefix("Sat"), "UTC is already Saturday: \(note.zones[0])")
     }
 
     func testAZoneThatRepeatsTheValueOrYourClockIsLeftOut() throws {
         let written = try XCTUnwrap(ClipTime.parse("2026-09-25T22:14:17+09:00"))
         XCTAssertEqual(written.writtenOffset, 9 * 3600)
-        XCTAssertEqual(written.note(local: newYork, zones: [tokyo], now: moment, locale: english).zones.map(plain),
-                       ["1:14 PM UTC"], "the value already says Tokyo's time")
+        XCTAssertEqual(written.note(local: newYork, now: moment, locale: english).zones.map(plain),
+                       ["1:14 PM UTC"], "the value says Tokyo's time, and UTC is still news")
         let utc = try XCTUnwrap(ClipTime.parse("Fri, 25 Sep 2026 13:14:17 GMT"))
         XCTAssertEqual(utc.writtenOffset, 0)
-        XCTAssertEqual(utc.note(local: newYork, zones: [tokyo], now: moment, locale: english).zones.map(plain),
-                       ["10:14 PM Tokyo"], "the value already says UTC")
+        XCTAssertEqual(utc.note(local: newYork, now: moment, locale: english).zones, [], "the value already says UTC")
         let unix = try XCTUnwrap(ClipTime.parse("1790342057"))
         XCTAssertEqual(unix.note(local: TimeZone(identifier: "UTC")!, now: moment, locale: english).zones, [],
                        "your clock is UTC")
-        XCTAssertEqual(unix.note(local: newYork, zones: [TimeZone(identifier: "America/Toronto")!], now: moment,
-                                 locale: english).zones.map(plain), ["1:14 PM UTC"], "Toronto reads as New York")
     }
 
     func testADayIsItsWeekday() throws {
         let day = try XCTUnwrap(ClipTime.parse("2026-09-28"))
-        let note = day.note(local: .current, zones: [tokyo], now: moment, locale: english)
-        XCTAssertEqual(note.zones, [], "a day has no zones to read into")
+        let note = day.note(local: .current, now: moment, locale: english)
+        XCTAssertEqual(note.zones, [], "a day has no zone to read into")
         XCTAssertTrue(note.local.hasPrefix("Monday"), note.local)
         XCTAssertEqual(note.voice, "This Monday")
     }
@@ -133,21 +122,6 @@ final class ClipTimeTests: XCTestCase {
         XCTAssertEqual(felt(-3), "Last Tuesday")
         XCTAssertEqual(felt(3), "This Monday")
         XCTAssertEqual(felt(7), "A week from today")
-    }
-
-    func testZonesFromWhatAHandTypes() {
-        XCTAssertEqual(ClipTime.zone(named: "Asia/Tokyo")?.identifier, "Asia/Tokyo")
-        XCTAssertEqual(ClipTime.zone(named: "tokyo")?.identifier, "Asia/Tokyo")
-        XCTAssertEqual(ClipTime.zone(named: "New York")?.identifier, "America/New_York")
-        XCTAssertNotNil(ClipTime.zone(named: "PST"))
-        XCTAssertNil(ClipTime.zone(named: "Atlantis"))
-        XCTAssertEqual(ClipTime.label(tokyo, at: moment), "Tokyo · UTC+9")
-        XCTAssertEqual(ClipTime.label(TimeZone(identifier: "Asia/Kolkata")!, at: moment), "Kolkata · UTC+5:30")
-        XCTAssertEqual(ClipTime.label(newYork, at: moment), "New York · UTC−4")
-    }
-
-    func testUTCIsListedOnce() {
-        XCTAssertEqual(ClipTime.label(TimeZone(identifier: "UTC")!), "UTC")
     }
 
     /// A card too narrow for the weekday gets the date and time without it.

@@ -200,7 +200,6 @@ final class ClipboardStrip {
     private(set) var shownSourceField: WellView?
     private(set) var shownSourceRows: [String] = []
     /// The zones a timestamp is read into beside yours and UTC.
-    var timeZones: [TimeZone] = []
     /// The moment a timestamp's note is felt against, and the zone that is
     /// "your clock": the real ones, a seam for the tests, because what a
     /// note says depends on the hour it is read at.
@@ -629,7 +628,7 @@ final class ClipboardStrip {
         if clip.pastesAsFiles {
             return pathsOf(clip.id).flatMap { $0.isEmpty ? nil : Clipboard.pathsOnCard($0) }
         }
-        return Clipboard.reading(of: clip, units: units, zones: timeZones)
+        return Clipboard.reading(of: clip, units: units)
     }
     /// Where a card's files are now, as the history last found them: the
     /// reading of a card of files is their paths.
@@ -741,17 +740,15 @@ final class ClipboardStrip {
             // Your clock's line whole, or without its weekday on a card
             // too narrow for it: never cut short.
             let moment = now()
-            var read = time.note(local: localZone, zones: timeZones, now: moment)
+            var read = time.note(local: localZone, now: moment)
             if Self.lineWidth(read.local) > body.width - Grid.tight {
-                read = time.note(local: localZone, zones: timeZones, now: moment, compact: true)
+                read = time.note(local: localZone, now: moment, compact: true)
             }
             let room = body.height - Self.previewHeight(shown(clip).string, width: body.width) - Self.noteGap
             let rows = max(1, Int((room - Self.voiceHeight - Grid.hair) / Self.metaHeight))
-            // UTC is there for anyone; a zone you kept is there because you
-            // asked. Short of rows, UTC gives way before a zone you kept.
-            var lines = Self.pack([read.local] + read.zones, width: body.width)
-            if lines.count > rows { lines = Self.pack([read.local] + read.kept, width: body.width) }
-            lines = Array(lines.prefix(rows))
+            // Your clock first, then UTC where it says something yours does
+            // not; short of rows, UTC gives way.
+            let lines = Array(Self.pack([read.local] + read.zones, width: body.width).prefix(rows))
             let note = addNote(voice: read.voice, lines: lines, swatch: nil, for: clip.id,
                                to: card, in: body)
             addPreview(clip, to: card, in: body, above: note)

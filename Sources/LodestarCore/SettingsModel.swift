@@ -30,7 +30,6 @@ public enum SettingsModel {
         case draftWords
         case keyRemaps
         case editorSkipApps
-        case clipboardTimeZones
     }
 
     public struct TableEntry: Equatable {
@@ -522,12 +521,6 @@ public enum SettingsModel {
                                  current: config.units),
                 detail: "What a copied measurement is read into",
                 isDefault: config.units.isEmpty, group: "How clips read"),
-            Row(title: "Time zones", path: "clipboard.time-zones",
-                control: .table(kind: .clipboardTimeZones, entries: config.clipboardTimeZones.compactMap { id in
-                    TimeZone(identifier: id).map { TableEntry(key: id, display: ClipTime.label($0)) }
-                }),
-                detail: "A timestamp is read into your zone, UTC and these",
-                isDefault: config.clipboardTimeZones.isEmpty, group: "How clips read"),
             Row(title: "Clear history", control: .readout("", sub: nil),
                 detail: "Every clip, pins included, gone from this Mac", group: "History")
                 .doing(Action(id: "clear-clipboard", label: "Clear", destructive: true,

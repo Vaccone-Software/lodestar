@@ -917,7 +917,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         case .excludeApps: return ["clipboard", "exclude-apps", key]
         case .excludePatterns: return ["clipboard", "exclude", key]
         case .draftWords: return ["draft", "words", key]
-        case .clipboardTimeZones: return ["clipboard", "time-zones", key]
         case .keyRemaps: return ["keys", key]
         case .editorSkipApps: return ["editor", "skip-apps", key]
         }
@@ -1899,7 +1898,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             "calendars": .calendars, "excludeApps": .excludeApps,
             "excludePatterns": .excludePatterns, "keyRemaps": .keyRemaps,
             "draftWords": .draftWords,
-            "editorSkipApps": .editorSkipApps, "clipboardTimeZones": .clipboardTimeZones,
+            "editorSkipApps": .editorSkipApps,
         ][parts[0]]
         if let kind { removeEntry(kind: kind, key: parts[1]) }
     }
@@ -2004,10 +2003,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let word = field("Word", width: BarTheme.Field.regular)
             bar.addArrangedSubview(word)
             addInputs[addKey(kind)] = word
-        case .clipboardTimeZones:
-            let zone = field("City or zone", width: BarTheme.Field.regular)
-            bar.addArrangedSubview(zone)
-            addInputs[addKey(kind)] = zone
         case .keyRemaps:
             let code = field("Keycode", width: BarTheme.Field.narrow)
             let name = popup(Set(Keys.ansi.values).sorted(), width: BarTheme.Field.keyName)
@@ -2104,16 +2099,6 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let word = fieldText("draftWords").trimmingCharacters(in: .whitespaces)
             guard !word.isEmpty else { return }
             writeEntries(set: [(entryPath(.draftWords, word), .bool(true))])
-        case "clipboardTimeZones":
-            // A city, an identifier, or an abbreviation, stored as the zone's
-            // identifier so the config says one thing for one place.
-            // A name that is no zone is refused the way a Mac refuses a key,
-            // with the text left in the field to correct.
-            guard let zone = ClipTime.zone(named: fieldText("clipboardTimeZones")) else {
-                NSSound.beep()
-                return
-            }
-            writeEntries(set: [(entryPath(.clipboardTimeZones, zone.identifier), .bool(true))])
         case "keyRemaps":
             let code = fieldText("keyRemaps")
             let name = popupChoice("keys.name")

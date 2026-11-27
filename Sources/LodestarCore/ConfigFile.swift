@@ -93,7 +93,6 @@ public struct ConfigFile: Sendable, Equatable {
         public var excludeApps: [String: Bool] = [:]
         public var maxSizeMB = 500
         public var saveTo = "~/Downloads"
-        public var timeZones: [String: Bool] = [:]
     }
 
     public struct Editor: Sendable, Equatable {
@@ -275,6 +274,9 @@ extension ConfigFile {
             "app.active-display",
             // The editor spells as the Mac's language and region do.
             "editor.language",
+            // A timestamp reads into your zone and UTC; the list of other
+            // zones a person kept retired.
+            "clipboard.time-zones",
         ])
 
     /// An object of the file, read exactly: a spelling that is not the
@@ -371,8 +373,6 @@ extension ConfigFile {
               unit: "MB")
         Field("save-to", \.saveTo, .string(),
               doc: "The folder an image saved from the clipboard strip lands in. A name typed with a slash in it, or starting with / or ~, chooses another place for that save.")
-        Field("time-zones", \.timeZones, switches("true to read timestamps into this zone too."),
-              doc: "Zone identifier (Asia/Tokyo) → true. A clip that is only a timestamp is read into your zone, UTC, and these.")
     }
     .readingNullAsEmpty()
 

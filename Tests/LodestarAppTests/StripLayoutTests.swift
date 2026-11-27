@@ -369,13 +369,9 @@ final class StripTimeTests: XCTestCase {
     }
 
     /// The clip stays where every card keeps its text; Lodestar's note sits
-    /// beneath it, its voice first: how long ago, then the clock and the
-    /// zones.
+    /// beneath it, its voice first: how long ago, then the clock and UTC.
     func testATimestampKeepsItsPlaceAndGetsANote() throws {
         let stage = Stage()
-        var config = stage.engine.config
-        config.clipboardTimeZones = ["Asia/Tokyo"]
-        stage.engine.config = config
         // The hour is pinned, not read: the same clip reads differently
         // across the day, and this one is the late evening where UTC is
         // already tomorrow and its line carries a weekday.
@@ -392,7 +388,7 @@ final class StripTimeTests: XCTestCase {
         let notes = stage.engine.strip.shownNotes
         let note = try XCTUnwrap(notes[unix.id])
         XCTAssertEqual(note.first, "5 hours ago", "the voice first")
-        XCTAssertTrue(note.contains { $0.contains("Tokyo") }, "the kept zone: \(note)")
+        XCTAssertTrue(note.contains { $0.contains("UTC") }, "UTC, a day ahead: \(note)")
         // Measured from each card's top edge: the right hand's cards stand
         // at different heights on purpose.
         let inset = { (clip: Clipboard.Clip) -> CGFloat? in
@@ -408,16 +404,12 @@ final class StripTimeTests: XCTestCase {
         stage.press("escape")
     }
 
-    /// Whatever the hour, the zone you kept is on the card: UTC is the line
-    /// that gives way when its weekday makes the lines too long to share.
-    /// Each hour is its own strip, with the neighbours the card is drawn
-    /// among: how many cards there are decides how wide each one is.
-    func testTheKeptZoneSurvivesAtEveryHourOfTheDay() throws {
+    /// Whatever the hour, the note keeps its voice and your clock below
+    /// the clip. Each hour is its own strip, with the neighbours the card is
+    /// drawn among: how many cards there are decides how wide each one is.
+    func testTheNoteStandsAtEveryHourOfTheDay() throws {
         for (hour, minute) in [(0, 5), (3, 46), (6, 0), (9, 30), (12, 0), (15, 15), (19, 59), (20, 0), (22, 46), (23, 59)] {
             let stage = Stage()
-            var config = stage.engine.config
-            config.clipboardTimeZones = ["Asia/Tokyo"]
-            stage.engine.config = config
             let now = Self.moment(hour: hour, minute: minute)
             stage.engine.strip.now = { now }
             stage.engine.strip.localZone = Self.newYork
@@ -428,18 +420,15 @@ final class StripTimeTests: XCTestCase {
             stage.openStrip()
             let note = try XCTUnwrap(stage.engine.strip.shownNotes[clip.id], "\(hour):\(minute)")
             XCTAssertEqual(note.first, "5 hours ago", "\(hour):\(minute)")
-            XCTAssertTrue(note.contains { $0.contains("Tokyo") }, "the kept zone at \(hour):\(minute): \(note)")
+            XCTAssertGreaterThanOrEqual(note.count, 2, "the voice and your clock at \(hour):\(minute): \(note)")
             stage.press("escape")
         }
     }
 
-    /// However many zones are kept, the note stays below the clip: the
-    /// zones take the rows there are and no more.
-    func testMoreZonesThanRoomStayBelowTheClip() throws {
+    /// The note stays below the clip: its lines take the rows there are
+    /// and no more.
+    func testTheNoteStaysBelowTheClip() throws {
         let stage = Stage()
-        var config = stage.engine.config
-        config.clipboardTimeZones = ["Asia/Tokyo", "Europe/London", "Australia/Sydney", "America/Los_Angeles"]
-        stage.engine.config = config
         let clip = stage.seedClip("2026-09-25T13:14:17.123+09:00")
         stage.openStrip()
         let note = try XCTUnwrap(stage.engine.strip.shownNotes[clip.id])
@@ -502,7 +491,6 @@ final class StripNoCutOffTests: XCTestCase {
             let stage = Stage()
             var config = stage.engine.config
             config.units = "imperial"
-            config.clipboardTimeZones = ["Asia/Tokyo", "Europe/London", "America/Los_Angeles"]
             stage.engine.config = config
             let clips = batch.map { stage.seedClip($0, app: "Visual Studio Code", bundle: "com.microsoft.VSCode") }
             stage.openStrip()

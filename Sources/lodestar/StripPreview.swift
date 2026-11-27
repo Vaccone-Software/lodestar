@@ -754,7 +754,6 @@ enum StripPreview {
             // 82: the cards read as a moment, with Tokyo kept: Unix seconds
             // and milliseconds, an ISO date, the mail format, a day, and a
             // time from last week.
-            strip.timeZones = [TimeZone(identifier: "Asia/Tokyo")!]
             let hour = 3600.0
             let unix = { (seconds: Double) in String(Int(Moment.now.date.timeIntervalSince1970 - seconds)) }
             strip.show(recents: [clip("t0", unix(6 * hour), app: "com.mitchellh.ghostty", minutes: 1),

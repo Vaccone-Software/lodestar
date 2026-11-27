@@ -940,11 +940,11 @@ public extension Clipboard {
     /// line), a column its sum. The card shows this same text while `⌃`
     /// is held, so what is seen is what pastes.
     static func reading(of clip: Clip, units: ClipQuantity.System,
-                        zones: [TimeZone] = [], now: Date = Moment.now.date, paths: [URL]? = nil) -> String? {
+                        now: Date = Moment.now.date, paths: [URL]? = nil) -> String? {
         // A copy of files reads as where its files are now, for whatever
         // takes only text: a shell first of all.
         if clip.pastesAsFiles { return paths.flatMap { $0.isEmpty ? nil : quotedPaths($0) } }
-        return readingOfText(clip, units: units, zones: zones, now: now)
+        return readingOfText(clip, units: units, now: now)
     }
 
     /// What a card of files shows while `⌃` is held: where each file is, a
@@ -962,10 +962,9 @@ public extension Clipboard {
         }.joined(separator: "\n")
     }
 
-    private static func readingOfText(_ clip: Clip, units: ClipQuantity.System,
-                                      zones: [TimeZone], now: Date) -> String? {
+    private static func readingOfText(_ clip: Clip, units: ClipQuantity.System, now: Date) -> String? {
         if let color = clip.color { return color.name }
-        if let time = clip.time { return time.note(zones: zones, now: now).local }
+        if let time = clip.time { return time.note(now: now).local }
         if let read = clip.quantity?.note(into: units) { return read.exact ?? read.voice }
         if let sum = clip.sum { return sum.voice() }
         return nil

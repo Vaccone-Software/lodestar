@@ -286,6 +286,14 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertFalse(rows.first { $0.path == "coach.enabled" }!.dimmed, "the coach reads the logbook, not health")
     }
 
+    /// The coach and the logbook it reads are one group in Wellbeing: the
+    /// coach, then the record and its limit.
+    func testTheLogbookSitsUnderTheCoach() {
+        let coach = place("Wellbeing").rows.filter { $0.group == "Coach" }.map(\.path)
+        XCTAssertEqual(coach, ["coach.enabled", "observations.logbook", "observations.logbook-mb"])
+        XCTAssertFalse(place("Wellbeing").rows.contains { $0.group == "Logbook" })
+    }
+
     func testCoachRowDimsWithoutTheLogbook() {
         var config = Config()
         config.logbookEnabled = false

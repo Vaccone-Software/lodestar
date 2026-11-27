@@ -608,20 +608,20 @@ final class EditorRegionTests: XCTestCase {
                        "no English at all: US English")
     }
 
-    func testAChoiceStandsAndEmptyFollowsTheMac() {
-        XCTAssertEqual(EditorRegion.resolved("en_NZ"), "en_NZ")
-        XCTAssertEqual(EditorRegion.resolved(""), EditorRegion.inferred())
-        XCTAssertEqual(EditorRegion.resolved("klingon"), EditorRegion.inferred())
-    }
-
     func testTheModelIsToldOnlyWhenItIsNotUSEnglish() {
         XCTAssertNil(EditorRegion.instruction(for: "en_US"))
         XCTAssertTrue(EditorRegion.instruction(for: "en_GB")?.contains("colour and organise") == true)
         XCTAssertTrue(EditorRegion.instruction(for: "en_CA")?.contains("organize") == true)
     }
 
-    func testTheConfigTakesAnyDictionaryAndDefaultsToAutomatic() {
-        XCTAssertEqual(Config().editorLanguage, "")
+    /// The editor spells as the Mac does since 0.57: a file that chose a
+    /// dictionary loads clean, and nothing in Settings offers one.
+    func testTheSpellingFollowsTheMacAndAChosenOneLoadsClean() throws {
+        var problems: [String] = []
+        _ = Config.build(from: try Json.parse(#"{"editor": {"language": "en_GB", "enabled": true}}"#), problems: &problems)
+        XCTAssertEqual(problems, [])
+        let rows = SettingsModel.catalog(config: Config(), machine: .init()).flatMap(\.rows)
+        XCTAssertFalse(rows.contains { $0.path == "editor.language" || $0.title == "Spelling" })
     }
 }
 

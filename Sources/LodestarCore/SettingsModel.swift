@@ -295,8 +295,6 @@ public enum SettingsModel {
         /// Engines this Mac cannot run (too little memory, no Apple
         /// Intelligence): listed, greyed.
         public var editorEnginesUnavailable: Set<String> = []
-        /// The English the Mac's own languages point to, for Automatic.
-        public var editorRegionInferred = "en_US"
         /// The units the Mac's region measures in, for Units until one is chosen.
         public var unitsInferred = ClipQuantity.System.imperial.rawValue
         /// Whether the Mac is in dark mode: the night is chosen only there,
@@ -467,13 +465,6 @@ public enum SettingsModel {
                 keycaps: ["lode", "⇥"], isDefault: !config.editorEnabled, group: "Editor",
                 problem: problem(at: "editor.enabled")),
             model,
-            Row(title: "Spelling", path: "editor.language",
-                control: .choice(options: [""] + EditorRegion.choices.map(\.code),
-                                 labels: ["Automatic · \(EditorRegion.name(of: machine.editorRegionInferred))"]
-                                    + EditorRegion.choices.map(\.name),
-                                 current: config.editorLanguage),
-                detail: "Automatic follows your Mac's language and region",
-                isDefault: config.editorLanguage.isEmpty, group: "Editor"),
             words,
             Row(title: "Skip in", path: "editor.skip-apps",
                 control: .table(kind: .editorSkipApps, entries: config.editorSkipApps.sorted().map {

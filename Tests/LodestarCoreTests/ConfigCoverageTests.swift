@@ -119,7 +119,6 @@ final class ConfigCoverageTests: XCTestCase {
         },
         Probe(path: ["editor", "enabled"], value: .bool(true)) { $0.editorEnabled },
         Probe(path: ["editor", "model"], value: .string("full")) { $0.editorModel == "full" },
-        Probe(path: ["editor", "language"], value: .string("en_GB")) { $0.editorLanguage == "en_GB" },
         Probe(path: ["editor", "skip-apps", "com.apple.mail"], value: .bool(true)) {
             $0.editorSkipApps.contains("com.apple.mail")
         },

@@ -138,9 +138,6 @@ public struct Config {
     /// standard | full | apple, or empty for the engine this Mac's memory
     /// suits.
     public var editorModel = ""
-    /// The spell checker's language: en_US or en_GB.
-    /// Empty: the Mac's own English (EditorRegion.inferred).
-    public var editorLanguage = ""
     /// Apps whose fields the editor never reads, by name, lowercased.
     public var editorSkipApps: Set<String> = []
     /// Watch how you reach things, locally, to make suggestions later. Off
@@ -453,7 +450,6 @@ public struct Config {
         config.draftModel = file.draft.model
         config.editorEnabled = file.editor.enabled
         config.editorModel = file.editor.model
-        config.editorLanguage = file.editor.language
         config.editorSkipApps = Set(file.editor.skipApps.filter(\.value).keys.map { $0.lowercased() })
         config.disabledGestures = file.gestures.disabledKeys
 

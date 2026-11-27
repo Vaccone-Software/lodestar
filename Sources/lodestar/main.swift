@@ -1526,7 +1526,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // privacy service is never asked from here.
             state.inputMonitoring = (self?.reversedWheels.listenGranted ?? self?.health.listenGranted)
                 .map { $0 ? "Granted" : "Not granted" } ?? "unknown"
-            state.editorRegionInferred = EditorRegion.inferred()
             state.unitsInferred = ClipQuantity.System.regional().rawValue
             state.isDark = Tone.systemDark
             let waiting = (self?.config.editorEnabled ?? false) && !(self?.store.editorConsented ?? true)
@@ -2507,7 +2506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 hud.flash(String(format: "✓ removed the %@ model's %.1f GB", gone.name, gb))
             }
         }
-        let language = EditorRegion.resolved(config.editorLanguage)
+        let language = EditorRegion.inferred()
         editorController?.apply(enabled: running, engine: engine, language: language,
                                 vocabulary: config.draftWords,
                                 skipApps: config.editorSkipApps)

@@ -2,8 +2,9 @@ import Foundation
 
 /// Which English the editor holds you to: the spell checker's dictionary,
 /// and the model's instruction. Inferred from the Mac's preferred
-/// languages unless chosen — a Mac set to British English starts British,
-/// and a model told nothing would "correct" colour to color.
+/// languages, always (a choice until 0.57: nobody writes in an English
+/// their Mac is not set to) — a Mac set to British English is British, and
+/// a model told nothing would "correct" colour to color.
 public enum EditorRegion {
     /// The English spellings macOS has dictionaries for, by config code.
     public static let choices: [(code: String, name: String)] = [
@@ -31,15 +32,6 @@ public enum EditorRegion {
             return british.contains(place) ? "en_GB" : "en_US"
         }
         return "en_US"
-    }
-
-    /// The config's choice, or the Mac's when it names none.
-    public static func resolved(_ configured: String) -> String {
-        choices.contains(where: { $0.code == configured }) ? configured : inferred()
-    }
-
-    public static func name(of code: String) -> String {
-        choices.first { $0.code == code }?.name ?? code
     }
 
     /// The sentence the model is told about spelling, or nil for US

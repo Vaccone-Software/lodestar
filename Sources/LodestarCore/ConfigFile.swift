@@ -103,7 +103,6 @@ public struct ConfigFile: Sendable, Equatable {
 
     public struct Editor: Sendable, Equatable {
         public var enabled = false
-        public var language = ""
         public var model = ""
         public var skipApps: [String: Bool] = [:]
     }
@@ -166,7 +165,6 @@ public struct GestureSwitches: Sendable, Equatable {
 // MARK: - The schema
 
 extension ConfigFile {
-    private static let editorLanguages = [""] + EditorRegion.choices.map(\.code)
 
     /// A table of switches the person fills in: `true` keeps the entry.
     private static func switches(_ valueDoc: String) -> Schema<[String: Bool]> {
@@ -279,6 +277,8 @@ extension ConfigFile {
             "meetings.lead-minutes",
             // Windows and panels land on the display under the pointer.
             "app.active-display",
+            // The editor spells as the Mac's language and region do.
+            "editor.language",
         ])
 
     /// An object of the file, read exactly: a spelling that is not the
@@ -388,8 +388,6 @@ extension ConfigFile {
 
     private static let editorSection = section(Editor.self, default: Editor()) {
         Field("enabled", \.enabled, .bool, doc: "Mark mistakes as you write; lode ⇥ letters the marks.")
-        Field("language", \.language, .string(oneOf: editorLanguages),
-              doc: "The spelling the editor holds you to. Empty follows the Mac's language and region.")
         Field("model", \.model, .string(oneOf: ["", "spelling", "minimal", "standard", "full"]),
               doc: "How the editor reads: spelling (no model, any Mac), minimal (Apple's own model), standard (16 GB Macs and up) or full (64 GB and up). Empty picks the one this Mac suits; one this Mac cannot run falls back the same way.")
         Field("skip-apps", \.skipApps, switches("true to never read fields in this app."),

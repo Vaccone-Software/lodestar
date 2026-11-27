@@ -175,13 +175,25 @@ public final class WindowModel {
     private var seedsOutstanding = 0
     private var seedStarted = ContinuousClock.now
 
+    /// `watchesApps` false is for a model on a stand-in reader: it never
+    /// makes an observer on a real app, so the system never hands it a real
+    /// window its reader cannot read. (The gallery's chooser stood on
+    /// Finder's pid for the icon, watched Finder for the life of the test
+    /// process, and was handed every Finder window anyone opened.)
     public init(reader: WindowAXReader = LiveWindowAXReader(),
                 appLookup: @escaping (pid_t) -> AppInfo? = { pid in
                     NSRunningApplication(processIdentifier: pid).map(AppInfo.init)
-                }) {
+                },
+                watchesApps: Bool = true) {
         self.reader = reader
         self.appLookup = appLookup
+        self.watchesApps = watchesApps
     }
+
+    private let watchesApps: Bool
+
+    /// The pids an observer watches now.
+    var watchedPids: Set<pid_t> { Set(observers.keys) }
 
     private func queue(for pid: pid_t) -> DispatchQueue {
         if let queue = queues[pid] { return queue }
@@ -494,7 +506,7 @@ public final class WindowModel {
     private func observer(for app: AppInfo) -> AppObserver? {
         let pid = app.pid
         if let existing = observers[pid] { return existing }
-        guard let observer = AppObserver(pid: pid, handler: { [weak self] notification, element in
+        guard watchesApps, let observer = AppObserver(pid: pid, handler: { [weak self] notification, element in
             self?.handle(notification, element: element, pid: pid)
         }) else { return nil }
         observers[pid] = observer

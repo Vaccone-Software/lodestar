@@ -38,7 +38,11 @@ enum GalleryBars {
         for (index, title) in titles.enumerated() { reader.titles[Int32(index + 1)] = title }
         let finder = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.apple.finder" }
         let pid = finder?.processIdentifier ?? 1
-        let model = WindowModel(reader: reader, appLookup: { _ in .init(pid: pid, name: "Brave Browser", bundleID: "com.brave.Browser") })
+        // Finder's pid lends the chooser a real icon; the model must never
+        // watch Finder itself, or every Finder window anyone opens for the
+        // rest of the process reaches the stand-in reader.
+        let model = WindowModel(reader: reader, appLookup: { _ in .init(pid: pid, name: "Brave Browser", bundleID: "com.brave.Browser") },
+                                watchesApps: false)
         model.frontmostApp = { nil }
         for index in 1...titles.count {
             model.receiveForTesting(kAXWindowCreatedNotification, element: GalleryReader.element(Int32(index)), pid: pid)

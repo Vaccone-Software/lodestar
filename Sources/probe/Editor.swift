@@ -27,10 +27,11 @@ import Synchronization
 /// here ever sends a key that submits — no return, ever.
 func runEditor(_ args: inout [String]) {
     requireTrust()
-    guard !args.isEmpty else { fail("usage: probe editor survey | field <app> [flags]") }
+    guard !args.isEmpty else { fail("usage: probe editor survey | field <app> [flags] | undo <app> [flags]") }
     switch args.removeFirst() {
     case "survey": editorSurvey(&args)
     case "field": editorField(&args)
+    case "undo": editorUndo(&args)
     case "residency": editorResidency(&args)
     case "bench": editorBench(&args)
     case "cost": editorCost(&args)
@@ -763,6 +764,224 @@ private func editorField(_ args: inout [String]) {
     if write, !hold {
         readMs = milliseconds { print("restore original: \(setText(original))") }
     }
+}
+
+/// ⏎ in the editor's lens lands several fixes at once. Can the app's own
+/// ⌘Z take them back, so Lodestar needs no undo of its own? Two ways of
+/// writing the batch are measured in the app's focused field:
+///
+/// - per fix, the way `EditorAX.replace` lands them today: last in the
+///   text first, each selected and written (typed where the app ignores
+///   the write, or always in Chromium and Electron), the caret put back;
+/// - as one write over the stretch from the first fix to the last.
+///
+/// After each, ⌘Z is pressed one at a time and every press is named: a
+/// fix taken back, all of them, nothing, or the field emptied (gone past
+/// the batch into the typing before it). The field must start empty —
+/// the probe refuses anything else — and is emptied again at the end.
+/// No return is ever sent.
+private func editorUndo(_ args: inout [String]) {
+    // Type ⌘B around "Ghostty", inside the batch's stretch, to see whether
+    // one write over the stretch keeps formatting between the fixes.
+    let bold = has("--bold", in: &args)
+    // Type every fix, as Lodestar does for Chromium, Electron and Outlook.
+    let forceTyped = has("--typed", in: &args)
+    let pause = useconds_t((value(of: "--pause", in: &args).flatMap(Int.init) ?? 1500) * 1000)
+    guard let appName = args.first else { fail("usage: probe editor undo <app> [--bold] [--typed] [--pause ms]") }
+    let (running, application) = app(named: appName)
+    let pid = running.processIdentifier
+    let name = running.localizedName ?? appName
+    guard let field = AX.element(application, kAXFocusedUIElementAttribute as String) else {
+        fail("\(name): no focused field — click into a blank one first")
+    }
+    let role = AX.string(field, kAXRoleAttribute as String) ?? "?"
+    let subrole = AX.string(field, kAXSubroleAttribute as String) ?? "–"
+    print("\(name) · \(role) \(subrole)")
+    guard subrole != "AXSecureTextField" else { fail("\(name): a secure field — never written") }
+
+    func read() -> String { AX.string(field, kAXValueAttribute as String) ?? "" }
+    // Editors keep a trailing newline of their own.
+    func plain(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    let existing = plain(read())
+    guard existing.isEmpty || existing.hasPrefix("Lodestar probe") else {
+        fail("\(name): the focused field is not empty (\(shown(existing))) — open a blank one")
+    }
+    let typed = forceTyped || typesFixes(running)
+    print("fixes written by \(typed ? "typing" : "AXSelectedText, typed only if the app ignores it")")
+
+    let previous = NSWorkspace.shared.frontmostApplication
+    bringForward(running)
+    // Activation is a request; it can take a second and more to be granted.
+    let forward = ContinuousClock.now + .seconds(3)
+    while NSWorkspace.shared.frontmostApplication?.processIdentifier != pid, ContinuousClock.now < forward {
+        CFRunLoopRunInMode(.defaultMode, 0.1, false)
+    }
+    usleep(300_000)
+    AXUIElementSetAttributeValue(field, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+    // Chromium gives the page its focus back a beat after activation.
+    let focusBy = ContinuousClock.now + .seconds(2)
+    while !holdsFocus(field, pid: pid), ContinuousClock.now < focusBy { usleep(100_000) }
+    guard holdsFocus(field, pid: pid, explain: true) else {
+        bringForward(previous)
+        fail("\(name): the field did not take focus")
+    }
+
+    func clear() {
+        postKey(0, flags: .maskCommand, to: pid)   // ⌘A
+        usleep(150_000)
+        postKey(51, flags: [], to: pid)            // ⌫
+        usleep(300_000)
+    }
+    defer {
+        if holdsFocus(field, pid: pid) { clear() }
+        print("field emptied: \(plain(read()).isEmpty ? "yes" : "NO — \(shown(read()))")")
+        bringForward(previous)
+    }
+
+    func settles(to target: String, within seconds: Double) -> Bool {
+        let deadline = ContinuousClock.now + .milliseconds(Int(seconds * 1000))
+        repeat {
+            if plain(read()) == plain(target) { return true }
+            usleep(20_000)
+        } while ContinuousClock.now < deadline
+        return false
+    }
+
+    // The probe sentence, typed as one string per stretch: no space key
+    // is struck, so the app's autocorrect never sees a finished word.
+    let head = "Lodestar probe: Their going to recieve the files from "
+    let tail = " tomorrow, its fine."
+    func typeProbe() -> Bool {
+        clear()
+        typeText(head, to: pid)
+        if bold { postKey(11, flags: .maskCommand, to: pid) }   // ⌘B
+        typeText("Ghostty", to: pid)
+        if bold { postKey(11, flags: .maskCommand, to: pid) }
+        typeText(tail, to: pid)
+        // A pause, as between a hand's typing and a fix: apps close an
+        // undo group after a moment, and the fixes must stand apart from it.
+        usleep(pause)
+        return plain(read()) == editorProbeText
+    }
+
+    let fixes = [("Their", "They're"), ("recieve", "receive"), ("its fine", "it's fine")]
+    let probe = editorProbeText as NSString
+    let targets = fixes.map { (range: probe.range(of: $0.0), original: $0.0, replacement: $0.1) }
+    var expected = editorProbeText
+    var states = [editorProbeText]   // after 0, 1, 2, 3 fixes, last in the text first
+    for target in targets.reversed() {
+        expected = (expected as NSString).replacingCharacters(in: target.range, with: target.replacement)
+        states.append(expected)
+    }
+    let fixed = expected
+    let boldAt = { (text: String) in (text as NSString).range(of: "Ghostty").location }
+
+    /// One fix the way `EditorAX.replace` lands it. Answers how it landed.
+    func write(_ range: NSRange, _ text: String, giving target: String) -> String {
+        let before = read()
+        _ = select(field, range)
+        if !typed {
+            AXUIElementSetAttributeValue(field, kAXSelectedTextAttribute as CFString, text as CFString)
+            if settles(to: target, within: 0.3) { return "written" }
+            guard read() == before else { return "FAILED: the write changed the text to \(shown(read()))" }
+            _ = select(field, range)
+        }
+        typeText(text, to: pid)
+        guard settles(to: target, within: 0.6) else { return "FAILED: typing gave \(shown(read()))" }
+        return "typed"
+    }
+
+    /// The caret back where the hand left it: the end of the text.
+    func caretToEnd() {
+        _ = select(field, NSRange(location: (read() as NSString).length, length: 0))
+        usleep(50_000)
+    }
+
+    /// ⌘Z, one press at a time, each named against the states the text
+    /// passed through. Stops once the typing is back, the field is
+    /// empty, or two presses in a row change nothing.
+    func undoPresses(_ known: [String]) {
+        guard holdsFocus(field, pid: pid, explain: true) else { print("  ⌘Z skipped: focus moved"); return }
+        var still = 0
+        var last = plain(read())
+        for press in 1...6 {
+            postKey(6, flags: .maskCommand, to: pid)
+            usleep(450_000)
+            let now = plain(read())
+            let said: String
+            if now == editorProbeText { said = "ALL FIXES BACK (the typing as it was)" }
+            else if now.isEmpty { said = "FIELD EMPTY — went past the fixes into the typing" }
+            else if now == last { said = "no change" }
+            else if let index = known.firstIndex(of: now) {
+                said = "\(index) of \(known.count - 1) fixes taken back"
+            } else { said = "OTHER: \(shown(now))" }
+            print("  ⌘Z \(press): \(said)")
+            if now == editorProbeText || now.isEmpty { return }
+            still = now == last ? still + 1 : 0
+            if still >= 2 { return }
+            last = now
+        }
+    }
+
+    func fonts(_ label: String) {
+        guard bold else { return }
+        let text = read()
+        let runs = fontRuns(field, length: (text as NSString).length)
+        print("  font at 'Ghostty' \(label): \(fontName(at: boldAt(text), in: runs)) · \(runs?.count ?? 0) runs")
+    }
+
+    // 1. One write per fix, back to back, the way ⏎ lands them today.
+    print("\n— one write per fix —")
+    guard typeProbe() else { fail("\(name): the probe text did not type cleanly: \(shown(read()))") }
+    fonts("before")
+    for (index, target) in targets.reversed().enumerated() {
+        let landed = write(target.range, target.replacement, giving: states[index + 1])
+        caretToEnd()
+        print("  '\(target.original)' → '\(target.replacement)': \(landed)")
+    }
+    print("  text: \(plain(read()) == fixed ? "all three fixed" : "DIFFERS: \(shown(read()))")")
+    fonts("after")
+    undoPresses(states.reversed())
+
+    // 2. One write over the stretch from the first fix to the last.
+    print("\n— one write for the batch —")
+    guard typeProbe() else { fail("\(name): the probe text did not type cleanly the second time: \(shown(read()))") }
+    let first = targets.map(\.range.location).min()!
+    let end = targets.map { $0.range.location + $0.range.length }.max()!
+    let stretch = NSRange(location: first, length: end - first)
+    let replacement = (fixed as NSString).substring(with: NSRange(location: first, length: (fixed as NSString).length - (probe.length - end) - first))
+    if let runs = fontRuns(field, length: (read() as NSString).length) {
+        let inside = runs.filter { NSIntersectionRange($0.0, stretch).length > 0 }
+        print("  the stretch holds \(inside.count) font run\(inside.count == 1 ? "" : "s"): \(Set(inside.map(\.1)).sorted().joined(separator: ", "))")
+    } else {
+        print("  the stretch's formatting: unreadable (no attributed string)")
+    }
+    fonts("before")
+    print("  one write of \(stretch.length) → \((replacement as NSString).length) characters: \(write(stretch, replacement, giving: fixed))")
+    caretToEnd()
+    print("  text: \(plain(read()) == fixed ? "all three fixed" : "DIFFERS: \(shown(read()))")")
+    fonts("after")
+    undoPresses([fixed, editorProbeText])
+}
+
+/// Whether Lodestar types its fixes into this app rather than writing them:
+/// Chromium browsers, Electron apps and Outlook, as `EditorAX.fixesByTyping`
+/// decides (the app's frameworks, read the same way).
+private func typesFixes(_ running: NSRunningApplication) -> Bool {
+    if running.bundleIdentifier?.lowercased() == "com.microsoft.outlook" { return true }
+    guard let bundle = running.bundleURL else { return false }
+    let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? []
+    if names.contains("Electron Framework.framework") { return true }
+    for name in names where name.hasSuffix(" Framework.framework") {
+        let versions = frameworks.appendingPathComponent(name).appendingPathComponent("Versions")
+        for version in (try? FileManager.default.contentsOfDirectory(atPath: versions.path)) ?? [] {
+            let helpers = versions.appendingPathComponent(version).appendingPathComponent("Helpers")
+            let apps = (try? FileManager.default.contentsOfDirectory(atPath: helpers.path)) ?? []
+            if apps.contains(where: { $0.hasSuffix("Helper (Renderer).app") }) { return true }
+        }
+    }
+    return false
 }
 
 /// Does the app announce edits? One programmatic edit and one keystroke,

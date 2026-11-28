@@ -48,7 +48,10 @@ enum ConfigDoctor {
             case .notSeen:
                 problems.append("\(path): Lodestar has not seen Safari's profiles yet. Open Safari once")
                 continue
-            case .profiles, .notInstalled, .unreadable:
+            case .unreadable(let reason):
+                problems.append("\(path): Lodestar could not read \(browser.label)'s profiles (\(reason))")
+                continue
+            case .profiles, .notInstalled:
                 break
             }
             let known = BrowserProfiles.knownDisplayNames(for: browser)

@@ -212,6 +212,15 @@ public enum ProfileListing: Equatable, Sendable {
         return []
     }
 
+    /// A refusal or an unreadable list: an answer that can change at any
+    /// moment, so it is asked again rather than kept.
+    public var isTransient: Bool {
+        switch self {
+        case .refused, .unreadable: return true
+        default: return false
+        }
+    }
+
     /// One word for the log and the doctor.
     public var state: String {
         switch self {

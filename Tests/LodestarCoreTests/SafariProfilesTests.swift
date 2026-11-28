@@ -63,6 +63,7 @@ final class SafariProfilesTests: XCTestCase {
     func testJavascriptIsNeverTyped() {
         XCTAssertFalse(SafariProfiles.mayType("javascript:alert(1)"))
         XCTAssertFalse(SafariProfiles.mayType("  JavaScript:void(0)"))
+        XCTAssertFalse(SafariProfiles.mayType("\njava\tscript:alert(1)"), "a browser drops tabs and line breaks from a scheme")
         XCTAssertTrue(SafariProfiles.mayType("https://example.com/"))
     }
 }

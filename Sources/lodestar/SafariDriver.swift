@@ -60,12 +60,14 @@ final class SafariDriver: Sendable {
         return .profiles(menu.map { ListedProfile(name: $0.name, locator: $0.identifier) })
     }
 
-    /// Keep a list read from Safari. An empty read never replaces a list:
-    /// it is far likelier a menu not built yet than every profile deleted.
+    /// Keep a list read from Safari. An empty read is never kept: it is far
+    /// likelier a menu not built yet than every profile deleted, and a
+    /// Safari with no profiles is better told "not seen" than "no profile
+    /// named" (an open still reads the live menu, so nothing is lost).
     @discardableResult
     private func remember(_ menu: [SafariProfiles.MenuProfile]) -> Bool {
+        guard !menu.isEmpty else { return false }
         let changed = known.withLock { current -> Bool in
-            if menu.isEmpty, current?.isEmpty == false { return false }
             guard current != menu else { return false }
             current = menu
             return true
@@ -80,13 +82,29 @@ final class SafariDriver: Sendable {
         return changed
     }
 
+    /// Whether a refresh is already waiting on the queue, so a run of
+    /// activations reads the menu once.
+    private let refreshing = Mutex(false)
+
     /// Read the menu again, if Safari runs; `then` runs on main afterwards.
+    /// A Safari just launched builds its menu's profiles about two seconds
+    /// after it comes forward (measured), so an empty read is asked again
+    /// until it lists them or six seconds pass.
     func refresh(then: @escaping () -> Void) {
-        guard let pid = Self.runningPid() else { return }
+        guard let pid = Self.runningPid(),
+              refreshing.withLock({ busy in defer { busy = true }; return !busy }) else { return }
         queue.async { [self] in
-            if let identifiers = Self.menuIdentifiers(AXUIElementCreateApplication(pid)) {
-                remember(SafariProfiles.menuProfiles(fromIdentifiers: identifiers))
-            }
+            defer { refreshing.withLock { $0 = false } }
+            let app = AXUIElementCreateApplication(pid)
+            let deadline = Deadline.after(.seconds(6))
+            repeat {
+                let menu = SafariProfiles.menuProfiles(fromIdentifiers: Array(Self.menuItems(app).keys))
+                if !menu.isEmpty {
+                    remember(menu)
+                    break
+                }
+                usleep(250_000)
+            } while !deadline.hasPassed
             DispatchQueue.main.async(execute: then)
         }
     }
@@ -110,7 +128,9 @@ final class SafariDriver: Sendable {
             Log.error("safari: did not list its profiles in time")
             return false
         }
-        let profiles = SafariProfiles.menuProfiles(fromIdentifiers: Self.menuIdentifiers(app) ?? [])
+        // One walk of the menu bar for everything this open presses.
+        let items = Self.menuItems(app)
+        let profiles = SafariProfiles.menuProfiles(fromIdentifiers: Array(items.keys))
         remember(profiles)
         let wanted = name.lowercased()
         guard let profile = profiles.first(where: { $0.name.lowercased() == wanted }) else {
@@ -123,10 +143,11 @@ final class SafariDriver: Sendable {
             SafariProfiles.profile(ofTitle: Self.string($0, kAXTitleAttribute) ?? "", among: names)?
                 .lowercased() == wanted
         }
-        if let url, let window = own.first {
-            return newTab(in: window, of: app, url: url)
+        if let url, let window = own.first, let newTab = items[SafariProfiles.newTabMenuID],
+           let opened = self.newTab(in: window, pressing: newTab, url: url) {
+            return opened
         }
-        guard let item = Self.menuItem(app, identifier: profile.identifier),
+        guard let item = items[profile.identifier],
               AXUIElementPerformAction(item, kAXPressAction as CFString) == .success else {
             Log.error("safari: could not press New \(profile.name) Window")
             return false
@@ -149,14 +170,16 @@ final class SafariDriver: Sendable {
     }
 
     /// A new tab in `window`, told apart from the tab that was in front by
-    /// a new address field and, when the tab bar shows, one more tab.
-    private func newTab(in window: AXUIElement, of app: AXUIElement, url: String) -> Bool {
-        guard let item = Self.menuItem(app, identifier: SafariProfiles.newTabMenuID) else {
-            Log.error("safari: no New Tab item")
-            return false
-        }
-        let fieldBefore = Self.addressField(window)
+    /// both signals measured together: one more tab button, and a different
+    /// address field (it is a child of the tab in front). Nil, before
+    /// anything is pressed, when the window shows neither — the caller then
+    /// opens a new window of the profile, which never types over a page.
+    private func newTab(in window: AXUIElement, pressing item: AXUIElement, url: String) -> Bool? {
         let tabsBefore = Self.tabCount(window)
+        guard tabsBefore > 0, let fieldBefore = Self.addressField(window) else {
+            Log.info("safari: the window shows no tabs, so a new window instead")
+            return nil
+        }
         // New Tab acts on the main window, which this makes the profile's
         // without bringing Safari forward.
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
@@ -166,9 +189,8 @@ final class SafariDriver: Sendable {
         }
         let deadline = Deadline.after(.milliseconds(1500))
         while !deadline.hasPassed {
-            if let field = Self.addressField(window),
-               fieldBefore.map({ !CFEqual($0, field) }) ?? true,
-               tabsBefore == 0 || Self.tabCount(window) > tabsBefore {
+            if let field = Self.addressField(window), !CFEqual(fieldBefore, field),
+               Self.tabCount(window) > tabsBefore {
                 return Self.type(url, into: field)
             }
             usleep(20_000)
@@ -195,8 +217,7 @@ final class SafariDriver: Sendable {
         while !deadline.hasPassed {
             if let pid = Self.runningPid() {
                 let app = AXUIElementCreateApplication(pid)
-                if let identifiers = Self.menuIdentifiers(app),
-                   !SafariProfiles.menuProfiles(fromIdentifiers: identifiers).isEmpty {
+                if !SafariProfiles.menuProfiles(fromIdentifiers: Array(Self.menuItems(app).keys)).isEmpty {
                     return app
                 }
             }
@@ -231,18 +252,20 @@ final class SafariDriver: Sendable {
         return found
     }
 
-    /// The identifiers of the menu bar's items that open a profile's
-    /// window; nil when the menu bar cannot be read.
-    private static func menuIdentifiers(_ app: AXUIElement) -> [String]? {
-        guard let menuBar = AX.element(app, kAXMenuBarAttribute) else { return nil }
-        return find(menuBar, depth: 6) {
-            string($0, kAXIdentifierAttribute)?.contains("Window?isDefaultProfile=") ?? false
-        }.compactMap { string($0, kAXIdentifierAttribute) }
-    }
-
-    private static func menuItem(_ app: AXUIElement, identifier: String) -> AXUIElement? {
-        guard let menuBar = AX.element(app, kAXMenuBarAttribute) else { return nil }
-        return find(menuBar, depth: 6) { string($0, kAXIdentifierAttribute) == identifier }.first
+    /// The menu bar's items this driver presses, by identifier: every
+    /// New‹Profile›Window and New Tab. One walk, five levels down (bar,
+    /// bar item, menu, New Window, its submenu's items); empty when the
+    /// menu bar cannot be read.
+    private static func menuItems(_ app: AXUIElement) -> [String: AXUIElement] {
+        guard let menuBar = AX.element(app, kAXMenuBarAttribute) else { return [:] }
+        var items: [String: AXUIElement] = [:]
+        for item in find(menuBar, depth: 5, { _ in true }) {
+            guard let identifier = string(item, kAXIdentifierAttribute),
+                  identifier == SafariProfiles.newTabMenuID
+                    || identifier.contains("Window?isDefaultProfile=") else { continue }
+            items[identifier] = items[identifier] ?? item
+        }
+        return items
     }
 
     private static func windows(_ app: AXUIElement) -> [AXUIElement] {

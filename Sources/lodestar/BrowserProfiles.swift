@@ -32,11 +32,13 @@ enum BrowserProfiles {
 
     private static var listings: [Browser: ProfileListing] = [:]
     private static var lastState: [Browser: String] = [:]
-    /// When each refused browser was last asked. A refusal is never kept as
-    /// the answer, since the person can lift it at any moment, but it is
-    /// asked again at most every few seconds: Firefox's windows are matched
-    /// through its listing, on every window event.
-    private static var refusedAt: [Browser: ContinuousClock.Instant] = [:]
+    /// When each refused or unreadable browser was last asked, and what it
+    /// said. Neither is kept as the answer — a refusal can be lifted at any
+    /// moment, and a database Firefox is half-way through writing reads
+    /// fine a moment later — but each is asked again at most every few
+    /// seconds: Firefox's windows are matched through its listing, on every
+    /// window event.
+    private static var refusedAt: [Browser: (asked: ContinuousClock.Instant, answer: ProfileListing)] = [:]
     private static let refusalPatience: Duration = .seconds(5)
 
     /// Forget every cached read. Called on config reload so a menu-bar
@@ -53,10 +55,12 @@ enum BrowserProfiles {
     static func listing(for browser: Browser) -> ProfileListing {
         if let cached = listings[browser] { return cached }
         let now = ContinuousClock.now
-        if let asked = refusedAt[browser], asked.duration(to: now) < refusalPatience { return .refused }
+        if let failed = refusedAt[browser], failed.asked.duration(to: now) < refusalPatience {
+            return failed.answer
+        }
         let read = readListing(browser)
-        if read == .refused {
-            refusedAt[browser] = now
+        if read.isTransient {
+            refusedAt[browser] = (now, read)
         } else {
             refusedAt[browser] = nil
             // Safari's answer lives in its driver, which is told of a new
@@ -65,6 +69,12 @@ enum BrowserProfiles {
         }
         note(browser, read)
         return read
+    }
+
+    /// Re-read Safari's menu now if it runs: once at launch, since a Safari
+    /// already open will not come forward to be read.
+    static func readSafariIfRunning() {
+        SafariDriver.shared.refresh { note(.safari, SafariDriver.shared.listing()) }
     }
 
     private static func readListing(_ browser: Browser) -> ProfileListing {
@@ -215,7 +225,10 @@ enum BrowserProfiles {
             completion(false)
             return
         }
-        guard let locator = locator(for: profile) else {
+        // Safari reads its live menu as it opens, so a profile made since
+        // Safari last came forward still opens; the others need the
+        // locator from their list.
+        guard let locator = browser.family == .safari ? profile.display : locator(for: profile) else {
             Log.error("\(browser.rawValue): no profile named '\(profile.display)' "
                 + "(\(listing(for: browser).state))")
             completion(false)
@@ -263,16 +276,30 @@ enum BrowserProfiles {
 /// profile's.
 enum FirefoxLocks {
     private static var held: [pid_t: (started: Int64, directory: String)] = [:]
+    /// Processes that held no listed profile's lock when last asked, and
+    /// when: asked again only after a moment, since every window event of
+    /// theirs would otherwise walk all their open files again.
+    private static var missed: [pid_t: ContinuousClock.Instant] = [:]
+    private static let missPatience: Duration = .seconds(2)
 
-    static func forget() { held = [:] }
+    static func forget() {
+        held = [:]
+        missed = [:]
+    }
 
     static func directory(of pid: pid_t) -> String? {
         let started = SystemProcesses().identity(of: pid)?.started
         if let hit = held[pid], hit.started == started { return hit.directory }
+        let now = ContinuousClock.now
+        if let at = missed[pid], at.duration(to: now) < missPatience { return nil }
         let known = Set(BrowserProfiles.listing(for: .firefox).profiles.map(\.locator))
         guard !known.isEmpty,
               let directory = FirefoxProfiles.profileDirectory(lockPaths: FirefoxProfiles.lockPaths(pid: pid),
-                                                               known: known) else { return nil }
+                                                               known: known) else {
+            missed[pid] = now
+            return nil
+        }
+        missed[pid] = nil
         if let started { held[pid] = (started, directory) }
         return directory
     }

@@ -216,6 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.config.registerDetected(BrowserProfiles.detected())
         }
         BrowserProfiles.observeActivations()
+        BrowserProfiles.readSafariIfRunning()
         launchStages.enter("keys")
         // Layout first, overrides second: both layers live in Keys, and
         // the config's `keys:` stays the user's last word over either.

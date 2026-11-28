@@ -57,7 +57,10 @@ final class FirefoxProfilesTests: XCTestCase {
             XCTAssertEqual(sqlite3_exec(db, statement, nil, nil, nil), SQLITE_OK, statement)
         }
         if wal {
-            addTeardownBlock { sqlite3_close(db) }
+            // Closed at teardown unless the test closed it first (closing a
+            // closed handle is harmless only through sqlite3_close_v2's
+            // zombie rule, so the test that closes it says so by closing).
+            addTeardownBlock { sqlite3_close_v2(db) }
             return db
         }
         sqlite3_close(db)
@@ -100,6 +103,27 @@ final class FirefoxProfilesTests: XCTestCase {
         XCTAssertEqual(FirefoxProfiles.listing(root: root).profiles.map(\.name), ["Work", "Home"])
         let after = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Profile Groups").path).sorted()
         XCTAssertEqual(before, after)
+    }
+
+    /// Firefox closed and its database left with no -wal or -shm beside it,
+    /// still in WAL mode: the read sees every row and leaves no file behind.
+    func testGroupDatabaseReadsWithFirefoxClosed() throws {
+        let root = try scratch()
+        try "[Profile0]\nName=x\nPath=Profiles/a\nStoreID=s2\n"
+            .write(to: root.appendingPathComponent("profiles.ini"), atomically: true, encoding: .utf8)
+        let writer = try makeGroup(root, store: "s2", rows: [("Work", "Profiles/a")], wal: true)
+        // A close checkpoints everything into the database. Apple's SQLite
+        // keeps the -wal and -shm files after it; any other leaves none,
+        // which is the case this stands for.
+        sqlite3_close(writer)
+        let groups = root.appendingPathComponent("Profile Groups").path
+        for side in ["s2.sqlite-wal", "s2.sqlite-shm"] {
+            try? FileManager.default.removeItem(atPath: "\(groups)/\(side)")
+        }
+        let before = try FileManager.default.contentsOfDirectory(atPath: groups).sorted()
+        XCTAssertEqual(before, ["s2.sqlite"])
+        XCTAssertEqual(FirefoxProfiles.listing(root: root).profiles.map(\.name), ["Work"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: groups).sorted(), before)
     }
 
     func testOldInstallWithoutGroupsReadsININames() throws {

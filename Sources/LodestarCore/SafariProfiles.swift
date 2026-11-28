@@ -65,7 +65,11 @@ public enum SafariProfiles {
     /// A URL Lodestar may type into Safari's address field. The field runs
     /// a `javascript:` URL in the page in front, which no link should ever
     /// get to do by being clicked somewhere else.
+    /// Spaces, line breaks and control characters anywhere in it are set
+    /// aside first, as a browser sets them aside when it reads the scheme.
     public static func mayType(_ url: String) -> Bool {
-        !url.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("javascript:")
+        let unwanted = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)
+        let bare = String(String.UnicodeScalarView(url.unicodeScalars.filter { !unwanted.contains($0) }))
+        return !bare.lowercased().hasPrefix("javascript:")
     }
 }

@@ -359,7 +359,12 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue((rows[0].detail ?? "").contains("Brave Browser"), rows[0].detail ?? "")
         XCTAssertNil(rows[1].action)
         XCTAssertEqual(rows[2].path, "web.firefox-profiles")
-        XCTAssertTrue(place("Routing", Config(), machine).attention, "a refusal draws the eye to Routing")
+        XCTAssertFalse(place("Routing", Config(), machine).attention,
+                       "a refused browser nothing names is not worth the eye")
+        var naming = Config()
+        naming.registerDetected([BrowserProfile(browser: .brave, display: "Work")])
+        XCTAssertTrue(place("Routing", naming, machine).attention,
+                      "a refused browser the config names draws the eye to Routing")
     }
 
     func testFirefoxOnAndRefusedOffersTheSwitch() {

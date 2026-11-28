@@ -719,7 +719,12 @@ public enum SettingsModel {
            sentence: "Every link, typed, clicked or in a meeting, goes to the browser and profile it belongs to",
            status: "Links and browsers",
            attention: (config.meetingsEnabled && !calendarsGranted && machine.calendars != "unknown")
-               || machine.browserAccess.contains { $0.listing == .refused }))
+               || machine.browserAccess.contains { access in
+                   // Only a browser something in the config names: an
+                   // installed browser nobody uses is not worth the eye.
+                   access.listing == .refused
+                       && config.browserProfiles.values.contains { $0.browser == access.browser }
+               }))
 
         // 7 · Input
         // The facts about you are sealed with the health record, so they

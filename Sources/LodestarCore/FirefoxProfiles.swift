@@ -60,11 +60,24 @@ public enum FirefoxProfiles {
     }
 
     /// (name, path) rows of a profile group's database, read-only. Firefox
-    /// keeps it in WAL mode while it runs; a read-only open reads it then
-    /// too, and makes no file.
+    /// keeps it in WAL mode. While it runs, the -wal and -shm files are
+    /// there and a read-only open reads beside it (measured on Firefox 161).
+    /// With them gone a read-only open cannot start, since it may not make
+    /// the -shm, so it is asked once more as immutable: with no -shm there
+    /// is no writer to read beside, and immutable makes no file at all.
     public static func groupRows(database path: String) throws -> [(name: String, path: String)] {
+        do {
+            return try rows(opening: path, flags: SQLITE_OPEN_READONLY)
+        } catch let first as GroupError {
+            guard !FileManager.default.fileExists(atPath: path + "-shm"),
+                  let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { throw first }
+            return try rows(opening: "file:\(encoded)?immutable=1", flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_URI)
+        }
+    }
+
+    private static func rows(opening path: String, flags: Int32) throws -> [(name: String, path: String)] {
         var db: OpaquePointer?
-        let opened = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil)
+        let opened = sqlite3_open_v2(path, &db, flags, nil)
         defer { sqlite3_close(db) }
         guard opened == SQLITE_OK else {
             throw GroupError(code: opened, message: db.map { String(cString: sqlite3_errmsg($0)) } ?? "open")

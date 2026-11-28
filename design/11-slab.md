@@ -63,7 +63,7 @@ Menus drawn by macOS itself (the menu bar's menu) keep the system's highlight; L
 ### Behaviour
 
 - **One slab per surface.** Choosing another thing moves the slab there.
-- **Instant.** The slab moves, appears and leaves at once, with no slide and no fade (motion contract).
+- **Instant.** The slab moves, appears and leaves at once, with no slide and no fade (motion contract). One exception: a place's slab on the Settings overview rises into place over 120 ms under the pointer, and still leaves at once.
 - **Follows the choice, however it was made.** Keys move it; where the pointer chooses today (a menu under the pointer), the pointer moves it. Hover alone never adds a second slab.
 - **Pressed.** Clicking the slab presses it: its side collapses to 1 point at once, the face moving down by what it gave up. Pressing the lit key presses that key, not the slab.
 - **Eye comfort.** The slab dims with its look's level like everything else. The floors hold on it at every level: ink 7 : 1, quiet ink 4.5 : 1, the orange as a fill 3 : 1.

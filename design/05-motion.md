@@ -32,27 +32,28 @@ Everything a hand does often, and everything that appears:
 | ----------------------- | ------------------------------------------------- | ------------------------------------------------------- |
 | the draft's voice meter | it is a level that is changing now                | follows the voice; falls over 150 ms when it drops to a lower level, and goes out at once |
 | the switch's knob       | a rare change of state; the travel says which way | slides over 120 ms; the track's colour changes at once  |
+| a place's slab on the Settings overview | the pointer has come onto a place, and a slab arriving at once read as a jolt | rises over 120 ms from 96% and 3 points lower to its place; leaves at once; nothing fades |
 
 ### The curve
 
-One curve for the two things that move: decelerating, `(0.25, 0.1, 0.25, 1)`, the curve main already uses. Nothing springs, bounces or overshoots.
+One curve for the things that move: decelerating, `(0.25, 0.1, 0.25, 1)`, the curve main already uses. Nothing springs, bounces or overshoots.
 
 ### Reduce Motion
 
-Nothing moves. The meter holds still at its full length while it is listening, so it still says listening; the knob jumps.
+Nothing moves. The meter holds still at its full length while it is listening, so it still says listening; the knob jumps; a place's slab is there at once.
 
 ## Rules
 
 1. **Instant by default.** A change appears in its end state on the next frame. Anything not in the table above does not animate.
 2. **No fades.** Nothing fades in or out: not a surface, not its keys, not a colour. A colour changes at once.
-3. **Motion carries a signal or nothing.** Only a live level and a rare change of state may move, and never for longer than 150 milliseconds.
+3. **Motion carries a signal or nothing.** Only a live level, a rare change of state and a place rising under the pointer may move, and never for longer than 150 milliseconds.
 4. **Correctness never waits on motion.** Where something does move, its end state is set first and the motion is a picture of getting there; if the motion is dropped, nothing is wrong.
-5. **Reduce Motion stops everything,** including the two that are allowed.
+5. **Reduce Motion stops everything,** including the ones that are allowed.
 
 ## Enforcement
 
-- A drift test fails on `NSAnimationContext` groups with a non-zero duration, `animator()`, Core Animation animations, `CATransition` and alpha fades in the app's sources, outside the meter and the knob.
-- A test holds the two allowed motions to their durations and the curve, and to none under Reduce Motion.
+- A drift test fails on `NSAnimationContext` groups with a non-zero duration, `animator()`, Core Animation animations, `CATransition` and alpha fades in the app's sources, outside the meter, the knob and the place rise.
+- A test holds the allowed motions to their durations and the curve, and to none under Reduce Motion.
 - A test opens and closes every surface and holds each to its end state with no animation attached.
 
 ## Renders
@@ -70,3 +71,4 @@ Built 22 October 2026. Before it, main slid the switch's knob over 0.18 seconds 
 ## Decided in review
 
 - The switch's knob keeps a 120 ms slide: it is rare, and the travel says which way it went (22 October 2026).
+- **A place rises under the pointer (27 November 2026).** The Settings overview gained a slab under the place the pointer is on; appearing at once read as a jolt, so it rises over 120 ms, the one motion added since the contract was built. It is a picture of the end state (rule 4), never fades (rule 2), leaves at once, and stops under Reduce Motion.

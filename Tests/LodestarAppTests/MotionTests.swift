@@ -87,8 +87,8 @@ final class MotionTests: XCTestCase {
     ]
 
     /// Where a basic animation may be made, and how many: the meter's fall
-    /// (one per stroke end, in one loop) and the knob's slide.
-    private static let basicAnimations = ["DraftPanel.swift": 1, "Ceramic.swift": 1]
+    /// (one per stroke end, in one loop), the knob's slide and a place's rise.
+    private static let basicAnimations = ["DraftPanel.swift": 1, "Ceramic.swift": 1, "SettingsController.swift": 1]
 
     private func offenders(in text: String) throws -> [String] {
         var found: [String] = []
@@ -114,7 +114,7 @@ final class MotionTests: XCTestCase {
                 found.append("\(name): \(basics) basic animations, \(Self.basicAnimations[name, default: 0]) allowed")
             }
         }
-        XCTAssertEqual(found, [], "instant by default: only the voice meter's fall and the switch's knob may move")
+        XCTAssertEqual(found, [], "instant by default: only the voice meter's fall, the switch's knob and a place's rise may move")
     }
 
     func testTheGuardCatchesWhatItNames() throws {
@@ -142,7 +142,7 @@ final class MotionTests: XCTestCase {
         XCTAssertLessThanOrEqual(Motion.curvePoints[3], 1, "no overshoot")
         XCTAssertEqual(Motion.meterFall, 0.15, accuracy: 1e-9)
         XCTAssertEqual(Motion.knobSlide, 0.12, accuracy: 1e-9)
-        XCTAssertEqual(Motion.allowed.count, 2, "a live level and a rare change of state, and nothing else")
+        XCTAssertEqual(Motion.allowed.count, 3, "a live level, a rare change of state and a place rising under the pointer, and nothing else")
         for motion in Motion.allowed {
             XCTAssertLessThanOrEqual(motion.seconds, Motion.longest, "\(motion.what) is never longer than 150 ms")
         }
@@ -407,8 +407,8 @@ final class MotionTests: XCTestCase {
     // MARK: - Motion sheet
 
     func testTheMotionSheetListsWhatTheCodeCanRun() {
-        XCTAssertEqual(Motion.allowed.map(\.what), ["the draft's voice meter", "the switch's knob"])
-        XCTAssertEqual(Motion.allowed.map(\.seconds), [Motion.meterFall, Motion.knobSlide])
+        XCTAssertEqual(Motion.allowed.map(\.what), ["the draft's voice meter", "the switch's knob", "a place's slab on the Settings overview"])
+        XCTAssertEqual(Motion.allowed.map(\.seconds), [Motion.meterFall, Motion.knobSlide, Motion.placeRise])
         XCTAssertFalse(Motion.instant.isEmpty)
     }
 }

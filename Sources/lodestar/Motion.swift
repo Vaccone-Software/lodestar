@@ -2,8 +2,9 @@ import AppKit
 
 /// design/05-motion.md: Lodestar answers at once. Nothing it does often
 /// moves, nothing fades in to soften its own arrival, and motion is kept
-/// for the two things that report a signal: a level changing now (the
-/// draft's voice meter) and a rare change of state (a switch's knob).
+/// for three things: a level changing now (the draft's voice meter), a rare
+/// change of state (a switch's knob), and a place on the Settings overview
+/// rising under the pointer.
 ///
 /// This is the one place a time or a curve is named. A surface that
 /// moves reads it here; every other change is in its end state on the
@@ -24,10 +25,16 @@ enum Motion {
     /// How long the switch's knob takes to cross. The track's colour
     /// changes at once.
     static let knobSlide: TimeInterval = 0.12
+    /// How long a place's slab on the Settings overview takes to rise into
+    /// place under the pointer, from this much smaller and this much lower.
+    /// It leaves at once.
+    static let placeRise: TimeInterval = 0.12
+    static let placeRiseScale: CGFloat = 0.96
+    static let placeRiseDrop: CGFloat = 3
     /// No motion runs longer than this, whatever it carries.
     static let longest: TimeInterval = 0.15
 
-    /// Nothing moves under Reduce Motion, the two allowed motions included.
+    /// Nothing moves under Reduce Motion, the allowed motions included.
     static var reduced: Bool { Accessibility.reduceMotion() }
 
     /// What is allowed to move, for the contract's table and the motion
@@ -47,6 +54,9 @@ enum Motion {
         Allowed(what: "the switch's knob", why: "a rare change of state; the travel says which way",
                 how: "slides; the track's colour changes at once", seconds: knobSlide,
                 underReduceMotion: "jumps"),
+        Allowed(what: "a place's slab on the Settings overview", why: "the pointer has come onto a place; arriving at once read as a jolt",
+                how: "rises into place, a little smaller and lower to full size; leaves at once; nothing fades", seconds: placeRise,
+                underReduceMotion: "is there at once"),
     ]
 
     /// Everything else, which arrives in its end state on the next frame.

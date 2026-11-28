@@ -43,7 +43,7 @@ extension GalleryFoundations {
             page.text("progress", at: NSPoint(x: plot.maxX + 12, y: plot.minY))
             page.y += 140 + 36
 
-            page.heading("Allowed to move", "Two things, never for longer than \(Motion.milliseconds(Motion.longest)).")
+            page.heading("Allowed to move", "Three things, never for longer than \(Motion.milliseconds(Motion.longest)).")
             for motion in Motion.allowed {
                 page.text(motion.what, at: NSPoint(x: margin, y: page.y), role: .body, color: Page.ink)
                 page.text(Motion.milliseconds(motion.seconds),

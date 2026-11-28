@@ -39,7 +39,7 @@ final class MiceGroupTests: XCTestCase {
         let place = try input(machine())
         XCTAssertEqual(place.picture, "place-keys", "the picture stays")
         XCTAssertEqual(place.sentence, "The key every gesture starts from, and the keyboards and mice you use")
-        XCTAssertEqual(place.status, "Lode, keyboards and mice")
+        XCTAssertEqual(place.status, "Keyboards and mice")
         XCTAssertEqual(SettingsModel.pages(config: Config(), machine: machine()).first { $0.name == SettingsModel.keyboardsPage }?.parent,
                        "Input")
     }

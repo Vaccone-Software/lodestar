@@ -210,6 +210,29 @@ final class VimTests: XCTestCase {
         XCTAssertEqual(type("u"), [.flash("⌂ nothing to undo")])
     }
 
+    /// The editor's ⏎ in the draft: every fix in one step, so one `u`
+    /// takes the batch back, and the cursor after them moves with them.
+    func testTheEditorsBatchIsOneUndoStep() {
+        load("its u teh end", cursor: 12)
+        vim.replaceKeepingCursor([(range: 6..<9, text: "the"), (range: 4..<5, text: "you"), (range: 0..<3, text: "it's")],
+                                 buffer: &buffer)
+        XCTAssertEqual(buffer.text, "it's you the end")
+        XCTAssertEqual(buffer.cursor, 15, "after every fix, so moved by all three")
+        type("u")
+        XCTAssertEqual(buffer.text, "its u teh end", "one undo takes the whole batch")
+        XCTAssertEqual(type("u"), [.flash("⌂ nothing to undo")])
+    }
+
+    /// The same batch under ⌘Z in insert mode, the Standard style's undo.
+    func testTheEditorsBatchIsOneCommandZ() {
+        load("its u teh", cursor: 9)
+        type("A")
+        vim.replaceKeepingCursor([(range: 6..<9, text: "the"), (range: 0..<3, text: "it's")], buffer: &buffer)
+        XCTAssertEqual(buffer.text, "it's u the")
+        _ = vim.undoInsertRun(&buffer)
+        XCTAssertEqual(buffer.text, "its u teh", "one ⌘Z takes the whole batch")
+    }
+
     func testInsertIsOneUndoStep() {
         load("ab")
         type("A")

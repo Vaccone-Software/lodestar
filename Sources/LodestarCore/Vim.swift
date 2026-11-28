@@ -303,6 +303,20 @@ public struct Vim {
     public mutating func replaceKeepingCursor(_ range: Range<Int>, with text: String,
                                               buffer: inout Draft.Buffer) {
         snapshot(buffer)
+        place(range, with: text, buffer: &buffer)
+    }
+
+    /// Every fix of the editor's ⏎, in one undo step, so one ⌘Z (or `u`)
+    /// takes the batch back. The edits come last in the text first, so
+    /// none moves another's range.
+    public mutating func replaceKeepingCursor(_ edits: [(range: Range<Int>, text: String)],
+                                              buffer: inout Draft.Buffer) {
+        guard !edits.isEmpty else { return }
+        snapshot(buffer)
+        for edit in edits { place(edit.range, with: edit.text, buffer: &buffer) }
+    }
+
+    private func place(_ range: Range<Int>, with text: String, buffer: inout Draft.Buffer) {
         let cursor = buffer.cursor
         let target = min(range.lowerBound, buffer.count)..<min(range.upperBound, buffer.count)
         buffer.replace(target, with: text)

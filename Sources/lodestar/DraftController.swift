@@ -374,6 +374,26 @@ final class DraftController {
         render()
         return true
     }
+
+    /// The editor's ⏎: every fix whose range still reads what it expects
+    /// becomes its text, all in one undo step. The edits come last in the
+    /// text first; answers which of them landed.
+    func editorReplace(_ edits: [(range: NSRange, expected: String, text: String)]) -> [Bool] {
+        guard isOpen, buffer.ghost.isEmpty else { return edits.map { _ in false } }
+        let settled = buffer.text
+        var spans: [(range: Range<Int>, text: String)] = []
+        let landed = edits.map { edit -> Bool in
+            guard let span = Range(edit.range, in: settled), String(settled[span]) == edit.expected else { return false }
+            let lower = settled.distance(from: settled.startIndex, to: span.lowerBound)
+            let upper = settled.distance(from: settled.startIndex, to: span.upperBound)
+            spans.append((lower..<upper, edit.text))
+            return true
+        }
+        guard !spans.isEmpty else { return landed }
+        vim.replaceKeepingCursor(spans, buffer: &buffer)
+        render()
+        return landed
+    }
     /// `lode ?` while the draft is open: its own keys, in its own glass.
     /// The draft carries no legend now, so this is the only way they are
     /// read — and the only way they are ever asked for.

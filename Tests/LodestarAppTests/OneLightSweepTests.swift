@@ -100,8 +100,6 @@ final class OneLightSweepTests: XCTestCase {
         XCTAssertEqual(SelectController.fixAllOffer(count: 4)?.words, "Fix all 4")
         XCTAssertEqual(SelectController.fixAllOffer(count: 4)?.key, "⏎")
         XCTAssertEqual(SelectController.fixAllOffer(count: 4)?.lit, true, "⏎ is the light")
-        XCTAssertEqual(SelectController.undoOffer.key, "⌫")
-        XCTAssertFalse(SelectController.undoOffer.lit, "the way back is quiet")
     }
 
     func testTheOfferStandsBetweenTheCaretAndTheApp() {

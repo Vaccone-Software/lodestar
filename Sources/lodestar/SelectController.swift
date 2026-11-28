@@ -551,20 +551,11 @@ final class SelectController {
     func backspace() {
         if door == .editor {
             if settling { holdDelete(); return }
+            // ⌫ walks back a label half typed. With nothing typed it does
+            // nothing: taking a fix back is the app's own ⌘Z.
             if !entryTyped.isEmpty {
                 entryTyped.removeLast()
                 renderEditor()
-            } else {
-                // ⌫ with nothing typed: the last fix, taken back, and
-                // its words may be marked again.
-                let expected = generation
-                editor?.undoLastFix { [weak self] done in
-                    guard done, let self, self.generation == expected else { return }
-                    // The text moved back: what the lens moved is no longer so.
-                    self.answered = []
-                    self.shiftedFrom = [:]
-                    self.relabelEditor(after: 0.35)
-                }
             }
             return
         }
@@ -728,7 +719,7 @@ final class SelectController {
     /// after each fix would letter them again, chips over fixed words that
     /// hold every key meant for the app. What was answered is never
     /// lettered again, and a mark the editor finds in the new text is a
-    /// new mark. ⌫ takes the answers back with their fixes.
+    /// new mark.
     private var answered: [EditorIssue] = []
 
     /// Looks scheduled after a fix that have not run yet. For the tests,
@@ -773,8 +764,7 @@ final class SelectController {
                                    uniquingKeysWith: { first, _ in first })
             let marks = editor.lensMarks.filter { !self.answered.contains($0.issue) }.map { moved[$0.issue] ?? $0 }
             if marks.isEmpty {
-                // Nothing to letter: the lens waits on ⌫ or hands the next
-                // key back.
+                // Nothing to letter: the lens hands the next key back.
                 self.editorMarks = []
                 self.overlay.hide()
                 return
@@ -821,8 +811,10 @@ final class SelectController {
         var landed = false
         /// Nothing more to do: the keys are in, or are being put in.
         var ended = false
-        /// Some keys went in, so the lens has nothing left to do.
-        var typed = false
+        /// The lens ends once the keys are in: the fix was its last word.
+        /// Set after the fix is asked for, so a fix that lands inside that
+        /// call never ends the lens from inside the key that began it.
+        var closes = false
         init(pid: pid_t) { self.pid = pid }
     }
 
@@ -845,9 +837,8 @@ final class SelectController {
         }
     }
 
-    /// The editor's lens has nothing left to do once what the hand typed
-    /// during the hold is in: the engine ends it, so a ⌫ after that is the
-    /// hand's own and not the lens's undo.
+    /// The editor's lens has nothing left to do once the last fix has
+    /// landed and what the hand typed meanwhile is in: the engine ends it.
     var onLensDone: (() -> Void)?
 
     /// The modifiers of the key being handled, set by the engine before it
@@ -909,10 +900,9 @@ final class SelectController {
             // A hold the session let go of has no session to tell.
             guard live === hold else { return }
             live = nil
-            if hold.typed, editorMarks.isEmpty { onLensDone?() }
+            if hold.closes, editorMarks.isEmpty { onLensDone?() }
             return
         }
-        hold.typed = true
         replay(hold.pid, keys, true) { [weak self] in
             guard let self, !hold.ended else { return }
             self.drain(hold)
@@ -1001,11 +991,11 @@ final class SelectController {
         return ModePill.Offer(key: "⏎", words: count > 1 ? "Fix all \(count)" : "Fix", lit: true)
     }
 
-    static let undoOffer = ModePill.Offer(key: "⌫", words: "Undo", lit: false)
-
-    /// ⏎: every fix the lens shows, at once. The lens stands one key
-    /// longer with ⌫ offered, which takes the whole batch back; any other
-    /// key ends it and goes to the app, so a second ⏎ sends the message.
+    /// ⏎: every fix the lens shows, at once, and the lens is done. It
+    /// stands only while the fixes land, keeping what the hand types for
+    /// after them, then ends, so the next key (a second ⏎ that sends the
+    /// message, a ⌫) is the app's. Taking the fixes back is the app's own
+    /// ⌘Z.
     private func editorFixAll() -> SelectStep {
         guard let editor, !editorMarks.isEmpty else { return .pending }
         let marks = editorMarks
@@ -1016,8 +1006,20 @@ final class SelectController {
         let lift = holdKeys()
         editor.fixAll(marks) { _ in lift() }
         overlay.hide()
-        showPill(text: nil, offer: Self.undoOffer)
-        return .done
+        return closeWhenLanded()
+    }
+
+    /// The lens's last word has been asked for. Landed already, with
+    /// nothing held: the lens ends with this key. Still landing: the lens
+    /// stands, keys held, and ends when the hold lets go.
+    private func closeWhenLanded() -> SelectStep {
+        guard let hold = live else {
+            firedTextInput = true
+            return .done
+        }
+        hold.closes = true
+        showPill(text: nil, offer: nil)
+        return .pending
     }
 
     /// The lens has nothing lettered: the next key that is not its own
@@ -1055,8 +1057,7 @@ final class SelectController {
             }
             if holds {
                 overlay.hide()
-                showPill(text: nil, offer: Self.undoOffer)
-                return .done
+                return closeWhenLanded()
             }
             // The last mark ends the lens; otherwise it stands and letters
             // what remains once the text settles.

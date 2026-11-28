@@ -53,7 +53,6 @@ final class EditorLensStaleRangeTests: XCTestCase {
         }
         func ignore(_ mark: EditorController.Mark) {}
         func learn(_ mark: EditorController.Mark) {}
-        func undoLastFix(completion: @escaping (Bool) -> Void) { completion(true) }
     }
 
     private func stand(_ stage: Stage) {
@@ -204,7 +203,6 @@ final class EditorFixSettlingTests: XCTestCase {
         }
         func ignore(_ mark: EditorController.Mark) {}
         func learn(_ mark: EditorController.Mark) {}
-        func undoLastFix(completion: @escaping (Bool) -> Void) { completion(true) }
     }
 
     /// What reached the app, and whether the fix had landed when it did.
@@ -275,8 +273,7 @@ final class EditorFixSettlingTests: XCTestCase {
         }
     }
 
-    /// The hand typed on, so the lens is over: the next ⌫ is the hand's
-    /// and not the lens's undo of the fix.
+    /// The hand typed on, and the lens is over: the next ⌫ is the hand's.
     func testTheLensEndsOnceWhatWasTypedIsIn() throws {
         let (stage, lens, _) = rig(marks: 1)
         try withExtendedLifetime(lens) {
@@ -289,18 +286,19 @@ final class EditorFixSettlingTests: XCTestCase {
         }
     }
 
-    /// Nothing typed: the lens stands one key longer with Undo offered,
-    /// as after ⏎.
-    func testNothingTypedLeavesTheUndoOffered() throws {
+    /// Nothing typed: the lens stands while the fix lands, offering
+    /// nothing, and ends the moment it has. The next ⌫ is the app's.
+    func testNothingTypedEndsTheLensOnceTheFixLands() throws {
         let (stage, lens, app) = rig(marks: 1)
         try withExtendedLifetime(lens) {
             stage.lode("tab")
             stage.press(try XCTUnwrap(stage.engine.select.shownChips.first?.label))
+            XCTAssertTrue(stage.engine.stateDescription.contains("hints"), "the fix is landing")
+            XCTAssertNil(stage.engine.select.pill?.state?.offer, "and the pill offers no way back")
             lens.landing.forEach { $0() }
             XCTAssertTrue(app.keys.isEmpty)
-            XCTAssertTrue(stage.engine.stateDescription.contains("hints"))
-            XCTAssertEqual(stage.engine.select.pill?.state?.offer, SelectController.undoOffer)
-            XCTAssertFalse(stage.press("x"), "the next key is the app's")
+            XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
+            XCTAssertFalse(stage.press("delete"), "the app's own")
         }
     }
 
@@ -352,6 +350,21 @@ final class EditorFixSettlingTests: XCTestCase {
             XCTAssertTrue(app.keys.isEmpty)
             lens.landing.forEach { $0() }
             XCTAssertEqual(app.keys, [.text("x")])
+            XCTAssertFalse(stage.engine.stateDescription.contains("hints"), "and the lens is over")
+        }
+    }
+
+    /// ⏎ with nothing typed: the lens stands while the fixes land, then
+    /// ends, and a second ⏎ is the app's (it sends the message).
+    func testFixAllEndsTheLensOnceTheFixesLand() {
+        let (stage, lens, _) = rig(marks: 2)
+        withExtendedLifetime(lens) {
+            stage.lode("tab")
+            stage.press("return")
+            XCTAssertTrue(stage.engine.stateDescription.contains("hints"), "the fixes are landing")
+            lens.landing.forEach { $0() }
+            XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
+            XCTAssertFalse(stage.press("return"), "the second ⏎ is the app's")
         }
     }
 

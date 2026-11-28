@@ -7,10 +7,10 @@ import LodestarCore
 ///
 /// The draft is Lodestar's own glass, so nothing here goes through
 /// accessibility: the marks are a line drawn by the draft's text, the lens
-/// is `lode ⇥` as everywhere, with its chips over the draft, and a fix is
-/// one undo step in the draft's own history. The rules are the editor's:
-/// spelling and the fixed rules at once, a finished sentence (or one the
-/// hand paused in) read by the same model, loaded once for both.
+/// is `lode ⇥` as everywhere, with its chips over the draft, and a fix (or
+/// a whole ⏎) is one undo step in the draft's own history. The rules are
+/// the editor's: spelling and the fixed rules at once, a finished sentence
+/// (or one the hand paused in) read by the same model, loaded once for both.
 final class DraftEditor: EditorLens {
     weak var draft: DraftController?
     var observations: ObservationStore?
@@ -32,8 +32,6 @@ final class DraftEditor: EditorLens {
     private var inFlight: Set<String> = []
     private var working = false
     private var pauseWork: DispatchWorkItem?
-    private var fixes: [(range: NSRange, original: String, replacement: String, kind: EditorIssue.Kind, batch: Int)] = []
-    private var batches = 0
 
     init(proofreader: EditorProofreader, clock: Clock = .live, memoryLevel: @escaping () -> MemoryLevel = { .current }) {
         self.proofreader = proofreader
@@ -67,7 +65,6 @@ final class DraftEditor: EditorLens {
         self.ghost = ghost
         guard enabled else { return [] }
         issues = session.issues(text: text, caret: caret)
-        if edited { fixes.removeAll { !EditorAX.stillReads(text, range: $0.range, expected: $0.replacement) } }
         ask(paused: false)
         // A pause finishes the sentence the caret is in.
         pauseWork?.cancel()
@@ -131,7 +128,7 @@ final class DraftEditor: EditorLens {
     /// The chips are drawn over the draft, not the app beneath it.
     var lensCanvas: CGRect? { draft?.editorCanvas }
 
-    /// The draft records its answers (`applied`, `dismissed`, `undone`, all
+    /// The draft records its answers (`applied`, `dismissed`, all
     /// under the app "draft") and no `shown`, and the report reads them as a
     /// line of their own. A field's marks are judged by how long they
     /// stood and how they ended, which needs a field the hand leaves and
@@ -145,33 +142,21 @@ final class DraftEditor: EditorLens {
             completion(false)
             return
         }
-        batches += 1
-        fixes.append((NSRange(location: issue.range.location, length: (issue.replacement as NSString).length),
-                      issue.original, issue.replacement, issue.kind, batches))
-        trimFixes()
         observations?.edited(action: "applied", kind: issue.kind.rawValue, app: "draft", via: "keys", at: clock.now())
         completion(true)
     }
 
     /// ⏎ in the lens, as `EditorController` does it: last in the text
-    /// first, one batch, one ⌫.
+    /// first, and all in one undo step, so one ⌘Z takes the batch back.
     func fixAll(_ marks: [EditorController.Mark], completion: @escaping (Int) -> Void) {
         guard let draft else { completion(0); return }
-        let landed = EditorController.fixOrder(marks.map(\.issue)).filter {
-            draft.editorReplace($0.range, expected: $0.original, with: $0.replacement)
-        }
-        guard !landed.isEmpty else { completion(0); return }
-        batches += 1
-        for (issue, range) in zip(landed, EditorController.settled(landed)) {
-            fixes.append((range, issue.original, issue.replacement, issue.kind, batches))
+        let order = EditorController.fixOrder(marks.map(\.issue))
+        let read = draft.editorReplace(order.map { ($0.range, $0.original, $0.replacement) })
+        let landed = zip(order, read).filter(\.1).map(\.0)
+        for issue in landed {
             observations?.edited(action: "applied", kind: issue.kind.rawValue, app: "draft", via: "all", at: clock.now())
         }
-        trimFixes()
         completion(landed.count)
-    }
-
-    private func trimFixes() {
-        while fixes.count > 20, fixes.first?.batch != batches { fixes.removeFirst() }
     }
 
     func ignore(_ mark: EditorController.Mark) { settle(mark, learning: false) }
@@ -200,18 +185,5 @@ final class DraftEditor: EditorLens {
         guard let issue = issues.first(where: { $0.range == range }) else { return }
         let mark = EditorController.Mark(issue: issue, rect: .zero)
         if keep { learn(mark) } else { fix(mark) { _ in } }
-    }
-
-    func undoLastFix(completion: @escaping (Bool) -> Void) {
-        guard let last = fixes.last, let draft else { completion(false); return }
-        let group = fixes.reversed().prefix { $0.batch == last.batch }
-        fixes.removeLast(group.count)
-        var done = true
-        for fix in group.sorted(by: { $0.range.location > $1.range.location }) {
-            done = draft.editorReplace(fix.range, expected: fix.replacement, with: fix.original) && done
-        }
-        guard done else { completion(false); return }
-        for fix in group { observations?.edited(action: "undone", kind: fix.kind.rawValue, app: "draft", at: clock.now()) }
-        completion(true)
     }
 }

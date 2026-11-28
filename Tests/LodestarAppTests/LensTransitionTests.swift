@@ -16,9 +16,6 @@ final class LensTransitionTests: XCTestCase {
         /// takes typing reports late.
         var landing: [() -> Void] = []
         var deferred = false
-        /// Takings back that have started and not reported.
-        var undoing: [() -> Void] = []
-        var deferUndo = false
         init(count: Int) {
             lensMarks = (0..<count).map { i in
                 EditorController.Mark(
@@ -38,9 +35,6 @@ final class LensTransitionTests: XCTestCase {
         }
         func ignore(_ mark: EditorController.Mark) { lensMarks.removeAll { $0 == mark } }
         func learn(_ mark: EditorController.Mark) { lensMarks.removeAll { $0 == mark } }
-        func undoLastFix(completion: @escaping (Bool) -> Void) {
-            if deferUndo { undoing.append { completion(true) } } else { completion(true) }
-        }
         /// Fresh marks to letter, as the field has more to say after a fix.
         func refill(_ count: Int) {
             lensMarks = MarkLens(count: count).lensMarks
@@ -611,23 +605,6 @@ final class LensTransitionTests: XCTestCase {
             lens.landing.forEach { $0() }
             stage.settle(turns: 5)
             XCTAssertEqual(app.keys, [.text("hi")], "and once")
-        }
-    }
-
-    /// A taking back that reports after its session ended belongs to that
-    /// session: it relabels nothing in the next.
-    func testAnOldTakingBackCompletingLettersNothingInTheNewSession() {
-        let (stage, lens, _) = rig(marks: 2)
-        withExtendedLifetime(lens) {
-            lens.deferUndo = true
-            stage.lode("tab")
-            stage.press("delete")
-            XCTAssertEqual(lens.undoing.count, 1)
-            stage.press("escape")
-            stage.lode("tab")
-            XCTAssertTrue(stage.engine.select.rescansSettled)
-            lens.undoing.forEach { $0() }
-            XCTAssertTrue(stage.engine.select.rescansSettled, "the old session's report started no look in this one")
         }
     }
 }

@@ -57,8 +57,7 @@ final class ModePill {
         /// the wings the way text does.
         var anchored: String? = nil
         /// A key the lens answers to, said beside it: the editor's ⏎ lit
-        /// over every fix it shows ("Fix all 3"), and ⌫ quiet once they
-        /// have landed ("Undo").
+        /// over every fix it shows ("Fix all 3").
         var offer: Offer? = nil
 
         static func == (lhs: State, rhs: State) -> Bool {

@@ -10,8 +10,7 @@ protocol EditorLens: AnyObject {
     /// over the focused window (the draft draws over its own panel).
     var lensCanvas: CGRect? { get }
     func fix(_ mark: EditorController.Mark, completion: @escaping (Bool) -> Void)
-    /// ⏎: every fix the lens shows, at once, taken back together by one ⌫.
-    /// Answers how many landed.
+    /// ⏎: every fix the lens shows, at once. Answers how many landed.
     func fixAll(_ marks: [EditorController.Mark], completion: @escaping (Int) -> Void)
     /// ⇧ and a letter: the words stay as written while their sentence
     /// stands, and nothing is learned.
@@ -19,7 +18,6 @@ protocol EditorLens: AnyObject {
     /// ⌥ and a letter: a word the dictionary did not know joins the
     /// vocabulary. A mark with nothing to learn is ignored instead.
     func learn(_ mark: EditorController.Mark)
-    func undoLastFix(completion: @escaping (Bool) -> Void)
 }
 
 extension EditorLens {
@@ -38,19 +36,6 @@ final class EditorController: EditorLens {
     struct Mark: Equatable {
         let issue: EditorIssue
         let rect: CGRect
-    }
-
-    /// One fix, kept so the editor can take it back: an app's own ⌘Z
-    /// merges it with the hand's last word (Outlook) or loses it (Proton).
-    private struct Fix {
-        let pid: pid_t
-        let element: AXUIElement
-        let range: NSRange          // where the replacement now stands
-        let original: String
-        let replacement: String
-        let kind: EditorIssue.Kind
-        /// Fixes made by one ⏎ share a batch, and one ⌫ takes them all.
-        let batch: Int
     }
 
     var flash: (String) -> Void = { _ in }
@@ -131,8 +116,6 @@ final class EditorController: EditorLens {
     var asking: Bool { working }
     private var lastGeometry = Date.distantPast
     private var geometryGeneration = 0
-    private var fixes: [Fix] = []
-    private var batches = 0
     /// Every mark's life, so each ends in one outcome in the record: shown
     /// only if it stood, and counted once however the text around it moves.
     private var ledger = EditorMarkLedger()
@@ -145,7 +128,7 @@ final class EditorController: EditorLens {
     /// followed stopped: a field that answers nothing for a moment and then
     /// answers again is the same field, and its state is kept through it.
     private var lastRead = Date.distantPast
-    /// A fix, a ⏎ or an undo changed the field since it was last read: what
+    /// A fix or a ⏎ changed the field since it was last read: what
     /// `field` holds is no longer its text, and marks are not worked out on
     /// it until a read says what the text is now.
     private var editedSinceRead = false
@@ -858,13 +841,6 @@ final class EditorController: EditorLens {
             DispatchQueue.main.async {
                 guard let self else { return }
                 if done {
-                    self.batches += 1
-                    self.fixes.append(Fix(pid: field.pid, element: field.element,
-                                          range: NSRange(location: issue.range.location,
-                                                         length: (issue.replacement as NSString).length),
-                                          original: issue.original, replacement: issue.replacement,
-                                          kind: issue.kind, batch: self.batches))
-                    self.trimFixes()
                     self.editedSinceRead = true
                     self.marks.removeAll { $0.issue == issue }
                     self.issues.removeAll { $0 == issue }
@@ -882,8 +858,10 @@ final class EditorController: EditorLens {
     }
 
     /// ⏎ in the lens: every fix shown, applied from the end of the text
-    /// back so each lands where it was found, and kept as one batch so one
-    /// ⌫ takes the lot back. A mark overlapping one already fixed is left.
+    /// back so each lands where it was found. A mark overlapping one
+    /// already fixed is left. Taking them back is the app's own ⌘Z: in an
+    /// Apple text view one press takes the whole batch, in Chromium one
+    /// press takes each fix (`probe editor undo`, 2026-11-27).
     func fixAll(_ marks: [Mark], completion: @escaping (Int) -> Void) {
         guard let field, !marks.isEmpty else { completion(0); return }
         let order = Self.fixOrder(marks.map(\.issue))
@@ -900,15 +878,8 @@ final class EditorController: EditorLens {
                     return
                 }
                 self.editedSinceRead = true
-                self.batches += 1
-                for (issue, range) in zip(landed, Self.settled(landed)) {
-                    self.fixes.append(Fix(pid: field.pid, element: field.element, range: range,
-                                          original: issue.original, replacement: issue.replacement,
-                                          kind: issue.kind, batch: self.batches))
-                }
                 self.record(landed.map { self.ledger.answer($0, .fixed(via: "all"), at: self.clock.now()) },
                             app: field.appName)
-                self.trimFixes()
                 self.marks.removeAll { mark in landed.contains(mark.issue) }
                 self.issues.removeAll { landed.contains($0) }
                 self.hover?.marksChanged()
@@ -930,21 +901,6 @@ final class EditorController: EditorLens {
             taken.append(issue)
         }
         return taken
-    }
-
-    /// Where each applied fix's words stand once every fix in the batch
-    /// has landed: its own start moved by every fix before it.
-    static func settled(_ applied: [EditorIssue]) -> [NSRange] {
-        applied.map { issue in
-            let shift = applied.filter { $0.range.location < issue.range.location }
-                .reduce(0) { $0 + ($1.replacement as NSString).length - $1.range.length }
-            return NSRange(location: issue.range.location + shift, length: (issue.replacement as NSString).length)
-        }
-    }
-
-    /// Twenty fixes are remembered, and never part of the latest batch.
-    private func trimFixes() {
-        while fixes.count > 20, fixes.first?.batch != batches { fixes.removeFirst() }
     }
 
     /// Three answers to a mark, and the two that are not a fix are kept
@@ -998,38 +954,5 @@ final class EditorController: EditorLens {
         let word = self.word(issue)
         return issue.kind == .spelling && !word.contains(" ")
             && (word.first?.isUppercase == true || EditorSpelling.isMisspelled(word, language: language))
-    }
-
-    /// ⌫ in the lens: the last fix, taken back, or the whole of the last
-    /// ⏎, last in the text first so the others' ranges hold.
-    func undoLastFix(completion: @escaping (Bool) -> Void) {
-        guard let last = fixes.last, let field, field.pid == last.pid else {
-            completion(false)
-            return
-        }
-        let group = fixes.reversed().prefix { $0.batch == last.batch }
-        fixes.removeLast(group.count)
-        let reverts = group.sorted { $0.range.location > $1.range.location }
-        let source = self.source
-        axQueue.async { [weak self] in
-            var done = true
-            for fix in reverts {
-                done = source.replace(fix.range, expected: fix.replacement, with: fix.original, in: field) && done
-            }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                // Taken back in part or whole, the text is not what was read.
-                self.editedSinceRead = true
-                // One for each fix taken back, so what is fixed is what is left fixed.
-                if done {
-                    for fix in reverts {
-                        self.observations?.edited(action: "undone", kind: fix.kind.rawValue, app: field.appName,
-                                                  at: self.clock.now())
-                    }
-                }
-                self.issuesText = ""
-                completion(done)
-            }
-        }
     }
 }

@@ -4,8 +4,9 @@ import XCTest
 @testable import LodestarCore
 
 /// `lode ⇥` with the editor on: a letter on every mark, the letter fixes,
-/// ⇧ and the letter ignores, ⌥ and the letter learns, ⌫ takes the last fix back, and the lens stands
-/// until the last mark is gone.
+/// ⇧ and the letter ignores, ⌥ and the letter learns, ⏎ fixes them all,
+/// and the lens stands until the last mark is gone. Taking a fix back is
+/// the app's own ⌘Z.
 final class EditorLensScenarioTests: XCTestCase {
     private final class FakeLens: EditorLens {
         var enabled = true
@@ -13,7 +14,6 @@ final class EditorLensScenarioTests: XCTestCase {
         var fixed: [EditorIssue] = []
         var kept: [EditorIssue] = []
         var learned: [EditorIssue] = []
-        var undone = 0
         /// The real editor's marks still describe the text before a fix
         /// until it has read the field again and checked the sentence
         /// (a third of a second on Standard): a stale lens keeps them.
@@ -35,10 +35,6 @@ final class EditorLensScenarioTests: XCTestCase {
             fixed.append(contentsOf: marks.map(\.issue))
             if !stale { lensMarks.removeAll { marks.contains($0) } }
             completion(marks.count)
-        }
-        func undoLastFix(completion: @escaping (Bool) -> Void) {
-            undone += 1
-            completion(true)
         }
     }
 
@@ -92,14 +88,11 @@ final class EditorLensScenarioTests: XCTestCase {
         XCTAssertEqual(stage.engine.select.pill?.state?.offer?.words, "Fix all 3", "the pill says what ⏎ takes")
         XCTAssertTrue(stage.press("return"))
         XCTAssertEqual(Set(lens.fixed.map(\.original)), ["its", "your", "recieve"])
-        XCTAssertEqual(stage.engine.select.pill?.state?.offer, SelectController.undoOffer,
-                       "the lens stands one key longer, offering ⌫")
-        stage.press("delete")
-        XCTAssertEqual(lens.undone, 1, "one ⌫ takes the batch back")
+        XCTAssertFalse(stage.engine.stateDescription.contains("hints"), "the lens closes behind it")
+        XCTAssertFalse(stage.press("delete"), "and ⌫ is the app's, not an undo")
     }
 
-    /// After ⏎, any key that is not ⌫ ends the lens and reaches the app:
-    /// a second ⏎ sends the message.
+    /// After ⏎ every key reaches the app: a second ⏎ sends the message.
     func testAfterFixingAllTheNextKeyGoesToTheApp() {
         let (stage, lens) = stage(with: [mark("its", "it's", x: 10), mark("your", "you're", x: 120)])
         // The engine holds the editor weakly: the lens must outlive the presses.
@@ -107,7 +100,7 @@ final class EditorLensScenarioTests: XCTestCase {
             stage.lode("tab")
             stage.press("return")
             XCTAssertEqual(lens.fixed.count, 2)
-            XCTAssertTrue(stage.engine.stateDescription.contains("hints"), "the lens stands one key longer")
+            XCTAssertFalse(stage.engine.stateDescription.contains("hints"), "the lens is over")
             XCTAssertFalse(stage.press("return"), "the second ⏎ is the app's")
             XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
         }
@@ -128,8 +121,6 @@ final class EditorLensScenarioTests: XCTestCase {
             XCTAssertEqual(lens.fixed.count, 3)
             stage.pump(until: { stage.engine.select.rescansSettled }, within: 2)
             XCTAssertTrue(stage.engine.select.shownChips.isEmpty, "no chip over a word already fixed")
-            XCTAssertEqual(stage.engine.select.pill?.state?.offer, SelectController.undoOffer,
-                           "the lens still offers ⌫ for the batch")
             XCTAssertFalse(stage.press("x"), "the next key is the app's, not swallowed")
             XCTAssertFalse(stage.engine.stateDescription.contains("hints"))
         }
@@ -197,13 +188,19 @@ final class EditorLensScenarioTests: XCTestCase {
         XCTAssertTrue(lens.kept.isEmpty)
     }
 
-    func testDeleteTakesTheLastFixBack() throws {
+    /// ⌫ with nothing typed takes nothing back: the fix stands, and so
+    /// do the lens and its last mark.
+    func testDeleteWithNothingTypedTakesNothingBack() throws {
         let (stage, lens) = stage(with: [mark("its", "it's", x: 10), mark("your", "you're", x: 120)])
-        stage.lode("tab")
-        let first = try XCTUnwrap(stage.engine.select.shownChips.first?.label.first).description
-        stage.press(first)
-        stage.press("delete")
-        XCTAssertEqual(lens.undone, 1, "⌫ with nothing typed is the last fix, taken back")
+        try withExtendedLifetime(lens) {
+            stage.lode("tab")
+            let first = try XCTUnwrap(stage.engine.select.shownChips.first?.label.first).description
+            stage.press(first)
+            XCTAssertTrue(stage.press("delete"), "the lens's own key")
+            XCTAssertEqual(lens.fixed.count, 1, "the fix stands")
+            XCTAssertTrue(stage.engine.stateDescription.contains("hints"))
+            XCTAssertEqual(stage.engine.select.shownChips.count, 1)
+        }
     }
 
     func testNoMarksSaysSoAndStandsDown() {

@@ -49,7 +49,9 @@ final class DraftEditorScenarioTests: XCTestCase {
         XCTAssertTrue(stage.draft.isOpen, "a fix is the draft's own edit; the draft stays")
     }
 
-    func testBackspaceInTheLensUndoesTheFix() throws {
+    /// ⌫ in the lens takes nothing back. The fix is the draft's own edit,
+    /// so the draft's ⌘Z takes it back, as in any field.
+    func testTheDraftsCommandZTakesTheFixBack() throws {
         let (stage, _, _, _) = stage()
         stage.lode(".")
         stage.speech.settle("We need to recieve the the files.")
@@ -59,12 +61,16 @@ final class DraftEditorScenarioTests: XCTestCase {
         XCTAssertEqual(stage.draft.buffer.text, "We need to receive the the files.")
         stage.press("delete")
         stage.clock.advance(by: 0.5)
-        XCTAssertEqual(stage.draft.buffer.text, "We need to recieve the the files.", "⌫ takes the fix back")
+        XCTAssertEqual(stage.draft.buffer.text, "We need to receive the the files.", "⌫ in the lens takes nothing back")
+        stage.press("escape")
+        stage.press("z", command: true)
+        XCTAssertEqual(stage.draft.buffer.text, "We need to recieve the the files.", "⌘Z takes the fix back")
     }
 
     /// ⏎ in the draft's lens fixes every mark at once, the pill having
-    /// said how many, and one ⌫ takes them all back.
-    func testReturnInTheLensFixesEveryMarkAndOneBackspaceTakesThemBack() throws {
+    /// said how many, and closes the lens: the next key is the draft's.
+    /// The fixes are one undo step, so one ⌘Z takes them all back.
+    func testReturnInTheLensFixesEveryMarkAndOneCommandZTakesThemBack() throws {
         let (stage, _, _, _) = stage()
         stage.lode(".")
         stage.speech.settle("We need to recieve the the files.")
@@ -73,9 +79,9 @@ final class DraftEditorScenarioTests: XCTestCase {
         XCTAssertTrue(stage.press("return"))
         XCTAssertEqual(stage.draft.buffer.text, "We need to receive the files.")
         XCTAssertTrue(stage.draft.isOpen, "fixing is the draft's own edit; the draft stays")
-        stage.press("delete")
-        stage.clock.advance(by: 0.5)
-        XCTAssertEqual(stage.draft.buffer.text, "We need to recieve the the files.", "one ⌫, every fix back")
+        XCTAssertFalse(stage.engine.stateDescription.contains("hints"), "the lens is over")
+        stage.press("z", command: true)
+        XCTAssertEqual(stage.draft.buffer.text, "We need to recieve the the files.", "one ⌘Z, every fix back")
     }
 
     /// Through the wiring that ships: the kept word is written to the

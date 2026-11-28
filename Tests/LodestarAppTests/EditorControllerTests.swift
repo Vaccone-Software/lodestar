@@ -570,7 +570,7 @@ final class EditorControllerTests: XCTestCase {
         XCTAssertTrue(rig.controller.lensMarks.isEmpty, "\(rig.controller.lensMarks.map(\.issue.shown))")
     }
 
-    func testAFixAndItsUndo() {
+    func testAFixLandsAndIsRecorded() {
         let rig = EditorRig()
         rig.type("We need to recieve them.")
         rig.settle("the mark") { rig.controller.lensMarks.count == 1 }
@@ -578,16 +578,7 @@ final class EditorControllerTests: XCTestCase {
         rig.controller.fix(rig.controller.lensMarks[0]) { fixed = $0 }
         rig.settle("the fix") { fixed != nil }
         XCTAssertEqual(rig.source.text, "We need to receive them.")
-        var undone: Bool?
-        rig.controller.undoLastFix { undone = $0 }
-        rig.settle("the undo") { undone != nil }
-        XCTAssertEqual(undone, true)
-        XCTAssertEqual(rig.source.text, "We need to recieve them.", "⌫ takes the fix back")
-        var again: Bool?
-        rig.controller.undoLastFix { again = $0 }
-        rig.settle("nothing left") { again != nil }
-        XCTAssertEqual(again, false, "one undo per fix")
-        XCTAssertEqual(rig.events.map(\.action), ["stood", "applied", "undone"])
+        XCTAssertEqual(rig.events.map(\.action), ["stood", "applied"])
     }
 
     func testAFixWhoseWordsMovedIsRefused() {
@@ -886,7 +877,7 @@ final class EditorStallTests: XCTestCase {
         mainFree("a poll") { rig.controller.poll() }
         mainFree("a beat's geometry") { rig.type("We need to recieve them now.") }
         mainFree("a fix") { rig.controller.fix(mark) { _ in } }
-        mainFree("an undo") { rig.controller.undoLastFix { _ in } }
+        mainFree("a fix all") { rig.controller.fixAll([mark]) { _ in } }
         rig.source.stall = 0
         rig.drain()
     }

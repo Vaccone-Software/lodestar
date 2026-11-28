@@ -27,6 +27,7 @@ final class ConfigFileSchemaTests: XCTestCase {
             "graph": .table([:]),
             "web": .table([
                 "fallback": .string("most-recent"),
+                "firefox-profiles": .bool(false),
                 "search-url": .string("https://search.brave.com/search?q=%s"),
                 "links": .table([:]), "routes": .table([:]),
                 "clicks": .table(["enabled": .bool(false), "browser": .string("")]),

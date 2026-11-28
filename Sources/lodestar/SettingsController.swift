@@ -2504,8 +2504,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         controller.config = config
         controller.machineState = {
             var detected: [SettingsModel.DetectedProfile] = []
-            for browser in ChromiumBrowser.allCases {
-                for name in ChromiumProfiles.displayNames(for: browser) {
+            for browser in Browser.allCases {
+                for name in BrowserProfiles.displayNames(for: browser) {
                     detected.append(SettingsModel.DetectedProfile(
                         browser: browser.rawValue, browserLabel: browser.label, name: name))
                 }

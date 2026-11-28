@@ -332,4 +332,14 @@ final class ConfigBuildTests: XCTestCase {
         XCTAssertTrue(config.selectCommitOnUnique, "the doctrine holds whatever the file said")
         XCTAssertTrue(config.guideFade)
     }
+
+    func testFirefoxProfilesIsOffUntilAskedFor() throws {
+        XCTAssertFalse(try build("{}").0.firefoxProfiles)
+        let (config, problems) = try build(#"{"web": {"firefox-profiles": true, "routes": {"docs": "firefox:Test Profile", "news": "safari:Stevens"}}}"#)
+        XCTAssertEqual(problems, [])
+        XCTAssertTrue(config.firefoxProfiles)
+        XCTAssertEqual(config.browserProfiles["firefox:test profile"]?.browser, .firefox)
+        XCTAssertEqual(config.browserProfiles["safari:stevens"]?.display, "Stevens")
+    }
 }
+

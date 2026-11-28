@@ -61,6 +61,7 @@ public struct ConfigFile: Sendable, Equatable {
     public struct Web: Sendable, Equatable {
         public var clicks = Clicks()
         public var fallback = "most-recent"
+        public var firefoxProfiles = false
         public var links: [String: Link] = [:]
         public var routes: [String: String] = [:]
         public var searchURL = "https://search.brave.com/search?q=%s"
@@ -326,6 +327,8 @@ extension ConfigFile {
     private static let webSection = section(Web.self, default: Web()) {
         Field("clicks", \.clicks, clicksSection, doc: "Links clicked in other apps.")
         Field("fallback", \.fallback, .string(), doc: "most-recent, or a profile as browser:name (brave:Work).")
+        Field("firefox-profiles", \.firefoxProfiles, .bool,
+              doc: "Read Firefox's profiles, so firefox:Name opens in them. macOS asks nothing: turn Firefox on for Lodestar in Privacy & Security, Files & Folders.")
         Field("links", \.links, .lossyDictionary(of: linkSection), doc: "Named links.")
         Field("routes", \.routes,
               .lossyDictionary(of: .string(), valueDoc: "A profile as browser:name (brave:Work)."),
@@ -607,7 +610,7 @@ extension ConfigFile {
         func graph(_ value: JSONValue) -> JSONValue {
             switch value {
             case .string(let raw):
-                for browser in ChromiumBrowser.allCases
+                for browser in Browser.allCases
                 where raw.lowercased().hasPrefix("\(browser.rawValue):") {
                     let suffix = String(raw.dropFirst(browser.rawValue.count + 1))
                     guard let found = references[suffix.lowercased()],

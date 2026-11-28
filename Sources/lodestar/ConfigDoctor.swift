@@ -33,9 +33,27 @@ enum ConfigDoctor {
         // lands under the row (and the line) that can fix it.
         for (path, key) in profileReferences(config).sorted(by: { $0.0 < $1.0 }) {
             guard let profile = config.browserProfiles[key] else { continue }
-            let known = ChromiumProfiles.knownDisplayNames(for: profile.browser)
+            let browser = profile.browser
+            // A list that could not be read says why, under the row that
+            // names the profile: otherwise every reference to it would only
+            // fail at the moment it was used.
+            switch BrowserProfiles.listing(for: browser) {
+            case .refused:
+                problems.append("\(path): macOS keeps \(browser.label)'s profiles from Lodestar. "
+                    + "Turn on \(browser.appName) under Lodestar in Privacy & Security, Files & Folders")
+                continue
+            case .off:
+                problems.append("\(path): Firefox profiles are off. Turn them on in Settings, Routing")
+                continue
+            case .notSeen:
+                problems.append("\(path): Lodestar has not seen Safari's profiles yet. Open Safari once")
+                continue
+            case .profiles, .notInstalled, .unreadable:
+                break
+            }
+            let known = BrowserProfiles.knownDisplayNames(for: browser)
             guard !known.isEmpty, !known.contains(profile.display.lowercased()) else { continue }
-            problems.append("\(path): \(profile.browser.label) has no profile "
+            problems.append("\(path): \(browser.label) has no profile "
                 + "named '\(profile.display)'")
         }
         return problems

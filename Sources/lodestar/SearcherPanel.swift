@@ -83,7 +83,7 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// Everything the graph binds for a browser — the bare app name and
     /// each profile-targeted chain — because to the card a browser row
     /// owns all of them.
-    var browserBindings: (ChromiumBrowser, String) -> [(chain: [String], target: GraphTarget)] = { _, _ in [] }
+    var browserBindings: (Browser, String) -> [(chain: [String], target: GraphTarget)] = { _, _ in [] }
     /// Why a pending chain can't be added, or nil when it's free.
     var chainProblem: ([String]) -> String? = { _ in nil }
     /// Write the edit into the config; an error string, or nil on success.
@@ -527,8 +527,8 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
 
     /// The browser a row is, when it is one — what unlocks the profile
     /// grammar on its card.
-    private func browser(for entry: AppIndex.Entry) -> ChromiumBrowser? {
-        ChromiumBrowser.allCases.first { $0.bundleID == entry.bundleID }
+    private func browser(for entry: AppIndex.Entry) -> Browser? {
+        Browser.allCases.first { $0.bundleID == entry.bundleID }
     }
 
     /// Everything the graph binds for this row. A browser row owns its
@@ -548,8 +548,8 @@ final class SearcherController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
     /// The browser's own profiles, in its own casing and order — the digit
     /// rows. Nine at most: past that the digits run out, and a machine
     /// with more profiles than that is a config file's problem.
-    private func profileChoices(for browser: ChromiumBrowser) -> [BrowserProfile] {
-        ChromiumProfiles.displayNames(for: browser).prefix(9).map {
+    private func profileChoices(for browser: Browser) -> [BrowserProfile] {
+        BrowserProfiles.displayNames(for: browser).prefix(9).map {
             BrowserProfile(browser: browser, display: $0)
         }
     }

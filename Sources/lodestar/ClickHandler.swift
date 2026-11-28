@@ -80,28 +80,36 @@ final class ClickHandler {
         case .profile(let profile, _):
             observe(url.host()?.lowercased(),
                     "\(profile.browser.rawValue):\(profile.display)")
-            // The proven path, unchanged: the same mechanism the web bar has
-            // always used. It costs a process launch that Chromium forwards
-            // and exits, which is the price of naming a profile at all.
-            if ChromiumProfiles.openURL(url.absoluteString, in: profile) {
-                // A routed link never asked to be brought forward at all:
-                // `open -na` hands the URL to the running Chromium through
-                // its own singleton and exits, and whatever activation the
-                // launch was granted dies with the process that forwarded
-                // it. The hand-off path has always asked; this one never
-                // did, so a rule that matched used to be *less* likely to
-                // put the browser in front of you than one that did not.
-                //
-                // Off this turn of the loop, exactly like the hand-off's
-                // completion: `open(_:)` runs inside the URL Apple Event,
-                // and settling touches AX. Answering the event first is
-                // what keeps a wedged browser out of the link's way.
-                let arrived = self.arrived
-                DispatchQueue.main.async { arrived(.browserProfile(profile)) }
-            } else {
-                // The profile is gone from the browser. The link still has to
-                // open, so it takes the ordinary road.
-                handOff(url)
+            // The same mechanism the web bar uses. For Chromium and Firefox
+            // it costs a process launch the browser forwards and exits,
+            // which is the price of naming a profile at all.
+            // The completion comes at once for Chromium and Firefox, and
+            // after the tab is typed into for Safari; either way on main.
+            BrowserProfiles.openURL(url.absoluteString, in: profile) { [weak self] opened in
+                guard let self else { return }
+                if opened {
+                    // A routed link never asked to be brought forward at
+                    // all: `open -na` hands the URL to the running browser
+                    // through its own singleton and exits, and whatever
+                    // activation the launch was granted dies with the
+                    // process that forwarded it. The hand-off path has
+                    // always asked; this one never did, so a rule that
+                    // matched used to be *less* likely to put the browser in
+                    // front of you than one that did not.
+                    //
+                    // Off this turn of the loop, exactly like the hand-off's
+                    // completion: `open(_:)` runs inside the URL Apple
+                    // Event, and settling touches AX. Answering the event
+                    // first is what keeps a wedged browser out of the
+                    // link's way.
+                    let arrived = self.arrived
+                    DispatchQueue.main.async { arrived(.browserProfile(profile)) }
+                } else {
+                    // The profile is gone from the browser, or the browser
+                    // would not take the page. The link still has to open,
+                    // so it takes the ordinary road.
+                    self.handOff(url)
+                }
             }
         }
     }

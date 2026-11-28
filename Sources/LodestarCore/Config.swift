@@ -101,6 +101,11 @@ public struct Config {
     /// still registered makes Lodestar a transparent pass-through, which is
     /// the off switch that works from a text file.
     public var webHandleClicks = false
+    /// Whether Lodestar reads Firefox's profiles. Off until asked for: the
+    /// read is another app's data, and macOS's answer to the first one is
+    /// a switch in Files & Folders, which no one should find there without
+    /// having asked for Firefox's profiles.
+    public var firefoxProfiles = false
     /// The browser clicked links go to when no rule diverts them: the bundle
     /// id of whatever was your default before Lodestar took over. Recorded
     /// *before* the switch, because afterwards the answer is gone.
@@ -524,6 +529,7 @@ public struct Config {
             }
         }
         config.webHandleClicks = file.web.clicks.enabled
+        config.firefoxProfiles = file.web.firefoxProfiles
         config.webClickBrowser = file.web.clicks.browser
         // Naming ourselves is the one answer that cannot be obeyed: macOS
         // hands us the link because we hold the http role, so handing it back

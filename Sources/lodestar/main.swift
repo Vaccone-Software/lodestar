@@ -206,8 +206,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launchStages.enter("browser profiles")
         // What the browsers actually have joins what the config references,
         // so pickers and most-recent resolution see every real profile.
-        loaded.registerDetected(ChromiumProfiles.detected())
+        BrowserProfiles.firefoxEnabled = loaded.firefoxProfiles
+        loaded.registerDetected(BrowserProfiles.detected())
         config = loaded
+        // A listing that changes later — a refusal lifted in Files &
+        // Folders, Safari's menu read once it runs — joins the registry
+        // without waiting for a reload.
+        BrowserProfiles.onChange = { [weak self] in
+            self?.config.registerDetected(BrowserProfiles.detected())
+        }
+        BrowserProfiles.observeActivations()
         launchStages.enter("keys")
         // Layout first, overrides second: both layers live in Keys, and
         // the config's `keys:` stays the user's last word over either.
@@ -1585,13 +1593,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 state.savedBrowserID = saved
             }
             var detected: [SettingsModel.DetectedProfile] = []
-            for browser in ChromiumBrowser.allCases {
-                for name in ChromiumProfiles.displayNames(for: browser) {
+            for browser in Browser.allCases {
+                for name in BrowserProfiles.displayNames(for: browser) {
                     detected.append(SettingsModel.DetectedProfile(
                         browser: browser.rawValue, browserLabel: browser.label, name: name))
                 }
             }
             state.detectedProfiles = detected
+            // What each installed browser's profiles came to, for the
+            // Browsers group: a refusal is the one a person can fix, and
+            // Settings is where they look.
+            state.browserAccess = Browser.allCases.compactMap { browser in
+                guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: browser.bundleID) != nil else {
+                    return nil
+                }
+                return SettingsModel.BrowserAccess(browser: browser,
+                                                   listing: BrowserProfiles.listing(for: browser))
+            }
             return state
         }
         // The boards the Keyboards page can speak for: every one attached
@@ -1854,6 +1872,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             SystemEvents.open(URL(string: privacy + "Privacy_ListenEvent")!)
         case "open-calendars":
             SystemEvents.open(URL(string: privacy + "Privacy_Calendars")!)
+        case "open-files-and-folders":
+            SystemEvents.open(URL(string: privacy + "Privacy_FilesAndFolders")!)
         case "clear-clipboard":
             clipboardController.clearHistory()
         case "delete-logbook":
@@ -2733,11 +2753,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Re-read Local State rather than re-serve the boot snapshot: a
         // reload is the one moment the world is being asked again, and the
         // doctor's ground truth below must not grade against stale caches.
-        ChromiumProfiles.invalidate()
+        BrowserProfiles.invalidate()
+        BrowserProfiles.firefoxEnabled = loaded.firefoxProfiles
         let problems = loadProblems
             + ConfigDoctor.groundTruthProblems(loaded)
             + ConfigDoctor.semanticWarnings(loaded, appIndex: appIndex)
-        loaded.registerDetected(ChromiumProfiles.detected())
+        loaded.registerDetected(BrowserProfiles.detected())
         recordGraphEpochs(old: config, new: loaded, problems: loadProblems,
                           fileProblem: snapshot?.problem != nil)
         config = loaded
@@ -3171,16 +3192,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// The registry profile of the most recently focused browser window,
-    /// by title suffix, across every browser the config declares.
+    /// across every browser the config declares: by title for Chromium and
+    /// Safari, by the profile its process holds for Firefox.
     private func mostRecentBrowserProfile() -> BrowserProfile? {
         let browsers = Set(config.browserProfiles.values.map(\.browser))
         let windows = browsers
             .flatMap { model.aliveWindows(bundleID: $0.bundleID) }
             .sorted { ($0.lastFocused ?? .distantPast, $0.id) > ($1.lastFocused ?? .distantPast, $1.id) }
         for window in windows {
+            // Cheapest first: the bundle id, before any title or lock is read.
             for profile in config.browserProfiles.values
-            where profile.browser.bundleID == window.bundleID
-                && profile.browser.windowMatches(title: window.title, profile: profile.display) {
+            where profile.browser.bundleID == window.bundleID && BrowserProfiles.matches(window, profile) {
                 return profile
             }
         }

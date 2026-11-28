@@ -83,6 +83,9 @@ final class ConfigCoverageTests: XCTestCase {
         Probe(path: ["web", "fallback"], value: .string("brave:Work")) {
             $0.webFallback == "brave:work"
         },
+        Probe(path: ["web", "firefox-profiles"], value: .bool(true)) {
+            $0.firefoxProfiles
+        },
         Probe(path: ["web", "search-url"], value: .string("https://example.com/?q=%s")) {
             $0.webSearchURL == "https://example.com/?q=%s"
         },

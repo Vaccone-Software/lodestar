@@ -161,22 +161,45 @@ final class Actions {
                                 profile: "\(profile.browser.rawValue):\(profile.display)",
                                 source: "typed", row: row)
         coachWebOpen?(host)
-        guard ChromiumProfiles.openURL(url, in: profile) else {
-            hud.flash("✕ No profile named \(profile.display) in \(profile.browser.label)")
-            return
+        // Everything after the open waits for its answer: at once for
+        // Chromium and Firefox, after the tab is typed into for Safari. An
+        // intent is armed only for an open that was taken, so a failed one
+        // never leaves twelve seconds in which a window opened by hand is
+        // claimed.
+        BrowserProfiles.openURL(url, in: profile) { [weak self] opened in
+            guard let self else { return }
+            guard opened else {
+                self.flashOpenFailed(profile)
+                return
+            }
+            if let window = BrowserProfiles.window(for: profile, in: self.model) {
+                self.place(window, beside: beside)
+                return
+            }
+            self.awaitWindow(of: profile, beside: beside)
         }
-        if let window = ChromiumProfiles.window(for: profile, in: model) {
-            place(window, beside: beside)
-            return
-        }
+    }
+
+    /// A window of the profile is on its way: say so after a moment, and
+    /// place it when it comes.
+    private func awaitWindow(of profile: BrowserProfile, beside: Bool) {
         beginOpening("\(profile.browser.label) · \(profile.display)",
                      icon: icon(forAppNamed: profile.browser.appName), seconds: 12)
         expect(seconds: 12, matches: { window in
-            window.bundleID == profile.browser.bundleID
-                && profile.browser.windowMatches(title: window.title, profile: profile.display)
+            BrowserProfiles.matches(window, profile)
         }, action: { [weak self] window in
             self?.place(window, beside: beside)
         })
+    }
+
+    /// Why a profile did not open: it is not one the browser lists, or the
+    /// browser would not take it.
+    private func flashOpenFailed(_ profile: BrowserProfile) {
+        if BrowserProfiles.locator(for: profile) == nil {
+            hud.flash("✕ No profile named \(profile.display) in \(profile.browser.label)")
+        } else {
+            hud.flash("✕ \(profile.browser.label) did not open \(profile.display)")
+        }
     }
 
     // MARK: - Clicked links
@@ -290,7 +313,7 @@ final class Actions {
     private func linkWindow(for target: GraphTarget) -> WindowModel.Window? {
         switch target {
         case .browserProfile(let profile):
-            return ChromiumProfiles.window(for: profile, in: model)
+            return BrowserProfiles.window(for: profile, in: model)
         case .app(let name):
             return bestAliveWindow(bundleID: appIndex.entry(named: name)?.bundleID,
                                    appName: name)
@@ -301,9 +324,7 @@ final class Actions {
                                matches target: GraphTarget) -> Bool {
         switch target {
         case .browserProfile(let profile):
-            return window.bundleID == profile.browser.bundleID
-                && profile.browser.windowMatches(title: window.title,
-                                                 profile: profile.display)
+            return BrowserProfiles.matches(window, profile)
         case .app(let name):
             return window.appName.lowercased() == name.lowercased()
         }
@@ -367,7 +388,7 @@ final class Actions {
     }
 
     private func summonBrowser(_ profile: BrowserProfile, beside: Bool) {
-        if let window = ChromiumProfiles.window(for: profile, in: model) {
+        if let window = BrowserProfiles.window(for: profile, in: model) {
             place(window, beside: beside)
             return
         }
@@ -381,7 +402,7 @@ final class Actions {
         }
         model.refreshWindows(bundleID: profile.browser.bundleID) { [weak self] in
             guard let self else { return }
-            if let window = ChromiumProfiles.window(for: profile, in: self.model) {
+            if let window = BrowserProfiles.window(for: profile, in: self.model) {
                 Log.info("summon", ["target": "\(profile.browser.rawValue):\(profile.display)", "found": "after-refresh"])
                 self.place(window, beside: beside)
             } else {
@@ -392,21 +413,23 @@ final class Actions {
 
     private func openBrowserWindow(_ profile: BrowserProfile, beside: Bool) {
         Log.info("summon", ["target": "\(profile.browser.rawValue):\(profile.display)", "found": "none", "opening": true])
-        // Open first, arm the intent second — the guard openWeb has always
-        // kept: a failed open with a 12-second intent standing would claim
-        // whatever matching window the user then opens by hand.
-        guard ChromiumProfiles.openWindow(profile) else {
-            hud.flash("✕ No profile named \(profile.display) in \(profile.browser.label)")
-            return
+        // Open first, arm the intent on its answer — the guard openWeb has
+        // always kept: a failed open with a 12-second intent standing would
+        // claim whatever matching window the user then opens by hand.
+        BrowserProfiles.openWindow(profile) { [weak self] opened in
+            guard let self else { return }
+            guard opened else {
+                self.flashOpenFailed(profile)
+                return
+            }
+            // Safari answers once its window is there; it may be in the
+            // model already.
+            if let window = BrowserProfiles.window(for: profile, in: self.model) {
+                self.place(window, beside: beside)
+                return
+            }
+            self.awaitWindow(of: profile, beside: beside)
         }
-        beginOpening("\(profile.browser.label) · \(profile.display)",
-                     icon: icon(forAppNamed: profile.browser.appName), seconds: 12)
-        expect(seconds: 12, matches: { window in
-            window.bundleID == profile.browser.bundleID
-                && profile.browser.windowMatches(title: window.title, profile: profile.display)
-        }, action: { [weak self] window in
-            self?.place(window, beside: beside)
-        })
     }
 
     private func launch(_ entry: AppIndex.Entry, beside: Bool) {
@@ -599,7 +622,7 @@ final class Actions {
             let icon: NSImage?
             if label.hasPrefix("→") {
                 icon = nil
-            } else if let browser = ChromiumBrowser.allCases.first(where: { label.hasPrefix("\($0.label) (") }) {
+            } else if let browser = Browser.allCases.first(where: { label.hasPrefix("\($0.label) (") }) {
                 icon = self.icon(forAppNamed: browser.appName)
             } else {
                 icon = self.icon(forAppNamed: label)

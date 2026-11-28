@@ -340,6 +340,46 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertFalse(place("Operate", config).rows.first { $0.path == "scroll.speed" }!.isDefault)
         XCTAssertFalse(place("Routing", config).rows.first { $0.path == "meetings.enabled" }!.isDefault)
     }
+    // MARK: - Browsers
+
+    /// A refusal is the one state a person can fix, so it names the switch
+    /// and opens Files & Folders; the rest only say where profiles come
+    /// from. Firefox is a switch of its own, and off reads nothing.
+    func testBrowsersGroupSaysWhatToTurnOn() {
+        var machine = SettingsModel.MachineState()
+        machine.browserAccess = [
+            .init(browser: .brave, listing: .refused),
+            .init(browser: .safari, listing: .notSeen),
+            .init(browser: .firefox, listing: .off),
+        ]
+        let rows = place("Routing", Config(), machine).rows.filter { $0.group == "Browsers" }
+        XCTAssertEqual(rows.map(\.title), ["Brave profiles", "Safari profiles", "Firefox profiles"],
+                       "the Firefox switch is there whatever Firefox came to")
+        XCTAssertEqual(rows[0].action?.id, "open-files-and-folders")
+        XCTAssertTrue((rows[0].detail ?? "").contains("Brave Browser"), rows[0].detail ?? "")
+        XCTAssertNil(rows[1].action)
+        XCTAssertEqual(rows[2].path, "web.firefox-profiles")
+        XCTAssertTrue(place("Routing", Config(), machine).attention, "a refusal draws the eye to Routing")
+    }
+
+    func testFirefoxOnAndRefusedOffersTheSwitch() {
+        var config = Config()
+        config.firefoxProfiles = true
+        var machine = SettingsModel.MachineState()
+        machine.browserAccess = [.init(browser: .firefox, listing: .refused)]
+        let rows = place("Routing", config, machine).rows.filter { $0.group == "Browsers" }
+        XCTAssertEqual(rows.map(\.title), ["Firefox profiles", "Firefox access"])
+        XCTAssertEqual(rows[1].action?.id, "open-files-and-folders")
+    }
+
+    func testReadBrowsersNeedNothing() {
+        var machine = SettingsModel.MachineState()
+        machine.browserAccess = [.init(browser: .brave, listing: .profiles([ListedProfile(name: "Work", locator: "Default")]))]
+        let routing = place("Routing", Config(), machine)
+        let row = routing.rows.first { $0.title == "Brave profiles" }
+        XCTAssertNil(row?.action)
+        XCTAssertFalse(routing.attention)
+    }
 }
 
 /// The covenant: the window and the file cannot drift, in either
@@ -415,4 +455,5 @@ final class SettingsCoverageTests: XCTestCase {
         XCTAssertFalse(paths.contains("select.commit-on-unique"))
         XCTAssertFalse(paths.contains("guide.fade"))
     }
+
 }

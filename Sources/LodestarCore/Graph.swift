@@ -145,7 +145,7 @@ public final class GraphNode {
         if let profile = BrowserProfile.parse(reference: trimmed) {
             return .browserProfile(profile)
         }
-        for browser in ChromiumBrowser.allCases
+        for browser in Browser.allCases
         where trimmed.lowercased().hasPrefix("\(browser.rawValue):") {
             // The prefix matched but the name half is empty.
             problems.append("graph '\(path)' names \(browser.label) but no profile — write \(browser.rawValue):Name")
@@ -217,7 +217,7 @@ public final class GraphNode {
     /// that are not the browser's own — a hand-written "b": "brave"
     /// summons the browser through the app index's fuzzy resolve, and a
     /// card that cannot see it would offer the duplicate it refuses.
-    public func chains(toBrowser browser: ChromiumBrowser, appNamed name: String,
+    public func chains(toBrowser browser: Browser, appNamed name: String,
                        aliasResolves: (String) -> Bool = { _ in false })
         -> [(chain: [String], target: GraphTarget)] {
         let lowered = name.lowercased()

@@ -259,6 +259,8 @@ public enum SettingsModel {
         public var savedBrowserID: String?
         /// Every profile the installed browsers actually have.
         public var detectedProfiles: [DetectedProfile]
+        /// What reading each installed browser's profiles came to.
+        public var browserAccess: [BrowserAccess] = []
         /// Every audio input the machine has right now, by name, and
         /// which of them the system calls its default.
         public var inputDevices: [String] = []
@@ -323,6 +325,75 @@ public enum SettingsModel {
             self.browser = browser
             self.browserLabel = browserLabel
             self.name = name
+        }
+    }
+
+    /// One installed browser's profile list, as it was last read.
+    public struct BrowserAccess: Equatable {
+        public let browser: Browser
+        public let listing: ProfileListing
+
+        public init(browser: Browser, listing: ProfileListing) {
+            self.browser = browser
+            self.listing = listing
+        }
+    }
+
+    /// The Browsers group: where each installed browser's profiles come
+    /// from, and the one thing to do when macOS keeps them from Lodestar.
+    /// macOS never asks about another app's data: the first refused read
+    /// puts a switch in Files & Folders, off, and the row says which.
+    static func browserRows(config: Config, access: [BrowserAccess]) -> [Row] {
+        let filesAndFolders = Action(id: "open-files-and-folders", label: "Open System Settings")
+        func allow(_ browser: Browser) -> String {
+            "macOS keeps them from Lodestar. Turn on \(browser.appName) under Lodestar in Privacy & Security, Files & Folders"
+        }
+        var rows: [Row] = []
+        for entry in access {
+            let browser = entry.browser
+            let title = "\(browser.label) profiles"
+            switch browser.family {
+            case .chromium:
+                let row = Row(title: title, control: .readout(readout(entry.listing), sub: nil),
+                              detail: entry.listing == .refused ? allow(browser) : "Read from \(browser.label)",
+                              group: "Browsers")
+                rows.append(entry.listing == .refused ? row.doing(filesAndFolders) : row)
+            case .safari:
+                rows.append(Row(title: title, control: .readout(readout(entry.listing), sub: nil),
+                                detail: entry.listing == .notSeen
+                                    ? "Read from Safari's File menu. Open Safari once and they appear"
+                                    : "Read from Safari's File menu while it runs",
+                                group: "Browsers"))
+            case .firefox:
+                // The switch is the row below, on every Mac; this is only
+                // what reading came to once it is on.
+                if config.firefoxProfiles, entry.listing != .off {
+                    let row = Row(title: "Firefox access", control: .readout(readout(entry.listing), sub: nil),
+                                  detail: entry.listing == .refused ? allow(browser) : "Read from Firefox",
+                                  group: "Browsers")
+                    rows.append(entry.listing == .refused ? row.doing(filesAndFolders) : row)
+                }
+            }
+        }
+        // The one config switch in the group: off reads nothing of Firefox's.
+        let firefox = Row(title: "Firefox profiles", path: "web.firefox-profiles",
+                          control: .toggle(config.firefoxProfiles),
+                          detail: "Read Firefox's profiles, so links and letters can open in them",
+                          isDefault: !config.firefoxProfiles, group: "Browsers")
+        let accessAt = rows.firstIndex { $0.title == "Firefox access" } ?? rows.endIndex
+        rows.insert(firefox, at: accessAt)
+        return rows
+    }
+
+    /// A listing in a few words, for a readout.
+    static func readout(_ listing: ProfileListing) -> String {
+        switch listing {
+        case .profiles(let listed): return listed.count == 1 ? "1 profile" : "\(listed.count) profiles"
+        case .refused: return "Not allowed"
+        case .notSeen: return "Not read yet"
+        case .notInstalled: return "None found"
+        case .off: return "Off"
+        case .unreadable: return "Unreadable"
         }
     }
 
@@ -644,10 +715,11 @@ public enum SettingsModel {
             permission("Calendar access", state: machine.calendars,
                        detail: "Reading your next meeting. Asked when meetings are turned on",
                        pane: "calendars", group: "Meetings"),
-        ], picture: "place-web",
+        ] + browserRows(config: config, access: machine.browserAccess), picture: "place-web",
            sentence: "Every link, typed, clicked or in a meeting, goes to the browser and profile it belongs to",
            status: "Links and browsers",
-           attention: config.meetingsEnabled && !calendarsGranted && machine.calendars != "unknown"))
+           attention: (config.meetingsEnabled && !calendarsGranted && machine.calendars != "unknown")
+               || machine.browserAccess.contains { $0.listing == .refused }))
 
         // 7 · Input
         // The facts about you are sealed with the health record, so they

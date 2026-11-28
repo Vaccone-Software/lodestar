@@ -646,7 +646,7 @@ public enum SettingsModel {
                        pane: "calendars", group: "Meetings"),
         ], picture: "place-web",
            sentence: "Every link, typed, clicked or in a meeting, goes to the browser and profile it belongs to",
-           status: "Links, browsers and meetings",
+           status: "Links and browsers",
            attention: config.meetingsEnabled && !calendarsGranted && machine.calendars != "unknown"))
 
         // 7 · Input
@@ -686,7 +686,7 @@ public enum SettingsModel {
                        pane: "input-monitoring", group: "Mice"),
         ] + wheelRows(config: config, machine: machine), picture: "place-keys",
            sentence: "The key every gesture starts from, and the keyboards and mice you use",
-           status: "Lode, keyboards and mice"))
+           status: "Keyboards and mice"))
 
         // 8 · Wellbeing: the care Lodestar takes of the body (the ears,
         // the walk), the coach, and the two records they read. The coach
@@ -767,7 +767,7 @@ public enum SettingsModel {
         }
         sections.append(Section(name: "Wellbeing", rows: observationRows, picture: "place-observations",
            sentence: "Lodestar looks after your hands, ears and habits, and everything it notices stays on this Mac",
-           status: "Care, coach and records",
+           status: "Breaks and hearing",
            note: "The coach reads the logbook. Health is its own record, kept whatever the logbook is set to"))
 
         return sections

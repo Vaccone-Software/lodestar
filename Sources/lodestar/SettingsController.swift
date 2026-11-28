@@ -194,12 +194,19 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private static let pageCard = NSSize(width: leftColumn, height: 176)
     private static let pagePicture = NSSize(width: 192, height: 144)
     private static let placePicture = NSSize(width: 120, height: 90)
-    private static let placeTile = NSSize(width: 224, height: 136)
-    /// The ring the nine places stand on, around the mark.
-    /// 358 wide since 0.57's nine places: at 40° apart the side places sit
-    /// 10° off the horizontal, and a ring any wider pushed their tiles past
-    /// the field's edges.
-    private static let ring = NSSize(width: 358, height: 228)
+    /// Every place is the same tile, and its slab when the pointer is on it is
+    /// the same size for all nine: as wide as the longest line under a name
+    /// and its margins, so no place is a bigger target than another.
+    private static let placeTile = NSSize(width: 180, height: 136)
+    /// How far a place's slab reaches past its tile, above and below.
+    private static let placeSlabReach: CGFloat = Grid.tight * 2
+    /// The ring the nine places stand on, around the mark. The closest
+    /// neighbours are the pairs either side of the horizontal (Write and
+    /// Switch, Input and Wellbeing), ry·(sin 50° − sin 10°) apart: at 242 that
+    /// is 143, room for a place's slab without touching the line above it.
+    /// Any taller and the top and bottom places leave the field; the tile's
+    /// width is what lets it be 370 wide.
+    private static let ring = NSSize(width: 370, height: 242)
     /// The most a readout's value takes before it wraps.
     private static let readoutWidth: CGFloat = 224
 
@@ -1260,9 +1267,26 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     }
 
     private final class HandStack: NSStackView {
+        /// Told when the pointer comes onto the stack and leaves it.
+        var onHover: ((Bool) -> Void)?
+        private var tracking: NSTrackingArea?
+
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: .pointingHand)
         }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let tracking { removeTrackingArea(tracking) }
+            guard onHover != nil else { return }
+            let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                      owner: self, userInfo: nil)
+            addTrackingArea(area)
+            tracking = area
+        }
+
+        override func mouseEntered(with event: NSEvent) { onHover?(true) }
+        override func mouseExited(with event: NSEvent) { onHover?(false) }
     }
 
     /// A search result: a row that can be clicked.
@@ -1280,8 +1304,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     private func buildOverview() -> NSView {
         let field = FlippedView()
         let width = Self.contentWidth, height = Self.contentHeight
-        // Sized so neighbours never touch: with nine places, down the sides
-        // they sit 2·ry·sin 20° apart, more than a place stands tall (136).
+        // Sized so neighbours never touch, even with one of them raised (see `ring`).
         let center = NSPoint(x: width / 2, y: height / 2 - Grid.part)
         let rx = Self.ring.width, ry = Self.ring.height
 
@@ -1300,8 +1323,10 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
             let point = NSPoint(x: center.x + rx * cos(angle), y: center.y + ry * sin(angle))
             let tile = buildPlaceTile(section, index: index)
             // The picture sits on the ring; its name and line hang below.
+            // As tall as what it holds, so the line under the name keeps its
+            // descenders (a g, a y) inside the tile rather than cut at its foot.
             tile.frame = NSRect(x: point.x - Self.placeTile.width / 2, y: point.y - Self.placePicture.height / 2,
-                                width: Self.placeTile.width, height: Self.placeTile.height)
+                                width: Self.placeTile.width, height: max(Self.placeTile.height, tile.fittingSize.height.rounded(.up)))
             field.addSubview(tile)
             placeViews.append(tile)
         }
@@ -1350,7 +1375,39 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         tile.setAccessibilityRole(.button)
         tile.setAccessibilityLabel("\(section.name), \(section.status)\(section.attention ? ", needs attention" : "")")
         tile.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(placeClicked(_:))))
+        // The place the pointer is on is the slab, the window's one way of
+        // saying chosen, and is drawn in the other look on it.
+        tile.onHover = { [weak self, weak tile] inside in
+            guard let self, let tile else { return }
+            self.hoveredPlace?.removeFromSuperview()
+            self.hoveredPlace = nil
+            guard inside else { return }
+            let step = self.raise(tile, sides: 0, ends: Self.placeSlabReach)
+            self.hoveredPlace = step
+            Self.rise(step, in: tile)
+        }
         return tile
+    }
+
+    /// The place slab rises into place (design/05-motion.md, allowed to
+    /// move): it is already where it ends, and the motion is a picture of
+    /// getting there, a little smaller and lower to full size on the one
+    /// curve. Nothing fades; it leaves at once; under Reduce Motion it is
+    /// simply there.
+    private static func rise(_ step: NSView, in tile: NSView) {
+        guard !Motion.reduced else { return }
+        tile.layoutSubtreeIfNeeded()
+        guard let layer = step.layer, step.bounds.width > 0 else { return }
+        let c = CGPoint(x: step.bounds.midX, y: step.bounds.midY)
+        var from = CATransform3DMakeTranslation(c.x, c.y - Motion.placeRiseDrop, 0)
+        from = CATransform3DScale(from, Motion.placeRiseScale, Motion.placeRiseScale, 1)
+        from = CATransform3DTranslate(from, -c.x, -c.y, 0)
+        let rise = CABasicAnimation(keyPath: "transform")
+        rise.fromValue = NSValue(caTransform3D: from)
+        rise.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        rise.duration = Motion.placeRise
+        rise.timingFunction = Motion.curve
+        layer.add(rise, forKey: "rise")
     }
 
     // MARK: - A place
@@ -1499,7 +1556,7 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
         column.setCustomSpacing(Grid.section, after: backRow)
 
         // The place's picture stands on the column as it does on the
-        // overview: a cameo with its own shadow, never one set in a box.
+        // overview: slabs on their own sides, never set in a box.
         let card = NSView()
         card.translatesAutoresizingMaskIntoConstraints = false
         card.widthAnchor.constraint(equalToConstant: Self.leftColumn).isActive = true
@@ -2286,6 +2343,8 @@ final class SettingsController: NSObject, NSTextFieldDelegate {
     // MARK: - The landing
 
     private weak var landing: NSView?
+    /// The slab under the place the pointer is on, on the overview.
+    private weak var hoveredPlace: NSView?
 
     /// The row a search landed on is the slab, the way a bar's chosen row
     /// is: there at once and gone at once. It is a chosen row, not an alarm,

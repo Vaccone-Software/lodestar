@@ -43,11 +43,11 @@ extension Ceramic {
     }
 }
 
-/// The clay pictures, one per look. They were rendered pale for night,
-/// and pale clay on clay's pale page loses its edges, so each has a twin
-/// rendered in sand, a warmer, deeper clay, for the light look
-/// (tools/doors, `CLAY=sand`). One image that draws whichever twin the look
-/// in force calls for, so a picture already on screen changes with the look.
+/// The pictures, one per look: night is drawn, not tinted (light lines on a
+/// dark ground carry light), so each has a twin drawn for the light look,
+/// named `-sand` after the clay it replaced (tools/pictures). One image that
+/// draws whichever twin the look in force calls for, so a picture already on
+/// screen changes with the look, a slab's opposite look included.
 enum TonedPicture {
 
     static func make(night: NSImage, day: NSImage?) -> NSImage {
@@ -75,10 +75,9 @@ final class AppearanceRoot: NSView {
     }
 }
 
-/// A picture on the page: a cameo that carries its own shadow, cast by the
-/// same light from above as everything else, so the view adds none. Each
-/// look's cameo is the other look's clay, so on a slab it takes the slab's
-/// look like everything else there, and stays the slab's opposite.
+/// A picture on the page: slabs that stand on their own drawn sides, so the
+/// view adds no shadow. On a slab it takes the slab's look like everything
+/// else there.
 final class PictureView: NSImageView {}
 
 /// A flat surface whose fill and edge follow the appearance: a group, a

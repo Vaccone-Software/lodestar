@@ -1,5 +1,7 @@
 # Door pictures: style guide and recipe
 
+> **No longer the app's pictures (27 November 2026).** The app's door and place pictures are drawn by `tools/pictures` (`scripts/make-pictures.sh`). This folder now makes only the website's clay loops, and retires once the site moves to the new pictures.
+
 How Lodestar's four door pictures were made, taken from the script that made
 them. That script is `scene3.py` in this folder, recovered from session
 d6f88618 (2026-09-26). The outputs:
